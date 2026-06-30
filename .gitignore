@@ -1,1 +1,6 @@
 .claude/settings.local.json
+backend/.venv/
+backend/.dispatcher-workspaces/
+backend/.env
+__pycache__/
+.pytest_cache/
