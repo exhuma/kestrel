@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+import SessionPanel from './components/SessionPanel.vue'
 </script>
 
 <template>
-  <HelloWorld />
+  <v-app>
+    <v-app-bar color="primary" title="agent-dispatcher" />
+    <v-main>
+      <SessionPanel />
+    </v-main>
+  </v-app>
 </template>
