@@ -8,6 +8,8 @@ const sessions = ref<SessionSummary[]>([])
 const events = ref<SessionEvent[]>([])
 const loading = ref(false)
 
+let source: EventSource | null = null
+
 export function useSessions() {
   async function refresh(): Promise<void> {
     loading.value = true
@@ -38,8 +40,9 @@ export function useSessions() {
 
   function watchEvents(id: string): void {
     events.value = []
-    const src = new EventSource(`${BASE}/api/sessions/${id}/events`)
-    src.onmessage = (e) => {
+    if (source) source.close()
+    source = new EventSource(`${BASE}/api/sessions/${id}/events`)
+    source.onmessage = (e) => {
       events.value.push(JSON.parse(e.data) as SessionEvent)
     }
   }
