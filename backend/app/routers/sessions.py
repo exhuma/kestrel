@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.models import ParsedEvent
 from app.services.runner import SessionRunner, get_runner
 from app.storage.registry import SessionRegistry, get_registry
 
@@ -108,12 +109,12 @@ async def stream_events(
         record = registry.get(session_id)
         if record is not None:
             for ev in list(record.events):
-                yield _sse(ev.raw)
+                yield _sse(ev)
         q = registry.subscribe(session_id)
         try:
             while True:
                 ev = await q.get()
-                yield _sse(ev.raw)
+                yield _sse(ev)
         finally:
             registry.unsubscribe(session_id, q)
 
@@ -122,6 +123,19 @@ async def stream_events(
     )
 
 
-def _sse(payload: dict[str, object]) -> bytes:
-    """Encode a payload as one SSE data frame."""
+def _sse(event: ParsedEvent) -> bytes:
+    """
+    Encode a parsed event as one SSE data frame.
+
+    The wire shape matches the frontend ``SessionEvent`` contract:
+    ``{type, session_id, raw}``.
+
+    :param event: The parsed event to serialise.
+    :returns: A UTF-8 ``data: <json>\\n\\n`` SSE frame.
+    """
+    payload = {
+        "type": event.type,
+        "session_id": event.session_id,
+        "raw": event.raw,
+    }
     return ("data: " + json.dumps(payload) + "\n\n").encode("utf-8")

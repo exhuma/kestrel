@@ -1,6 +1,8 @@
 """Tests for the sessions router (runner mocked)."""
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -58,3 +60,19 @@ async def test_list_sessions() -> None:
     assert resp.status_code == 200
     ids = [s["session_id"] for s in resp.json()]
     assert "s1" in ids
+
+
+def test_sse_frame_matches_session_event_shape() -> None:
+    """Ensure SSE frames carry type, session_id and raw."""
+    from app.routers.sessions import _sse
+
+    frame = _sse(ParsedEvent("system", "s1", {"subtype": "init"}))
+    text = frame.decode("utf-8")
+    assert text.startswith("data: ")
+    assert text.endswith("\n\n")
+    payload = json.loads(text[len("data: ") :].strip())
+    assert payload == {
+        "type": "system",
+        "session_id": "s1",
+        "raw": {"subtype": "init"},
+    }

@@ -9,9 +9,11 @@ def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
     app = FastAPI(title="agent-dispatcher")
 
+    # Personal single-user dev tool: allow the SPA from any local
+    # port (Vite may pick 5173, 5174, ... depending on what is free).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
+        allow_origin_regex=r"http://localhost:\d+",
         allow_methods=["*"],
         allow_headers=["*"],
     )

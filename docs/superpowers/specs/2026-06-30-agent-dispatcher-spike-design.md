@@ -102,3 +102,54 @@ happy-path only.
 - [ ] Capture its `session_id`.
 - [ ] Resume that exact session and observe it acting on prior context.
 - [ ] Confirmed running on the Max subscription (no API key set).
+
+## Spike results (2026-06-30)
+
+**Verdict: feasibility confirmed.** All success criteria met via a live
+run against the real `claude` CLI on the host (driven through the Vue UI
+in a real browser).
+
+### Success criteria
+- [x] Start a session and see events stream into the browser — the live
+  log rendered all 14 events of the first run (`hook_started`, `init`,
+  `thinking_tokens`, `assistant`, `user`/tool_result, `result:success`),
+  0 console errors.
+- [x] Capture the `session_id` — surfaced from the first stream event;
+  session shown in the UI list (`73ce55fc-… · idle`).
+- [x] Resume that exact session — same `session_id`, event count grew
+  14 -> 23, still a single session; `poem.txt` was revised in place from
+  a sea haiku to a mountains haiku, proving cross-process continuity with
+  prior context.
+- [x] Subscription billing — `apiKeySource: "none"`,
+  `overageStatus: "rejected"` (`org_level_disabled`): ran on the Max
+  subscription with API overage disabled (cannot silently fall back to
+  token billing). No `ANTHROPIC_API_KEY` set.
+
+### Resolved unknowns
+- **stream-json shape**: `session_id` is present from the very first
+  event; events carry top-level `type` (`system`/`assistant`/`user`/
+  `result`/`rate_limit_event`) with `system` events sub-typed
+  (`hook_started`, `init`, `thinking_tokens`, ...). Run ends with a
+  single `type:"result"` event. The parser's tolerant "type + optional
+  session_id + raw" model handled every variant.
+- **Permission mode**: `--permission-mode acceptEdits` ran fully
+  non-interactively (Write/Edit auto-accepted), 0 `permission_denials`,
+  in a throwaway per-session workdir.
+- **Cross-process resume**: confirmed working given a stable per-session
+  cwd (`--resume <id>` in the same directory).
+
+### Bugs found by the e2e (fixed during verification)
+1. **SSE/​frontend contract mismatch** — the events endpoint sent the
+   bare `ev.raw` dict, but the frontend `SessionEvent`/template expected
+   `{type, session_id, raw}`, so `JSON.stringify(e.raw)` was `undefined`
+   and threw on every event. Fixed `_sse` to emit the full shape; added
+   a regression test. (Each side passed its own task review; only the
+   cross-file integration surfaced it.)
+2. **CORS** — origin was hard-pinned to `localhost:5173`; relaxed to any
+   `localhost:<port>` (5173 was occupied by another local app).
+
+### Known limitations (deferred, see ledger)
+- Blocking start/resume: events appear after the run completes (then SSE
+  replays), not token-by-token. True incremental streaming needs an
+  `on_id` early-return upgrade (also closes the stream_events
+  snapshot-before-subscribe gap).
