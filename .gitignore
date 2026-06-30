@@ -4,3 +4,5 @@ backend/.dispatcher-workspaces/
 backend/.env
 __pycache__/
 .pytest_cache/
+frontend/node_modules/
+frontend/dist/
