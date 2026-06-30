@@ -99,9 +99,14 @@ class SessionRunner:
                 pass
 
         stderr_task = asyncio.create_task(_drain_stderr())
-        sid = await self.consume(_stdout(), cwd, record_id)
-        await proc.wait()
-        await stderr_task
+        try:
+            sid = await self.consume(_stdout(), cwd, record_id)
+            await proc.wait()
+            await stderr_task
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+            stderr_task.cancel()
         if sid is None:
             raise RuntimeError("claude produced no session id")
         return sid
