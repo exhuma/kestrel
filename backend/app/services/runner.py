@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from typing import AsyncIterator
 
 from fastapi import Depends
@@ -24,7 +25,14 @@ class SessionRunner:
     def build_argv(
         self, prompt: str, resume_id: str | None = None
     ) -> list[str]:
-        """Build the claude CLI argument vector."""
+        """
+        Build the claude CLI argument vector.
+
+        :param prompt: The prompt text to pass to claude.
+        :param resume_id: Session id to resume, or None to start
+            a new session.
+        :returns: The argument vector to pass to the subprocess.
+        """
         argv = [
             self.settings.claude_bin,
             "-p",
@@ -85,21 +93,39 @@ class SessionRunner:
             async for raw in proc.stdout:
                 yield raw.decode("utf-8", "replace")
 
+        async def _drain_stderr() -> None:
+            assert proc.stderr is not None
+            async for _ in proc.stderr:
+                pass
+
+        stderr_task = asyncio.create_task(_drain_stderr())
         sid = await self.consume(_stdout(), cwd, record_id)
         await proc.wait()
+        await stderr_task
         if sid is None:
             raise RuntimeError("claude produced no session id")
         return sid
 
     async def start(self, prompt: str) -> str:
-        """Start a new session and return its session id."""
+        """
+        Start a new session and return its session id.
+
+        :param prompt: The prompt text to start the session with.
+        :returns: The resolved session id.
+        """
         base = os.path.join(self.settings.workspace_root, "session")
-        cwd = base + "-" + str(abs(hash(prompt)) % 10_000_000)
+        cwd = base + "-" + uuid.uuid4().hex[:8]
         argv = self.build_argv(prompt)
         return await self._spawn(argv, cwd, record_id=None)
 
     async def resume(self, session_id: str, prompt: str) -> str:
-        """Resume an existing session with new input."""
+        """
+        Resume an existing session with new input.
+
+        :param session_id: Id of the session to resume.
+        :param prompt: The prompt text to resume the session with.
+        :returns: The resolved session id.
+        """
         record = self.registry.get(session_id)
         if record is None:
             raise KeyError(session_id)
@@ -111,5 +137,11 @@ def get_runner(
     settings: Settings = Depends(get_settings),
     registry: SessionRegistry = Depends(get_registry),
 ) -> SessionRunner:
-    """FastAPI dependency providing a SessionRunner."""
+    """
+    Provide a SessionRunner as a FastAPI dependency.
+
+    :param settings: Application settings, injected.
+    :param registry: Session registry, injected.
+    :returns: A SessionRunner instance.
+    """
     return SessionRunner(settings, registry)
