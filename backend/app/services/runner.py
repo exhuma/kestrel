@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from fastapi import Depends
 
@@ -12,6 +12,12 @@ from app.config import Settings, get_settings
 from app.models import parse_event
 from app.services.exceptions import SessionNotFoundError, SessionStartError
 from app.storage.registry import SessionRegistry, get_registry
+
+# Strong references to in-flight streaming tasks. A SessionRunner is
+# created per request, so the task cannot live on the instance; the
+# event loop keeps only weak references, so we hold them here for the
+# process lifetime and drop each when it finishes.
+_TASKS: set[asyncio.Task[None]] = set()
 
 
 class SessionRunner:
@@ -53,17 +59,27 @@ class SessionRunner:
         lines: AsyncIterator[str],
         cwd: str,
         record_id: str | None = None,
+        on_session_id: Callable[[str], None] | None = None,
     ) -> str | None:
         """
         Consume a line stream, updating the registry.
+
+        Events are appended as they arrive, so subscribers see them
+        live. ``on_session_id`` fires once, the moment the session id
+        is first known (immediately for a resume, or on the first event
+        carrying an id for a fresh start).
 
         :param lines: Async iterator of raw JSONL lines.
         :param cwd: Working directory the session runs in.
         :param record_id: Existing record id (resume), or None to
             create a record when the first session id appears.
+        :param on_session_id: Optional callback invoked with the id the
+            first time it becomes known.
         :returns: The resolved session id, or None if never seen.
         """
         session_id = record_id
+        if session_id is not None and on_session_id is not None:
+            on_session_id(session_id)
         async for line in lines:
             event = parse_event(line)
             if event is None:
@@ -71,16 +87,24 @@ class SessionRunner:
             if session_id is None and event.session_id is not None:
                 session_id = event.session_id
                 self.registry.create(session_id, cwd)
+                if on_session_id is not None:
+                    on_session_id(session_id)
             if session_id is not None:
                 self.registry.append_event(session_id, event)
                 if event.type == "result":
                     self.registry.set_status(session_id, "idle")
         return session_id
 
-    async def _spawn(
+    async def _launch(
         self, argv: list[str], cwd: str, record_id: str | None
     ) -> str:
-        """Spawn the subprocess and drain its stdout via consume."""
+        """
+        Spawn the subprocess and stream it in the background.
+
+        Returns as soon as the session id is known; consuming the rest
+        of stdout continues in a detached task so events keep flowing to
+        subscribers after the caller's request has returned.
+        """
         os.makedirs(cwd, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -88,6 +112,12 @@ class SessionRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        loop = asyncio.get_running_loop()
+        sid_future: asyncio.Future[str] = loop.create_future()
+
+        def _resolve(sid: str) -> None:
+            if not sid_future.done():
+                sid_future.set_result(sid)
 
         async def _stdout() -> AsyncIterator[str]:
             assert proc.stdout is not None
@@ -99,22 +129,41 @@ class SessionRunner:
             async for _ in proc.stderr:
                 pass
 
-        stderr_task = asyncio.create_task(_drain_stderr())
-        try:
-            sid = await self.consume(_stdout(), cwd, record_id)
-            await proc.wait()
-            await stderr_task
-        finally:
-            if proc.returncode is None:
-                proc.kill()
-            stderr_task.cancel()
-        if sid is None:
-            raise SessionStartError("claude produced no session id")
-        return sid
+        async def _run() -> None:
+            stderr_task = asyncio.create_task(_drain_stderr())
+            try:
+                sid = await self.consume(
+                    _stdout(), cwd, record_id, on_session_id=_resolve
+                )
+                await proc.wait()
+                await stderr_task
+                if sid is None and not sid_future.done():
+                    sid_future.set_exception(
+                        SessionStartError("claude produced no session id")
+                    )
+            except Exception as exc:  # surface to the awaiting caller
+                if not sid_future.done():
+                    sid_future.set_exception(exc)
+            finally:
+                if proc.returncode is None:
+                    proc.kill()
+                stderr_task.cancel()
+                if not sid_future.done():
+                    sid_future.set_exception(
+                        SessionStartError("session ended without a session id")
+                    )
+
+        task = asyncio.create_task(_run())
+        _TASKS.add(task)
+        task.add_done_callback(_TASKS.discard)
+        return await sid_future
 
     async def start(self, prompt: str) -> str:
         """
         Start a new session and return its session id.
+
+        Returns once the id is known; the run streams on in the
+        background.
 
         :param prompt: The prompt text to start the session with.
         :returns: The resolved session id.
@@ -122,11 +171,14 @@ class SessionRunner:
         base = os.path.join(self.settings.workspace_root, "session")
         cwd = base + "-" + uuid.uuid4().hex[:8]
         argv = self.build_argv(prompt)
-        return await self._spawn(argv, cwd, record_id=None)
+        return await self._launch(argv, cwd, record_id=None)
 
     async def resume(self, session_id: str, prompt: str) -> str:
         """
         Resume an existing session with new input.
+
+        Returns immediately (the id is already known); the run streams
+        on in the background.
 
         :param session_id: Id of the session to resume.
         :param prompt: The prompt text to resume the session with.
@@ -137,7 +189,7 @@ class SessionRunner:
         if record is None:
             raise SessionNotFoundError(session_id)
         argv = self.build_argv(prompt, resume_id=session_id)
-        return await self._spawn(argv, record.cwd, record_id=session_id)
+        return await self._launch(argv, record.cwd, record_id=session_id)
 
 
 def get_runner(

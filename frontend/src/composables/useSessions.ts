@@ -63,7 +63,11 @@ export function useSessions() {
     if (source) source.close()
     source = new EventSource(`${API_BASE}/api/sessions/${id}/events`)
     source.onmessage = (e) => {
-      events.value.push(JSON.parse(e.data) as SessionEvent)
+      const event = JSON.parse(e.data) as SessionEvent
+      events.value.push(event)
+      // A result event ends a run — refresh so the session's status
+      // flips running -> idle in the list without a manual reload.
+      if (event.type === 'result') void refresh()
     }
   }
 
