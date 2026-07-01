@@ -67,6 +67,17 @@ def test_build_argv_resume() -> None:
     assert argv[argv.index("--resume") + 1] == "s9"
 
 
+def test_build_argv_appends_model() -> None:
+    """Ensure build_argv adds --model when one is given."""
+    argv = _runner().build_argv("hi", model="sonnet")
+    assert argv[argv.index("--model") + 1] == "sonnet"
+
+
+def test_build_argv_omits_model_by_default() -> None:
+    """Ensure build_argv omits --model when not given."""
+    assert "--model" not in _runner().build_argv("hi")
+
+
 async def _lines(items: list[str]) -> AsyncIterator[str]:
     for item in items:
         yield item

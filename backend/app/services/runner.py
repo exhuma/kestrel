@@ -49,6 +49,7 @@ class SessionRunner:
         prompt: str,
         resume_id: str | None = None,
         permission_mode: str | None = None,
+        model: str | None = None,
     ) -> list[str]:
         """
         Build the claude CLI argument vector.
@@ -57,6 +58,8 @@ class SessionRunner:
         :param resume_id: Session id to resume, or None to start
             a new session.
         :param permission_mode: Overrides the settings default when given.
+        :param model: Model alias for ``--model``, or None to
+            use the CLI's default.
         :returns: The argument vector to pass to the subprocess.
         """
         argv = [
@@ -69,6 +72,8 @@ class SessionRunner:
             "--permission-mode",
             permission_mode or self.settings.permission_mode,
         ]
+        if model is not None:
+            argv += ["--model", model]
         if resume_id is not None:
             argv += ["--resume", resume_id]
         return argv

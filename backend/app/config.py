@@ -7,18 +7,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime configuration for the dispatcher backend."""
+    """Runtime configuration for the kestrel backend."""
 
     model_config = SettingsConfigDict(
-        env_prefix="DISPATCHER_", env_file=".env"
+        env_prefix="KESTREL_", env_file=".env"
     )
 
     claude_bin: str = "claude"
-    workspace_root: str = "./.dispatcher-workspaces"
+    workspace_root: str = "./.kestrel-workspaces"
     permission_mode: str = "acceptEdits"
     github_token: str = ""
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
+    database_url: str = "sqlite:///./kestrel.db"
+    model_overrides: dict[str, str] = {}
 
 
 @lru_cache

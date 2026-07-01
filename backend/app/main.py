@@ -1,4 +1,4 @@
-"""FastAPI application factory for the agent dispatcher."""
+"""FastAPI application factory for kestrel."""
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
@@ -15,7 +15,7 @@ from app.services.exceptions import (
 
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
-    app = FastAPI(title="agent-dispatcher")
+    app = FastAPI(title="kestrel")
 
     @app.exception_handler(SessionNotFoundError)
     async def _session_not_found(

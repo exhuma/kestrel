@@ -17,8 +17,8 @@ const view = ref<'sessions' | 'workflows'>('sessions')
   <div class="shell">
     <header class="topbar">
       <div class="brand">
-        <img src="/logo.svg" alt="agent-dispatcher logo" height="40" class="ms-2" />
-        <span class="brand__name">agent<span class="brand__dot">·</span>dispatcher</span>
+        <img src="/logo.svg" alt="kestrel logo" height="40" class="ms-2" />
+        <span class="brand__name">kestrel</span>
         <span class="brand__tag mono">mission control</span>
       </div>
       <nav class="viewnav">

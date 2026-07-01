@@ -5,14 +5,20 @@ import asyncio
 from functools import lru_cache
 
 from app.models import ParsedEvent, SessionRecord
+from app.persistence.store import SessionStore, get_store
 
 
 class SessionRegistry:
     """Stores session records and broadcasts events to subscribers."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, store: SessionStore | None = None
+    ) -> None:
         self._records: dict[str, SessionRecord] = {}
-        self._subs: dict[str, list[asyncio.Queue[ParsedEvent]]] = {}
+        self._subs: dict[
+            str, list[asyncio.Queue[ParsedEvent]]
+        ] = {}
+        self._store = store
 
     def create(self, session_id: str, cwd: str) -> SessionRecord:
         """
@@ -25,6 +31,8 @@ class SessionRegistry:
         record = SessionRecord(session_id=session_id, cwd=cwd)
         self._records[session_id] = record
         self._subs.setdefault(session_id, [])
+        if self._store is not None:
+            self._store.save_session(record)
         return record
 
     def get(self, session_id: str) -> SessionRecord | None:
@@ -59,6 +67,8 @@ class SessionRegistry:
         record.events.append(event)
         for q in self._subs.get(session_id, []):
             q.put_nowait(event)
+        if self._store is not None:
+            self._store.append_event(session_id, event)
 
     def set_status(self, session_id: str, status: str) -> None:
         """
@@ -70,6 +80,22 @@ class SessionRegistry:
         record = self._records.get(session_id)
         if record is not None:
             record.status = status
+            if self._store is not None:
+                self._store.set_status(session_id, status)
+
+    def preload(
+        self, records: list[SessionRecord]
+    ) -> None:
+        """
+        Seed the registry with persisted records.
+
+        Does not write back to the store.
+
+        :param records: Records loaded from persistence.
+        """
+        for record in records:
+            self._records[record.session_id] = record
+            self._subs.setdefault(record.session_id, [])
 
     def subscribe(
         self, session_id: str
@@ -103,6 +129,13 @@ def get_registry() -> SessionRegistry:
     """
     Return the process-wide SessionRegistry singleton.
 
+    Preloads all persisted sessions so history survives
+    restarts. Requires migrations to have been applied
+    (``uv run alembic upgrade head``).
+
     :returns: The cached session registry instance.
     """
-    return SessionRegistry()
+    store = get_store()
+    registry = SessionRegistry(store=store)
+    registry.preload(store.load_all())
+    return registry

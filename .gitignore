@@ -1,6 +1,7 @@
 .claude/settings.local.json
 backend/.venv/
-backend/.dispatcher-workspaces/
+backend/.kestrel-workspaces/
+backend/kestrel.db
 backend/.env
 __pycache__/
 .pytest_cache/
@@ -8,3 +9,4 @@ frontend/node_modules/
 frontend/dist/
 .playwright-mcp/
 *.png
+.claude/
