@@ -18,3 +18,32 @@ async def test_root_returns_ok() -> None:
         resp = await client.get("/")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://[::1]:5174",
+    ],
+)
+async def test_cors_preflight_allows_loopback_origins(origin: str) -> None:
+    """Ensure the SPA is allowed from any loopback host and port."""
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        resp = await client.options(
+            "/api/sessions",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == origin

@@ -30,11 +30,13 @@ def create_app() -> FastAPI:
             status_code=502, content={"detail": "session start failed"}
         )
 
-    # Personal single-user dev tool: allow the SPA from any local
-    # port (Vite may pick 5173, 5174, ... depending on what is free).
+    # Personal single-user dev tool: allow the SPA from any local port
+    # (Vite may pick 5173, 5174, ... depending on what is free) served
+    # from any loopback host (localhost, 127.0.0.1, or IPv6 ::1) — the
+    # browser treats these as distinct origins.
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"http://localhost:\d+",
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1|\[::1\]):\d+",
         allow_methods=["*"],
         allow_headers=["*"],
     )
