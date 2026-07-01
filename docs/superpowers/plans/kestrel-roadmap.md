@@ -17,8 +17,8 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 
 ## Milestones
 
-- [ ] **M-A · Foundation & rename** —
-  [plan](2026-07-01-kestrel-m-a-foundation.md) — **READY (step-level)**
+- [x] **M-A · Foundation & rename** —
+  [plan](2026-07-01-kestrel-m-a-foundation.md) — **DONE 2026-07-01**
   Rename to kestrel, SQLite persistence behind the registry, model
   policy module. No new behaviour.
 - [ ] **M-B · Orchestrator state machine** —
@@ -55,3 +55,4 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 | Date | Note |
 | --- | --- |
 | 2026-07-01 | Spec approved; all milestone plans written. M-A ready. |
+| 2026-07-01 | M-A executed and verified (25 backend + 5 frontend tests; real-session restart E2E passed). Next: M-B. |
