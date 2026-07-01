@@ -1179,16 +1179,17 @@ def test_get_unknown_raises() -> None:
         svc.get("nope")
 
 
-def test_reply_wrong_state_raises() -> None:
+@pytest.mark.asyncio
+async def test_reply_wrong_state_raises() -> None:
     """Ensure reply outside the refine interview raises InvalidWorkflowState."""
+    from app.models_workflow import WorkflowRun, WorkflowStep
+
     svc = _service(_FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]),
                    _FakeGit())
-    import uuid
-    from app.models_workflow import WorkflowRun, WorkflowStep
     run = WorkflowRun(id="wf", repo="o/r", issue_number=1,
                       steps=[WorkflowStep(name="refine", status="pending")])
     svc.workflows.create(run)
-    svc._control["wf"] = svc._new_control()
+    svc._control["wf"] = svc._new_control()  # needs a running loop
     with pytest.raises(InvalidWorkflowStateError):
         svc.reply("wf", "an answer")
 ```
@@ -1208,7 +1209,8 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from functools import lru_cache
 
 from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun, WorkflowStep
@@ -1252,10 +1254,14 @@ IMPLEMENT_PROMPT = (
 
 @dataclass
 class _Control:
-    """Async coordination for one run (kept off the serialisable model)."""
+    """Async coordination for one run (kept off the serialisable model).
 
-    gate: asyncio.Future = field(default_factory=asyncio.get_event_loop().create_future)
-    replies: asyncio.Queue = field(default_factory=asyncio.Queue)
+    Always build via WorkflowService._new_control() so the future binds to
+    the running loop — never rely on defaults here.
+    """
+
+    gate: asyncio.Future
+    replies: asyncio.Queue
 
 
 @dataclass
@@ -1285,7 +1291,7 @@ class WorkflowService:
         self._control: dict[str, _Control] = {}
 
     def _new_control(self) -> _Control:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return _Control(gate=loop.create_future(), replies=asyncio.Queue())
 
     # ---- queries -------------------------------------------------------
@@ -1352,7 +1358,7 @@ class WorkflowService:
     async def _await_gate(self, workflow_id: str) -> _Decision:
         control = self._control[workflow_id]
         decision = await control.gate
-        control.gate = asyncio.get_event_loop().create_future()
+        control.gate = asyncio.get_running_loop().create_future()
         return decision
 
     def _result_text(self, session_id: str) -> str:
@@ -1443,12 +1449,12 @@ class WorkflowService:
         step.deliverable = self._result_text(sid)
         step.status = "awaiting_approval"
         run.status = "awaiting_plan_approval"
-        run.steps[1].session_id = sid
         decision = await self._await_gate(run.id)
         if not decision.approved:
             raise _Rejected()
         step.status = "done"
-        self._plan_sid = sid  # for implement resume
+        # implement resumes this plan session via run.steps[1].session_id
+        # (set by the on_session_id callback above).
 
     async def _implement(self, run: WorkflowRun) -> None:
         step = run.steps[2]
@@ -1472,16 +1478,9 @@ class _Rejected(Exception):
     """Internal signal that a gate was rejected."""
 
 
+@lru_cache
 def get_workflow_service() -> WorkflowService:
     """Return the process-wide WorkflowService singleton."""
-    return _singleton()
-
-
-from functools import lru_cache  # noqa: E402
-
-
-@lru_cache
-def _singleton() -> WorkflowService:
     settings = get_settings()
     registry = get_registry()
     return WorkflowService(
