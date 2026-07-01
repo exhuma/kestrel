@@ -17,9 +17,7 @@ const view = ref<'sessions' | 'workflows'>('sessions')
   <div class="shell">
     <header class="topbar">
       <div class="brand">
-        <span class="brand__mark" aria-hidden="true">
-          <span class="brand__core" />
-        </span>
+        <img src="/logo.svg" alt="agent-dispatcher logo" height="40" class="ms-2" />
         <span class="brand__name">agent<span class="brand__dot">·</span>dispatcher</span>
         <span class="brand__tag mono">mission control</span>
       </div>
@@ -90,12 +88,6 @@ const view = ref<'sessions' | 'workflows'>('sessions')
   border: 1.5px solid var(--signal);
   border-radius: 50%;
   opacity: 0.55;
-}
-.brand__core {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--signal);
 }
 .brand__name {
   font-weight: 700;
