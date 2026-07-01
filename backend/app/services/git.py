@@ -25,8 +25,14 @@ class GitService:
         )
         out, err = await proc.communicate()
         if proc.returncode != 0:
+            # Redact the auth header arg so the token never reaches error
+            # messages, logs, or the run's surfaced `error`.
+            safe = [
+                "***" if a.startswith("http.extraheader=") else a
+                for a in args
+            ]
             raise GitError(
-                f"git {' '.join(args)} -> {proc.returncode}: "
+                f"git {' '.join(safe)} -> {proc.returncode}: "
                 f"{err.decode('utf-8', 'replace')}"
             )
         return out.decode("utf-8", "replace")

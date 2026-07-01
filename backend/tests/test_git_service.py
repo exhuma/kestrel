@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services.exceptions import GitError
 from app.services.git import GitService
 
 
@@ -48,3 +49,16 @@ async def test_clone_branch_commit_push_roundtrip(tmp_path) -> None:
         cwd=bare, check=True, capture_output=True, text=True,
     ).stdout
     assert "dispatcher/issue-1" in branches
+
+
+@pytest.mark.asyncio
+async def test_clone_failure_raises_giterror_without_leaking_token(
+    tmp_path,
+) -> None:
+    """Ensure a git failure raises GitError and never leaks the token."""
+    svc = GitService(token="super-secret-token")
+    with pytest.raises(GitError) as exc:
+        await svc.clone(
+            str(tmp_path / "no-such-remote"), str(tmp_path / "dest")
+        )
+    assert "super-secret-token" not in str(exc.value)

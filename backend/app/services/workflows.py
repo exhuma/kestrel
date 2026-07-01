@@ -15,7 +15,7 @@ from app.services.exceptions import (
 )
 from app.services.git import GitService
 from app.services.github import GitHubClient
-from app.services.runner import SessionRunner, get_runner
+from app.services.runner import SessionRunner
 from app.services.workflow_text import (
     append_sentinel,
     extract_refined_issue,
@@ -144,10 +144,12 @@ class WorkflowService:
 
     def _resolve(self, workflow_id: str, decision: _Decision) -> None:
         run = self.get(workflow_id)
-        control = self._control[workflow_id]
-        if control.gate.done():
+        # Only an approval gate accepts approve/reject. Guarding on the
+        # run's phase (not gate.done()) closes the window between gates
+        # where a fresh, not-yet-awaited future would be pre-armed.
+        if not run.status.endswith("_approval"):
             raise InvalidWorkflowStateError("no gate awaiting a decision")
-        control.gate.set_result(decision)
+        self._control[workflow_id].gate.set_result(decision)
 
     # ---- orchestration -------------------------------------------------
     async def _await_gate(self, workflow_id: str) -> _Decision:
