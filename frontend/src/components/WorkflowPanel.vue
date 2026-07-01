@@ -86,6 +86,11 @@ function stepTone(status: string): string {
         <button class="banner__close" @click="error = null">✕</button>
       </div>
 
+      <div v-if="current?.error" class="banner" role="alert">
+        <span class="banner__glyph" aria-hidden="true">!</span>
+        <span class="banner__text">Run failed: {{ current.error }}</span>
+      </div>
+
       <header class="stage__head" v-if="current">
         <div class="stage__title">
           <span class="eyebrow">Workflow</span>

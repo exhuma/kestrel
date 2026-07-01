@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from app.storage.workflow_registry import (
 )
 
 _WF_TASKS: set[asyncio.Task] = set()
+_logger = logging.getLogger(__name__)
 
 REFINE_PROMPT = (
     "You are refining a GitHub issue before implementation. Read the issue "
@@ -202,6 +204,10 @@ class WorkflowService:
         except _Rejected:
             run.status = "rejected"
         except Exception as exc:  # record, do not crash the loop
+            _logger.exception(
+                "workflow %s (%s#%s) failed during %s",
+                workflow_id, run.repo, run.issue_number, run.status,
+            )
             run.status = "failed"
             run.error = str(exc)
 

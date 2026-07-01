@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 
 from app.services.exceptions import GitError
 
@@ -40,7 +41,15 @@ class GitService:
     def _auth(self) -> list[str]:
         # Injected per-command so the token never persists in .git/config.
         # Ignored by git for non-http remotes (e.g. local bare repos).
-        return ["-c", f"http.extraheader=AUTHORIZATION: bearer {self.token}"]
+        #
+        # GitHub's git-over-HTTPS smart endpoint requires Basic auth (base64
+        # "x-access-token:<token>"); a raw "Bearer <token>" header — which
+        # does work for the REST API — is rejected with
+        # "remote: invalid credentials" / "fatal: Authentication failed".
+        creds = base64.b64encode(
+            f"x-access-token:{self.token}".encode()
+        ).decode()
+        return ["-c", f"http.extraheader=AUTHORIZATION: basic {creds}"]
 
     async def clone(self, remote_url: str, dest: str) -> None:
         """Clone a remote into dest."""

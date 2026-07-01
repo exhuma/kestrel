@@ -145,6 +145,31 @@ async def test_reject_ends_run() -> None:
     await _wait(lambda: svc.get(wid).status == "rejected")
 
 
+@pytest.mark.asyncio
+async def test_step_failure_is_logged_and_recorded(caplog) -> None:
+    """Ensure a failing step logs the exception (not just swallows it)."""
+
+    class _BrokenGitHub(_FakeGitHub):
+        async def get_issue(self, repo: str, number: int) -> Issue:
+            raise RuntimeError("boom: simulated GitHub failure")
+
+    svc = _service(
+        _BrokenGitHub(), _FakeRunner(SessionRegistry(), ["x"]), _FakeGit()
+    )
+    with caplog.at_level("ERROR", logger="app.services.workflows"):
+        wid = await svc.create("o/r", 5)
+        await _wait(lambda: svc.get(wid).status == "failed")
+
+    assert svc.get(wid).error is not None
+    assert "boom: simulated GitHub failure" in svc.get(wid).error
+    assert any(
+        wid in record.message
+        and record.exc_info is not None
+        and "boom" in str(record.exc_info[1])
+        for record in caplog.records
+    )
+
+
 def test_get_unknown_raises() -> None:
     """Ensure get on an unknown id raises WorkflowNotFoundError."""
     svc = _service(_FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]),

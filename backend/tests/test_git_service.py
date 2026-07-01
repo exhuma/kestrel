@@ -1,6 +1,7 @@
 """Tests for GitService against a local bare repo (no network)."""
 from __future__ import annotations
 
+import base64
 import subprocess
 from pathlib import Path
 
@@ -49,6 +50,20 @@ async def test_clone_branch_commit_push_roundtrip(tmp_path) -> None:
         cwd=bare, check=True, capture_output=True, text=True,
     ).stdout
     assert "dispatcher/issue-1" in branches
+
+
+def test_auth_uses_basic_scheme_github_git_http_accepts() -> None:
+    """Ensure _auth sends Basic auth, the scheme GitHub's git-over-HTTPS
+    smart endpoint requires (a raw Bearer header is rejected with
+    'invalid credentials' even though it works for the REST API)."""
+    svc = GitService(token="tok-123")
+    args = svc._auth()
+    assert args[0] == "-c"
+    header = args[1]
+    assert header.startswith("http.extraheader=AUTHORIZATION: basic ")
+    encoded = header.split("basic ", 1)[1]
+    decoded = base64.b64decode(encoded).decode()
+    assert decoded == "x-access-token:tok-123"
 
 
 @pytest.mark.asyncio
