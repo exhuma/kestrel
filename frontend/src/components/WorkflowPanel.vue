@@ -9,6 +9,7 @@ const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
 const answer = ref('')
 const edited = ref('')
+const busy = ref<'create' | 'approve' | 'reject' | 'reply' | null>(null)
 
 onMounted(refresh)
 onUnmounted(stop)
@@ -21,17 +22,44 @@ const activeStep = computed(() =>
 )
 const awaitingInput = computed(() => activeStep.value?.status === 'awaiting_input')
 const awaitingApproval = computed(() => activeStep.value?.status === 'awaiting_approval')
+const stepRunning = computed(() => activeStep.value?.status === 'running')
+const issueUrl = computed(() =>
+  current.value ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}` : '',
+)
 
 async function onCreate(): Promise<void> {
-  await createWorkflow(repo.value, Number(issueNumber.value))
+  busy.value = 'create'
+  try {
+    await createWorkflow(repo.value, Number(issueNumber.value))
+  } finally {
+    busy.value = null
+  }
 }
 async function onApprove(): Promise<void> {
-  await approve(edited.value || undefined)
-  edited.value = ''
+  busy.value = 'approve'
+  try {
+    await approve(edited.value || undefined)
+    edited.value = ''
+  } finally {
+    busy.value = null
+  }
+}
+async function onReject(): Promise<void> {
+  busy.value = 'reject'
+  try {
+    await reject()
+  } finally {
+    busy.value = null
+  }
 }
 async function onReply(): Promise<void> {
-  await reply(answer.value)
-  answer.value = ''
+  busy.value = 'reply'
+  try {
+    await reply(answer.value)
+    answer.value = ''
+  } finally {
+    busy.value = null
+  }
 }
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
@@ -52,8 +80,8 @@ function stepTone(status: string): string {
         <div class="eyebrow">New workflow</div>
         <input v-model="repo" class="field" placeholder="owner/name" />
         <input v-model="issueNumber" type="number" class="field" placeholder="Issue #" />
-        <button class="btn btn--primary" @click="onCreate">
-          <span aria-hidden="true">⟐</span> Start workflow
+        <button class="btn btn--primary" :disabled="busy === 'create'" @click="onCreate">
+          <span aria-hidden="true">⟐</span> {{ busy === 'create' ? 'Starting…' : 'Start workflow' }}
         </button>
       </div>
       <div class="rail__block rail__block--grow">
@@ -94,7 +122,9 @@ function stepTone(status: string): string {
       <header class="stage__head" v-if="current">
         <div class="stage__title">
           <span class="eyebrow">Workflow</span>
-          <span class="stage__id mono">{{ current.repo }}#{{ current.issue_number }}</span>
+          <a class="stage__id mono" :href="issueUrl" target="_blank" rel="noopener noreferrer">
+            {{ current.repo }}#{{ current.issue_number }}
+          </a>
         </div>
         <div class="tracker">
           <span
@@ -112,8 +142,15 @@ function stepTone(status: string): string {
       </header>
 
       <div class="stage__body scroll" v-if="current">
+        <div v-if="stepRunning" class="working">
+          <span class="working__pulse" aria-hidden="true" />
+          <span class="mono">{{ activeStep?.name }} — agent is working…</span>
+        </div>
+
         <div class="deliverable" v-if="activeStep?.deliverable">
-          <div class="eyebrow">{{ activeStep.name }} deliverable</div>
+          <div class="eyebrow">
+            {{ awaitingInput ? `${activeStep.name} — agent asks` : `${activeStep.name} deliverable` }}
+          </div>
           <pre class="deliverable__text mono">{{ activeStep.deliverable }}</pre>
         </div>
 
@@ -121,15 +158,21 @@ function stepTone(status: string): string {
           <textarea v-model="edited" class="field" rows="4"
             :placeholder="`Optionally edit the ${activeStep?.name} deliverable before approving…`" />
           <div class="gate__actions">
-            <button class="btn btn--primary" @click="onApprove">Approve</button>
-            <button class="btn btn--ghost" @click="reject">Reject</button>
+            <button class="btn btn--primary" :disabled="!!busy" @click="onApprove">
+              {{ busy === 'approve' ? 'Approving…' : 'Approve' }}
+            </button>
+            <button class="btn btn--ghost" :disabled="!!busy" @click="onReject">
+              {{ busy === 'reject' ? 'Rejecting…' : 'Reject' }}
+            </button>
           </div>
         </div>
 
         <div class="gate" v-if="awaitingInput">
           <textarea v-model="answer" class="field" rows="3"
             placeholder="Answer the agent's questions…" />
-          <button class="btn btn--primary" @click="onReply">Send reply</button>
+          <button class="btn btn--primary" :disabled="!!busy" @click="onReply">
+            {{ busy === 'reply' ? 'Sending…' : 'Send reply' }}
+          </button>
         </div>
 
         <a v-if="current.pr_url" class="pr-link" :href="current.pr_url" target="_blank"
@@ -188,7 +231,11 @@ function stepTone(status: string): string {
   gap: 16px; padding: 20px 24px 18px; border-bottom: 1px solid var(--line);
 }
 .stage__title { display: flex; align-items: baseline; gap: 12px; }
-.stage__id { font-size: 15px; color: var(--text-hi); }
+.stage__id {
+  font-size: 15px; color: var(--text-hi); text-decoration: none;
+  border-bottom: 1px dotted var(--line);
+}
+.stage__id:hover { color: var(--signal); border-bottom-color: var(--signal); }
 .tracker { display: flex; gap: 14px; }
 .tracker__step {
   --c: var(--idle); display: inline-flex; align-items: center; gap: 6px;
@@ -202,6 +249,21 @@ function stepTone(status: string): string {
   white-space: pre-wrap; word-break: break-word; background: var(--ink-750);
   border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px;
   font-size: 12.5px; color: var(--text-hi); margin: 6px 0 0;
+}
+.working {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--ink-700); color: var(--text-mid); font-size: 12.5px;
+}
+.working__pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--signal);
+  box-shadow: 0 0 0 0 rgba(53, 230, 201, 0.45);
+  animation: working-pulse 1.4s ease-out infinite;
+}
+@keyframes working-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(53, 230, 201, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(53, 230, 201, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(53, 230, 201, 0); }
 }
 .gate { display: flex; flex-direction: column; gap: 10px; }
 .gate__actions { display: flex; gap: 10px; }

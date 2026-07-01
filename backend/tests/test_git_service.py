@@ -1,6 +1,7 @@
 """Tests for GitService against a local bare repo (no network)."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import subprocess
 from pathlib import Path
@@ -24,7 +25,9 @@ def _seed_bare_remote(tmp_path: Path) -> Path:
     _run("git", "config", "user.name", "t", cwd=seed)
     (seed / "README.md").write_text("hi\n")
     _run("git", "add", "-A", cwd=seed)
-    _run("git", "commit", "-m", "init", cwd=seed)
+    # Disable signing for this throwaway fixture commit: a machine with
+    # commit.gpgsign=true globally set would otherwise hang on pinentry.
+    _run("git", "-c", "commit.gpgsign=false", "commit", "-m", "init", cwd=seed)
     bare = tmp_path / "remote.git"
     _run("git", "clone", "--bare", str(seed), str(bare), cwd=tmp_path)
     return bare
@@ -50,6 +53,30 @@ async def test_clone_branch_commit_push_roundtrip(tmp_path) -> None:
         cwd=bare, check=True, capture_output=True, text=True,
     ).stdout
     assert "dispatcher/issue-1" in branches
+
+
+@pytest.mark.asyncio
+async def test_commit_all_ignores_repo_gpgsign_setting(tmp_path) -> None:
+    """Ensure commit_all never attempts GPG signing, even if the repo
+    (or the machine's global config) has commit.gpgsign=true — which
+    would otherwise hang the automated commit on an interactive pinentry
+    prompt that a headless backend process can never answer."""
+    bare = _seed_bare_remote(tmp_path)
+    dest = str(tmp_path / "work")
+    svc = GitService(token="unused-locally")
+    await svc.clone(str(bare), dest)
+    # Enable signing locally, scoped to this throwaway clone only — proves
+    # our per-command override wins regardless of ambient config.
+    _run("git", "config", "commit.gpgsign", "true", cwd=Path(dest))
+
+    (Path(dest) / "new.txt").write_text("change\n")
+    await asyncio.wait_for(svc.commit_all(dest, "work: add file"), timeout=5)
+
+    log = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=dest, check=True, capture_output=True, text=True,
+    ).stdout
+    assert log.strip() == "work: add file"
 
 
 def test_auth_uses_basic_scheme_github_git_http_accepts() -> None:

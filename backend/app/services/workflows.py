@@ -19,6 +19,7 @@ from app.services.github import GitHubClient
 from app.services.runner import SessionRunner
 from app.services.workflow_text import (
     append_sentinel,
+    extract_plan,
     extract_refined_issue,
     has_sentinel,
 )
@@ -41,7 +42,11 @@ REFINE_PROMPT = (
 )
 PLAN_PROMPT = (
     "Read this refined GitHub issue and the codebase, then produce a concise "
-    "implementation plan. Do not edit any files.\n\nISSUE:\n{issue}"
+    "implementation plan. Do not use the ExitPlanMode tool and do not write "
+    "the plan to a file — this session is headless and cannot approve a "
+    "plan that way. Instead, output the complete plan directly in your "
+    "final response, wrapped EXACTLY in <PLAN> and </PLAN> tags and nothing "
+    "else. Do not edit any files.\n\nISSUE:\n{issue}"
 )
 IMPLEMENT_PROMPT = (
     "Implement the plan you just produced. Make all necessary code edits in "
@@ -222,7 +227,8 @@ class WorkflowService:
                 prompt, run.workspace, "plan", resume_id=sid,
                 on_session_id=lambda s: setattr(step, "session_id", s),
             )
-            refined = extract_refined_issue(self._result_text(sid))
+            text = self._result_text(sid)
+            refined = extract_refined_issue(text)
             if refined is not None:
                 step.deliverable = refined
                 step.status = "awaiting_approval"
@@ -236,6 +242,10 @@ class WorkflowService:
                 )
                 step.status = "done"
                 return
+            # Not yet refined: the agent is asking a clarifying question.
+            # Surface it as the step's deliverable so the UI can show it
+            # without switching to the raw session feed.
+            step.deliverable = text
             step.status = "awaiting_input"
             run.status = "awaiting_refine_input"
             prompt = await self._control[run.id].replies.get()
@@ -249,7 +259,11 @@ class WorkflowService:
             PLAN_PROMPT.format(issue=refined), run.workspace, "plan",
             on_session_id=lambda s: setattr(step, "session_id", s),
         )
-        step.deliverable = self._result_text(sid)
+        text = self._result_text(sid)
+        # Prefer the tagged block; fall back to the raw text so a run still
+        # gets a reviewable deliverable if the model doesn't comply (e.g.
+        # it falls into its native Plan Mode and tries ExitPlanMode instead).
+        step.deliverable = extract_plan(text) or text
         step.status = "awaiting_approval"
         run.status = "awaiting_plan_approval"
         decision = await self._await_gate(run.id)

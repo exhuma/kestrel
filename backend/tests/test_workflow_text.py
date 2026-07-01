@@ -4,6 +4,7 @@ from __future__ import annotations
 from app.services.workflow_text import (
     SENTINEL,
     append_sentinel,
+    extract_plan,
     extract_refined_issue,
     has_sentinel,
 )
@@ -32,3 +33,14 @@ def test_extract_refined_issue_between_delimiters() -> None:
 def test_extract_refined_issue_absent_returns_none() -> None:
     """Ensure output without the delimiter yields None (still questions)."""
     assert extract_refined_issue("Just a question?") is None
+
+
+def test_extract_plan_between_delimiters() -> None:
+    """Ensure the plan is extracted from its own delimiter block."""
+    text = "chatter\n<PLAN>\nStep 1\nStep 2\n</PLAN>\nmore"
+    assert extract_plan(text) == "Step 1\nStep 2"
+
+
+def test_extract_plan_absent_returns_none() -> None:
+    """Ensure output without the delimiter yields None."""
+    assert extract_plan("no tags here") is None

@@ -70,7 +70,12 @@ class GitService:
     async def commit_all(self, dest: str, message: str) -> None:
         """Stage everything and commit."""
         await self._git("add", "-A", cwd=dest)
-        await self._git("commit", "-m", message, cwd=dest)
+        # Never sign: this is an unattended, headless commit. A machine
+        # with commit.gpgsign=true would otherwise block on an
+        # interactive pinentry prompt this process can never answer.
+        await self._git(
+            "-c", "commit.gpgsign=false", "commit", "-m", message, cwd=dest
+        )
 
     async def push(self, dest: str, branch: str) -> None:
         """Push a branch to origin."""

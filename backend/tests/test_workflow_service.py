@@ -95,7 +95,7 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
     git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "<REFINED_ISSUE>\nBuild a clear widget\n</REFINED_ISSUE>",  # refine
-        "The plan: do X then Y",                                    # plan
+        "<PLAN>\nStep 1: do X\nStep 2: do Y\n</PLAN>",              # plan
         "Implemented X and Y",                                      # implement
     ])
     svc = _service(gh, runner, git)
@@ -107,7 +107,7 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
     svc.approve(wid)  # writes issue + sentinel, advances to plan
 
     await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    assert "plan" in svc.get(wid).steps[1].deliverable.lower()
+    assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
     assert gh.updated is not None and "agent-dispatcher:refined" in gh.updated
     svc.approve(wid)
 
@@ -131,6 +131,29 @@ async def test_sentinel_skips_refine() -> None:
     wid = await svc.create("o/r", 5)
     await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
     assert svc.get(wid).steps[0].status == "done"  # refine skipped
+    # No <PLAN> tag emitted: falls back to the raw text rather than
+    # leaving the deliverable empty (e.g. if the model doesn't comply).
+    assert svc.get(wid).steps[1].deliverable == "The plan"
+
+
+@pytest.mark.asyncio
+async def test_refine_question_visible_while_awaiting_input() -> None:
+    """Ensure the agent's clarifying question is surfaced as a deliverable
+    (not just discarded) so the UI can show it without switching pages."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "What should the widget look like?",
+        "<REFINED_ISSUE>\nBuild a blue widget\n</REFINED_ISSUE>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    assert svc.get(wid).steps[0].deliverable == "What should the widget look like?"
+
+    svc.reply(wid, "A blue one")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    assert svc.get(wid).steps[0].deliverable == "Build a blue widget"
 
 
 @pytest.mark.asyncio
