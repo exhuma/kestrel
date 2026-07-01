@@ -20,4 +20,16 @@ describe('useSessions', () => {
     await refresh()
     expect(sessions.value.map((s) => s.session_id)).toContain('s1')
   })
+
+  it('surfaces a failed start via the error ref', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ detail: 'boom' }), { status: 502 }),
+      ),
+    )
+    const { error, start } = useSessions()
+    await start('hi')
+    expect(error.value).toBeTruthy()
+  })
 })

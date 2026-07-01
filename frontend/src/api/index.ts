@@ -1,4 +1,5 @@
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+export const API_BASE =
+  import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
 export interface TokenProvider {
   getToken(): string | null
@@ -36,7 +37,7 @@ async function request<T>(
   }
   const token = tokenProvider.getToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  const resp = await fetch(`${BASE}${path}`, {
+  const resp = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

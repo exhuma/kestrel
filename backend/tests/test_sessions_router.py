@@ -1,78 +1,108 @@
-"""Tests for the sessions router (runner mocked)."""
+"""Tests for the sessions router (service mocked)."""
 from __future__ import annotations
 
 import json
+from typing import AsyncIterator
 
 import httpx
 import pytest
 
 from app.main import create_app
-from app.models import ParsedEvent
-from app.services.runner import SessionRunner, get_runner
-from app.storage.registry import SessionRegistry, get_registry
+from app.schemas import SessionSummary
+from app.services.exceptions import SessionNotFoundError, SessionStartError
+from app.services.sessions import get_session_service
 
 
-class _FakeRunner(SessionRunner):
-    """Runner that records a session without a real subprocess."""
+class _FakeService:
+    """Stand-in service with configurable behaviour per test."""
+
+    def __init__(
+        self,
+        *,
+        start_error: bool = False,
+        known: bool = True,
+    ) -> None:
+        self._start_error = start_error
+        self._known = known
 
     async def start(self, prompt: str) -> str:
-        self.registry.create("fake-1", "/tmp/fake-1")
-        self.registry.append_event(
-            "fake-1", ParsedEvent("result", "fake-1", {})
-        )
-        self.registry.set_status("fake-1", "idle")
+        if self._start_error:
+            raise SessionStartError("no session id")
         return "fake-1"
 
+    async def resume(self, session_id: str, prompt: str) -> str:
+        if not self._known:
+            raise SessionNotFoundError(session_id)
+        return session_id
 
-def _client_with_fakes() -> tuple[httpx.AsyncClient, SessionRegistry]:
+    def list_summaries(self) -> list[SessionSummary]:
+        return [
+            SessionSummary(session_id="s1", status="idle", event_count=2)
+        ]
+
+    async def stream(
+        self, session_id: str
+    ) -> AsyncIterator[dict[str, object]]:
+        yield {"type": "system", "session_id": session_id, "raw": {}}
+        yield {"type": "result", "session_id": session_id, "raw": {}}
+
+
+def _client(service: _FakeService) -> httpx.AsyncClient:
     app = create_app()
-    registry = SessionRegistry()
-    app.dependency_overrides[get_registry] = lambda: registry
-    app.dependency_overrides[get_runner] = lambda: _FakeRunner(
-        None, registry  # type: ignore[arg-type]
-    )
+    app.dependency_overrides[get_session_service] = lambda: service
     transport = httpx.ASGITransport(app=app)
-    client = httpx.AsyncClient(
-        transport=transport, base_url="http://test"
-    )
-    return client, registry
+    return httpx.AsyncClient(transport=transport, base_url="http://test")
 
 
 @pytest.mark.asyncio
 async def test_create_session_returns_id() -> None:
     """Ensure POST /api/sessions returns a session id."""
-    client, _ = _client_with_fakes()
-    async with client:
-        resp = await client.post(
-            "/api/sessions", json={"prompt": "hi"}
-        )
+    async with _client(_FakeService()) as client:
+        resp = await client.post("/api/sessions", json={"prompt": "hi"})
     assert resp.status_code == 200
     assert resp.json()["session_id"] == "fake-1"
 
 
 @pytest.mark.asyncio
+async def test_start_failure_returns_502() -> None:
+    """Ensure a SessionStartError maps to HTTP 502."""
+    async with _client(_FakeService(start_error=True)) as client:
+        resp = await client.post("/api/sessions", json={"prompt": "hi"})
+    assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_resume_unknown_returns_404() -> None:
+    """Ensure a SessionNotFoundError maps to HTTP 404."""
+    async with _client(_FakeService(known=False)) as client:
+        resp = await client.post(
+            "/api/sessions/nope/resume", json={"prompt": "again"}
+        )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_list_sessions() -> None:
-    """Ensure GET /api/sessions lists created sessions."""
-    client, registry = _client_with_fakes()
-    registry.create("s1", "/tmp/s1")
-    async with client:
+    """Ensure GET /api/sessions returns summary shapes."""
+    async with _client(_FakeService()) as client:
         resp = await client.get("/api/sessions")
     assert resp.status_code == 200
-    ids = [s["session_id"] for s in resp.json()]
-    assert "s1" in ids
+    body = resp.json()
+    assert body == [
+        {"session_id": "s1", "status": "idle", "event_count": 2}
+    ]
 
 
-def test_sse_frame_matches_session_event_shape() -> None:
-    """Ensure SSE frames carry type, session_id and raw."""
-    from app.routers.sessions import _sse
-
-    frame = _sse(ParsedEvent("system", "s1", {"subtype": "init"}))
-    text = frame.decode("utf-8")
-    assert text.startswith("data: ")
-    assert text.endswith("\n\n")
-    payload = json.loads(text[len("data: ") :].strip())
-    assert payload == {
-        "type": "system",
-        "session_id": "s1",
-        "raw": {"subtype": "init"},
-    }
+@pytest.mark.asyncio
+async def test_events_stream_returns_sse_frames() -> None:
+    """Ensure GET events streams SSE data frames from the service."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/sessions/s1/events")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    frames = [
+        line for line in resp.text.split("\n\n") if line.startswith("data: ")
+    ]
+    assert len(frames) == 2
+    first = json.loads(frames[0][len("data: ") :])
+    assert first == {"type": "system", "session_id": "s1", "raw": {}}

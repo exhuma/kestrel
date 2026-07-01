@@ -1,13 +1,34 @@
 """FastAPI application factory for the agent dispatcher."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.services.exceptions import SessionNotFoundError, SessionStartError
 
 
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
     app = FastAPI(title="agent-dispatcher")
+
+    @app.exception_handler(SessionNotFoundError)
+    async def _session_not_found(
+        request: Request, exc: SessionNotFoundError
+    ) -> JSONResponse:
+        """Map an unknown session to HTTP 404."""
+        return JSONResponse(
+            status_code=404, content={"detail": "unknown session"}
+        )
+
+    @app.exception_handler(SessionStartError)
+    async def _session_start_failed(
+        request: Request, exc: SessionStartError
+    ) -> JSONResponse:
+        """Map a failed session start to HTTP 502."""
+        return JSONResponse(
+            status_code=502, content={"detail": "session start failed"}
+        )
 
     # Personal single-user dev tool: allow the SPA from any local
     # port (Vite may pick 5173, 5174, ... depending on what is free).

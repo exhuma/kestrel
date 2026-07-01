@@ -40,7 +40,8 @@ def parse_event(line: str) -> ParsedEvent | None:
         return None
     if not isinstance(data, dict):
         return None
-    event_type = str(data.get("type", "unknown"))
+    raw_type = data.get("type")
+    event_type = raw_type if isinstance(raw_type, str) else "unknown"
     session_id = data.get("session_id")
     return ParsedEvent(
         type=event_type,

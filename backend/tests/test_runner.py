@@ -6,6 +6,7 @@ from typing import AsyncIterator
 import pytest
 
 from app.config import Settings
+from app.services.exceptions import SessionStartError
 from app.services.runner import SessionRunner
 from app.storage.registry import SessionRegistry
 
@@ -58,6 +59,19 @@ async def test_consume_creates_record_and_sets_idle() -> None:
     assert rec.cwd == "/tmp/ws/s1"
     assert rec.status == "idle"
     assert len(rec.events) == 3
+
+
+@pytest.mark.asyncio
+async def test_start_without_session_id_raises_start_error(tmp_path) -> None:
+    """Ensure a subprocess yielding no session id raises SessionStartError."""
+    settings = Settings(
+        claude_bin="true",  # exits 0 with no stdout
+        workspace_root=str(tmp_path),
+        permission_mode="acceptEdits",
+    )
+    runner = SessionRunner(settings, SessionRegistry())
+    with pytest.raises(SessionStartError):
+        await runner.start("hi")
 
 
 @pytest.mark.asyncio

@@ -41,3 +41,17 @@ def test_parse_blank_or_garbage_returns_none() -> None:
     assert parse_event("") is None
     assert parse_event("   ") is None
     assert parse_event("not json") is None
+
+
+def test_parse_non_string_type_defaults_to_unknown() -> None:
+    """Ensure a non-string type falls back to "unknown"."""
+    ev = parse_event('{"type":123,"session_id":"s1"}')
+    assert ev is not None
+    assert ev.type == "unknown"
+
+
+def test_parse_missing_type_defaults_to_unknown() -> None:
+    """Ensure a missing type falls back to "unknown"."""
+    ev = parse_event('{"session_id":"s1"}')
+    assert ev is not None
+    assert ev.type == "unknown"

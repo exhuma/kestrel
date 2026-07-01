@@ -2,8 +2,16 @@
 import { onMounted, ref } from 'vue'
 import { useSessions } from '../composables/useSessions'
 
-const { sessions, events, loading, refresh, start, resume, watchEvents } =
-  useSessions()
+const {
+  sessions,
+  events,
+  loading,
+  error,
+  refresh,
+  start,
+  resume,
+  watchEvents,
+} = useSessions()
 const prompt = ref('Write a haiku about the sea into poem.txt')
 const followUp = ref('Now revise it to be about mountains instead.')
 const current = ref<string | null>(null)
@@ -11,20 +19,33 @@ const current = ref<string | null>(null)
 onMounted(refresh)
 
 async function onStart(): Promise<void> {
-  current.value = await start(prompt.value)
-  watchEvents(current.value)
+  const id = await start(prompt.value)
+  if (id) {
+    current.value = id
+    watchEvents(id)
+  }
 }
 
 async function onResume(): Promise<void> {
   if (current.value) {
-    await resume(current.value, followUp.value)
-    watchEvents(current.value)
+    const id = await resume(current.value, followUp.value)
+    if (id) watchEvents(id)
   }
 }
 </script>
 
 <template>
   <v-container>
+    <v-alert
+      v-if="error"
+      type="error"
+      variant="tonal"
+      closable
+      class="mb-4"
+      @click:close="error = null"
+    >
+      {{ error }}
+    </v-alert>
     <v-row>
       <v-col cols="4">
         <v-textarea v-model="prompt" label="Start prompt" rows="3" />

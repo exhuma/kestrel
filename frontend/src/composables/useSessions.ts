@@ -1,14 +1,19 @@
 import { ref } from 'vue'
-import { api } from '../api'
+import { api, API_BASE, ApiError } from '../api'
 import type { SessionEvent, SessionSummary } from '../types/sessions'
-
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
 const sessions = ref<SessionSummary[]>([])
 const events = ref<SessionEvent[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 
 let source: EventSource | null = null
+
+function describe(e: unknown): string {
+  if (e instanceof ApiError) return `Request failed (${e.status})`
+  if (e instanceof Error) return e.message
+  return 'Unexpected error'
+}
 
 export function useSessions() {
   async function refresh(): Promise<void> {
@@ -20,32 +25,56 @@ export function useSessions() {
     }
   }
 
-  async function start(prompt: string): Promise<string> {
-    const out = await api.post<{ session_id: string }>(
-      '/api/sessions',
-      { prompt },
-    )
-    await refresh()
-    return out.session_id
+  async function start(prompt: string): Promise<string | null> {
+    error.value = null
+    try {
+      const out = await api.post<{ session_id: string }>(
+        '/api/sessions',
+        { prompt },
+      )
+      await refresh()
+      return out.session_id
+    } catch (e) {
+      error.value = describe(e)
+      return null
+    }
   }
 
-  async function resume(id: string, prompt: string): Promise<string> {
-    const out = await api.post<{ session_id: string }>(
-      `/api/sessions/${id}/resume`,
-      { prompt },
-    )
-    await refresh()
-    return out.session_id
+  async function resume(
+    id: string,
+    prompt: string,
+  ): Promise<string | null> {
+    error.value = null
+    try {
+      const out = await api.post<{ session_id: string }>(
+        `/api/sessions/${id}/resume`,
+        { prompt },
+      )
+      await refresh()
+      return out.session_id
+    } catch (e) {
+      error.value = describe(e)
+      return null
+    }
   }
 
   function watchEvents(id: string): void {
     events.value = []
     if (source) source.close()
-    source = new EventSource(`${BASE}/api/sessions/${id}/events`)
+    source = new EventSource(`${API_BASE}/api/sessions/${id}/events`)
     source.onmessage = (e) => {
       events.value.push(JSON.parse(e.data) as SessionEvent)
     }
   }
 
-  return { sessions, events, loading, refresh, start, resume, watchEvents }
+  return {
+    sessions,
+    events,
+    loading,
+    error,
+    refresh,
+    start,
+    resume,
+    watchEvents,
+  }
 }

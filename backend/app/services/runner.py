@@ -10,6 +10,7 @@ from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.models import parse_event
+from app.services.exceptions import SessionNotFoundError, SessionStartError
 from app.storage.registry import SessionRegistry, get_registry
 
 
@@ -108,7 +109,7 @@ class SessionRunner:
                 proc.kill()
             stderr_task.cancel()
         if sid is None:
-            raise RuntimeError("claude produced no session id")
+            raise SessionStartError("claude produced no session id")
         return sid
 
     async def start(self, prompt: str) -> str:
@@ -130,10 +131,11 @@ class SessionRunner:
         :param session_id: Id of the session to resume.
         :param prompt: The prompt text to resume the session with.
         :returns: The resolved session id.
+        :raises SessionNotFoundError: If the session is unknown.
         """
         record = self.registry.get(session_id)
         if record is None:
-            raise KeyError(session_id)
+            raise SessionNotFoundError(session_id)
         argv = self.build_argv(prompt, resume_id=session_id)
         return await self._spawn(argv, record.cwd, record_id=session_id)
 

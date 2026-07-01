@@ -1,16 +1,19 @@
-"""HTTP routes for creating, listing, and streaming sessions."""
+"""HTTP routes for creating, listing, and streaming sessions.
+
+Thin HTTP layer: validate input, call the service, shape responses.
+All business logic and storage access live in ``SessionService``.
+"""
 from __future__ import annotations
 
-import json
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.models import ParsedEvent
-from app.services.runner import SessionRunner, get_runner
-from app.storage.registry import SessionRegistry, get_registry
+from app import sse
+from app.schemas import SessionSummary
+from app.services.sessions import SessionService, get_session_service
 
 router = APIRouter(prefix="/api")
 
@@ -38,16 +41,16 @@ class SessionOut(BaseModel):
 @router.post("/sessions", response_model=SessionOut)
 async def create_session(
     body: PromptIn,
-    runner: SessionRunner = Depends(get_runner),
+    service: SessionService = Depends(get_session_service),
 ) -> SessionOut:
     """
     Start a new claude session and return its id.
 
     :param body: Request body carrying the initial prompt.
-    :param runner: Session runner, injected.
+    :param service: Session service, injected.
     :returns: The id of the newly started session.
     """
-    session_id = await runner.start(body.prompt)
+    session_id = await service.start(body.prompt)
     return SessionOut(session_id=session_id)
 
 
@@ -55,87 +58,48 @@ async def create_session(
 async def resume_session(
     session_id: str,
     body: PromptIn,
-    runner: SessionRunner = Depends(get_runner),
+    service: SessionService = Depends(get_session_service),
 ) -> SessionOut:
     """
     Resume an existing session with new input.
 
     :param session_id: Id of the session to resume.
     :param body: Request body carrying the follow-up prompt.
-    :param runner: Session runner, injected.
+    :param service: Session service, injected.
     :returns: The id of the resumed session.
     """
-    try:
-        sid = await runner.resume(session_id, body.prompt)
-    except KeyError as exc:
-        raise HTTPException(404, "unknown session") from exc
+    sid = await service.resume(session_id, body.prompt)
     return SessionOut(session_id=sid)
 
 
-@router.get("/sessions")
+@router.get("/sessions", response_model=list[SessionSummary])
 async def list_sessions(
-    registry: SessionRegistry = Depends(get_registry),
-) -> list[dict[str, object]]:
+    service: SessionService = Depends(get_session_service),
+) -> list[SessionSummary]:
     """
     List all known sessions with status and event counts.
 
-    :param registry: Session registry, injected.
-    :returns: One summary dict per session.
+    :param service: Session service, injected.
+    :returns: One summary per session.
     """
-    return [
-        {
-            "session_id": r.session_id,
-            "status": r.status,
-            "event_count": len(r.events),
-        }
-        for r in registry.list()
-    ]
+    return service.list_summaries()
 
 
 @router.get("/sessions/{session_id}/events")
 async def stream_events(
     session_id: str,
-    registry: SessionRegistry = Depends(get_registry),
+    service: SessionService = Depends(get_session_service),
 ) -> StreamingResponse:
     """
     Stream session events as Server-Sent Events.
 
     :param session_id: Id of the session to stream events for.
-    :param registry: Session registry, injected.
+    :param service: Session service, injected.
     :returns: A streaming response of SSE event frames.
     """
 
-    async def _gen() -> AsyncIterator[bytes]:
-        record = registry.get(session_id)
-        if record is not None:
-            for ev in list(record.events):
-                yield _sse(ev)
-        q = registry.subscribe(session_id)
-        try:
-            while True:
-                ev = await q.get()
-                yield _sse(ev)
-        finally:
-            registry.unsubscribe(session_id, q)
+    async def _frames() -> AsyncIterator[bytes]:
+        async for payload in service.stream(session_id):
+            yield sse.encode(payload)
 
-    return StreamingResponse(
-        _gen(), media_type="text/event-stream"
-    )
-
-
-def _sse(event: ParsedEvent) -> bytes:
-    """
-    Encode a parsed event as one SSE data frame.
-
-    The wire shape matches the frontend ``SessionEvent`` contract:
-    ``{type, session_id, raw}``.
-
-    :param event: The parsed event to serialise.
-    :returns: A UTF-8 ``data: <json>\\n\\n`` SSE frame.
-    """
-    payload = {
-        "type": event.type,
-        "session_id": event.session_id,
-        "raw": event.raw,
-    }
-    return ("data: " + json.dumps(payload) + "\n\n").encode("utf-8")
+    return StreamingResponse(_frames(), media_type="text/event-stream")
