@@ -41,18 +41,18 @@ async def test_clone_branch_commit_push_roundtrip(tmp_path) -> None:
     svc = GitService(token="unused-locally")
 
     await svc.clone(str(bare), dest)
-    await svc.checkout_branch(dest, "dispatcher/issue-1")
+    await svc.checkout_branch(dest, "kestrel/issue-1")
     (Path(dest) / "new.txt").write_text("change\n")
     diff = await svc.diff(dest)
     assert "new.txt" in diff
     await svc.commit_all(dest, "work: add file")
-    await svc.push(dest, "dispatcher/issue-1")
+    await svc.push(dest, "kestrel/issue-1")
 
     branches = subprocess.run(
-        ["git", "branch", "--list", "dispatcher/issue-1"],
+        ["git", "branch", "--list", "kestrel/issue-1"],
         cwd=bare, check=True, capture_output=True, text=True,
     ).stdout
-    assert "dispatcher/issue-1" in branches
+    assert "kestrel/issue-1" in branches
 
 
 @pytest.mark.asyncio

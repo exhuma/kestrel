@@ -118,7 +118,7 @@ class WorkflowService:
             id="wf-" + uuid.uuid4().hex[:8],
             repo=repo,
             issue_number=issue_number,
-            branch=f"dispatcher/issue-{issue_number}",
+            branch=f"kestrel/issue-{issue_number}",
             workspace=os.path.join(
                 self.settings.workspace_root,
                 f"wf-{uuid.uuid4().hex[:8]}",
@@ -203,7 +203,7 @@ class WorkflowService:
                 head=run.branch,
                 base=run.base_branch,
                 title=f"{run.issue_title} (#{run.issue_number})",
-                body=f"Closes #{run.issue_number}\n\nOpened by agent-dispatcher.",
+                body=f"Closes #{run.issue_number}\n\nOpened by kestrel.",
             )
             run.status = "done"
         except _Rejected:

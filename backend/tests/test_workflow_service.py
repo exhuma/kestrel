@@ -108,7 +108,7 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
 
     await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
     assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
-    assert gh.updated is not None and "agent-dispatcher:refined" in gh.updated
+    assert gh.updated is not None and "kestrel:refined" in gh.updated
     svc.approve(wid)
 
     await _wait(lambda: svc.get(wid).status == "awaiting_implement_approval")
@@ -123,7 +123,7 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
 @pytest.mark.asyncio
 async def test_sentinel_skips_refine() -> None:
     """Ensure an already-refined issue jumps straight to plan."""
-    gh = _FakeGitHub(body="clear issue\n\n<!-- agent-dispatcher:refined -->")
+    gh = _FakeGitHub(body="clear issue\n\n<!-- kestrel:refined -->")
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "The plan", "Implemented",
     ])
@@ -159,7 +159,7 @@ async def test_refine_question_visible_while_awaiting_input() -> None:
 @pytest.mark.asyncio
 async def test_reject_ends_run() -> None:
     """Ensure rejecting a gate ends the run as rejected."""
-    gh = _FakeGitHub(body="x\n\n<!-- agent-dispatcher:refined -->")
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
     runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)

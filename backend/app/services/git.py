@@ -55,8 +55,8 @@ class GitService:
         """Clone a remote into dest."""
         await self._git(*self._auth(), "clone", remote_url, dest)
         # Identity for commits made in this workspace.
-        await self._git("config", "user.email", "dispatcher@local", cwd=dest)
-        await self._git("config", "user.name", "agent-dispatcher", cwd=dest)
+        await self._git("config", "user.email", "kestrel@local", cwd=dest)
+        await self._git("config", "user.name", "kestrel", cwd=dest)
 
     async def checkout_branch(self, dest: str, branch: str) -> None:
         """Create and switch to a new branch."""

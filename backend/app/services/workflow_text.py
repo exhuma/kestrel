@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-SENTINEL = "<!-- agent-dispatcher:refined -->"
+SENTINEL = "<!-- kestrel:refined -->"
 
 
 def has_sentinel(body: str) -> bool:
