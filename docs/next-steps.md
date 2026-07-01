@@ -72,7 +72,7 @@ From `docs/superpowers/specs/2026-07-01-github-issue-workflow-design.md`:
   runs now surface `error` in the UI and log it server-side), but a
   user-initiated cancel is still missing everywhere.
 - **DX / demo polish** — dev servers still require explicit env vars
-  (`VITE_API_BASE`, `DISPATCHER_WORKSPACE_ROOT`, a free port) every time.
+  (`VITE_API_BASE`, `KESTREL_WORKSPACE_ROOT`, a free port) every time.
   Baking sane defaults (e.g. backend defaulting to port 8001, a committed
   `frontend/.env` pointing at it) would let `npm run dev` / `uv run
   uvicorn` just work.
