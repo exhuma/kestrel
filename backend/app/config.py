@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     workspace_root: str = "./.kestrel-workspaces"
     permission_mode: str = "acceptEdits"
     database_url: str = "sqlite:///./kestrel.db"
+    model_overrides: dict[str, str] = {}
 
 
 @lru_cache

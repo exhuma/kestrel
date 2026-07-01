@@ -23,15 +23,20 @@ class SessionRunner:
         self.registry = registry
 
     def build_argv(
-        self, prompt: str, resume_id: str | None = None
+        self,
+        prompt: str,
+        resume_id: str | None = None,
+        model: str | None = None,
     ) -> list[str]:
         """
         Build the claude CLI argument vector.
 
         :param prompt: The prompt text to pass to claude.
-        :param resume_id: Session id to resume, or None to start
-            a new session.
-        :returns: The argument vector to pass to the subprocess.
+        :param resume_id: Session id to resume, or None to
+            start a new session.
+        :param model: Model alias for ``--model``, or None to
+            use the CLI's default.
+        :returns: The argument vector for the subprocess.
         """
         argv = [
             self.settings.claude_bin,
@@ -43,6 +48,8 @@ class SessionRunner:
             "--permission-mode",
             self.settings.permission_mode,
         ]
+        if model is not None:
+            argv += ["--model", model]
         if resume_id is not None:
             argv += ["--resume", resume_id]
         return argv
