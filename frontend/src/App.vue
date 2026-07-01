@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import SessionPanel from './components/SessionPanel.vue'
+import WorkflowPanel from './components/WorkflowPanel.vue'
 import { useSessions } from './composables/useSessions'
 
 // Shared composable state: the header reflects fleet-wide status.
@@ -8,6 +9,8 @@ const { sessions } = useSessions()
 const running = computed(() =>
   sessions.value.some((s) => s.status === 'running'),
 )
+
+const view = ref<'sessions' | 'workflows'>('sessions')
 </script>
 
 <template>
@@ -20,13 +23,20 @@ const running = computed(() =>
         <span class="brand__name">agent<span class="brand__dot">·</span>dispatcher</span>
         <span class="brand__tag mono">mission control</span>
       </div>
+      <nav class="viewnav">
+        <button class="viewnav__btn" :class="{ 'viewnav__btn--on': view === 'sessions' }"
+          @click="view = 'sessions'">Sessions</button>
+        <button class="viewnav__btn" :class="{ 'viewnav__btn--on': view === 'workflows' }"
+          @click="view = 'workflows'">Workflows</button>
+      </nav>
       <div class="status" :class="running ? 'status--live' : 'status--idle'">
         <span class="status__dot" />
         <span class="status__label mono">{{ running ? 'live' : 'idle' }}</span>
       </div>
     </header>
     <main class="stageroot">
-      <SessionPanel />
+      <SessionPanel v-if="view === 'sessions'" />
+      <WorkflowPanel v-else />
     </main>
   </div>
 </template>
@@ -50,7 +60,8 @@ const running = computed(() =>
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 22px;
   padding: 0 24px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--ink-850) 82%, transparent);
@@ -102,6 +113,14 @@ const running = computed(() =>
   color: var(--text-dim);
 }
 
+.viewnav { display: flex; gap: 4px; margin-left: 22px; }
+.viewnav__btn {
+  background: transparent; border: 1px solid var(--line); color: var(--text-mid);
+  border-radius: 999px; padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+  font-family: var(--font-sans);
+}
+.viewnav__btn--on { color: var(--signal-ink); background: var(--signal); border-color: var(--signal); }
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -110,6 +129,7 @@ const running = computed(() =>
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--ink-800);
+  margin-left: auto;
 }
 .status__dot {
   width: 8px;

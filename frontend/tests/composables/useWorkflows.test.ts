@@ -35,4 +35,46 @@ describe('useWorkflows', () => {
       issue_number: 5,
     })
   })
+
+  it('stop closes the active EventSource and clears the poll interval', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            id: 'wf-1',
+            repo: 'o/r',
+            issue_number: 3,
+            issue_title: 't',
+            status: 'planning',
+            branch: 'b',
+            steps: [],
+            current_session_id: 'sess-1',
+            pr_url: null,
+            error: null,
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const closeSpy = vi.fn()
+    let instances = 0
+    class FakeEventSource {
+      onmessage: ((e: MessageEvent) => void) | null = null
+      close = closeSpy
+      constructor(public url: string) {
+        instances += 1
+      }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource)
+
+    const { select, stop } = useWorkflows()
+    select('wf-1')
+    // allow the initial loadDetail() call to resolve and open the EventSource
+    await vi.waitFor(() => expect(instances).toBeGreaterThan(0))
+
+    stop()
+
+    expect(closeSpy).toHaveBeenCalled()
+  })
 })

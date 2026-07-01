@@ -76,5 +76,16 @@ export function useWorkflows() {
     if (current.value) await api.post(`/api/workflows/${current.value.id}/reject`, {})
   }
 
-  return { workflows, current, events, error, refresh, select, createWorkflow, reply, approve, reject }
+  function stop(): void {
+    if (poll) {
+      clearInterval(poll)
+      poll = null
+    }
+    if (source) {
+      source.close()
+      source = null
+    }
+  }
+
+  return { workflows, current, events, error, refresh, select, createWorkflow, reply, approve, reject, stop }
 }
