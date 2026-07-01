@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     claude_bin: str = "claude"
     workspace_root: str = "./.dispatcher-workspaces"
     permission_mode: str = "acceptEdits"
+    github_token: str = ""
+    github_api_base: str = "https://api.github.com"
+    git_base: str = "https://github.com"
 
 
 @lru_cache
