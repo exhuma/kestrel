@@ -1,4 +1,4 @@
-# agent-dispatcher
+# kestrel
 
 ## Quartermaster (instruction kits)
 

@@ -1,4 +1,4 @@
-"""FastAPI application factory for the agent dispatcher."""
+"""FastAPI application factory for kestrel."""
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
-    app = FastAPI(title="agent-dispatcher")
+    app = FastAPI(title="kestrel")
 
     # Personal single-user dev tool: allow the SPA from any local
     # port (Vite may pick 5173, 5174, ... depending on what is free).

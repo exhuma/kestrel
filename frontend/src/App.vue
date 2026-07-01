@@ -4,9 +4,9 @@ import SessionPanel from './components/SessionPanel.vue'
 
 <template>
   <v-app>
-    <v-app-bar color="primary" title="agent-dispatcher">
+    <v-app-bar color="primary" title="kestrel">
       <template #prepend>
-        <img src="/logo.svg" alt="agent-dispatcher logo" height="40" class="ms-2" />
+        <img src="/logo.svg" alt="kestrel logo" height="40" class="ms-2" />
       </template>
     </v-app-bar>
     <v-main>
