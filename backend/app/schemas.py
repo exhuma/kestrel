@@ -19,3 +19,55 @@ class SessionSummary(BaseModel):
     session_id: str
     status: str
     event_count: int
+
+
+class WorkflowStepOut(BaseModel):
+    """One workflow step for the API."""
+
+    name: str
+    session_id: str | None
+    status: str
+    deliverable: str | None
+
+
+class WorkflowSummary(BaseModel):
+    """Workflow list item."""
+
+    id: str
+    repo: str
+    issue_number: int
+    status: str
+
+
+class WorkflowDetail(BaseModel):
+    """Full workflow run for the detail endpoint."""
+
+    id: str
+    repo: str
+    issue_number: int
+    issue_title: str
+    status: str
+    branch: str
+    steps: list[WorkflowStepOut]
+    current_session_id: str | None
+    pr_url: str | None
+    error: str | None
+
+
+class CreateWorkflowIn(BaseModel):
+    """Request body to start a workflow."""
+
+    repo: str
+    issue_number: int
+
+
+class ReplyIn(BaseModel):
+    """Request body to answer the refine interview."""
+
+    text: str
+
+
+class ApproveIn(BaseModel):
+    """Request body to approve a gate, optionally with an edited deliverable."""
+
+    deliverable: str | None = None
