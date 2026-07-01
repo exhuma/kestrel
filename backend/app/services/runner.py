@@ -20,6 +20,21 @@ from app.storage.registry import SessionRegistry, get_registry
 _TASKS: set[asyncio.Task[None]] = set()
 
 
+async def _stdout_lines(
+    proc: asyncio.subprocess.Process,
+) -> AsyncIterator[str]:
+    """Yield decoded lines from a subprocess's stdout as they arrive."""
+    assert proc.stdout is not None
+    async for raw in proc.stdout:
+        yield raw.decode("utf-8", "replace")
+
+
+async def _drain(stream: AsyncIterator[object]) -> None:
+    """Consume and discard every item from an async iterator."""
+    async for _ in stream:
+        pass
+
+
 class SessionRunner:
     """Spawns claude subprocesses and streams events to the registry."""
 
@@ -30,7 +45,10 @@ class SessionRunner:
         self.registry = registry
 
     def build_argv(
-        self, prompt: str, resume_id: str | None = None
+        self,
+        prompt: str,
+        resume_id: str | None = None,
+        permission_mode: str | None = None,
     ) -> list[str]:
         """
         Build the claude CLI argument vector.
@@ -38,6 +56,7 @@ class SessionRunner:
         :param prompt: The prompt text to pass to claude.
         :param resume_id: Session id to resume, or None to start
             a new session.
+        :param permission_mode: Overrides the settings default when given.
         :returns: The argument vector to pass to the subprocess.
         """
         argv = [
@@ -48,7 +67,7 @@ class SessionRunner:
             "stream-json",
             "--verbose",
             "--permission-mode",
-            self.settings.permission_mode,
+            permission_mode or self.settings.permission_mode,
         ]
         if resume_id is not None:
             argv += ["--resume", resume_id]
@@ -157,6 +176,55 @@ class SessionRunner:
         _TASKS.add(task)
         task.add_done_callback(_TASKS.discard)
         return await sid_future
+
+    async def run_blocking(
+        self,
+        prompt: str,
+        cwd: str,
+        permission_mode: str,
+        resume_id: str | None = None,
+        on_session_id: Callable[[str], None] | None = None,
+    ) -> str:
+        """
+        Run a claude step to completion, streaming events live.
+
+        Unlike start/resume (which return early and stream in the
+        background), this awaits the subprocess so the caller can read
+        the finished session's deliverable. Events still reach
+        subscribers live as they arrive.
+
+        :param prompt: The prompt text to pass to claude.
+        :param cwd: Working directory to run the subprocess in.
+        :param permission_mode: Permission mode to pass to claude.
+        :param resume_id: Session id to resume, or None to start a new
+            session.
+        :param on_session_id: Optional callback invoked with the id the
+            first time it becomes known.
+        :returns: The resolved session id.
+        :raises SessionStartError: If no session id is produced.
+        """
+        os.makedirs(cwd, exist_ok=True)
+        argv = self.build_argv(prompt, resume_id, permission_mode)
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stderr_task = asyncio.create_task(_drain(proc.stderr))
+        try:
+            sid = await self.consume(
+                _stdout_lines(proc), cwd, resume_id, on_session_id
+            )
+            await proc.wait()
+            await stderr_task
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+            stderr_task.cancel()
+        if sid is None:
+            raise SessionStartError("claude produced no session id")
+        return sid
 
     async def start(self, prompt: str) -> str:
         """

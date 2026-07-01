@@ -152,3 +152,42 @@ async def test_consume_resume_appends_to_existing() -> None:
     assert rec is not None
     assert len(rec.events) == 2
     assert rec.status == "idle"
+
+
+@pytest.mark.asyncio
+async def test_run_blocking_streams_and_awaits(tmp_path) -> None:
+    """Ensure run_blocking streams to the registry and returns on completion."""
+    settings = Settings(
+        claude_bin=str(_streaming_claude(tmp_path)),
+        workspace_root=str(tmp_path / "ws"),
+        permission_mode="acceptEdits",
+    )
+    reg = SessionRegistry()
+    runner = SessionRunner(settings, reg)
+    cwd = str(tmp_path / "step")
+
+    seen: list[str] = []
+    sid = await runner.run_blocking(
+        "hi", cwd=cwd, permission_mode="plan",
+        on_session_id=lambda s: seen.append(s),
+    )
+
+    # Returned only after completion: result event present, status idle.
+    assert sid == "stream-1"
+    assert seen == ["stream-1"]
+    rec = reg.get(sid)
+    assert rec.status == "idle"
+    assert any(e.type == "result" for e in rec.events)
+    await _drain_background()
+
+
+def test_build_argv_permission_mode_override() -> None:
+    """Ensure build_argv honours a permission-mode override."""
+    settings = Settings(
+        claude_bin="claude", workspace_root="/tmp/ws",
+        permission_mode="acceptEdits",
+    )
+    argv = SessionRunner(settings, SessionRegistry()).build_argv(
+        "p", permission_mode="plan"
+    )
+    assert argv[argv.index("--permission-mode") + 1] == "plan"
