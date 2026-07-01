@@ -1,0 +1,177 @@
+/*
+ * agent-dispatcher — Mission Control design tokens.
+ * Layered navy "ink" (not black), one mint-teal signal, and a real
+ * status palette because status telemetry is what this tool shows.
+ * Single source of truth for colour and type; components reference
+ * these variables and add nothing new.
+ */
+:root {
+  /* Surfaces — deepest at the back, each layer a step lighter */
+  --ink-900: #0b1220; /* app background */
+  --ink-850: #0e1626; /* header / recessed */
+  --ink-800: #111a2b; /* dispatch rail */
+  --ink-750: #14203a; /* input wells */
+  --ink-700: #16213a; /* cards / stage surface */
+  --ink-650: #1b2942; /* hover */
+  --line: #223049; /* hairline borders */
+  --line-soft: #1a2438;
+
+  /* Text */
+  --text-hi: #e6edf7;
+  --text-mid: #9fb0c7;
+  --text-dim: #62748c;
+
+  /* Signal + status */
+  --signal: #35e6c9; /* primary action / live */
+  --signal-ink: #04231f; /* text on signal fills */
+  --signal-glow: rgba(53, 230, 201, 0.16);
+  --run: #35e6c9;
+  --idle: #7c8ca5;
+  --ok: #5bd98a;
+  --warn: #f5b14c;
+  --err: #f2727f;
+  --user: #6ea8ff;
+
+  /* Type */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Rhythm */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --pad: 20px;
+  --header-h: 60px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ink-900);
+  color: var(--text-hi);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Instrument-panel label: uppercase mono eyebrow */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Native controls, mission-control styled */
+.field {
+  width: 100%;
+  resize: vertical;
+  background: var(--ink-750);
+  color: var(--text-hi);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.field::placeholder {
+  color: var(--text-dim);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-glow);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--signal-glow);
+}
+.btn--primary {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+.btn--primary:hover {
+  background: #4ff0d6;
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--text-hi);
+  border-color: var(--line);
+}
+.btn--ghost:hover {
+  border-color: var(--idle);
+  background: var(--ink-700);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Quiet, thin scrollbars so the feed reads as an instrument */
+.scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
+}
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useSessions } from '../composables/useSessions'
+import type { SessionEvent } from '../types/sessions'
 
 const {
   sessions,
@@ -12,9 +13,29 @@ const {
   resume,
   watchEvents,
 } = useSessions()
+
 const prompt = ref('Write a haiku about the sea into poem.txt')
 const followUp = ref('Now revise it to be about mountains instead.')
 const current = ref<string | null>(null)
+
+// Client-side receipt time per event — honest "streamed at" telemetry,
+// kept parallel to events so the composable stays contract-stable.
+const stamps = ref<string[]>([])
+const feedEl = ref<HTMLElement | null>(null)
+
+watch(
+  () => events.value.length,
+  async (n) => {
+    if (n < stamps.value.length) stamps.value = []
+    while (stamps.value.length < n) {
+      stamps.value.push(
+        new Date().toLocaleTimeString('en-GB', { hour12: false }),
+      )
+    }
+    await nextTick()
+    if (feedEl.value) feedEl.value.scrollTop = feedEl.value.scrollHeight
+  },
+)
 
 onMounted(refresh)
 
@@ -27,68 +48,638 @@ async function onStart(): Promise<void> {
 }
 
 async function onResume(): Promise<void> {
-  if (current.value) {
-    const id = await resume(current.value, followUp.value)
-    if (id) watchEvents(id)
+  if (!current.value) return
+  const id = await resume(current.value, followUp.value)
+  if (id) watchEvents(id)
+}
+
+function onSelect(id: string): void {
+  current.value = id
+  watchEvents(id)
+}
+
+const currentStatus = computed(() => {
+  const s = sessions.value.find((x) => x.session_id === current.value)
+  return s?.status ?? (current.value ? 'running' : 'standby')
+})
+
+function shortId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-3)}` : id
+}
+
+// Map an event to a semantic tone + glyph. Tone drives the --c colour
+// custom property shared by the dot, rule, and labels.
+function tone(e: SessionEvent): string {
+  const t = e.type
+  const sub = subtype(e) ?? ''
+  if (t === 'result') return e.raw?.is_error ? 'err' : 'ok'
+  if (sub.includes('tool')) return 'tool'
+  if (t === 'assistant') return 'agent'
+  if (t === 'user') return 'user'
+  if (t.startsWith('tool')) return 'tool'
+  if (t === 'error') return 'err'
+  return 'sys'
+}
+function glyph(e: SessionEvent): string {
+  return (
+    {
+      ok: '✓',
+      err: '✕',
+      agent: '▸',
+      user: '▹',
+      tool: '⚙',
+      sys: '◇',
+    }[tone(e)] ?? '·'
+  )
+}
+function statusTone(s: string): string {
+  if (s === 'running') return 'agent'
+  if (s === 'idle') return 'ok'
+  if (s === 'error') return 'err'
+  return 'sys'
+}
+function subtype(e: SessionEvent): string | null {
+  const v = e.raw?.subtype
+  return typeof v === 'string' ? v : null
+}
+// Surface the human-meaningful line from a claude stream-json event,
+// falling back to compact JSON for shapes we don't recognise.
+function preview(e: SessionEvent): string {
+  const r = e.raw as Record<string, unknown>
+  const msg = r.message as { content?: unknown } | undefined
+  const content = msg?.content
+
+  if (Array.isArray(content)) {
+    const parts: string[] = []
+    for (const c of content as Record<string, unknown>[]) {
+      if (c.type === 'text' && typeof c.text === 'string') {
+        parts.push(c.text)
+      } else if (c.type === 'tool_use') {
+        const input = (c.input ?? {}) as Record<string, unknown>
+        const arg = input.file_path ?? input.path ?? input.command
+        parts.push(`${c.name}${arg ? ` · ${arg}` : ''}`)
+      } else if (c.type === 'tool_result') {
+        parts.push(
+          typeof c.content === 'string' ? c.content : JSON.stringify(c.content),
+        )
+      }
+    }
+    if (parts.length) return parts.join('   ')
   }
+
+  if (e.type === 'system') {
+    const tools = Array.isArray(r.tools) ? (r.tools as string[]).join(', ') : ''
+    const bits = [r.model, tools && `tools: ${tools}`].filter(Boolean)
+    if (bits.length) return bits.join('   ·   ')
+  }
+
+  if (e.type === 'result' && typeof r.result === 'string') return r.result
+
+  const clone: Record<string, unknown> = { ...r }
+  delete clone.type
+  delete clone.session_id
+  delete clone.subtype
+  const s = JSON.stringify(clone)
+  if (s === '{}' || s === undefined) return '—'
+  return s.length > 200 ? `${s.slice(0, 200)}…` : s
 }
 </script>
 
 <template>
-  <v-container>
-    <v-alert
-      v-if="error"
-      type="error"
-      variant="tonal"
-      closable
-      class="mb-4"
-      @click:close="error = null"
-    >
-      {{ error }}
-    </v-alert>
-    <v-row>
-      <v-col cols="4">
-        <v-textarea v-model="prompt" label="Start prompt" rows="3" />
-        <v-btn color="primary" block @click="onStart">Start</v-btn>
-        <v-textarea
-          v-model="followUp"
-          label="Resume input"
-          rows="3"
-          class="mt-4"
+  <div class="console">
+    <aside class="rail">
+      <div class="rail__block">
+        <div class="eyebrow">Dispatch</div>
+        <textarea
+          v-model="prompt"
+          class="field"
+          rows="4"
+          placeholder="Describe the task for a new agent…"
         />
-        <v-btn
-          color="primary"
-          block
+        <button
+          class="btn btn--primary"
+          :disabled="loading || !prompt.trim()"
+          @click="onStart"
+        >
+          <span aria-hidden="true">⟐</span> Launch session
+        </button>
+      </div>
+
+      <div class="rail__block">
+        <div class="eyebrow">Follow-up</div>
+        <textarea
+          v-model="followUp"
+          class="field"
+          rows="3"
           :disabled="!current"
+          placeholder="Send more input to the selected session…"
+        />
+        <button
+          class="btn btn--ghost"
+          :disabled="!current || loading"
           @click="onResume"
         >
-          Resume
-        </v-btn>
-        <v-list>
-          <v-list-item
+          Resume session
+        </button>
+      </div>
+
+      <div class="rail__block rail__block--grow">
+        <div class="rail__head">
+          <span class="eyebrow">Sessions</span>
+          <span class="pill mono">{{ sessions.length }}</span>
+        </div>
+        <div class="sessions scroll">
+          <button
             v-for="s in sessions"
             :key="s.session_id"
-            :title="s.session_id"
-            :subtitle="`${s.status} · ${s.event_count} events`"
-          />
-        </v-list>
-      </v-col>
-      <v-col cols="8">
-        <v-card title="Live events">
-          <v-card-text style="font-family: monospace">
-            <div v-for="(e, i) in events" :key="i">
-              {{ e.type }} — {{ JSON.stringify(e.raw).slice(0, 120) }}
+            class="scard"
+            :class="{ 'scard--active': s.session_id === current }"
+            @click="onSelect(s.session_id)"
+          >
+            <span class="scard__id mono">{{ shortId(s.session_id) }}</span>
+            <span class="scard__meta" :class="`t-${statusTone(s.status)}`">
+              <span class="scard__dot" />
+              {{ s.status }}
+              <span class="scard__sep">·</span>
+              {{ s.event_count }} ev
+            </span>
+          </button>
+          <p v-if="!sessions.length" class="sessions__empty mono">
+            No sessions dispatched yet
+          </p>
+        </div>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <transition name="drop">
+        <div v-if="error" class="banner" role="alert">
+          <span class="banner__glyph" aria-hidden="true">!</span>
+          <span class="banner__text">{{ error }}</span>
+          <button class="banner__close" aria-label="Dismiss" @click="error = null">
+            ✕
+          </button>
+        </div>
+      </transition>
+
+      <header class="stage__head">
+        <div class="stage__title">
+          <span class="eyebrow">Session</span>
+          <span class="stage__id mono">{{ current ?? '—' }}</span>
+        </div>
+        <div class="stage__right">
+          <span class="chip" :class="`t-${statusTone(currentStatus)}`">
+            <span class="chip__dot" />
+            <span class="mono">{{ currentStatus }}</span>
+          </span>
+          <span class="stage__count mono">{{ events.length }} events</span>
+        </div>
+      </header>
+
+      <div ref="feedEl" class="feed scroll">
+        <div v-if="!events.length" class="feed__empty">
+          <span class="feed__ping" aria-hidden="true" />
+          <p class="feed__empty-title">Awaiting dispatch</p>
+          <p class="feed__empty-sub mono">
+            Launch a session to stream its telemetry here.
+          </p>
+        </div>
+
+        <ol v-else class="timeline">
+          <li
+            v-for="(e, i) in events"
+            :key="i"
+            class="ev"
+            :class="`t-${tone(e)}`"
+          >
+            <div class="ev__rail">
+              <span class="ev__dot">{{ glyph(e) }}</span>
             </div>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-    <v-progress-linear
-      v-if="loading"
-      absolute
-      color="primary"
-      indeterminate
-      location="bottom"
-    />
-  </v-container>
+            <div class="ev__body">
+              <div class="ev__meta">
+                <span class="ev__tick mono">{{ stamps[i] }}</span>
+                <span class="ev__type">{{ e.type }}</span>
+                <span v-if="subtype(e)" class="ev__sub mono">{{
+                  subtype(e)
+                }}</span>
+              </div>
+              <div class="ev__payload mono">{{ preview(e) }}</div>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+  </div>
 </template>
+
+<style scoped>
+.console {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---- Dispatch rail ---- */
+.rail {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 18px;
+  border-right: 1px solid var(--line);
+  background: var(--ink-800);
+  overflow: hidden;
+}
+.rail__block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.rail__block:first-child {
+  padding-top: 0;
+}
+.rail__block--grow {
+  flex: 1;
+  min-height: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pill {
+  font-size: 11px;
+  color: var(--text-mid);
+  background: var(--ink-700);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 9px;
+}
+
+.sessions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+.scard {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 13px;
+  background: var(--ink-700);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.scard:hover {
+  background: var(--ink-650);
+}
+.scard--active {
+  border-left-color: var(--signal);
+  background: var(--ink-650);
+}
+.scard__id {
+  font-size: 12.5px;
+  color: var(--text-hi);
+}
+.scard__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-mid);
+}
+.scard__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c, var(--idle));
+}
+.scard__sep {
+  color: var(--text-dim);
+}
+.sessions__empty {
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 8px 2px;
+}
+
+/* ---- Stage ---- */
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 24px 0;
+  padding: 11px 14px;
+  border: 1px solid color-mix(in srgb, var(--err) 45%, var(--line));
+  border-left: 3px solid var(--err);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--err) 12%, var(--ink-800));
+  color: var(--text-hi);
+  font-size: 13px;
+}
+.banner__glyph {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--err);
+  color: var(--ink-900);
+  font-weight: 700;
+  font-size: 13px;
+}
+.banner__text {
+  flex: 1;
+}
+.banner__close {
+  background: none;
+  border: none;
+  color: var(--text-mid);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+}
+.banner__close:hover {
+  color: var(--text-hi);
+}
+
+.stage__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.stage__title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.stage__id {
+  font-size: 15px;
+  color: var(--text-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stage__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: none;
+}
+.stage__count {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--c, var(--idle)) 40%, var(--line));
+  background: color-mix(in srgb, var(--c, var(--idle)) 12%, transparent);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c, var(--idle));
+}
+.chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c, var(--idle));
+}
+
+/* ---- Signature: live telemetry feed ---- */
+.feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 24px 28px;
+}
+.feed__empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+.feed__ping {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  position: relative;
+  margin-bottom: 8px;
+}
+.feed__ping::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--signal);
+  opacity: 0.5;
+  animation: ping 2.4s ease-out infinite;
+}
+@keyframes ping {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+.feed__empty-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+.feed__empty-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 14px 0 0;
+}
+.ev {
+  --c: var(--idle);
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 14px;
+}
+.ev.t-sys {
+  --c: var(--idle);
+}
+.ev.t-agent {
+  --c: var(--signal);
+}
+.ev.t-user {
+  --c: var(--user);
+}
+.ev.t-tool {
+  --c: var(--warn);
+}
+.ev.t-ok {
+  --c: var(--ok);
+}
+.ev.t-err {
+  --c: var(--err);
+}
+
+.ev__rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.ev__rail::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--line);
+  transform: translateX(-0.5px);
+}
+.ev:first-child .ev__rail::before {
+  top: 11px;
+}
+.ev:last-child .ev__rail::before {
+  bottom: auto;
+  height: 11px;
+}
+.ev__dot {
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--c);
+  background: var(--ink-700);
+  border: 1px solid color-mix(in srgb, var(--c) 55%, var(--line));
+  box-shadow: 0 0 0 3px var(--ink-900);
+}
+.ev__body {
+  padding-bottom: 16px;
+  min-width: 0;
+}
+.ev__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 3px;
+}
+.ev__tick {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  flex: none;
+}
+.ev__type {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hi);
+}
+.ev__sub {
+  font-size: 11px;
+  color: var(--c);
+  border: 1px solid color-mix(in srgb, var(--c) 35%, var(--line));
+  border-radius: 999px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+}
+.ev__payload {
+  font-size: 12px;
+  color: var(--text-mid);
+  word-break: break-word;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* status tones reused on rail cards + chip via --c */
+.t-sys {
+  --c: var(--idle);
+}
+.t-agent {
+  --c: var(--signal);
+}
+.t-user {
+  --c: var(--user);
+}
+.t-tool {
+  --c: var(--warn);
+}
+.t-ok {
+  --c: var(--ok);
+}
+.t-err {
+  --c: var(--err);
+}
+
+.drop-enter-active,
+.drop-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.drop-enter-from,
+.drop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (max-width: 860px) {
+  .console {
+    flex-direction: column;
+  }
+  .rail {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    max-height: 46%;
+  }
+}
+</style>
