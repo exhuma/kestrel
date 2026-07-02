@@ -78,6 +78,15 @@ export function useWorkflows() {
     if (current.value) await api.post(`/api/workflows/${current.value.id}/reply`, { text })
   }
 
+  async function submitAnswers(
+    answers: Record<string, unknown>,
+  ): Promise<void> {
+    if (current.value)
+      await api.post(`/api/workflows/${current.value.id}/answers`, {
+        answers,
+      })
+  }
+
   async function approve(deliverable?: string): Promise<void> {
     if (current.value)
       await api.post(`/api/workflows/${current.value.id}/approve`, { deliverable: deliverable ?? null })
@@ -101,5 +110,5 @@ export function useWorkflows() {
     }
   }
 
-  return { workflows, current, events, error, refresh, select, ensureLive, createWorkflow, reply, approve, reject, stop }
+  return { workflows, current, events, error, refresh, select, ensureLive, createWorkflow, reply, submitAnswers, approve, reject, stop }
 }
