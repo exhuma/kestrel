@@ -55,9 +55,15 @@ class _FakeRunner:
         self._n = 0
 
     async def run_blocking(self, prompt, cwd, permission_mode,
-                           resume_id=None, on_session_id=None) -> str:
+                           resume_id=None, on_session_id=None,
+                           model=None) -> str:
         sid = resume_id or f"s{self._n}"
         self._n += 1
+        self.calls = getattr(self, "calls", [])
+        self.calls.append(
+            {"resume_id": resume_id, "model": model,
+             "permission_mode": permission_mode}
+        )
         text = self._outputs.pop(0)
         if self.sessions.get(sid) is None:
             self.sessions._records[sid] = SessionRecord(session_id=sid, cwd=cwd)
@@ -214,3 +220,38 @@ async def test_reply_wrong_state_raises() -> None:
     svc._control["wf"] = svc._new_control()  # needs a running loop
     with pytest.raises(InvalidWorkflowStateError):
         svc.reply("wf", "an answer")
+
+
+@pytest.mark.asyncio
+async def test_steps_use_policy_models() -> None:
+    """Ensure each phase passes its policy model to claude."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<REFINED_ISSUE>\nBuild it\n</REFINED_ISSUE>",
+        "<PLAN>\nDo it\n</PLAN>",
+        "Implemented",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_approval"
+    )
+    svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_plan_approval"
+    )
+    svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_implement_approval"
+    )
+    assert [c["model"] for c in runner.calls] == [
+        "sonnet", "sonnet", "sonnet",
+    ]
+    assert [s.model for s in svc.get(wid).steps] == [
+        "sonnet", "sonnet", "sonnet",
+    ]
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")

@@ -29,3 +29,10 @@ def test_unknown_step_raises() -> None:
     policy = ModelPolicy(overrides={})
     with pytest.raises(KeyError):
         policy.model_for("nonsense")
+
+
+def test_refine_step_has_a_default_model() -> None:
+    """Ensure the workflow's refine step is in the policy."""
+    assert ModelPolicy(overrides={}).model_for("refine") == (
+        "sonnet"
+    )

@@ -12,6 +12,7 @@ DEFAULT_MODELS: dict[str, str] = {
     "gap_analysis": "haiku",
     "clarify": "haiku",
     "describe": "sonnet",
+    "refine": "sonnet",
     "plan": "sonnet",
     "implement": "sonnet",
 }

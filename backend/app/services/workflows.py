@@ -10,6 +10,7 @@ from functools import lru_cache
 
 from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun, WorkflowStep
+from app.policy import get_policy
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
@@ -220,12 +221,15 @@ class WorkflowService:
         step = run.steps[0]
         prompt = REFINE_PROMPT.format(issue=body)
         sid: str | None = None
+        model = get_policy().model_for("refine")
+        step.model = model
         while True:
             run.status = "refining"
             step.status = "running"
             sid = await self.runner.run_blocking(
                 prompt, run.workspace, "plan", resume_id=sid,
                 on_session_id=lambda s: setattr(step, "session_id", s),
+                model=model,
             )
             text = self._result_text(sid)
             refined = extract_refined_issue(text)
@@ -255,9 +259,12 @@ class WorkflowService:
         run.status = "planning"
         step.status = "running"
         refined = run.steps[0].deliverable or ""
+        model = get_policy().model_for("plan")
+        step.model = model
         sid = await self.runner.run_blocking(
             PLAN_PROMPT.format(issue=refined), run.workspace, "plan",
             on_session_id=lambda s: setattr(step, "session_id", s),
+            model=model,
         )
         text = self._result_text(sid)
         # Prefer the tagged block; fall back to the raw text so a run still
@@ -277,10 +284,13 @@ class WorkflowService:
         step = run.steps[2]
         run.status = "implementing"
         step.status = "running"
+        model = get_policy().model_for("implement")
+        step.model = model
         sid = await self.runner.run_blocking(
             IMPLEMENT_PROMPT, run.workspace, "acceptEdits",
             resume_id=run.steps[1].session_id,
             on_session_id=lambda s: setattr(step, "session_id", s),
+            model=model,
         )
         step.deliverable = await self.git.diff(run.workspace)
         step.status = "awaiting_approval"

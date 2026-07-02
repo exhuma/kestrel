@@ -189,6 +189,7 @@ class SessionRunner:
         permission_mode: str,
         resume_id: str | None = None,
         on_session_id: Callable[[str], None] | None = None,
+        model: str | None = None,
     ) -> str:
         """
         Run a claude step to completion, streaming events live.
@@ -205,11 +206,13 @@ class SessionRunner:
             session.
         :param on_session_id: Optional callback invoked with the id the
             first time it becomes known.
+        :param model: Model alias for ``--model``, or None to use the
+            CLI's default.
         :returns: The resolved session id.
         :raises SessionStartError: If no session id is produced.
         """
         os.makedirs(cwd, exist_ok=True)
-        argv = self.build_argv(prompt, resume_id, permission_mode)
+        argv = self.build_argv(prompt, resume_id, permission_mode, model)
         proc = await asyncio.create_subprocess_exec(
             *argv,
             cwd=cwd,
