@@ -32,10 +32,18 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
   [plan](2026-07-01-kestrel-m-c-github.md) — DRAFT (task-level)
   Webhook + HMAC + dedup + poll reconciliation, GitHubSource,
   worktree workspace manager.
-- [ ] **M-D · Interview subsystem** —
-  [plan](2026-07-01-kestrel-m-d-interview.md) — DRAFT (task-level)
-  Questionnaire schema/validation, gap-analysis output contract,
-  web-UI form renderer, answer capture.
+- [x] **M-D · Structured questionnaires** —
+  [plan](2026-07-02-kestrel-m-d-questionnaires.md) —
+  **DONE 2026-07-02** (reconciled against master's workflow v1;
+  supersedes the pre-merge `work_item` interview draft — no
+  `questionnaire`/`answer` tables, no separate gap-analysis step,
+  no JSON-Schema prompt dump, no `@vue/test-utils`; see the plan's
+  header for the full deviation rationale)
+  The refine agent asks clarifying questions as a typed
+  `<QUESTIONS>` JSON block; the UI renders real form controls
+  (radio/checkbox/textarea) with "why" hints instead of one
+  free-text box. Malformed or absent questionnaires fall back to
+  the original free-text reply with zero regression risk.
 - [x] **M-E · Reject-with-refinement gates** —
   [plan](2026-07-02-kestrel-m-e-refinement-gates.md) —
   **DONE 2026-07-02** (reconciled against master's workflow v1;
@@ -67,3 +75,4 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 | 2026-07-01 | M-A executed and verified (25 backend + 5 frontend tests; real-session restart E2E passed). Next: M-B. |
 | 2026-07-02 | Plans reconciled with master's workflow v1 (GitHubClient/GitService/WorkflowService already exist). M-B rescoped to durable workflow runs, executed and verified. next-steps.md persistence gap closed. Next: M-E refine loops or M-D questionnaires. |
 | 2026-07-02 | M-E executed and verified (92 backend + 10 frontend tests; real-run E2E on exhuma/kestrel#2 — reject-with-feedback resumed the original refine session and incorporated the feedback; bare reject confirmed terminal). Next: M-D questionnaires or M-C webhooks. |
+| 2026-07-02 | M-D executed and verified (107 backend + 17 frontend tests; real-run E2E on exhuma/kestrel#2 through the actual browser — a genuine `<QUESTIONS>` block rendered as a radio-button form with a "why" hint, answer submission resumed the session and correctly shaped the refined issue; a separate run also proved the free-text fallback when the model didn't comply). Next: M-C webhooks or M-F autonomous implementation. |
