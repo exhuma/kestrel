@@ -54,10 +54,22 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
   claude session with the feedback and regenerates the
   deliverable at the same gate; a bare reject stays terminal.
   Applies to the refine, plan, and implement gates.
-- [ ] **M-F · Autonomous implementation & PR** —
-  [plan](2026-07-01-kestrel-m-f-implementation.md) — DRAFT (task-level)
-  Implementation in a worktree, blocker pause → clarify → resume,
-  commit/push, (draft) PR, Notifier protocol.
+- [x] **M-F · Implementation blockers & delivery** —
+  [plan](2026-07-02-kestrel-m-f-implementation-blockers.md) —
+  **DONE 2026-07-02** (reconciled against master's workflow v1;
+  supersedes the pre-merge `WorkspaceManager`/`KESTREL_BLOCKER`
+  draft — reuses the exact `<QUESTIONS>` contract from M-D, no
+  round cap/`blocked` outcome, no `Notifier` protocol yet since
+  M-G's notification center is its only consumer; see the plan's
+  header for the full deviation rationale)
+  If the implementation agent hits a genuine blocker, it pauses
+  with a structured question (reusing `_refine`'s exact
+  mechanism) and resumes the *same* session once answered — an
+  empty `git diff` after a run is the deterministic signal that
+  distinguishes "blocked" from "done", since a real diff has no
+  tag to check. `reply`/`submit_answers` now route to whichever
+  step is awaiting input, not just refine. Delivery (commit,
+  push, draft PR) was already built; unchanged.
 - [ ] **M-G · UI overhaul & ergonomics** —
   [plan](2026-07-01-kestrel-m-g-ui.md) — DRAFT (task-level)
   Human-friendly event rendering with raw-JSON access, dashboard/
@@ -76,3 +88,4 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 | 2026-07-02 | Plans reconciled with master's workflow v1 (GitHubClient/GitService/WorkflowService already exist). M-B rescoped to durable workflow runs, executed and verified. next-steps.md persistence gap closed. Next: M-E refine loops or M-D questionnaires. |
 | 2026-07-02 | M-E executed and verified (92 backend + 10 frontend tests; real-run E2E on exhuma/kestrel#2 — reject-with-feedback resumed the original refine session and incorporated the feedback; bare reject confirmed terminal). Next: M-D questionnaires or M-C webhooks. |
 | 2026-07-02 | M-D executed and verified (107 backend + 17 frontend tests; real-run E2E on exhuma/kestrel#2 through the actual browser — a genuine `<QUESTIONS>` block rendered as a radio-button form with a "why" hint, answer submission resumed the session and correctly shaped the refined issue; a separate run also proved the free-text fallback when the model didn't comply). Next: M-C webhooks or M-F autonomous implementation. |
+| 2026-07-02 | M-F executed and verified (112 backend tests; a real, unprompted-by-fixture mid-implementation blocker fired on the first live attempt — same `QuestionnaireForm` UI rendered it with zero frontend changes, answering it resumed the exact same claude session that produced the plan, and the run completed end-to-end to a real draft PR, exhuma/kestrel#7, left open for human review). Restart-recovery of an implement blocker relies on unit coverage plus architectural identity with M-B's already-live-restart-verified refine recovery, rather than a repeated live restart. Next: M-C webhooks or M-G UI overhaul. |
