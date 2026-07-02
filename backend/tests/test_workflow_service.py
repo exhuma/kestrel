@@ -22,12 +22,19 @@ from app.storage.workflow_registry import WorkflowRegistry
 class _FakeGit:
     def __init__(self) -> None:
         self.pushed: list[str] = []
+        self.diffs: list[str] = ["diff --git a/x b/x"]
 
     async def clone(self, remote_url: str, dest: str) -> None: ...
     async def checkout_branch(self, dest: str, branch: str) -> None: ...
     async def commit_all(self, dest: str, message: str) -> None: ...
     async def diff(self, dest: str) -> str:
-        return "diff --git a/x b/x"
+        # Pop while more than one entry is queued; once down to the
+        # last (or default single) entry, keep returning it so
+        # tests that call diff() repeatedly without pre-loading a
+        # long queue still see a stable, non-empty value.
+        if len(self.diffs) > 1:
+            return self.diffs.pop(0)
+        return self.diffs[0] if self.diffs else ""
     async def push(self, dest: str, branch: str) -> None:
         self.pushed.append(branch)
 
@@ -496,3 +503,73 @@ async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> None
     svc.submit_answers("wf", {"q1": "a"})
     queued = await svc._control["wf"].replies.get()
     assert "ANSWERS:" in queued
+
+
+@pytest.mark.asyncio
+async def test_implement_blocker_is_structured_and_resumable() -> None:
+    """Ensure a mid-implementation blocker pauses and resumes."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    git = _FakeGit()
+    # First implement call produces no diff (it's the blocker);
+    # the second, post-answer call produces the real change.
+    git.diffs = ["", "diff --git a/x b/x"]
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<PLAN>\nStep 1\n</PLAN>",
+        "<QUESTIONS>"
+        '{"questions": [{"id": "q1", "prompt": "Which file name?", '
+        '"type": "single_select", "required": true, '
+        '"options": [{"value": "a", "label": "config.yaml"}, '
+        '{"value": "b", "label": "settings.yaml"}]}]}'
+        "</QUESTIONS>",
+        "Implemented using config.yaml",
+    ])
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+
+    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    svc.approve(wid)
+
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_implement_input"
+    )
+    deliverable = svc.get(wid).steps[2].deliverable
+    parsed = json.loads(deliverable)
+    assert parsed["questions"][0]["id"] == "q1"
+    blocked_sid = svc.get(wid).steps[2].session_id
+    plan_sid = svc.get(wid).steps[1].session_id
+    assert blocked_sid == plan_sid  # implement resumed the plan session
+
+    svc.submit_answers(wid, {"q1": "a"})
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_implement_approval"
+    )
+    assert "ANSWERS:" in runner.calls[2]["prompt"]
+    assert runner.calls[2]["resume_id"] == blocked_sid
+    assert "diff" in svc.get(wid).steps[2].deliverable
+
+
+@pytest.mark.asyncio
+async def test_implement_malformed_blocker_falls_back_to_text_reply() -> None:
+    """Ensure a non-compliant blocker message still allows a reply."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    git = _FakeGit()
+    git.diffs = ["", "diff --git a/x b/x"]
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<PLAN>\nStep 1\n</PLAN>",
+        "I'm not sure which approach — thoughts?",
+        "Implemented",
+    ])
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_implement_input"
+    )
+    assert svc.get(wid).steps[2].deliverable == (
+        "I'm not sure which approach — thoughts?"
+    )
+    svc.reply(wid, "Use approach B")
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_implement_approval"
+    )

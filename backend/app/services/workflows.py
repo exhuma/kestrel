@@ -90,8 +90,19 @@ PLAN_PROMPT = (
     "else. Do not edit any files.\n\nISSUE:\n{issue}"
 )
 IMPLEMENT_PROMPT = (
-    "Implement the plan you just produced. Make all necessary code edits in "
-    "this repository now."
+    "Implement the plan you just produced. Make all necessary code "
+    "edits in this repository now. If you get genuinely blocked and "
+    "need a decision you cannot make yourself, ask ONE round of "
+    "clarifying questions as a single JSON object wrapped EXACTLY in "
+    "<QUESTIONS> and </QUESTIONS> tags and nothing else, matching "
+    "this shape:\n"
+    '{"questions": [{"id": "q1", "prompt": "...", "why": "...", '
+    '"type": "single_select", "required": true, '
+    '"options": [{"value": "a", "label": "Option A"}]}]}\n'
+    '"type" is one of "single_select", "multi_select", "boolean", '
+    '"free_text" ("options" only applies to the select types; omit '
+    "it otherwise). Otherwise, once the implementation is complete, "
+    "just stop — do not wrap your final summary in any tags."
 )
 
 
@@ -481,6 +492,10 @@ class WorkflowService:
         prompt: str | None
         if step.status == "awaiting_approval":
             prompt = None  # recovered at the gate: skip to it
+        elif step.status == "awaiting_input":
+            # Recovered mid-blocker: wait for the answer, then
+            # resume the persisted claude session with it.
+            prompt = await self._control[run.id].replies.get()
         else:
             prompt = IMPLEMENT_PROMPT
         model = get_policy().model_for("implement")
@@ -490,7 +505,7 @@ class WorkflowService:
                 run.status = "implementing"
                 step.status = "running"
                 self.workflows.save(run)
-                await self.runner.run_blocking(
+                sid = await self.runner.run_blocking(
                     prompt, run.workspace, "acceptEdits",
                     resume_id=(
                         step.session_id
@@ -501,9 +516,25 @@ class WorkflowService:
                     ),
                     model=model,
                 )
-                step.deliverable = await self.git.diff(
-                    run.workspace
-                )
+                text = self._result_text(sid)
+                diff = await self.git.diff(run.workspace)
+                if not diff.strip():
+                    # No changes yet: treat the response as a
+                    # blocker, structured or raw-text.
+                    questionnaire = extract_questionnaire(text)
+                    step.deliverable = (
+                        questionnaire.model_dump_json()
+                        if questionnaire is not None
+                        else text
+                    )
+                    step.status = "awaiting_input"
+                    run.status = "awaiting_implement_input"
+                    self.workflows.save(run)
+                    prompt = await (
+                        self._control[run.id].replies.get()
+                    )
+                    continue
+                step.deliverable = diff
                 step.status = "awaiting_approval"
                 run.status = "awaiting_implement_approval"
                 self.workflows.save(run)
