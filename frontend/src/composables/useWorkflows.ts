@@ -24,9 +24,12 @@ export function useWorkflows() {
 
   async function loadDetail(id: string): Promise<void> {
     const detail = await api.get<WorkflowDetail>(`/api/workflows/${id}`)
-    // Re-subscribe to the live feed when the active step's session changes.
+    // Re-subscribe to the live feed when the active step's session
+    // changes, or when the previous subscription was torn down by
+    // stop() (e.g. the panel was unmounted and remounted).
     if (detail.current_session_id &&
-        detail.current_session_id !== current.value?.current_session_id) {
+        (!source ||
+          detail.current_session_id !== current.value?.current_session_id)) {
       watchSession(detail.current_session_id)
     }
     current.value = detail
@@ -45,6 +48,14 @@ export function useWorkflows() {
     if (poll) clearInterval(poll)
     void loadDetail(id)
     poll = setInterval(() => void loadDetail(id), 1500)
+  }
+
+  function ensureLive(): void {
+    // Re-arm polling and the event stream after stop() so a
+    // remounted panel keeps tracking the already-selected run.
+    // Without this, the UI freezes on the pre-unmount state and
+    // never surfaces awaiting_input / awaiting_approval gates.
+    if (current.value && !poll) select(current.value.id)
   }
 
   async function createWorkflow(repo: string, issueNumber: number): Promise<string | null> {
@@ -87,5 +98,5 @@ export function useWorkflows() {
     }
   }
 
-  return { workflows, current, events, error, refresh, select, createWorkflow, reply, approve, reject, stop }
+  return { workflows, current, events, error, refresh, select, ensureLive, createWorkflow, reply, approve, reject, stop }
 }

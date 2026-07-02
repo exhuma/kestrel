@@ -1,6 +1,7 @@
 .claude/settings.local.json
 backend/.venv/
 backend/.kestrel-workspaces/
+backend/.dispatcher-workspaces/
 backend/kestrel.db
 backend/.env
 __pycache__/

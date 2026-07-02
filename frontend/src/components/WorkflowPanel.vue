@@ -2,8 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
 
-const { workflows, current, events, error, refresh, select, createWorkflow,
-  reply, approve, reject, stop } = useWorkflows()
+const { workflows, current, events, error, refresh, select, ensureLive,
+  createWorkflow, reply, approve, reject, stop } = useWorkflows()
 
 const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
@@ -11,7 +11,10 @@ const answer = ref('')
 const edited = ref('')
 const busy = ref<'create' | 'approve' | 'reject' | 'reply' | null>(null)
 
-onMounted(refresh)
+onMounted(() => {
+  void refresh()
+  ensureLive()
+})
 onUnmounted(stop)
 
 const STEP_LABELS = ['refine', 'plan', 'implement'] as const
@@ -98,7 +101,11 @@ function stepTone(status: string): string {
             @click="select(w.id)"
           >
             <span class="scard__id mono">{{ w.repo }}#{{ w.issue_number }}</span>
-            <span class="scard__meta">{{ w.status }}</span>
+            <span class="scard__meta">
+              <span v-if="w.status.startsWith('awaiting')" class="scard__dot"
+                aria-hidden="true" />
+              {{ w.status }}
+            </span>
           </button>
           <p v-if="!workflows.length" class="sessions__empty mono">
             No workflows yet
@@ -145,6 +152,16 @@ function stepTone(status: string): string {
         <div v-if="stepRunning" class="working">
           <span class="working__pulse" aria-hidden="true" />
           <span class="mono">{{ activeStep?.name }} — agent is working…</span>
+        </div>
+
+        <div v-if="awaitingInput || awaitingApproval" class="working working--attention"
+          role="status">
+          <span class="working__pulse working__pulse--warn" aria-hidden="true" />
+          <span class="mono">
+            {{ activeStep?.name }} —
+            {{ awaitingInput ? 'the agent awaits your answers below'
+              : 'awaiting your approval below' }}
+          </span>
         </div>
 
         <div class="deliverable" v-if="activeStep?.deliverable">
@@ -264,6 +281,24 @@ function stepTone(status: string): string {
   0% { box-shadow: 0 0 0 0 rgba(53, 230, 201, 0.45); }
   70% { box-shadow: 0 0 0 7px rgba(53, 230, 201, 0); }
   100% { box-shadow: 0 0 0 0 rgba(53, 230, 201, 0); }
+}
+.working--attention { border-color: var(--warn); color: var(--text-hi); }
+.working__pulse--warn {
+  background: var(--warn);
+  animation: attention-pulse 1.4s ease-out infinite;
+}
+.scard__dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; background: var(--warn);
+  animation: attention-pulse 1.4s ease-out infinite;
+}
+@keyframes attention-pulse {
+  0% {
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--warn) 45%, transparent);
+  }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 .gate { display: flex; flex-direction: column; gap: 10px; }
 .gate__actions { display: flex; gap: 10px; }
