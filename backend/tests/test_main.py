@@ -21,6 +21,19 @@ async def test_root_returns_ok() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ping_returns_timestamp() -> None:
+    """Ensure /ping reports a timestamp for liveness/clock checks."""
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        resp = await client.get("/ping")
+    assert resp.status_code == 200
+    assert "timestamp" in resp.json()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "origin",
     [

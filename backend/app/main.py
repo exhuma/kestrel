@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
@@ -92,6 +93,11 @@ def create_app() -> FastAPI:
     async def root() -> dict[str, str]:
         """Report basic service liveness."""
         return {"status": "ok"}
+
+    @app.get("/ping")
+    async def ping() -> dict[str, str]:
+        """Report current server time for liveness/clock checks."""
+        return {"timestamp": datetime.now(timezone.utc).isoformat()}
 
     from app.routers import sessions, workflows
 
