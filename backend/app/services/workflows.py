@@ -178,32 +178,42 @@ class WorkflowService:
         task.add_done_callback(_WF_TASKS.discard)
         return run.id
 
+    def _awaiting_input_step(self, run: WorkflowRun) -> WorkflowStep:
+        """
+        Return whichever step is currently awaiting a reply.
+
+        :param run: The run to search.
+        :returns: The step with status "awaiting_input".
+        :raises InvalidWorkflowStateError: If no step is awaiting
+            input.
+        """
+        for step in run.steps:
+            if step.status == "awaiting_input":
+                return step
+        raise InvalidWorkflowStateError("not awaiting a reply")
+
     def reply(self, workflow_id: str, text: str) -> None:
         run = self.get(workflow_id)
-        step = run.steps[0]
-        if step.name != "refine" or step.status != "awaiting_input":
-            raise InvalidWorkflowStateError("not awaiting a refine reply")
+        self._awaiting_input_step(run)
         self._control[workflow_id].replies.put_nowait(text)
 
     def submit_answers(
         self, workflow_id: str, answers: dict[str, object]
     ) -> None:
         """
-        Answer the pending structured questionnaire.
+        Answer whichever step's pending structured questionnaire.
 
         Validates the answers, formats them into the same text
-        contract ``reply`` uses, and resumes the refine session.
+        contract ``reply`` uses, and resumes that step's session.
 
         :param workflow_id: Id of the run being answered.
         :param answers: Question id -> submitted value.
-        :raises InvalidWorkflowStateError: If no questionnaire is
-            pending.
+        :raises InvalidWorkflowStateError: If no step is awaiting
+            input, or it has no pending questionnaire.
         :raises AnswerValidationError: If any answer is invalid.
         """
         run = self.get(workflow_id)
-        step = run.steps[0]
-        if step.name != "refine" or step.status != "awaiting_input":
-            raise InvalidWorkflowStateError("not awaiting a refine reply")
+        step = self._awaiting_input_step(run)
         questionnaire = parse_questionnaire_json(step.deliverable or "")
         if questionnaire is None:
             raise InvalidWorkflowStateError("no pending questionnaire")

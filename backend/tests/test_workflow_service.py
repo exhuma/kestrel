@@ -437,3 +437,62 @@ async def test_submit_answers_validates() -> None:
     with pytest.raises(AnswerValidationError):
         svc.submit_answers(wid, {"q1": "saml"})
     assert len(runner.calls) == 1  # no further session call
+
+
+@pytest.mark.asyncio
+async def test_reply_targets_whichever_step_is_awaiting_input() -> None:
+    """Ensure reply routes to a non-refine step awaiting input."""
+    from app.models_workflow import WorkflowRun, WorkflowStep
+
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]), _FakeGit()
+    )
+    run = WorkflowRun(
+        id="wf", repo="o/r", issue_number=1,
+        steps=[
+            WorkflowStep(name="refine", status="done"),
+            WorkflowStep(name="plan", status="done"),
+            WorkflowStep(
+                name="implement", status="awaiting_input",
+                deliverable="Which file name?",
+            ),
+        ],
+    )
+    svc.workflows.create(run)
+    svc._control["wf"] = svc._new_control()
+
+    svc.reply("wf", "config.yaml")
+    queued = await svc._control["wf"].replies.get()
+    assert queued == "config.yaml"
+
+
+@pytest.mark.asyncio
+async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> None:
+    """Ensure submit_answers validates against the active step."""
+    from app.models_workflow import WorkflowRun, WorkflowStep
+
+    questionnaire = (
+        '{"questions": [{"id": "q1", "prompt": "Which?", '
+        '"type": "single_select", "required": true, '
+        '"options": [{"value": "a", "label": "A"}]}]}'
+    )
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]), _FakeGit()
+    )
+    run = WorkflowRun(
+        id="wf", repo="o/r", issue_number=1,
+        steps=[
+            WorkflowStep(name="refine", status="done"),
+            WorkflowStep(name="plan", status="done"),
+            WorkflowStep(
+                name="implement", status="awaiting_input",
+                deliverable=questionnaire,
+            ),
+        ],
+    )
+    svc.workflows.create(run)
+    svc._control["wf"] = svc._new_control()
+
+    svc.submit_answers("wf", {"q1": "a"})
+    queued = await svc._control["wf"].replies.get()
+    assert "ANSWERS:" in queued
