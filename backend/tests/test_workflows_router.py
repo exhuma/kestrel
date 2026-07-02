@@ -6,6 +6,7 @@ import pytest
 
 from app.main import create_app
 from app.models_workflow import WorkflowRun, WorkflowStep
+from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
@@ -17,6 +18,7 @@ class _FakeService:
     def __init__(self) -> None:
         self.approved: list[str] = []
         self.rejected: tuple[str, str | None] | None = None
+        self.answers: dict[str, object] | None = None
 
     async def create(self, repo: str, issue_number: int) -> str:
         return "wf-1"
@@ -52,6 +54,15 @@ class _FakeService:
 
     def reply(self, workflow_id: str, text: str) -> None:
         raise InvalidWorkflowStateError("not awaiting a refine reply")
+
+    def submit_answers(
+        self, workflow_id: str, answers: dict[str, object]
+    ) -> None:
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        if answers.get("q1") == "bad":
+            raise AnswerValidationError({"q1": "must be oidc"})
+        self.answers = answers
 
 
 def _client(service):
@@ -125,3 +136,29 @@ async def test_reject_without_prompt_is_terminal() -> None:
         )
     assert resp.status_code == 200
     assert service.rejected == ("wf-1", None)
+
+
+@pytest.mark.asyncio
+async def test_submit_answers_ok() -> None:
+    """Ensure valid answers post through to the service."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.post(
+            "/api/workflows/wf-1/answers",
+            json={"answers": {"q1": "oidc"}},
+        )
+    assert resp.status_code == 200
+    assert service.answers == {"q1": "oidc"}
+
+
+@pytest.mark.asyncio
+async def test_submit_answers_validation_error_is_422() -> None:
+    """Ensure invalid answers map to HTTP 422 with error detail."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.post(
+            "/api/workflows/wf-1/answers",
+            json={"answers": {"q1": "bad"}},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["errors"] == {"q1": "must be oidc"}

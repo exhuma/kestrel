@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 
 from app.models_workflow import WorkflowRun
 from app.schemas import (
+    AnswersIn,
     ApproveIn,
     CreateWorkflowIn,
     RejectIn,
@@ -101,4 +102,15 @@ async def reject_workflow(
 ) -> dict[str, str]:
     """Reject the current gate, optionally with feedback."""
     service.reject(workflow_id, body.refinement_prompt)
+    return {"status": "ok"}
+
+
+@router.post("/{workflow_id}/answers")
+async def submit_answers(
+    workflow_id: str,
+    body: AnswersIn,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """Submit structured answers to the pending questionnaire."""
+    service.submit_answers(workflow_id, body.answers)
     return {"status": "ok"}

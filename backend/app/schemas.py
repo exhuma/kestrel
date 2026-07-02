@@ -81,3 +81,9 @@ class RejectIn(BaseModel):
     """
 
     refinement_prompt: str | None = None
+
+
+class AnswersIn(BaseModel):
+    """Request body to answer a structured questionnaire."""
+
+    answers: dict[str, object]

@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     SessionNotFoundError,
@@ -62,6 +63,19 @@ def create_app() -> FastAPI:
     ) -> JSONResponse:
         """Map an invalid workflow transition to HTTP 409."""
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(AnswerValidationError)
+    async def _invalid_answers(
+        request: Request, exc: AnswerValidationError
+    ) -> JSONResponse:
+        """Map invalid questionnaire answers to HTTP 422."""
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "invalid answers",
+                "errors": exc.errors,
+            },
+        )
 
     # Personal single-user dev tool: allow the SPA from any local port
     # (Vite may pick 5173, 5174, ... depending on what is free) served
