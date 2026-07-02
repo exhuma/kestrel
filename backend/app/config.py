@@ -10,7 +10,11 @@ class Settings(BaseSettings):
     """Runtime configuration for the kestrel backend."""
 
     model_config = SettingsConfigDict(
-        env_prefix="KESTREL_", env_file=".env"
+        env_prefix="KESTREL_",
+        env_file=".env",
+        # Stale or unrelated keys in .env (e.g. from before a
+        # rename) must never crash startup.
+        extra="ignore",
     )
 
     claude_bin: str = "claude"
