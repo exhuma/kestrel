@@ -12,6 +12,7 @@ class WorkflowStep:
     session_id: str | None = None
     status: str = "pending"
     deliverable: str | None = None
+    model: str | None = None
 
 
 @dataclass

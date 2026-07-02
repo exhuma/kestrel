@@ -36,3 +36,42 @@ class EventRow(Base):
     )
     type: Mapped[str] = mapped_column()
     raw: Mapped[str] = mapped_column(Text)
+
+
+class WorkflowRunRow(Base):
+    """One workflow run (durable mirror of WorkflowRun)."""
+
+    __tablename__ = "workflow_run"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    repo: Mapped[str] = mapped_column()
+    issue_number: Mapped[int] = mapped_column()
+    issue_title: Mapped[str] = mapped_column(default="")
+    base_branch: Mapped[str] = mapped_column(default="")
+    branch: Mapped[str] = mapped_column(default="")
+    workspace: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(default="pending")
+    pr_url: Mapped[str | None] = mapped_column(nullable=True)
+    error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+
+
+class WorkflowStepRow(Base):
+    """One step of a persisted workflow run."""
+
+    __tablename__ = "workflow_step"
+
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflow_run.id"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column()
+    session_id: Mapped[str | None] = mapped_column(
+        nullable=True
+    )
+    status: Mapped[str] = mapped_column(default="pending")
+    deliverable: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    model: Mapped[str | None] = mapped_column(nullable=True)
