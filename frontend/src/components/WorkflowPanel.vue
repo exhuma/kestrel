@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
+import QuestionnaireForm from './QuestionnaireForm.vue'
+import { parseQuestionnaire } from '../lib/questionnaire'
 
 const { workflows, current, events, error, refresh, select, ensureLive,
-  createWorkflow, reply, approve, reject, stop } = useWorkflows()
+  createWorkflow, reply, submitAnswers, approve, reject, stop } = useWorkflows()
 
 const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
@@ -28,6 +30,11 @@ const activeStep = computed(() =>
 const awaitingInput = computed(() => activeStep.value?.status === 'awaiting_input')
 const awaitingApproval = computed(() => activeStep.value?.status === 'awaiting_approval')
 const stepRunning = computed(() => activeStep.value?.status === 'running')
+const pendingQuestionnaire = computed(() =>
+  awaitingInput.value
+    ? parseQuestionnaire(activeStep.value?.deliverable ?? null)
+    : null,
+)
 const issueUrl = computed(() =>
   current.value ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}` : '',
 )
@@ -71,6 +78,16 @@ async function onReply(): Promise<void> {
   try {
     await reply(answer.value)
     answer.value = ''
+  } finally {
+    busy.value = null
+  }
+}
+async function onSubmitAnswers(
+  answers: Record<string, unknown>,
+): Promise<void> {
+  busy.value = 'reply'
+  try {
+    await submitAnswers(answers)
   } finally {
     busy.value = null
   }
@@ -202,11 +219,15 @@ function stepTone(status: string): string {
         </div>
 
         <div class="gate" v-if="awaitingInput">
-          <textarea v-model="answer" class="field" rows="3"
-            placeholder="Answer the agent's questions…" />
-          <button class="btn btn--primary" :disabled="!!busy" @click="onReply">
-            {{ busy === 'reply' ? 'Sending…' : 'Send reply' }}
-          </button>
+          <QuestionnaireForm v-if="pendingQuestionnaire"
+            :questionnaire="pendingQuestionnaire" @submit="onSubmitAnswers" />
+          <template v-else>
+            <textarea v-model="answer" class="field" rows="3"
+              placeholder="Answer the agent's questions…" />
+            <button class="btn btn--primary" :disabled="!!busy" @click="onReply">
+              {{ busy === 'reply' ? 'Sending…' : 'Send reply' }}
+            </button>
+          </template>
         </div>
 
         <a v-if="current.pr_url" class="pr-link" :href="current.pr_url" target="_blank"
