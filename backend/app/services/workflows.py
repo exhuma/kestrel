@@ -42,11 +42,29 @@ _TRANSIENT = (
 
 REFINE_PROMPT = (
     "You are refining a GitHub issue before implementation. Read the issue "
-    "below and the surrounding codebase. Ask clarifying, interview-style "
-    "questions ONE round at a time. When you have enough detail, output the "
-    "complete refined issue wrapped EXACTLY in <REFINED_ISSUE> and "
-    "</REFINED_ISSUE> tags and nothing else. Do not edit any files.\n\n"
-    "ISSUE:\n{issue}"
+    "below and the surrounding codebase. The complete issue text is "
+    "included below — do not try to fetch it with gh or other tools. Ask "
+    "clarifying, interview-style questions ONE round at a time. When you "
+    "have enough detail, output the complete refined issue wrapped EXACTLY "
+    "in <REFINED_ISSUE> and </REFINED_ISSUE> tags and nothing else. Do not "
+    "edit any files.\n\nISSUE:\n{issue}"
+)
+REFINE_FEEDBACK_PROMPT = (
+    "The refined issue was not approved. Revise it according to this "
+    "feedback. If the feedback leaves questions open, ask them (one "
+    "round). Otherwise output the complete revised issue wrapped EXACTLY "
+    "in <REFINED_ISSUE> and </REFINED_ISSUE> tags and nothing else.\n\n"
+    "FEEDBACK:\n{feedback}"
+)
+PLAN_FEEDBACK_PROMPT = (
+    "The plan was not approved. Revise it according to this feedback and "
+    "output the complete revised plan wrapped EXACTLY in <PLAN> and "
+    "</PLAN> tags and nothing else. Do not edit any files.\n\n"
+    "FEEDBACK:\n{feedback}"
+)
+IMPLEMENT_FEEDBACK_PROMPT = (
+    "The implementation was not approved. Address this feedback by "
+    "editing the repository now.\n\nFEEDBACK:\n{feedback}"
 )
 PLAN_PROMPT = (
     "Read this refined GitHub issue and the codebase, then produce a concise "
@@ -78,6 +96,7 @@ class _Control:
 class _Decision:
     approved: bool
     deliverable: str | None = None
+    refinement: str | None = None
 
 
 class WorkflowService:
@@ -154,8 +173,26 @@ class WorkflowService:
     def approve(self, workflow_id: str, deliverable: str | None = None) -> None:
         self._resolve(workflow_id, _Decision(True, deliverable))
 
-    def reject(self, workflow_id: str) -> None:
-        self._resolve(workflow_id, _Decision(False))
+    def reject(
+        self,
+        workflow_id: str,
+        refinement_prompt: str | None = None,
+    ) -> None:
+        """
+        Reject the current gate.
+
+        With a refinement prompt the phase regenerates its
+        deliverable from the same session; without one the run
+        ends as rejected.
+
+        :param workflow_id: Id of the run whose gate to reject.
+        :param refinement_prompt: Feedback to regenerate with,
+            or None to end the run.
+        """
+        self._resolve(
+            workflow_id,
+            _Decision(False, refinement=refinement_prompt),
+        )
 
     def _resolve(self, workflow_id: str, decision: _Decision) -> None:
         run = self.get(workflow_id)
@@ -272,10 +309,10 @@ class WorkflowService:
     ) -> None:
         step = run.steps[0]
         sid = step.session_id
+        prompt: str | None
         if step.status == "awaiting_approval":
-            await self._refine_finalize(run)
-            return
-        if step.status == "awaiting_input":
+            prompt = None  # recovered at the gate: skip to it
+        elif step.status == "awaiting_input":
             # Recovered mid-interview: wait for the answer, then
             # resume the persisted claude session with it.
             prompt = await self._control[run.id].replies.get()
@@ -288,100 +325,141 @@ class WorkflowService:
         model = get_policy().model_for("refine")
         step.model = model
         while True:
-            run.status = "refining"
-            step.status = "running"
-            self.workflows.save(run)
-            sid = await self.runner.run_blocking(
-                prompt, run.workspace, "plan", resume_id=sid,
-                on_session_id=lambda s: setattr(step, "session_id", s),
-                model=model,
-            )
-            text = self._result_text(sid)
-            refined = extract_refined_issue(text)
-            if refined is not None:
+            if prompt is not None:
+                run.status = "refining"
+                step.status = "running"
+                self.workflows.save(run)
+                sid = await self.runner.run_blocking(
+                    prompt, run.workspace, "plan", resume_id=sid,
+                    on_session_id=lambda s: setattr(
+                        step, "session_id", s
+                    ),
+                    model=model,
+                )
+                text = self._result_text(sid)
+                refined = extract_refined_issue(text)
+                if refined is None:
+                    # Not yet refined: the agent is asking a
+                    # clarifying question. Surface it as the
+                    # step's deliverable so the UI can show it.
+                    step.deliverable = text
+                    step.status = "awaiting_input"
+                    run.status = "awaiting_refine_input"
+                    self.workflows.save(run)
+                    prompt = await (
+                        self._control[run.id].replies.get()
+                    )
+                    continue
                 step.deliverable = refined
                 step.status = "awaiting_approval"
                 run.status = "awaiting_refine_approval"
                 self.workflows.save(run)
-                await self._refine_finalize(run)
+            decision = await self._await_gate(run.id)
+            if decision.approved:
+                final = decision.deliverable or (
+                    step.deliverable or ""
+                )
+                await self.github.update_issue(
+                    run.repo, run.issue_number,
+                    append_sentinel(final),
+                )
+                step.deliverable = final
+                step.status = "done"
+                self.workflows.save(run)
                 return
-            # Not yet refined: the agent is asking a clarifying question.
-            # Surface it as the step's deliverable so the UI can show it
-            # without switching to the raw session feed.
-            step.deliverable = text
-            step.status = "awaiting_input"
-            run.status = "awaiting_refine_input"
-            self.workflows.save(run)
-            prompt = await self._control[run.id].replies.get()
-
-    async def _refine_finalize(self, run: WorkflowRun) -> None:
-        """Await the refine gate and write back the issue."""
-        step = run.steps[0]
-        decision = await self._await_gate(run.id)
-        if not decision.approved:
-            raise _Rejected()
-        final = decision.deliverable or (step.deliverable or "")
-        await self.github.update_issue(
-            run.repo, run.issue_number, append_sentinel(final)
-        )
-        step.deliverable = final
-        step.status = "done"
-        self.workflows.save(run)
+            if decision.refinement is None:
+                raise _Rejected()
+            prompt = REFINE_FEEDBACK_PROMPT.format(
+                feedback=decision.refinement
+            )
 
     async def _plan(self, run: WorkflowRun) -> None:
         step = run.steps[1]
-        if step.status != "awaiting_approval":
-            run.status = "planning"
-            step.status = "running"
-            model = get_policy().model_for("plan")
-            step.model = model
-            self.workflows.save(run)
-            refined = run.steps[0].deliverable or ""
-            sid = await self.runner.run_blocking(
-                PLAN_PROMPT.format(issue=refined), run.workspace, "plan",
-                on_session_id=lambda s: setattr(step, "session_id", s),
-                model=model,
+        refined = run.steps[0].deliverable or ""
+        prompt: str | None
+        if step.status == "awaiting_approval":
+            prompt = None  # recovered at the gate: skip to it
+        else:
+            prompt = PLAN_PROMPT.format(issue=refined)
+        model = get_policy().model_for("plan")
+        step.model = model
+        while True:
+            if prompt is not None:
+                run.status = "planning"
+                step.status = "running"
+                self.workflows.save(run)
+                sid = await self.runner.run_blocking(
+                    prompt, run.workspace, "plan",
+                    resume_id=step.session_id,
+                    on_session_id=lambda s: setattr(
+                        step, "session_id", s
+                    ),
+                    model=model,
+                )
+                text = self._result_text(sid)
+                # Prefer the tagged block; fall back to the raw
+                # text so a run still gets a reviewable
+                # deliverable if the model doesn't comply (e.g.
+                # it falls into its native Plan Mode and tries
+                # ExitPlanMode instead).
+                step.deliverable = extract_plan(text) or text
+                step.status = "awaiting_approval"
+                run.status = "awaiting_plan_approval"
+                self.workflows.save(run)
+            decision = await self._await_gate(run.id)
+            if decision.approved:
+                step.status = "done"
+                self.workflows.save(run)
+                # implement resumes this plan session via
+                # run.steps[1].session_id.
+                return
+            if decision.refinement is None:
+                raise _Rejected()
+            prompt = PLAN_FEEDBACK_PROMPT.format(
+                feedback=decision.refinement
             )
-            text = self._result_text(sid)
-            # Prefer the tagged block; fall back to the raw text so a run
-            # still gets a reviewable deliverable if the model doesn't
-            # comply (e.g. it falls into its native Plan Mode and tries
-            # ExitPlanMode instead).
-            step.deliverable = extract_plan(text) or text
-            step.status = "awaiting_approval"
-            run.status = "awaiting_plan_approval"
-            self.workflows.save(run)
-        decision = await self._await_gate(run.id)
-        if not decision.approved:
-            raise _Rejected()
-        step.status = "done"
-        self.workflows.save(run)
-        # implement resumes this plan session via run.steps[1].session_id
-        # (set by the on_session_id callback above).
 
     async def _implement(self, run: WorkflowRun) -> None:
         step = run.steps[2]
-        if step.status != "awaiting_approval":
-            run.status = "implementing"
-            step.status = "running"
-            model = get_policy().model_for("implement")
-            step.model = model
-            self.workflows.save(run)
-            await self.runner.run_blocking(
-                IMPLEMENT_PROMPT, run.workspace, "acceptEdits",
-                resume_id=run.steps[1].session_id,
-                on_session_id=lambda s: setattr(step, "session_id", s),
-                model=model,
+        prompt: str | None
+        if step.status == "awaiting_approval":
+            prompt = None  # recovered at the gate: skip to it
+        else:
+            prompt = IMPLEMENT_PROMPT
+        model = get_policy().model_for("implement")
+        step.model = model
+        while True:
+            if prompt is not None:
+                run.status = "implementing"
+                step.status = "running"
+                self.workflows.save(run)
+                await self.runner.run_blocking(
+                    prompt, run.workspace, "acceptEdits",
+                    resume_id=(
+                        step.session_id
+                        or run.steps[1].session_id
+                    ),
+                    on_session_id=lambda s: setattr(
+                        step, "session_id", s
+                    ),
+                    model=model,
+                )
+                step.deliverable = await self.git.diff(
+                    run.workspace
+                )
+                step.status = "awaiting_approval"
+                run.status = "awaiting_implement_approval"
+                self.workflows.save(run)
+            decision = await self._await_gate(run.id)
+            if decision.approved:
+                step.status = "done"
+                self.workflows.save(run)
+                return
+            if decision.refinement is None:
+                raise _Rejected()
+            prompt = IMPLEMENT_FEEDBACK_PROMPT.format(
+                feedback=decision.refinement
             )
-            step.deliverable = await self.git.diff(run.workspace)
-            step.status = "awaiting_approval"
-            run.status = "awaiting_implement_approval"
-            self.workflows.save(run)
-        decision = await self._await_gate(run.id)
-        if not decision.approved:
-            raise _Rejected()
-        step.status = "done"
-        self.workflows.save(run)
 
     async def _deliver(self, run: WorkflowRun) -> None:
         """Commit, push, open the PR, and finish the run."""

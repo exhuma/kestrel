@@ -62,7 +62,8 @@ class _FakeRunner:
         self.calls = getattr(self, "calls", [])
         self.calls.append(
             {"resume_id": resume_id, "model": model,
-             "permission_mode": permission_mode}
+             "permission_mode": permission_mode,
+             "prompt": prompt}
         )
         text = self._outputs.pop(0)
         if self.sessions.get(sid) is None:
@@ -253,5 +254,110 @@ async def test_steps_use_policy_models() -> None:
     assert [s.model for s in svc.get(wid).steps] == [
         "sonnet", "sonnet", "sonnet",
     ]
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+
+@pytest.mark.asyncio
+async def test_reject_with_refinement_regenerates() -> None:
+    """Ensure gate feedback loops back into the same session."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
+        "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_approval"
+    )
+    first_sid = svc.get(wid).steps[0].session_id
+    svc.reject(wid, refinement_prompt="Mention the API surface")
+    await _wait(
+        lambda: svc.get(wid).steps[0].deliverable
+        == "v2 with feedback"
+    )
+    assert svc.get(wid).status == "awaiting_refine_approval"
+    assert runner.calls[1]["resume_id"] == first_sid
+    assert "Mention the API surface" in runner.calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_refinement_feedback_can_reopen_questions() -> None:
+    """Ensure a feedback round may ask a new question."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
+        "Which API version?",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_approval"
+    )
+    svc.reject(wid, refinement_prompt="Cover versioning")
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_input"
+    )
+    assert (
+        svc.get(wid).steps[0].deliverable
+        == "Which API version?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reject_plan_with_refinement_regenerates() -> None:
+    """Ensure plan feedback resumes the plan session."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "plan v1", "plan v2",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_plan_approval"
+    )
+    plan_sid = svc.get(wid).steps[1].session_id
+    svc.reject(wid, refinement_prompt="Split into two phases")
+    await _wait(
+        lambda: svc.get(wid).steps[1].deliverable == "plan v2"
+    )
+    assert svc.get(wid).status == "awaiting_plan_approval"
+    assert runner.calls[1]["resume_id"] == plan_sid
+    assert "Split into two phases" in runner.calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_reject_implement_with_refinement_reruns() -> None:
+    """Ensure implement feedback resumes the implement session."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "plan", "impl v1", "impl v2",
+    ])
+    git = _FakeGit()
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_plan_approval"
+    )
+    svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_implement_approval"
+    )
+    impl_sid = svc.get(wid).steps[2].session_id
+    svc.reject(wid, refinement_prompt="Add tests for X")
+    await _wait(
+        lambda: len(runner.calls) == 3
+        and svc.get(wid).status
+        == "awaiting_implement_approval"
+    )
+    assert runner.calls[2]["resume_id"] == impl_sid
+    assert "Add tests for X" in runner.calls[2]["prompt"]
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
