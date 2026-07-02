@@ -33,6 +33,13 @@ from app.storage.workflow_registry import (
 _WF_TASKS: set[asyncio.Task] = set()
 _logger = logging.getLogger(__name__)
 
+#: Statuses that cannot survive a restart: their claude
+#: subprocess (or transient side-effect) died with the process.
+_TRANSIENT = (
+    "pending", "cloning", "refining",
+    "planning", "implementing", "opening_pr",
+)
+
 REFINE_PROMPT = (
     "You are refining a GitHub issue before implementation. Read the issue "
     "below and the surrounding codebase. Ask clarifying, interview-style "
@@ -176,13 +183,55 @@ class WorkflowService:
                 return value if isinstance(value, str) else ""
         return ""
 
+    async def recover(self) -> None:
+        """
+        Resume persisted runs after a process restart.
+
+        Gate-parked runs (awaiting input or approval) get a
+        fresh control and a driver task that re-enters at the
+        gate. Runs that died mid-step are failed loudly —
+        their subprocess is gone.
+        """
+        for run in self.workflows.list():
+            if run.status.startswith("awaiting_"):
+                self._control[run.id] = self._new_control()
+                task = asyncio.create_task(
+                    self._resume(run.id)
+                )
+                _WF_TASKS.add(task)
+                task.add_done_callback(_WF_TASKS.discard)
+            elif run.status in _TRANSIENT:
+                run.status = "failed"
+                run.error = "backend restarted mid-step"
+                self.workflows.save(run)
+
+    async def _resume(self, workflow_id: str) -> None:
+        """Re-enter a gate-parked run after recovery."""
+        run = self.get(workflow_id)
+        try:
+            await self._continue(run)
+        except _Rejected:
+            run.status = "rejected"
+            self.workflows.save(run)
+        except Exception as exc:
+            _logger.exception(
+                "workflow %s (%s#%s) failed during %s",
+                workflow_id, run.repo, run.issue_number,
+                run.status,
+            )
+            run.status = "failed"
+            run.error = str(exc)
+            self.workflows.save(run)
+
     async def _drive(self, workflow_id: str) -> None:
         run = self.get(workflow_id)
         try:
             run.status = "cloning"
+            self.workflows.save(run)
             issue = await self.github.get_issue(run.repo, run.issue_number)
             run.issue_title = issue.title
             run.base_branch = await self.github.get_default_branch(run.repo)
+            self.workflows.save(run)
             remote = f"{self.settings.git_base}/{run.repo}.git"
             await self.git.clone(remote, run.workspace)
             await self.git.checkout_branch(run.workspace, run.branch)
@@ -190,25 +239,13 @@ class WorkflowService:
             if has_sentinel(issue.body):
                 run.steps[0].status = "done"
                 run.steps[0].deliverable = issue.body
+                self.workflows.save(run)
+                await self._continue(run)
             else:
-                await self._refine(run, issue.body)
-
-            await self._plan(run)
-            await self._implement(run)
-
-            run.status = "opening_pr"
-            await self.git.commit_all(run.workspace, f"Implement #{run.issue_number}")
-            await self.git.push(run.workspace, run.branch)
-            run.pr_url = await self.github.create_pull_request(
-                run.repo,
-                head=run.branch,
-                base=run.base_branch,
-                title=f"{run.issue_title} (#{run.issue_number})",
-                body=f"Closes #{run.issue_number}\n\nOpened by kestrel.",
-            )
-            run.status = "done"
+                await self._continue(run, issue_body=issue.body)
         except _Rejected:
             run.status = "rejected"
+            self.workflows.save(run)
         except Exception as exc:  # record, do not crash the loop
             _logger.exception(
                 "workflow %s (%s#%s) failed during %s",
@@ -216,16 +253,44 @@ class WorkflowService:
             )
             run.status = "failed"
             run.error = str(exc)
+            self.workflows.save(run)
 
-    async def _refine(self, run: WorkflowRun, body: str) -> None:
+    async def _continue(
+        self, run: WorkflowRun, issue_body: str | None = None
+    ) -> None:
+        """Run every unfinished phase, then deliver."""
+        if run.steps[0].status != "done":
+            await self._refine(run, issue_body)
+        if run.steps[1].status != "done":
+            await self._plan(run)
+        if run.steps[2].status != "done":
+            await self._implement(run)
+        await self._deliver(run)
+
+    async def _refine(
+        self, run: WorkflowRun, body: str | None = None
+    ) -> None:
         step = run.steps[0]
-        prompt = REFINE_PROMPT.format(issue=body)
-        sid: str | None = None
+        sid = step.session_id
+        if step.status == "awaiting_approval":
+            await self._refine_finalize(run)
+            return
+        if step.status == "awaiting_input":
+            # Recovered mid-interview: wait for the answer, then
+            # resume the persisted claude session with it.
+            prompt = await self._control[run.id].replies.get()
+        else:
+            if body is None:
+                raise InvalidWorkflowStateError(
+                    "fresh refine needs the issue body"
+                )
+            prompt = REFINE_PROMPT.format(issue=body)
         model = get_policy().model_for("refine")
         step.model = model
         while True:
             run.status = "refining"
             step.status = "running"
+            self.workflows.save(run)
             sid = await self.runner.run_blocking(
                 prompt, run.workspace, "plan", resume_id=sid,
                 on_session_id=lambda s: setattr(step, "session_id", s),
@@ -237,14 +302,8 @@ class WorkflowService:
                 step.deliverable = refined
                 step.status = "awaiting_approval"
                 run.status = "awaiting_refine_approval"
-                decision = await self._await_gate(run.id)
-                if not decision.approved:
-                    raise _Rejected()
-                final = decision.deliverable or refined
-                await self.github.update_issue(
-                    run.repo, run.issue_number, append_sentinel(final)
-                )
-                step.status = "done"
+                self.workflows.save(run)
+                await self._refine_finalize(run)
                 return
             # Not yet refined: the agent is asking a clarifying question.
             # Surface it as the step's deliverable so the UI can show it
@@ -252,53 +311,95 @@ class WorkflowService:
             step.deliverable = text
             step.status = "awaiting_input"
             run.status = "awaiting_refine_input"
+            self.workflows.save(run)
             prompt = await self._control[run.id].replies.get()
+
+    async def _refine_finalize(self, run: WorkflowRun) -> None:
+        """Await the refine gate and write back the issue."""
+        step = run.steps[0]
+        decision = await self._await_gate(run.id)
+        if not decision.approved:
+            raise _Rejected()
+        final = decision.deliverable or (step.deliverable or "")
+        await self.github.update_issue(
+            run.repo, run.issue_number, append_sentinel(final)
+        )
+        step.deliverable = final
+        step.status = "done"
+        self.workflows.save(run)
 
     async def _plan(self, run: WorkflowRun) -> None:
         step = run.steps[1]
-        run.status = "planning"
-        step.status = "running"
-        refined = run.steps[0].deliverable or ""
-        model = get_policy().model_for("plan")
-        step.model = model
-        sid = await self.runner.run_blocking(
-            PLAN_PROMPT.format(issue=refined), run.workspace, "plan",
-            on_session_id=lambda s: setattr(step, "session_id", s),
-            model=model,
-        )
-        text = self._result_text(sid)
-        # Prefer the tagged block; fall back to the raw text so a run still
-        # gets a reviewable deliverable if the model doesn't comply (e.g.
-        # it falls into its native Plan Mode and tries ExitPlanMode instead).
-        step.deliverable = extract_plan(text) or text
-        step.status = "awaiting_approval"
-        run.status = "awaiting_plan_approval"
+        if step.status != "awaiting_approval":
+            run.status = "planning"
+            step.status = "running"
+            model = get_policy().model_for("plan")
+            step.model = model
+            self.workflows.save(run)
+            refined = run.steps[0].deliverable or ""
+            sid = await self.runner.run_blocking(
+                PLAN_PROMPT.format(issue=refined), run.workspace, "plan",
+                on_session_id=lambda s: setattr(step, "session_id", s),
+                model=model,
+            )
+            text = self._result_text(sid)
+            # Prefer the tagged block; fall back to the raw text so a run
+            # still gets a reviewable deliverable if the model doesn't
+            # comply (e.g. it falls into its native Plan Mode and tries
+            # ExitPlanMode instead).
+            step.deliverable = extract_plan(text) or text
+            step.status = "awaiting_approval"
+            run.status = "awaiting_plan_approval"
+            self.workflows.save(run)
         decision = await self._await_gate(run.id)
         if not decision.approved:
             raise _Rejected()
         step.status = "done"
+        self.workflows.save(run)
         # implement resumes this plan session via run.steps[1].session_id
         # (set by the on_session_id callback above).
 
     async def _implement(self, run: WorkflowRun) -> None:
         step = run.steps[2]
-        run.status = "implementing"
-        step.status = "running"
-        model = get_policy().model_for("implement")
-        step.model = model
-        sid = await self.runner.run_blocking(
-            IMPLEMENT_PROMPT, run.workspace, "acceptEdits",
-            resume_id=run.steps[1].session_id,
-            on_session_id=lambda s: setattr(step, "session_id", s),
-            model=model,
-        )
-        step.deliverable = await self.git.diff(run.workspace)
-        step.status = "awaiting_approval"
-        run.status = "awaiting_implement_approval"
+        if step.status != "awaiting_approval":
+            run.status = "implementing"
+            step.status = "running"
+            model = get_policy().model_for("implement")
+            step.model = model
+            self.workflows.save(run)
+            await self.runner.run_blocking(
+                IMPLEMENT_PROMPT, run.workspace, "acceptEdits",
+                resume_id=run.steps[1].session_id,
+                on_session_id=lambda s: setattr(step, "session_id", s),
+                model=model,
+            )
+            step.deliverable = await self.git.diff(run.workspace)
+            step.status = "awaiting_approval"
+            run.status = "awaiting_implement_approval"
+            self.workflows.save(run)
         decision = await self._await_gate(run.id)
         if not decision.approved:
             raise _Rejected()
         step.status = "done"
+        self.workflows.save(run)
+
+    async def _deliver(self, run: WorkflowRun) -> None:
+        """Commit, push, open the PR, and finish the run."""
+        run.status = "opening_pr"
+        self.workflows.save(run)
+        await self.git.commit_all(
+            run.workspace, f"Implement #{run.issue_number}"
+        )
+        await self.git.push(run.workspace, run.branch)
+        run.pr_url = await self.github.create_pull_request(
+            run.repo,
+            head=run.branch,
+            base=run.base_branch,
+            title=f"{run.issue_title} (#{run.issue_number})",
+            body=f"Closes #{run.issue_number}\n\nOpened by kestrel.",
+        )
+        run.status = "done"
+        self.workflows.save(run)
 
 
 class _Rejected(Exception):

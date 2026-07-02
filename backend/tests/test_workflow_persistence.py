@@ -3,14 +3,42 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
+from app.config import Settings
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.persistence.workflow_store import WorkflowStore
+from app.services.workflows import WorkflowService
+from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
+from tests.test_workflow_service import (
+    _FakeGit,
+    _FakeGitHub,
+    _FakeRunner,
+    _wait,
+)
+
+
+def _persistent_service(
+    store: WorkflowStore, github, runner, git
+) -> WorkflowService:
+    """Build a WorkflowService on a store-backed registry."""
+    reg = WorkflowRegistry(store=store)
+    reg.preload(store.load_all())
+    return WorkflowService(
+        settings=Settings(
+            git_base="https://github.com", github_token="t"
+        ),
+        sessions=runner.sessions,
+        workflows=reg,
+        runner=runner,
+        git=git,
+        github=github,
+    )
 
 
 def _migrate(db_path: Path) -> str:
@@ -98,6 +126,30 @@ def test_registry_survives_restart(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.status == "awaiting_refine_approval"
     assert loaded.steps[0].session_id == "s1"
+
+
+@pytest.mark.asyncio
+async def test_gate_state_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    """Ensure awaiting states are visible in the database."""
+    store = _store(tmp_path)
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "What colour?",
+    ])
+    svc = _persistent_service(
+        store, _FakeGitHub(body="vague"), runner, _FakeGit()
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_input"
+    )
+    persisted = {r.id: r for r in store.load_all()}[wid]
+    assert persisted.status == "awaiting_refine_input"
+    assert persisted.steps[0].status == "awaiting_input"
+    assert persisted.steps[0].session_id is not None
+    assert persisted.steps[0].deliverable == "What colour?"
 
 
 def test_save_is_an_upsert(tmp_path: Path) -> None:

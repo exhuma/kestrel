@@ -1,6 +1,9 @@
 """FastAPI application factory for kestrel."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -13,9 +16,18 @@ from app.services.exceptions import (
 )
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Recover persisted workflow runs on startup."""
+    from app.services.workflows import get_workflow_service
+
+    await get_workflow_service().recover()
+    yield
+
+
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
-    app = FastAPI(title="kestrel")
+    app = FastAPI(title="kestrel", lifespan=_lifespan)
 
     @app.exception_handler(SessionNotFoundError)
     async def _session_not_found(
