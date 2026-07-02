@@ -5,6 +5,7 @@ from app.services.workflow_text import (
     SENTINEL,
     append_sentinel,
     extract_plan,
+    extract_questionnaire,
     extract_refined_issue,
     has_sentinel,
 )
@@ -44,3 +45,29 @@ def test_extract_plan_between_delimiters() -> None:
 def test_extract_plan_absent_returns_none() -> None:
     """Ensure output without the delimiter yields None."""
     assert extract_plan("no tags here") is None
+
+
+def test_extract_questionnaire_parses_valid_block() -> None:
+    """Ensure a well-formed QUESTIONS block parses."""
+    text = (
+        "Before I refine this, one question.\n"
+        "<QUESTIONS>"
+        '{"questions": [{"id": "q1", "prompt": "Which auth?", '
+        '"type": "single_select", "required": true, '
+        '"options": [{"value": "oidc", "label": "OIDC"}]}]}'
+        "</QUESTIONS>"
+    )
+    q = extract_questionnaire(text)
+    assert q is not None
+    assert q.questions[0].id == "q1"
+
+
+def test_extract_questionnaire_returns_none_without_tag() -> None:
+    """Ensure plain prose (no tag) yields None, not an error."""
+    assert extract_questionnaire("Just a question in prose.") is None
+
+
+def test_extract_questionnaire_returns_none_on_bad_json() -> None:
+    """Ensure a malformed block yields None, not an exception."""
+    text = "<QUESTIONS>{not json}</QUESTIONS>"
+    assert extract_questionnaire(text) is None

@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import re
 
+from pydantic import ValidationError
+
+from app.questionnaire import Questionnaire
+
 SENTINEL = "<!-- kestrel:refined -->"
 
 
@@ -34,3 +38,21 @@ def extract_refined_issue(text: str) -> str | None:
 def extract_plan(text: str) -> str | None:
     """Return the plan if the agent emitted the delimiter block."""
     return _extract_tag(text, "PLAN")
+
+
+def extract_questionnaire(text: str) -> Questionnaire | None:
+    """
+    Return the questionnaire if the agent emitted the block.
+
+    :param text: The agent's full response text.
+    :returns: The parsed, validated questionnaire, or None if the
+        tag is absent or its content is not valid JSON matching
+        the schema.
+    """
+    raw = _extract_tag(text, "QUESTIONS")
+    if raw is None:
+        return None
+    try:
+        return Questionnaire.model_validate_json(raw)
+    except (ValueError, ValidationError):
+        return None
