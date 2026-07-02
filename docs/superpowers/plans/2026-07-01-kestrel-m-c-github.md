@@ -10,6 +10,14 @@
 > TDD detail (superpowers:writing-plans) against the then-current
 > codebase.
 
+> **Reconciliation note (2026-07-02):** master already ships
+> `GitHubClient` (`app/services/github.py`), `GitService`
+> (`app/services/git.py`), and draft-PR creation inside
+> `WorkflowService`. M-C's remaining scope is webhook ingress
+> (HMAC + dedup), poll reconciliation, and per-run git-worktree
+> isolation — Tasks 1-2 below are largely done; rescope before
+> executing.
+
 **Goal:** Real GitHub issues flow into the orchestrator via verified
 webhooks (with polling reconciliation), and kestrel can act on
 GitHub (comment, edit description, branch, PR) and on local clones

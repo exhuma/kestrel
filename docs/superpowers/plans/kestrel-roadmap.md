@@ -21,10 +21,13 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
   [plan](2026-07-01-kestrel-m-a-foundation.md) — **DONE 2026-07-01**
   Rename to kestrel, SQLite persistence behind the registry, model
   policy module. No new behaviour.
-- [ ] **M-B · Orchestrator state machine** —
-  [plan](2026-07-01-kestrel-m-b-orchestrator.md) — DRAFT (task-level)
-  Durable work items, the lifecycle state machine, StepRunner. Driven
-  with stubbed inputs; no GitHub yet.
+- [x] **M-B · Durable workflow runs** —
+  [plan](2026-07-02-kestrel-m-b-durable-workflows.md) —
+  **DONE 2026-07-02** (reconciled against master's workflow v1;
+  supersedes the pre-merge orchestrator draft)
+  Workflow runs persisted at every transition; gate-parked runs
+  survive restarts and resume their claude session; model policy
+  wired into every step.
 - [ ] **M-C · GitHub ingestion & repo ops** —
   [plan](2026-07-01-kestrel-m-c-github.md) — DRAFT (task-level)
   Webhook + HMAC + dedup + poll reconciliation, GitHubSource,
@@ -56,3 +59,4 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 | --- | --- |
 | 2026-07-01 | Spec approved; all milestone plans written. M-A ready. |
 | 2026-07-01 | M-A executed and verified (25 backend + 5 frontend tests; real-session restart E2E passed). Next: M-B. |
+| 2026-07-02 | Plans reconciled with master's workflow v1 (GitHubClient/GitService/WorkflowService already exist). M-B rescoped to durable workflow runs, executed and verified. next-steps.md persistence gap closed. Next: M-E refine loops or M-D questionnaires. |

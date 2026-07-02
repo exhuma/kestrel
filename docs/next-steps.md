@@ -58,6 +58,12 @@ From `docs/superpowers/specs/2026-07-01-github-issue-workflow-design.md`:
 - **Auto-merging the PR** — the workflow opens a draft PR only; merging is
   a manual human action on GitHub (by design — this is the review gate).
 
+> **Update 2026-07-02:** the durable-persistence gap below is
+> closed — sessions (milestone M-A) and workflow runs (milestone
+> M-B) now live in SQLite and survive restarts; gate-parked runs
+> resume their claude session. Ongoing tracking has moved to
+> `docs/superpowers/plans/kestrel-roadmap.md`.
+
 ## Broader initiatives raised but not started
 
 - **Persistence layer** (same gap as above, called out repeatedly as *the*
