@@ -16,6 +16,7 @@ from app.services.workflows import get_workflow_service
 class _FakeService:
     def __init__(self) -> None:
         self.approved: list[str] = []
+        self.rejected: tuple[str, str | None] | None = None
 
     async def create(self, repo: str, issue_number: int) -> str:
         return "wf-1"
@@ -43,7 +44,11 @@ class _FakeService:
             raise WorkflowNotFoundError(workflow_id)
         self.approved.append(workflow_id)
 
-    def reject(self, workflow_id: str) -> None: ...
+    def reject(
+        self, workflow_id: str,
+        refinement_prompt: str | None = None,
+    ) -> None:
+        self.rejected = (workflow_id, refinement_prompt)
 
     def reply(self, workflow_id: str, text: str) -> None:
         raise InvalidWorkflowStateError("not awaiting a refine reply")
@@ -95,3 +100,28 @@ async def test_approve_ok_and_reply_conflict() -> None:
     assert ok.status_code == 200
     assert svc.approved == ["wf-1"]
     assert conflict.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_reject_forwards_refinement_prompt() -> None:
+    """Ensure reject passes the refinement prompt through."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.post(
+            "/api/workflows/wf-1/reject",
+            json={"refinement_prompt": "tighten scope"},
+        )
+    assert resp.status_code == 200
+    assert service.rejected == ("wf-1", "tighten scope")
+
+
+@pytest.mark.asyncio
+async def test_reject_without_prompt_is_terminal() -> None:
+    """Ensure a bare reject forwards None."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.post(
+            "/api/workflows/wf-1/reject", json={}
+        )
+    assert resp.status_code == 200
+    assert service.rejected == ("wf-1", None)

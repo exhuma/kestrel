@@ -71,3 +71,13 @@ class ApproveIn(BaseModel):
     """Request body to approve a gate, optionally with an edited deliverable."""
 
     deliverable: str | None = None
+
+
+class RejectIn(BaseModel):
+    """Request body to reject a gate.
+
+    With a refinement prompt the deliverable is regenerated;
+    without one the run ends as rejected.
+    """
+
+    refinement_prompt: str | None = None

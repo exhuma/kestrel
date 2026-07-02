@@ -7,6 +7,7 @@ from app.models_workflow import WorkflowRun
 from app.schemas import (
     ApproveIn,
     CreateWorkflowIn,
+    RejectIn,
     ReplyIn,
     WorkflowDetail,
     WorkflowStepOut,
@@ -95,8 +96,9 @@ async def approve_workflow(
 @router.post("/{workflow_id}/reject")
 async def reject_workflow(
     workflow_id: str,
+    body: RejectIn,
     service: WorkflowService = Depends(get_workflow_service),
 ) -> dict[str, str]:
-    """Reject the current gate and end the run."""
-    service.reject(workflow_id)
+    """Reject the current gate, optionally with feedback."""
+    service.reject(workflow_id, body.refinement_prompt)
     return {"status": "ok"}
