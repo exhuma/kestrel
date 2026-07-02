@@ -11,6 +11,11 @@ from functools import lru_cache
 from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.policy import get_policy
+from app.questionnaire import (
+    format_answers,
+    parse_questionnaire_json,
+    validate_answers,
+)
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
@@ -21,6 +26,7 @@ from app.services.runner import SessionRunner
 from app.services.workflow_text import (
     append_sentinel,
     extract_plan,
+    extract_questionnaire,
     extract_refined_issue,
     has_sentinel,
 )
@@ -43,17 +49,26 @@ _TRANSIENT = (
 REFINE_PROMPT = (
     "You are refining a GitHub issue before implementation. Read the issue "
     "below and the surrounding codebase. The complete issue text is "
-    "included below — do not try to fetch it with gh or other tools. Ask "
-    "clarifying, interview-style questions ONE round at a time. When you "
-    "have enough detail, output the complete refined issue wrapped EXACTLY "
-    "in <REFINED_ISSUE> and </REFINED_ISSUE> tags and nothing else. Do not "
-    "edit any files.\n\nISSUE:\n{issue}"
+    "included below — do not try to fetch it with gh or other tools. If "
+    "anything is ambiguous, ask ONE round of clarifying questions as a "
+    "single JSON object wrapped EXACTLY in <QUESTIONS> and </QUESTIONS> "
+    "tags and nothing else, matching this shape:\n"
+    '{{"questions": [{{"id": "q1", "prompt": "...", "why": "...", '
+    '"type": "single_select", "required": true, '
+    '"options": [{{"value": "a", "label": "Option A"}}]}}]}}\n'
+    '"type" is one of "single_select", "multi_select", "boolean", '
+    '"free_text" ("options" only applies to the select types; omit it '
+    "otherwise). When you have enough detail, output the complete "
+    "refined issue wrapped EXACTLY in <REFINED_ISSUE> and "
+    "</REFINED_ISSUE> tags and nothing else. Do not edit any "
+    "files.\n\nISSUE:\n{issue}"
 )
 REFINE_FEEDBACK_PROMPT = (
     "The refined issue was not approved. Revise it according to this "
-    "feedback. If the feedback leaves questions open, ask them (one "
-    "round). Otherwise output the complete revised issue wrapped EXACTLY "
-    "in <REFINED_ISSUE> and </REFINED_ISSUE> tags and nothing else.\n\n"
+    "feedback. If the feedback leaves questions open, ask them as a "
+    "<QUESTIONS> block per the schema above (one round). Otherwise "
+    "output the complete revised issue wrapped EXACTLY in "
+    "<REFINED_ISSUE> and </REFINED_ISSUE> tags and nothing else.\n\n"
     "FEEDBACK:\n{feedback}"
 )
 PLAN_FEEDBACK_PROMPT = (
@@ -169,6 +184,32 @@ class WorkflowService:
         if step.name != "refine" or step.status != "awaiting_input":
             raise InvalidWorkflowStateError("not awaiting a refine reply")
         self._control[workflow_id].replies.put_nowait(text)
+
+    def submit_answers(
+        self, workflow_id: str, answers: dict[str, object]
+    ) -> None:
+        """
+        Answer the pending structured questionnaire.
+
+        Validates the answers, formats them into the same text
+        contract ``reply`` uses, and resumes the refine session.
+
+        :param workflow_id: Id of the run being answered.
+        :param answers: Question id -> submitted value.
+        :raises InvalidWorkflowStateError: If no questionnaire is
+            pending.
+        :raises AnswerValidationError: If any answer is invalid.
+        """
+        run = self.get(workflow_id)
+        step = run.steps[0]
+        if step.name != "refine" or step.status != "awaiting_input":
+            raise InvalidWorkflowStateError("not awaiting a refine reply")
+        questionnaire = parse_questionnaire_json(step.deliverable or "")
+        if questionnaire is None:
+            raise InvalidWorkflowStateError("no pending questionnaire")
+        validate_answers(questionnaire, answers)
+        prompt = format_answers(questionnaire, answers)
+        self._control[workflow_id].replies.put_nowait(prompt)
 
     def approve(self, workflow_id: str, deliverable: str | None = None) -> None:
         self._resolve(workflow_id, _Decision(True, deliverable))
@@ -340,9 +381,15 @@ class WorkflowService:
                 refined = extract_refined_issue(text)
                 if refined is None:
                     # Not yet refined: the agent is asking a
-                    # clarifying question. Surface it as the
-                    # step's deliverable so the UI can show it.
-                    step.deliverable = text
+                    # clarifying question. Prefer the structured
+                    # form; fall back to raw text so a
+                    # non-compliant response never blocks the run.
+                    questionnaire = extract_questionnaire(text)
+                    step.deliverable = (
+                        questionnaire.model_dump_json()
+                        if questionnaire is not None
+                        else text
+                    )
                     step.status = "awaiting_input"
                     run.status = "awaiting_refine_input"
                     self.workflows.save(run)

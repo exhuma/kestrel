@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import ValidationError
-
-from app.questionnaire import Questionnaire
+from app.questionnaire import Questionnaire, parse_questionnaire_json
 
 SENTINEL = "<!-- kestrel:refined -->"
 
@@ -52,7 +50,4 @@ def extract_questionnaire(text: str) -> Questionnaire | None:
     raw = _extract_tag(text, "QUESTIONS")
     if raw is None:
         return None
-    try:
-        return Questionnaire.model_validate_json(raw)
-    except (ValueError, ValidationError):
-        return None
+    return parse_questionnaire_json(raw)

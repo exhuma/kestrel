@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
 from app.config import Settings
 from app.models import ParsedEvent, SessionRecord
+from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
@@ -361,3 +363,77 @@ async def test_reject_implement_with_refinement_reruns() -> None:
     assert "Add tests for X" in runner.calls[2]["prompt"]
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_deliverable_is_structured() -> None:
+    """Ensure a valid QUESTIONS block becomes the deliverable."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "Before refining:\n<QUESTIONS>"
+        '{"questions": [{"id": "q1", "prompt": "Which auth?", '
+        '"type": "single_select", "required": true, '
+        '"options": [{"value": "oidc", "label": "OIDC"}]}]}'
+        "</QUESTIONS>",
+        "<REFINED_ISSUE>\nUse OIDC\n</REFINED_ISSUE>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_input"
+    )
+    deliverable = svc.get(wid).steps[0].deliverable
+    parsed = json.loads(deliverable)
+    assert parsed["questions"][0]["id"] == "q1"
+
+    svc.submit_answers(wid, {"q1": "oidc"})
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_approval"
+    )
+    assert "ANSWERS:" in runner.calls[1]["prompt"]
+    assert "OIDC" in runner.calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_malformed_questions_block_falls_back_to_text() -> None:
+    """Ensure an invalid QUESTIONS block degrades to plain text."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<QUESTIONS>{not json}</QUESTIONS>",
+        "<REFINED_ISSUE>\nok\n</REFINED_ISSUE>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_input"
+    )
+    assert svc.get(wid).steps[0].deliverable == (
+        "<QUESTIONS>{not json}</QUESTIONS>"
+    )
+    svc.reply(wid, "free text answer")
+    await _wait(
+        lambda: svc.get(wid).status
+        == "awaiting_refine_approval"
+    )
+
+
+@pytest.mark.asyncio
+async def test_submit_answers_validates() -> None:
+    """Ensure invalid answers raise without touching the session."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<QUESTIONS>"
+        '{"questions": [{"id": "q1", "prompt": "Which?", '
+        '"type": "single_select", "required": true, '
+        '"options": [{"value": "oidc", "label": "OIDC"}]}]}'
+        "</QUESTIONS>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_input"
+    )
+    with pytest.raises(AnswerValidationError):
+        svc.submit_answers(wid, {"q1": "saml"})
+    assert len(runner.calls) == 1  # no further session call

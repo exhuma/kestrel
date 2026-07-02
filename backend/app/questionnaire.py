@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 QuestionType = Literal[
     "single_select", "multi_select", "boolean", "free_text"
@@ -38,6 +38,20 @@ class Questionnaire(BaseModel):
     """A set of clarifying questions asked in one interview round."""
 
     questions: list[Question]
+
+
+def parse_questionnaire_json(text: str) -> Questionnaire | None:
+    """
+    Parse bare questionnaire JSON (no surrounding tag).
+
+    :param text: Raw JSON text, e.g. a step's stored deliverable.
+    :returns: The parsed questionnaire, or None if it isn't valid
+        JSON matching the schema.
+    """
+    try:
+        return Questionnaire.model_validate_json(text)
+    except (ValueError, ValidationError):
+        return None
 
 
 class AnswerValidationError(Exception):
