@@ -36,10 +36,16 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
   [plan](2026-07-01-kestrel-m-d-interview.md) — DRAFT (task-level)
   Questionnaire schema/validation, gap-analysis output contract,
   web-UI form renderer, answer capture.
-- [ ] **M-E · Proposal & approval gates** —
-  [plan](2026-07-01-kestrel-m-e-gates.md) — DRAFT (task-level)
-  Description + plan proposals, approve/reject/refine loops, write
-  approved description back to the issue.
+- [x] **M-E · Reject-with-refinement gates** —
+  [plan](2026-07-02-kestrel-m-e-refinement-gates.md) —
+  **DONE 2026-07-02** (reconciled against master's workflow v1;
+  supersedes the pre-merge proposal-gates draft — no separate
+  `proposal` table, since the step's deliverable + session
+  history already give full auditability)
+  Rejecting a gate with a refinement prompt resumes the phase's
+  claude session with the feedback and regenerates the
+  deliverable at the same gate; a bare reject stays terminal.
+  Applies to the refine, plan, and implement gates.
 - [ ] **M-F · Autonomous implementation & PR** —
   [plan](2026-07-01-kestrel-m-f-implementation.md) — DRAFT (task-level)
   Implementation in a worktree, blocker pause → clarify → resume,
@@ -60,3 +66,4 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 | 2026-07-01 | Spec approved; all milestone plans written. M-A ready. |
 | 2026-07-01 | M-A executed and verified (25 backend + 5 frontend tests; real-session restart E2E passed). Next: M-B. |
 | 2026-07-02 | Plans reconciled with master's workflow v1 (GitHubClient/GitService/WorkflowService already exist). M-B rescoped to durable workflow runs, executed and verified. next-steps.md persistence gap closed. Next: M-E refine loops or M-D questionnaires. |
+| 2026-07-02 | M-E executed and verified (92 backend + 10 frontend tests; real-run E2E on exhuma/kestrel#2 — reject-with-feedback resumed the original refine session and incorporated the feedback; bare reject confirmed terminal). Next: M-D questionnaires or M-C webhooks. |
