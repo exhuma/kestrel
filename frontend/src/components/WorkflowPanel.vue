@@ -9,7 +9,9 @@ const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
 const answer = ref('')
 const edited = ref('')
-const busy = ref<'create' | 'approve' | 'reject' | 'reply' | null>(null)
+const feedback = ref('')
+const busy = ref<'create' | 'approve' | 'reject' | 'reply'
+  | 'changes' | null>(null)
 
 onMounted(() => {
   void refresh()
@@ -51,6 +53,15 @@ async function onReject(): Promise<void> {
   busy.value = 'reject'
   try {
     await reject()
+  } finally {
+    busy.value = null
+  }
+}
+async function onRequestChanges(): Promise<void> {
+  busy.value = 'changes'
+  try {
+    await reject(feedback.value)
+    feedback.value = ''
   } finally {
     busy.value = null
   }
@@ -182,6 +193,12 @@ function stepTone(status: string): string {
               {{ busy === 'reject' ? 'Rejecting…' : 'Reject' }}
             </button>
           </div>
+          <textarea v-model="feedback" class="field" rows="3"
+            placeholder="Or describe what to change and send it back…" />
+          <button class="btn" :disabled="!feedback.trim() || !!busy"
+            @click="onRequestChanges">
+            {{ busy === 'changes' ? 'Sending…' : 'Request changes' }}
+          </button>
         </div>
 
         <div class="gate" v-if="awaitingInput">

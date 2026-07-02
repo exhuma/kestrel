@@ -83,8 +83,11 @@ export function useWorkflows() {
       await api.post(`/api/workflows/${current.value.id}/approve`, { deliverable: deliverable ?? null })
   }
 
-  async function reject(): Promise<void> {
-    if (current.value) await api.post(`/api/workflows/${current.value.id}/reject`, {})
+  async function reject(refinementPrompt?: string): Promise<void> {
+    if (current.value)
+      await api.post(`/api/workflows/${current.value.id}/reject`, {
+        refinement_prompt: refinementPrompt ?? null,
+      })
   }
 
   function stop(): void {

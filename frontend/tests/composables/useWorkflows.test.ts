@@ -78,6 +78,31 @@ describe('useWorkflows', () => {
     expect(closeSpy).toHaveBeenCalled()
   })
 
+  it('reject sends the refinement prompt', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ status: 'ok' }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wf = useWorkflows()
+    // a current run must be selected for reject() to post
+    wf.current.value = {
+      id: 'wf-1', repo: 'o/r', issue_number: 1, issue_title: 't',
+      status: 'awaiting_plan_approval', branch: 'b', steps: [],
+      current_session_id: null, pr_url: null, error: null,
+    }
+    await wf.reject('tighten scope')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/workflows/wf-1/reject')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      refinement_prompt: 'tighten scope',
+    })
+    await wf.reject()
+    const [, init2] = fetchMock.mock.calls[1]
+    expect(JSON.parse((init2 as RequestInit).body as string)).toEqual({
+      refinement_prompt: null,
+    })
+  })
+
   it('ensureLive resumes detail polling after stop', async () => {
     // Regression: switching views unmounts the panel (stop());
     // remounting must resume polling for the selected run, or the
