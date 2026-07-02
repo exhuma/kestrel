@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.persistence.workflow_store import WorkflowStore
+from app.storage.workflow_registry import WorkflowRegistry
 
 
 def _migrate(db_path: Path) -> str:
@@ -80,6 +81,23 @@ def test_save_and_load_round_trip(tmp_path: Path) -> None:
     assert run.steps[0].session_id == "s1"
     assert run.steps[0].deliverable == "Round 1 questions"
     assert run.steps[0].model == "sonnet"
+
+
+def test_registry_survives_restart(tmp_path: Path) -> None:
+    """Ensure runs persist across registry rebuilds."""
+    store = _store(tmp_path)
+    reg = WorkflowRegistry(store=store)
+    run = _run()
+    reg.create(run)
+    run.status = "awaiting_refine_approval"
+    reg.save(run)
+
+    fresh = WorkflowRegistry(store=store)
+    fresh.preload(store.load_all())
+    loaded = fresh.get("wf-1")
+    assert loaded is not None
+    assert loaded.status == "awaiting_refine_approval"
+    assert loaded.steps[0].session_id == "s1"
 
 
 def test_save_is_an_upsert(tmp_path: Path) -> None:
