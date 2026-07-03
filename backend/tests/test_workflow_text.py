@@ -4,7 +4,6 @@ from __future__ import annotations
 from app.services.workflow_text import (
     SENTINEL,
     append_sentinel,
-    extract_kept_ids,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
@@ -97,22 +96,3 @@ def test_extract_profiles_absent_or_malformed_returns_none() -> None:
     assert extract_profiles("no tag here") is None
     assert extract_profiles("<PROFILES>{not json}</PROFILES>") is None
     assert extract_profiles("<PROFILES>[1, 2]</PROFILES>") is None
-
-
-def test_extract_kept_ids_parses_array() -> None:
-    """Ensure a KEEP array of ids is extracted."""
-    text = 'Keep:\n<KEEP>["infosec:q1", "developer:q2"]</KEEP>'
-    assert extract_kept_ids(text) == ["infosec:q1", "developer:q2"]
-
-
-def test_extract_kept_ids_accepts_object_form() -> None:
-    """Ensure a {"keep": [...]} object form is also accepted."""
-    text = '<KEEP>{"keep": ["infosec:q1"]}</KEEP>'
-    assert extract_kept_ids(text) == ["infosec:q1"]
-
-
-def test_extract_kept_ids_absent_or_malformed_returns_none() -> None:
-    """Ensure a missing or malformed block yields None (keep all)."""
-    assert extract_kept_ids("no tag here") is None
-    assert extract_kept_ids("<KEEP>{not json}</KEEP>") is None
-    assert extract_kept_ids("<KEEP>[1, 2]</KEEP>") is None

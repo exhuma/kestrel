@@ -124,14 +124,21 @@ def _coord(ids: list[str]) -> str:
 
 
 def _q(qid="q1", prompt="Which auth?", qtype="single_select",
-       required=True, options=None, waiver_label=None) -> dict:
-    """One question dict for a QUESTIONS block."""
+       required=True, options=None, waiver_label=None,
+       audience=None) -> dict:
+    """One question dict for a QUESTIONS block.
+
+    ``audience`` is set only on reconciler output, where each
+    consolidated question names the profile that owns it.
+    """
     q: dict = {"id": qid, "prompt": prompt, "type": qtype,
                "required": required}
     if options is not None:
         q["options"] = options
     if waiver_label is not None:
         q["waiver_label"] = waiver_label
+    if audience is not None:
+        q["audience"] = audience
     return q
 
 
@@ -632,8 +639,13 @@ async def test_profiles_are_interviewed_concurrently() -> None:
         _qs(_q(prompt="Threats?",
                options=[{"value": "b", "label": "B"}])),
         # Two distinct-audience questions: the reconciler runs and (here)
-        # keeps both, as they don't overlap.
-        "<KEEP>[\"developer:q1\", \"infosec:q1\"]</KEEP>",
+        # re-emits both unchanged, as they don't overlap.
+        _qs(
+            _q(qid="a", audience="developer", prompt="Approach?",
+               options=[{"value": "a", "label": "A"}]),
+            _q(qid="b", audience="infosec", prompt="Threats?",
+               options=[{"value": "b", "label": "B"}]),
+        ),
         _coord([]),
         _refined("done"),
     ], expected=2)
@@ -647,24 +659,36 @@ async def test_profiles_are_interviewed_concurrently() -> None:
     assert audiences == {"developer", "infosec"}
 
 
+#: A two-profile round where Product and Eng ask the SAME accounts
+#: decision with different framings — the reconciler's raison d'être.
+def _overlapping_accounts_round() -> list[str]:
+    return [
+        _coord(["requester", "developer"]),
+        _qs(_q(prompt="How should user accounts be created?",
+               qtype="free_text", options=[])),
+        _qs(_q(prompt="How are accounts created — open self-registration "
+                      "or a fixed/seeded set of users?",
+               options=[{"value": "signup", "label": "Self-service"},
+                        {"value": "seeded", "label": "Seeded set"}])),
+    ]
+
+
 @pytest.mark.asyncio
-async def test_reconciler_drops_cross_profile_duplicate() -> None:
-    """Ensure a question two profiles both ask survives exactly once,
-    under the reconciler's chosen authoritative audience."""
+async def test_reconciler_folds_overlap_into_one_simple_question() -> None:
+    """Ensure the reconciler collapses a cross-profile overlap into a
+    single, simply-phrased question owned by one profile."""
     from app.questionnaire import parse_envelope
 
-    gh = _FakeGitHub(body="let users sign in with a password")
+    gh = _FakeGitHub(body="let users sign in")
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        _coord(["infosec", "developer"]),
-        # infosec asks first (coordinator order), developer duplicates it
-        _qs(_q(prompt="How should we hash stored passwords?",
-               options=[{"value": "argon2", "label": "Argon2"}])),
-        _qs(_q(prompt="Which password hashing algorithm?",
-               options=[{"value": "argon2", "label": "Argon2"}])),
-        # Reconciler keeps only the infosec copy of the overlap.
-        "<KEEP>[\"infosec:q1\"]</KEEP>",
+        *_overlapping_accounts_round(),
+        # Reconciler folds both into ONE plain requester-owned question.
+        _qs(_q(qid="x", audience="requester",
+               prompt="How are accounts created?",
+               options=[{"value": "signup", "label": "Self-service signup"},
+                        {"value": "seeded", "label": "Fixed / seeded set"}])),
         _coord([]),
-        _refined("Store passwords hashed with Argon2"),
+        _refined("Accounts are seeded"),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
@@ -673,27 +697,24 @@ async def test_reconciler_drops_cross_profile_duplicate() -> None:
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     questions = envelope.questionnaire.questions
     assert len(questions) == 1
-    assert questions[0].id == "infosec:q1"
-    assert questions[0].audience == "infosec"
-    # The dropped profile no longer yields a tab.
-    assert [p.id for p in envelope.questionnaire.profiles] == ["infosec"]
+    assert questions[0].prompt == "How are accounts created?"
+    assert questions[0].audience == "requester"
+    assert questions[0].id == "requester:r0"  # re-namespaced by the pass
+    # Only the surviving audience yields a tab.
+    assert [p.id for p in envelope.questionnaire.profiles] == ["requester"]
 
 
 @pytest.mark.asyncio
-async def test_reconciler_malformed_keep_keeps_all() -> None:
-    """Ensure a malformed <KEEP> block falls back to the full pool."""
+async def test_reconciler_malformed_output_keeps_all() -> None:
+    """Ensure a malformed reconciler block falls back to the full pool."""
     from app.questionnaire import parse_envelope
 
-    gh = _FakeGitHub(body="let users sign in with a password")
+    gh = _FakeGitHub(body="let users sign in")
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        _coord(["infosec", "developer"]),
-        _qs(_q(prompt="How should we hash stored passwords?",
-               options=[{"value": "argon2", "label": "Argon2"}])),
-        _qs(_q(prompt="Which password hashing algorithm?",
-               options=[{"value": "argon2", "label": "Argon2"}])),
-        "<KEEP>{not json}</KEEP>",  # malformed: keep everything
+        *_overlapping_accounts_round(),
+        "<QUESTIONS>{not json}</QUESTIONS>",  # malformed: keep everything
         _coord([]),
-        _refined("Store passwords hashed with Argon2"),
+        _refined("Accounts are seeded"),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
@@ -701,10 +722,35 @@ async def test_reconciler_malformed_keep_keeps_all() -> None:
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
-    assert ids == {"infosec:q1", "developer:q1"}
+    assert ids == {"requester:q1", "developer:q1"}
     assert {p.id for p in envelope.questionnaire.profiles} == {
-        "infosec", "developer",
+        "requester", "developer",
     }
+
+
+@pytest.mark.asyncio
+async def test_reconciler_unknown_audience_keeps_all() -> None:
+    """Ensure a reconciled question naming a non-pool audience is
+    rejected wholesale, falling back to the untouched pool."""
+    from app.questionnaire import parse_envelope
+
+    gh = _FakeGitHub(body="let users sign in")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_overlapping_accounts_round(),
+        # "martian" was never in the pool: unsafe → keep the pool.
+        _qs(_q(qid="x", audience="martian",
+               prompt="How are accounts created?",
+               options=[{"value": "signup", "label": "Self-service"}])),
+        _coord([]),
+        _refined("Accounts are seeded"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    ids = {q.id for q in envelope.questionnaire.questions}
+    assert ids == {"requester:q1", "developer:q1"}
 
 
 @pytest.mark.asyncio

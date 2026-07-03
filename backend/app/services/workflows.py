@@ -42,7 +42,6 @@ from app.services.github import GitHubClient
 from app.services.runner import SessionRunner
 from app.services.workflow_text import (
     append_sentinel,
-    extract_kept_ids,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
@@ -96,27 +95,40 @@ COORDINATOR_PROMPT = (
     "ISSUE:\n{issue}\n\n{answers}"
 )
 RECONCILE_PROMPT = (
-    "You are reconciling the clarifying questions that several "
-    "stakeholder profiles independently proposed for a GitHub issue, "
-    "removing duplicates before they reach the human. Because the "
-    "profiles were interviewed in parallel and could not see each "
-    "other's questions, two of them may ask essentially the same "
-    "thing.\n"
-    "Below is the pooled set of questions as JSON — each with its "
-    '"id", the "audience" profile that asked it, and its "prompt" — '
-    "followed by the roster describing each profile's remit.\n"
-    "For each GROUP of questions that ask essentially the SAME thing, "
-    "keep EXACTLY ONE: the copy whose audience is the most "
-    "authoritative owner of that topic (judge from the roster — e.g. a "
-    "password-hashing choice belongs to infosec over developer). Keep "
-    "every question that has no overlap. Do NOT reword, merge, "
-    "combine, or invent questions — only choose which existing ids to "
-    "keep.\n"
-    "Return ONLY a JSON array of the question ids to keep, wrapped "
-    "EXACTLY in <KEEP> and </KEEP> tags and nothing else, e.g. "
-    '<KEEP>["infosec:q1", "developer:q2"]</KEEP>. Do not edit any '
-    "files.\n\nISSUE:\n{issue}\n\nQUESTIONS:\n{questions}\n\n"
-    "ROSTER:\n{roster}"
+    "Several stakeholder profiles were interviewed in PARALLEL about "
+    "this GitHub issue and, unable to see each other's questions, "
+    "proposed the pooled set below. Consolidate it into the FEWEST, "
+    "SIMPLEST questions that still capture every decision the human "
+    "must make.\n"
+    "Below is the pool as JSON — each question with its \"id\", the "
+    '"audience" profile that asked it, its "prompt", "why", "type", '
+    '"required", "options", and "waiver_label" — followed by the '
+    "roster describing each profile's remit.\n"
+    "Rules:\n"
+    "- FOLD every group of questions that turn on the SAME underlying "
+    "fact into ONE question. Overlap counts EVEN WHEN the framings "
+    "differ across domains: e.g. Product asking 'how should accounts "
+    "be created?' and Eng asking 'is this open self-registration or a "
+    "fixed/seeded set of users?' are the SAME decision — emit one "
+    "question, not two.\n"
+    "- Assign each resulting question to the SINGLE profile whose "
+    "domain best owns it (set its \"audience\" to one of the input "
+    "audiences), and keep only questions worth asking.\n"
+    "- Phrase each question as simply as possible. Do NOT drop detail "
+    "that changes the ANSWER, but drop redundant justification. Make "
+    "requester/Product questions the PLAINEST and least technical of "
+    "all.\n"
+    "- Preserve a sensible \"type\" and, for select types, real "
+    "\"options\"; carry over each kept question's waiver intent.\n"
+    "Output ONLY the consolidated questionnaire as a single JSON "
+    "object wrapped EXACTLY in <QUESTIONS> and </QUESTIONS> tags and "
+    "nothing else, matching this shape:\n"
+    '{{"questions": [{{"id": "q1", "audience": "requester", '
+    '"prompt": "...", "why": "...", "type": "single_select", '
+    '"required": true, "waiver_label": "Unknown / N/A", '
+    '"options": [{{"value": "a", "label": "Option A"}}]}}]}}\n'
+    "Do not edit any files.\n\nISSUE:\n{issue}\n\n"
+    "QUESTIONS:\n{questions}\n\nROSTER:\n{roster}"
 )
 GENERATION_PROMPT = (
     "You are helping refine a GitHub issue before implementation by "
@@ -832,24 +844,26 @@ class WorkflowService:
     async def _reconcile_questions(
         self, run: WorkflowRun, issue: str, questions: list[Question]
     ) -> list[Question]:
-        """Drop cross-profile duplicate questions via a reconciler agent.
+        """Consolidate the pooled questions via a reconciler agent.
 
-        The concurrent generators can each ask essentially the same
-        question (e.g. a password-hashing choice from both infosec and
-        developer). A reconciler sub-agent — shown as one more chip —
-        decides, per overlap, which single audience owns the topic and
-        returns the ids to keep; every non-overlapping question is
-        kept.
+        The concurrent generators run blind to one another, so two
+        profiles can ask essentially the same question with different
+        framings (e.g. Product's scope-framed and Eng's mechanism-framed
+        "how are accounts created?"). A reconciler sub-agent — shown as
+        one more chip — authors a fresh, minimal, plainly-phrased set:
+        it folds overlaps into one question, assigns each to the single
+        owning specialist, and keeps Product's questions the simplest.
 
-        Guards mirror the extract-fallback style used elsewhere: an
-        absent or malformed keep-list — or one that would drop every
-        question — falls back to the full pool, so reconciliation can
-        only ever trim, never blank, the interview.
+        Reconciliation may only ever *improve* the pool, never blank or
+        corrupt it: the rewritten set is accepted only when it parses,
+        is non-empty, and every question has a pool audience and (for
+        select types) real options. Any anomaly falls back to the
+        untouched pool.
 
         :param run: The run whose interview is being reconciled.
         :param issue: The issue text, for the reconciler's context.
         :param questions: The pooled, namespaced questions to dedup.
-        :returns: The kept questions, in their original order.
+        :returns: The consolidated questions, or the pool on fallback.
         """
         slot = StepSession(
             profile_id="reconciler", label="Reconciler", badge="sys"
@@ -857,7 +871,19 @@ class WorkflowService:
         self._show_sessions(run, [slot])
         payload = json.dumps(
             [
-                {"id": q.id, "audience": q.audience, "prompt": q.prompt}
+                {
+                    "id": q.id,
+                    "audience": q.audience,
+                    "prompt": q.prompt,
+                    "why": q.why,
+                    "type": q.type,
+                    "required": q.required,
+                    "waiver_label": q.waiver_label,
+                    "options": [
+                        {"value": o.value, "label": o.label}
+                        for o in q.options
+                    ],
+                }
                 for q in questions
             ]
         )
@@ -868,12 +894,21 @@ class WorkflowService:
             ),
             slot,
         )
-        kept_ids = extract_kept_ids(text)
-        if kept_ids is None:
+        reconciled = extract_questionnaire(text)
+        if reconciled is None or not reconciled.questions:
             return questions
-        keep = set(kept_ids)
-        filtered = [q for q in questions if q.id in keep]
-        return filtered or questions
+        pool_audiences = {q.audience for q in questions}
+        rebuilt: list[Question] = []
+        for index, question in enumerate(reconciled.questions):
+            if question.audience not in pool_audiences:
+                return questions  # unknown owner: unsafe, keep the pool
+            if question.type in ("single_select", "multi_select") and (
+                not question.options
+            ):
+                return questions  # unanswerable select: keep the pool
+            question.id = f"{question.audience}:r{index}"
+            rebuilt.append(question)
+        return rebuilt or questions
 
     async def _write_refined(
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]
