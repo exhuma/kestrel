@@ -40,6 +40,33 @@ def _streaming_claude(tmp_path: Path) -> Path:
     return script
 
 
+def _oversized_line_claude(tmp_path: Path) -> Path:
+    """A fake claude that emits one JSONL line over 64 KiB.
+
+    Reproduces a real event kestrel has hit in production: a single
+    stream-json line (e.g. a large tool_result) exceeding asyncio's
+    default 64 KiB per-line StreamReader limit.
+    """
+    script = tmp_path / "claude_big.py"
+    script.write_text(
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env python3
+            import json, sys
+            payload = "x" * 100_000  # comfortably over 64 KiB
+            sys.stdout.write(json.dumps({
+                "type": "result", "subtype": "success",
+                "session_id": "big-1", "is_error": False,
+                "result": payload,
+            }) + "\\n")
+            sys.stdout.flush()
+            """
+        )
+    )
+    script.chmod(0o755)
+    return script
+
+
 def _runner() -> SessionRunner:
     settings = Settings(
         claude_bin="claude",
@@ -189,6 +216,34 @@ async def test_run_blocking_streams_and_awaits(tmp_path) -> None:
     rec = reg.get(sid)
     assert rec.status == "idle"
     assert any(e.type == "result" for e in rec.events)
+    await _drain_background()
+
+
+@pytest.mark.asyncio
+async def test_run_blocking_handles_a_line_over_64kib(tmp_path) -> None:
+    """Ensure a single stream-json line over 64 KiB doesn't crash the run.
+
+    Regression test: asyncio's default per-line StreamReader limit is
+    64 KiB; a real claude session can legitimately emit a single JSONL
+    event (e.g. a tool_result embedding a large file) larger than that.
+    """
+    settings = Settings(
+        claude_bin=str(_oversized_line_claude(tmp_path)),
+        workspace_root=str(tmp_path / "ws"),
+        permission_mode="acceptEdits",
+    )
+    reg = SessionRegistry()
+    runner = SessionRunner(settings, reg)
+    cwd = str(tmp_path / "step")
+
+    sid = await runner.run_blocking("hi", cwd=cwd, permission_mode="plan")
+
+    assert sid == "big-1"
+    rec = reg.get(sid)
+    assert rec.status == "idle"
+    result_events = [e for e in rec.events if e.type == "result"]
+    assert len(result_events) == 1
+    assert len(result_events[0].raw["result"]) == 100_000
     await _drain_background()
 
 

@@ -19,6 +19,14 @@ from app.storage.registry import SessionRegistry, get_registry
 # process lifetime and drop each when it finishes.
 _TASKS: set[asyncio.Task[None]] = set()
 
+# asyncio.create_subprocess_exec's default per-line StreamReader limit
+# is 64 KiB (65536 bytes); a single stream-json event (e.g. a
+# tool_result embedding a large file or diff) can legitimately exceed
+# that before its terminating newline, raising
+# "ValueError: Separator is found, but chunk is longer than limit".
+# 10 MiB comfortably covers real event sizes seen in practice.
+_STREAM_LIMIT = 10 * 1024 * 1024
+
 
 async def _stdout_lines(
     proc: asyncio.subprocess.Process,
@@ -135,6 +143,7 @@ class SessionRunner:
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=_STREAM_LIMIT,
         )
         loop = asyncio.get_running_loop()
         sid_future: asyncio.Future[str] = loop.create_future()
@@ -218,6 +227,7 @@ class SessionRunner:
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=_STREAM_LIMIT,
         )
         stderr_task = asyncio.create_task(_drain(proc.stderr))
         try:
