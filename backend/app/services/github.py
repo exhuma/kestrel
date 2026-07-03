@@ -51,8 +51,31 @@ class GitHubClient:
         if resp.status_code >= 300:
             raise GitHubError(
                 f"{method} {path} -> {resp.status_code}: {resp.text}"
+                f"{self._auth_hint(resp.status_code)}"
             )
         return resp
+
+    def _auth_hint(self, status_code: int) -> str:
+        """A human hint for the auth-shaped failures (401/403/404).
+
+        GitHub returns 404 (not 403) for a private repo the caller can't
+        see, so a 404 is ambiguous between "no access" and "does not
+        exist". Point at the most likely cause given whether we sent a
+        token at all.
+        """
+        if status_code not in (401, 403, 404):
+            return ""
+        if not self.token:
+            return (
+                " — no GitHub token is configured, so this request was "
+                "unauthenticated. Set KESTREL_GITHUB_TOKEN and make sure "
+                "your .env is in the backend working directory."
+            )
+        return (
+            " — the configured token may lack access to this repo "
+            "(a fine-grained PAT must grant it Contents, Issues, and "
+            "Pull requests), or the repo/resource does not exist."
+        )
 
     async def get_issue(self, repo: str, number: int) -> Issue:
         """Fetch an issue by number."""

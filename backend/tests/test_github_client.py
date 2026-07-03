@@ -121,3 +121,32 @@ async def test_non_2xx_raises_github_error() -> None:
 
     with pytest.raises(GitHubError):
         await _client(handler).get_issue("o/r", 7)
+
+
+@pytest.mark.asyncio
+async def test_404_with_token_hints_at_access_or_existence() -> None:
+    """Ensure a 404 while authenticated points at access/existence."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    with pytest.raises(GitHubError) as exc:
+        await _client(handler).get_issue("o/r", 7)  # _client sends a token
+    assert "lack access" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_404_without_token_hints_at_missing_config() -> None:
+    """Ensure a 404 while unauthenticated points at the missing token."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    client = GitHubClient("https://api.github.com", "")
+    client._http = httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(GitHubError) as exc:
+        await client.get_issue("o/r", 7)
+    assert "KESTREL_GITHUB_TOKEN" in str(exc.value)
