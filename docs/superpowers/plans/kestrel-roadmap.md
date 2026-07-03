@@ -70,10 +70,20 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
   tag to check. `reply`/`submit_answers` now route to whichever
   step is awaiting input, not just refine. Delivery (commit,
   push, draft PR) was already built; unchanged.
-- [ ] **M-G · UI overhaul & ergonomics** —
-  [plan](2026-07-01-kestrel-m-g-ui.md) — DRAFT (task-level)
-  Human-friendly event rendering with raw-JSON access, dashboard/
-  timeline, notification center + in-app Notifier back-end.
+- [x] **M-G · Human-friendly events & notifications** —
+  [plan](2026-07-03-kestrel-m-g-ui-ergonomics.md) —
+  **DONE 2026-07-03** (reconciled against master's workflow v1;
+  supersedes the pre-merge `work_item` dashboard/timeline draft —
+  **scope explicitly narrowed by user decision** to event
+  rendering + the Notifier; the dashboard/timeline rework was
+  dropped entirely; polling replaces SSE for notifications; see
+  the plan's header for the full deviation rationale)
+  `WorkflowPanel`'s raw JSON telemetry dump is now typed,
+  human-readable event cards (chat bubbles, collapsed tool calls,
+  thinking chips, result banners) with a raw-JSON toggle on every
+  card. A `Notifier` protocol + in-app back-end fires whenever a
+  run needs attention or finishes; the UI shows a live-polled bell
+  badge that navigates straight to the relevant run on click.
 - [ ] **M-H · Deferred / optional** —
   [plan](2026-07-01-kestrel-m-h-deferred.md) — BACKLOG
   Access gate, extra Notifier back-ends, Planka/Zammad sources.
@@ -89,3 +99,4 @@ verified, and merged. Spec: `../specs/2026-07-01-kestrel-design.md`.
 | 2026-07-02 | M-E executed and verified (92 backend + 10 frontend tests; real-run E2E on exhuma/kestrel#2 — reject-with-feedback resumed the original refine session and incorporated the feedback; bare reject confirmed terminal). Next: M-D questionnaires or M-C webhooks. |
 | 2026-07-02 | M-D executed and verified (107 backend + 17 frontend tests; real-run E2E on exhuma/kestrel#2 through the actual browser — a genuine `<QUESTIONS>` block rendered as a radio-button form with a "why" hint, answer submission resumed the session and correctly shaped the refined issue; a separate run also proved the free-text fallback when the model didn't comply). Next: M-C webhooks or M-F autonomous implementation. |
 | 2026-07-02 | M-F executed and verified (112 backend tests; a real, unprompted-by-fixture mid-implementation blocker fired on the first live attempt — same `QuestionnaireForm` UI rendered it with zero frontend changes, answering it resumed the exact same claude session that produced the plan, and the run completed end-to-end to a real draft PR, exhuma/kestrel#7, left open for human review). Restart-recovery of an implement blocker relies on unit coverage plus architectural identity with M-B's already-live-restart-verified refine recovery, rather than a repeated live restart. Next: M-C webhooks or M-G UI overhaul. |
+| 2026-07-03 | M-G scoped down to event rendering + Notifier (dashboard/timeline dropped) by explicit user decision. Executed and verified (124 backend + 33 frontend tests; real-run E2E — a live workflow's raw telemetry rendered as typed cards including a graceful unknown-shape fallback for one assistant event, a real notification fired on the awaiting_plan_approval transition, the bell badge updated without a reload, and clicking it navigated to and marked-read the correct run). Next: M-C webhooks or M-H backlog items. |
