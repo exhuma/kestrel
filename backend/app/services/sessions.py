@@ -15,16 +15,24 @@ from app.schemas import SessionSummary
 from app.services.exceptions import SessionNotFoundError
 from app.services.runner import SessionRunner, get_runner
 from app.storage.registry import SessionRegistry, get_registry
+from app.storage.workflow_registry import (
+    WorkflowRegistry,
+    get_workflow_registry,
+)
 
 
 class SessionService:
     """Coordinates the runner and registry behind one API."""
 
     def __init__(
-        self, runner: SessionRunner, registry: SessionRegistry
+        self,
+        runner: SessionRunner,
+        registry: SessionRegistry,
+        workflows: WorkflowRegistry | None = None,
     ) -> None:
         self.runner = runner
         self.registry = registry
+        self.workflows = workflows
 
     async def start(self, prompt: str) -> str:
         """
@@ -67,15 +75,29 @@ class SessionService:
 
     def list_summaries(self) -> list[SessionSummary]:
         """
-        Summarise all known sessions.
+        Summarise all known sessions, each linked to its workflow.
+
+        A session is attributed to a workflow run when it ran in that
+        run's workspace — this catches every session the run spawned
+        (the coordinator, each specialist, plan, implement), not just
+        the latest one a step happens to still point at.
 
         :returns: One summary per session, in insertion order.
         """
+        wf_by_workspace: dict[str, str] = {}
+        if self.workflows is not None:
+            for run in self.workflows.list():
+                if run.workspace:
+                    wf_by_workspace[run.workspace] = (
+                        f"{run.repo}#{run.issue_number}"
+                    )
         return [
             SessionSummary(
                 session_id=r.session_id,
                 status=r.status,
                 event_count=len(r.events),
+                created_at=r.created_at,
+                workflow=wf_by_workspace.get(r.cwd),
             )
             for r in self.registry.list()
         ]
@@ -133,4 +155,4 @@ def get_session_service(
     :param registry: Session registry singleton, injected.
     :returns: A SessionService bound to the shared registry.
     """
-    return SessionService(runner, registry)
+    return SessionService(runner, registry, get_workflow_registry())

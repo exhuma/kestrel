@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -22,6 +23,9 @@ class SessionRecord:
     cwd: str
     status: str = "running"
     events: list[ParsedEvent] = field(default_factory=list)
+    #: When the record was first created (session start). None for
+    #: rows persisted before this column existed.
+    created_at: datetime | None = None
 
 
 def parse_event(line: str) -> ParsedEvent | None:

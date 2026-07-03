@@ -16,11 +16,16 @@ class SessionSummary(BaseModel):
     :param session_id: Unique id of the session.
     :param status: Current lifecycle status (e.g. running, idle).
     :param event_count: Number of events recorded so far.
+    :param created_at: When the session started, if known.
+    :param workflow: The run that used this session ("repo#issue"),
+        or None for a free-form session.
     """
 
     session_id: str
     status: str
     event_count: int
+    created_at: datetime | None = None
+    workflow: str | None = None
 
 
 class StepSessionOut(BaseModel):

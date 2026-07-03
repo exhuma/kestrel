@@ -36,6 +36,28 @@ def _service() -> tuple[SessionService, SessionRegistry, _FakeRunner]:
     return SessionService(runner, registry), registry, runner  # type: ignore[arg-type]
 
 
+def test_list_summaries_links_session_to_workflow_by_workspace() -> None:
+    """Ensure a session is attributed to the run whose workspace it
+    ran in, and carries a creation timestamp."""
+    from app.models_workflow import WorkflowRun
+    from app.storage.workflow_registry import WorkflowRegistry
+
+    registry = SessionRegistry()
+    workflows = WorkflowRegistry()
+    workflows.create(
+        WorkflowRun(id="wf-1", repo="o/r", issue_number=7,
+                    workspace="/ws/wf-1")
+    )
+    service = SessionService(_FakeRunner(), registry, workflows)  # type: ignore[arg-type]
+    registry.create("s1", "/ws/wf-1")        # ran in the run's workspace
+    registry.create("s2", "/ws/session-ab")  # a free-form session
+
+    by_id = {s.session_id: s for s in service.list_summaries()}
+    assert by_id["s1"].workflow == "o/r#7"
+    assert by_id["s2"].workflow is None
+    assert by_id["s1"].created_at is not None
+
+
 @pytest.mark.asyncio
 async def test_start_delegates_to_runner() -> None:
     """Ensure start forwards the prompt to the runner."""

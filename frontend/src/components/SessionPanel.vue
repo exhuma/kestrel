@@ -78,6 +78,29 @@ function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-3)}` : id
 }
 
+// Session start, shown two ways: a glanceable "x ago" and the exact
+// local wall-clock — useful when correlating a session with logs.
+function relTime(iso: string | null): string {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000))
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.round(hrs / 24)}d ago`
+}
+function absTime(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 // Map an event to a semantic tone + glyph. Tone drives the --c colour
 // custom property shared by the dot, rule, and labels.
 function tone(e: SessionEvent): string {
@@ -216,6 +239,12 @@ function preview(e: SessionEvent): string {
                 {{ s.status }}
                 <span class="scard__sep">·</span>
                 {{ s.event_count }} ev
+              </span>
+              <span v-if="s.workflow" class="scard__wf mono">
+                ⟐ {{ s.workflow }}
+              </span>
+              <span v-if="s.created_at" class="scard__time mono">
+                {{ relTime(s.created_at) }} · {{ absTime(s.created_at) }}
               </span>
             </button>
             <button
@@ -429,6 +458,20 @@ function preview(e: SessionEvent): string {
 }
 .scard__sep {
   color: var(--text-dim);
+}
+.scard__wf {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--signal) 30%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.scard__time {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
 }
 .sessions__empty {
   color: var(--text-dim);

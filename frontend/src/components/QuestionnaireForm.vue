@@ -129,15 +129,17 @@ function onSaveDraft(): void {
         </span>
       </header>
 
-      <fieldset
+      <div
         v-for="q in g.questions"
         :key="q.id"
         class="qform__q"
         :class="{ 'qform__q--waived': waived(q.id) }"
+        role="group"
+        :aria-labelledby="`qp-${q.id}`"
       >
-        <legend class="qform__prompt">
+        <p :id="`qp-${q.id}`" class="qform__prompt">
           {{ q.prompt }}<span v-if="q.required" aria-hidden="true"> *</span>
-        </legend>
+        </p>
         <p v-if="q.why" class="qform__why mono">{{ q.why }}</p>
 
         <template v-if="!waived(q.id)">
@@ -189,7 +191,7 @@ function onSaveDraft(): void {
             @change="toggleWaiver(q.id, ($event.target as HTMLInputElement).checked)" />
           {{ q.waiver_label || 'Unknown / N/A' }} — give a reason
         </label>
-      </fieldset>
+      </div>
     </section>
 
     <div class="qform__actions">
@@ -204,7 +206,9 @@ function onSaveDraft(): void {
 </template>
 
 <style scoped>
-.qform { display: flex; flex-direction: column; gap: 18px; }
+/* Cap the form to a comfortable reading measure (~66ch) so question
+   text stays legible instead of stretching the full stage width. */
+.qform { display: flex; flex-direction: column; gap: 18px; max-width: 44rem; }
 
 /* One tab per specialist — same mnemonic + badge tone as the session
    chips, so a profile reads as one identity across the whole view. */
@@ -253,8 +257,12 @@ function onSaveDraft(): void {
 .qform__q { border: 1px solid var(--line); border-radius: var(--r-md);
   padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .qform__q--waived { border-style: dashed; border-color: var(--warn); }
-.qform__prompt { font-size: 13px; color: var(--text-hi); padding: 0 4px; }
-.qform__why { font-size: 11.5px; color: var(--text-dim); margin: 4px 0 0; }
+.qform__prompt {
+  margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.45;
+  color: var(--text-hi);
+}
+.qform__why { font-size: 11.5px; color: var(--text-dim); margin: 4px 0 0;
+  line-height: 1.5; }
 .qform__options { display: flex; flex-direction: column; gap: 6px; }
 .qform__option { display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; color: var(--text-mid); }

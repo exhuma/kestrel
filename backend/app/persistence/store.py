@@ -32,6 +32,7 @@ class SessionStore:
                     session_id=record.session_id,
                     cwd=record.cwd,
                     status=record.status,
+                    created_at=record.created_at,
                 )
             )
 
@@ -113,6 +114,7 @@ class SessionStore:
                         cwd=row.cwd,
                         status=row.status,
                         events=events,
+                        created_at=row.created_at,
                     )
                 )
             return records

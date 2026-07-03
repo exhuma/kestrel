@@ -94,7 +94,10 @@ async def test_list_sessions() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body == [
-        {"session_id": "s1", "status": "idle", "event_count": 2}
+        {
+            "session_id": "s1", "status": "idle", "event_count": 2,
+            "created_at": None, "workflow": None,
+        }
     ]
 
 

@@ -47,33 +47,36 @@ class Profile:
 
 #: Seeded roster. Extra specialists are one entry each.
 ROSTER: dict[str, Profile] = {
+    # The machine ids ("requester"/"developer") stay stable so the
+    # coordinator's routing and every namespaced question id keep
+    # working; only the human-facing labels change.
     "requester": Profile(
         id="requester",
-        label="Requester",
+        label="Product",
         badge="user",
         description=(
             "The stakeholder who filed the change: owns the intent, "
             "business value, scope, and acceptance criteria."
         ),
         system_prompt=(
-            "You are interviewing the REQUESTER (the business "
-            "stakeholder who asked for this change). Ask only what "
-            "clarifies intent, scope, priority, acceptance criteria, "
-            "and user-facing behaviour. Avoid implementation detail — "
-            "that is the developer's concern."
+            "You are interviewing PRODUCT (the business stakeholder "
+            "who asked for this change). Ask only what clarifies "
+            "intent, scope, priority, acceptance criteria, and "
+            "user-facing behaviour. Avoid implementation detail — "
+            "that is Engineering's concern."
         ),
     ),
     "developer": Profile(
         id="developer",
-        label="Developer",
+        label="Eng",
         badge="agent",
         description=(
             "The engineer who will implement the change: owns "
             "technical approach, feasibility, and effort."
         ),
         system_prompt=(
-            "You are interviewing the DEVELOPER who will implement "
-            "this change. Ask only what resolves technical ambiguity: "
+            "You are interviewing ENGINEERING, who will implement this "
+            "change. Ask only what resolves technical ambiguity: "
             "approach, affected components, data model, dependencies, "
             "edge cases, and testability. Read the surrounding "
             "codebase to ground your questions."
