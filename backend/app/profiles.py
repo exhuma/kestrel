@@ -100,6 +100,121 @@ ROSTER: dict[str, Profile] = {
             "acceptance."
         ),
     ),
+    "uiux": Profile(
+        id="uiux",
+        label="UX",
+        badge="ok",
+        description=(
+            "Design & usability: user flows, information architecture, "
+            "empty/loading/error states, responsive and accessible "
+            "behaviour, and copy. Summon when the change has a "
+            "user-facing surface."
+        ),
+        system_prompt=(
+            "You are interviewing UX (design and usability). Ask only "
+            "what clarifies user flows and journeys, information "
+            "architecture, empty/loading/error states, responsive and "
+            "mobile behaviour, accessibility (keyboard, screen-reader, "
+            "contrast), and user-facing copy. Avoid backend or "
+            "infrastructure detail."
+        ),
+    ),
+    "dba": Profile(
+        id="dba",
+        label="DBA",
+        badge="sys",
+        description=(
+            "Database specialist: data model, schema changes and "
+            "migrations, indexing and query performance, data "
+            "volume/retention, and integrity constraints. Summon when "
+            "the change touches the data model or schema."
+        ),
+        system_prompt=(
+            "You are interviewing the DBA. Ask only what clarifies the "
+            "data model, schema changes and migrations, indexing and "
+            "query performance, expected data volume and retention, and "
+            "integrity/consistency constraints. Avoid UI detail; defer "
+            "broad architecture to the architect."
+        ),
+    ),
+    "pm": Profile(
+        id="pm",
+        label="PM",
+        badge="user",
+        description=(
+            "Project manager: scope boundaries, priority, dependencies, "
+            "sequencing, deadlines, team capacity, and delivery risk — "
+            "the inputs needed to estimate effort and timeline. Summon "
+            "when timeline or effort matters."
+        ),
+        system_prompt=(
+            "You are interviewing the PROJECT MANAGER. Ask only what "
+            "clarifies scope boundaries, priority, dependencies and "
+            "sequencing, deadlines and constraints, available capacity, "
+            "and delivery risks — the inputs needed to estimate effort "
+            "and timeline. Do not ask about implementation detail."
+        ),
+    ),
+    "qa": Profile(
+        id="qa",
+        label="QA",
+        badge="err",
+        description=(
+            "Quality assurance: test strategy, acceptance criteria, "
+            "edge and negative paths, test data/environments, and "
+            "regression risk. Summon when correctness or acceptance is "
+            "non-trivial."
+        ),
+        system_prompt=(
+            "You are interviewing QA. Ask only what clarifies test "
+            "strategy, acceptance criteria, edge cases and negative "
+            "paths, the data and environments needed to test, and "
+            "regression risk. Frame questions so the definition of done "
+            "becomes testable."
+        ),
+    ),
+    "architect": Profile(
+        id="architect",
+        label="Arch",
+        badge="agent",
+        description=(
+            "Architect (system and data): service/module boundaries, "
+            "integration and contracts, data flow and ownership, "
+            "scalability, and consistency trade-offs. Summon only for "
+            "larger, distributed, or structurally cross-cutting changes."
+        ),
+        system_prompt=(
+            "You are interviewing the ARCHITECT, responsible for system "
+            "and data architecture. Ask only what clarifies structural "
+            "decisions: service/module boundaries, integration points "
+            "and contracts, data flow and ownership across components, "
+            "scalability, and consistency/availability trade-offs. Defer "
+            "tactical schema detail to the DBA and implementation detail "
+            "to Engineering. Only raise questions that matter for larger "
+            "or distributed designs."
+        ),
+    ),
+    "ops": Profile(
+        id="ops",
+        label="Ops",
+        badge="warn",
+        description=(
+            "Operations/SRE: deployment and rollout, configuration and "
+            "secrets, observability (metrics/logs/alerts), scaling and "
+            "capacity, availability/SLOs, backups and disaster "
+            "recovery, and runbooks. Summon when the change affects how "
+            "the system or platform is deployed, run, or monitored."
+        ),
+        system_prompt=(
+            "You are interviewing OPS (who deploys, runs, and operates "
+            "this system and its platform). Ask only what clarifies "
+            "deployment and rollout strategy, configuration and secret "
+            "handling, observability (metrics, logs, alerts), scaling "
+            "and capacity, availability and SLOs, backups and disaster "
+            "recovery, and operational runbooks. Avoid product and UI "
+            "detail."
+        ),
+    ),
 }
 
 
