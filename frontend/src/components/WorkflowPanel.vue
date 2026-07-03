@@ -3,6 +3,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
 import QuestionnaireForm from './QuestionnaireForm.vue'
 import { parseQuestionnaire } from '../lib/questionnaire'
+import EventCard from './EventCard.vue'
+import { toViewModel } from '../lib/eventView'
 
 const { workflows, current, events, error, refresh, select, ensureLive,
   createWorkflow, reply, submitAnswers, approve, reject, stop } = useWorkflows()
@@ -235,10 +237,7 @@ function stepTone(status: string): string {
 
         <div class="feed">
           <div class="eyebrow">Live telemetry</div>
-          <div v-for="(e, i) in events" :key="i" class="ev-line mono">
-            <span class="ev-line__type">{{ e.type }}</span>
-            {{ JSON.stringify(e.raw).slice(0, 140) }}
-          </div>
+          <EventCard v-for="(e, i) in events" :key="i" :event="toViewModel(e)" />
         </div>
       </div>
 
@@ -343,8 +342,6 @@ function stepTone(status: string): string {
 .gate__actions .btn { width: auto; padding-left: 22px; padding-right: 22px; }
 .pr-link { color: var(--signal); font-weight: 600; text-decoration: none; }
 .feed { display: flex; flex-direction: column; gap: 4px; }
-.ev-line { font-size: 12px; color: var(--text-mid); }
-.ev-line__type { color: var(--signal); margin-right: 8px; }
 .banner {
   display: flex; align-items: center; gap: 12px; margin: 16px 24px 0;
   padding: 11px 14px; border: 1px solid var(--err); border-left: 3px solid var(--err);
