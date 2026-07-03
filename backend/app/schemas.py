@@ -5,6 +5,8 @@ keep them in sync when the API changes (see ``contract.md``).
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -87,3 +89,16 @@ class AnswersIn(BaseModel):
     """Request body to answer a structured questionnaire."""
 
     answers: dict[str, object]
+
+
+class NotificationOut(BaseModel):
+    """One notification for the API."""
+
+    id: int
+    workflow_id: str
+    repo: str
+    issue_number: int
+    status: str
+    message: str
+    created_at: datetime
+    read: bool

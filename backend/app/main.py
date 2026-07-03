@@ -93,10 +93,11 @@ def create_app() -> FastAPI:
         """Report basic service liveness."""
         return {"status": "ok"}
 
-    from app.routers import sessions, workflows
+    from app.routers import notifications, sessions, workflows
 
     app.include_router(sessions.router)
     app.include_router(workflows.router)
+    app.include_router(notifications.router)
     return app
 
 
