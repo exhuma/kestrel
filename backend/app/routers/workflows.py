@@ -10,6 +10,7 @@ from app.schemas import (
     CreateWorkflowIn,
     RejectIn,
     ReplyIn,
+    StepSessionOut,
     WorkflowDetail,
     WorkflowStepOut,
     WorkflowSummary,
@@ -20,6 +21,20 @@ router = APIRouter(prefix="/api/workflows")
 
 
 def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
+    active = next(
+        (
+            s for s in run.steps
+            if s.status in ("running", "awaiting_input", "awaiting_approval")
+        ),
+        None,
+    )
+    active_sessions = [
+        StepSessionOut(
+            profile_id=ss.profile_id, label=ss.label, badge=ss.badge,
+            session_id=ss.session_id, status=ss.status,
+        )
+        for ss in (active.active_sessions if active else [])
+    ]
     return WorkflowDetail(
         id=run.id,
         repo=run.repo,
@@ -35,6 +50,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
             for s in run.steps
         ],
         current_session_id=service.current_session_id(run),
+        active_sessions=active_sessions,
         pr_url=run.pr_url,
         error=run.error,
     )

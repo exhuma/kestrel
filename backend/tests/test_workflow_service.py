@@ -555,6 +555,61 @@ async def test_waiver_reason_lands_in_refined_issue() -> None:
 
 
 @pytest.mark.asyncio
+async def test_profiles_are_interviewed_concurrently() -> None:
+    """Ensure the coordinator-selected profiles are interviewed at the
+    same time (each in its own live session), not one after another."""
+    from app.questionnaire import parse_envelope
+
+    class _BarrierRunner(_FakeRunner):
+        """Holds every profile generator at a barrier until all have
+        started, so the test can prove they overlap."""
+
+        def __init__(self, sessions, outputs, expected) -> None:
+            super().__init__(sessions, outputs)
+            self.inflight = 0
+            self.max_inflight = 0
+            self._expected = expected
+            self._all_in = asyncio.Event()
+
+        async def run_blocking(self, prompt, cwd, permission_mode,
+                               resume_id=None, on_session_id=None,
+                               model=None) -> str:
+            gen = "interviewing one stakeholder profile" in prompt
+            if gen:
+                self.inflight += 1
+                self.max_inflight = max(self.max_inflight, self.inflight)
+                if self.inflight >= self._expected:
+                    self._all_in.set()
+                await self._all_in.wait()
+            sid = await super().run_blocking(
+                prompt, cwd, permission_mode, resume_id,
+                on_session_id, model,
+            )
+            if gen:
+                self.inflight -= 1
+            return sid
+
+    gh = _FakeGitHub(body="vague issue")
+    runner = _BarrierRunner(SessionRegistry(), outputs=[
+        _coord(["developer", "infosec"]),
+        _qs(_q(prompt="Approach?",
+               options=[{"value": "a", "label": "A"}])),
+        _qs(_q(prompt="Threats?",
+               options=[{"value": "b", "label": "B"}])),
+        _coord([]),
+        _refined("done"),
+    ], expected=2)
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    assert runner.max_inflight == 2  # both ran at once
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    audiences = {q.audience for q in envelope.questionnaire.questions}
+    assert audiences == {"developer", "infosec"}
+
+
+@pytest.mark.asyncio
 async def test_reply_targets_whichever_step_is_awaiting_input() -> None:
     """Ensure reply routes to a non-refine step awaiting input."""
     from app.models_workflow import WorkflowRun, WorkflowStep

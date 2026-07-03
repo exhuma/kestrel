@@ -23,6 +23,16 @@ class SessionSummary(BaseModel):
     event_count: int
 
 
+class StepSessionOut(BaseModel):
+    """One live session chip for the active workflow step."""
+
+    profile_id: str
+    label: str
+    badge: str
+    session_id: str | None
+    status: str
+
+
 class WorkflowStepOut(BaseModel):
     """One workflow step for the API."""
 
@@ -52,6 +62,8 @@ class WorkflowDetail(BaseModel):
     branch: str
     steps: list[WorkflowStepOut]
     current_session_id: str | None
+    #: Live session chips for the step currently working/awaiting.
+    active_sessions: list[StepSessionOut]
     pr_url: str | None
     error: str | None
 

@@ -101,6 +101,48 @@ async def test_detail_exposes_steps_and_current_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_exposes_active_session_chips() -> None:
+    """Ensure the active step's live sessions surface as chips."""
+    from app.models_workflow import StepSession
+
+    class _RunningService(_FakeService):
+        def get(self, workflow_id: str) -> WorkflowRun:
+            return WorkflowRun(
+                id="wf-1", repo="o/r", issue_number=3, issue_title="T",
+                status="refining",
+                steps=[
+                    WorkflowStep(
+                        "refine", "s2", "running", None,
+                        active_sessions=[
+                            StepSession(
+                                "developer", "Developer", "agent",
+                                "s2", "running",
+                            ),
+                            StepSession(
+                                "infosec", "InfoSec", "warn",
+                                "s3", "running",
+                            ),
+                        ],
+                    ),
+                    WorkflowStep("plan"),
+                    WorkflowStep("implement"),
+                ],
+            )
+
+        def current_session_id(self, run) -> str:
+            return "s2"
+
+    async with _client(_RunningService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    assert [s["label"] for s in body["active_sessions"]] == [
+        "Developer", "InfoSec",
+    ]
+    assert body["active_sessions"][0]["badge"] == "agent"
+
+
+@pytest.mark.asyncio
 async def test_detail_unknown_returns_404() -> None:
     """Ensure an unknown workflow id maps to 404."""
     async with _client(_FakeService()) as c:

@@ -7,9 +7,10 @@ import os
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Callable
 
 from app.config import Settings, get_settings
-from app.models_workflow import WorkflowRun, WorkflowStep
+from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import InAppNotifier, Notifier
 from app.persistence.notification_store import get_notification_store
 from app.policy import get_policy
@@ -167,6 +168,17 @@ class _Decision:
     approved: bool
     deliverable: str | None = None
     refinement: str | None = None
+
+
+def _bind(step: WorkflowStep, slot: StepSession) -> Callable[[str], None]:
+    """Return an on_session_id callback that records the resolved id on
+    both the step's chip slot and its primary session pointer."""
+
+    def _on(sid: str) -> None:
+        slot.session_id = sid
+        step.session_id = sid
+
+    return _on
 
 
 class WorkflowService:
@@ -506,6 +518,7 @@ class WorkflowService:
             step.deliverable = await self._write_refined(
                 run, issue, accumulated
             )
+            step.active_sessions = []  # chips off at the gate
             step.status = "awaiting_approval"
             run.status = "awaiting_refine_approval"
             self._save(run)
@@ -525,6 +538,7 @@ class WorkflowService:
             step.deliverable = await self._rewrite_refined(
                 run, step.deliverable or "", decision.refinement
             )
+            step.active_sessions = []  # chips off at the gate
             step.status = "awaiting_approval"
             run.status = "awaiting_refine_approval"
             self._save(run)
@@ -581,6 +595,7 @@ class WorkflowService:
                     issue=issue,
                 )
             )
+            step.active_sessions = []  # human's turn: chips off
             step.status = "awaiting_input"
             run.status = "awaiting_refine_input"
             self._save(run)
@@ -589,26 +604,50 @@ class WorkflowService:
             round_no += 1
         return issue, accumulated
 
-    async def _run_refine_agent(
-        self, run: WorkflowRun, prompt: str
-    ) -> str:
-        """Run one stateless refine sub-agent and return its result text.
+    def _show_sessions(
+        self, run: WorkflowRun, slots: list[StepSession]
+    ) -> None:
+        """Publish the sessions active on the refine step right now.
 
-        Each call is a fresh (non-resumed) read-only session; the step's
-        session id tracks the latest one for the UI telemetry stream.
+        Each ``_save`` pushes the chip state to the UI (via the poll
+        today, the SSE stream in a later phase). The slots are the
+        ephemeral, non-persisted telemetry the workflow view animates.
+        """
+        run.steps[0].active_sessions = slots
+        self._save(run)
+
+    async def _run_refine_agent(
+        self, run: WorkflowRun, prompt: str, slot: StepSession
+    ) -> str:
+        """Run one stateless refine sub-agent, tracking its own session.
+
+        Each call is a fresh (non-resumed) read-only session. It fills in
+        its own *slot* — so concurrent generators never race on a single
+        shared field — and marks it idle when done; ``step.session_id``
+        still tracks the latest for back-compat.
         """
         step = run.steps[0]
+
+        def _on_sid(s: str) -> None:
+            slot.session_id = s
+            step.session_id = s
+
         sid = await self.runner.run_blocking(
             prompt, run.workspace, "plan",
-            on_session_id=lambda s: setattr(step, "session_id", s),
+            on_session_id=_on_sid,
             model=step.model,
         )
+        slot.status = "idle"
         return self._result_text(sid)
 
     async def _coordinator_profiles(
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]
     ) -> list[str]:
         """Ask the coordinator which profiles to interview next."""
+        slot = StepSession(
+            profile_id="coordinator", label="Coordinator", badge="sys"
+        )
+        self._show_sessions(run, [slot])
         text = await self._run_refine_agent(
             run,
             COORDINATOR_PROMPT.format(
@@ -616,6 +655,7 @@ class WorkflowService:
                 issue=issue,
                 answers=render_qa(accumulated),
             ),
+            slot,
         )
         return [pid for pid in (extract_profiles(text) or []) if pid]
 
@@ -626,16 +666,32 @@ class WorkflowService:
         accumulated: list[QAEntry],
         profile_ids: list[str],
     ) -> Questionnaire:
-        """Fan out to one generator per profile and aggregate questions.
+        """Fan out to one generator per profile, concurrently, and
+        aggregate their questions.
 
-        Each question's audience is stamped from its generating profile
-        and its id namespaced by profile, so ids stay unique across the
-        aggregated set.
+        Every selected profile is interviewed at the same time — each in
+        its own live session with its own activity chip — so the user
+        sees the whole panel working at once. Each question's audience is
+        stamped from its generating profile and its id namespaced by
+        profile, so ids stay unique across the aggregated set.
         """
-        questions = []
-        profiles: dict[str, ProfileMeta] = {}
-        for profile_id in profile_ids:
-            profile = get_profile(profile_id)
+        # Dedup while preserving the coordinator's ordering, so a profile
+        # named twice does not run twice or collide on namespaced ids.
+        ordered: list[str] = []
+        for pid in profile_ids:
+            if pid not in ordered:
+                ordered.append(pid)
+        profiles_by_id = {pid: get_profile(pid) for pid in ordered}
+        slots = {
+            pid: StepSession(
+                profile_id=p.id, label=p.label, badge=p.badge
+            )
+            for pid, p in profiles_by_id.items()
+        }
+        self._show_sessions(run, list(slots.values()))
+
+        async def _one(pid: str) -> tuple[str, Questionnaire | None]:
+            profile = profiles_by_id[pid]
             text = await self._run_refine_agent(
                 run,
                 GENERATION_PROMPT.format(
@@ -643,10 +699,18 @@ class WorkflowService:
                     issue=issue,
                     answers=render_qa(accumulated),
                 ),
+                slots[pid],
             )
-            questionnaire = extract_questionnaire(text)
+            return pid, extract_questionnaire(text)
+
+        results = await asyncio.gather(*(_one(pid) for pid in ordered))
+
+        questions = []
+        profiles: dict[str, ProfileMeta] = {}
+        for pid, questionnaire in results:
             if questionnaire is None:
                 continue
+            profile = profiles_by_id[pid]
             for question in questionnaire.questions:
                 question.audience = profile.id
                 question.id = f"{profile.id}:{question.id}"
@@ -667,11 +731,16 @@ class WorkflowService:
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]
     ) -> str:
         """Write the refined issue and append the risk section."""
+        slot = StepSession(
+            profile_id="writer", label="Writer", badge="agent"
+        )
+        self._show_sessions(run, [slot])
         text = await self._run_refine_agent(
             run,
             WRITE_REFINED_PROMPT.format(
                 issue=issue, answers=render_qa(accumulated)
             ),
+            slot,
         )
         body = extract_refined_issue(text) or text
         risks = render_assumptions_and_risks(accumulated)
@@ -683,11 +752,16 @@ class WorkflowService:
         self, run: WorkflowRun, current: str, feedback: str
     ) -> str:
         """Regenerate the refined issue from gate feedback."""
+        slot = StepSession(
+            profile_id="writer", label="Writer", badge="agent"
+        )
+        self._show_sessions(run, [slot])
         text = await self._run_refine_agent(
             run,
             REFINE_FEEDBACK_PROMPT.format(
                 current=current, feedback=feedback
             ),
+            slot,
         )
         return extract_refined_issue(text) or text
 
@@ -705,13 +779,15 @@ class WorkflowService:
             if prompt is not None:
                 run.status = "planning"
                 step.status = "running"
+                slot = StepSession(
+                    profile_id="planner", label="Planner", badge="agent"
+                )
+                step.active_sessions = [slot]
                 self._save(run)
                 sid = await self.runner.run_blocking(
                     prompt, run.workspace, "plan",
                     resume_id=step.session_id,
-                    on_session_id=lambda s: setattr(
-                        step, "session_id", s
-                    ),
+                    on_session_id=_bind(step, slot),
                     model=model,
                 )
                 text = self._result_text(sid)
@@ -721,6 +797,7 @@ class WorkflowService:
                 # it falls into its native Plan Mode and tries
                 # ExitPlanMode instead).
                 step.deliverable = extract_plan(text) or text
+                step.active_sessions = []
                 step.status = "awaiting_approval"
                 run.status = "awaiting_plan_approval"
                 self._save(run)
@@ -754,6 +831,10 @@ class WorkflowService:
             if prompt is not None:
                 run.status = "implementing"
                 step.status = "running"
+                slot = StepSession(
+                    profile_id="builder", label="Builder", badge="agent"
+                )
+                step.active_sessions = [slot]
                 self._save(run)
                 sid = await self.runner.run_blocking(
                     prompt, run.workspace, "acceptEdits",
@@ -761,9 +842,7 @@ class WorkflowService:
                         step.session_id
                         or run.steps[1].session_id
                     ),
-                    on_session_id=lambda s: setattr(
-                        step, "session_id", s
-                    ),
+                    on_session_id=_bind(step, slot),
                     model=model,
                 )
                 text = self._result_text(sid)
@@ -777,6 +856,7 @@ class WorkflowService:
                         if questionnaire is not None
                         else text
                     )
+                    step.active_sessions = []  # human's turn: chips off
                     step.status = "awaiting_input"
                     run.status = "awaiting_implement_input"
                     self._save(run)
@@ -785,6 +865,7 @@ class WorkflowService:
                     )
                     continue
                 step.deliverable = diff
+                step.active_sessions = []  # chips off at the gate
                 step.status = "awaiting_approval"
                 run.status = "awaiting_implement_approval"
                 self._save(run)
