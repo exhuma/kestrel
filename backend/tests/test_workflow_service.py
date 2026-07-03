@@ -39,6 +39,22 @@ class _FakeGit:
         self.pushed.append(branch)
 
 
+class _FakeNotifier:
+    """Records attention-worthy statuses, mirroring the filtering
+    every real Notifier implementation is responsible for (see
+    InAppNotifier._is_notifiable) rather than recording every
+    call unconditionally."""
+
+    def __init__(self) -> None:
+        self.notified: list[str] = []
+
+    def notify(self, run) -> None:
+        if run.status in ("done", "failed") or run.status.startswith(
+            "awaiting_"
+        ):
+            self.notified.append(run.status)
+
+
 class _FakeGitHub:
     def __init__(self, body: str = "Please add a widget") -> None:
         self.body = body
@@ -93,6 +109,7 @@ def _service(github, runner, git) -> WorkflowService:
         runner=runner,
         git=git,
         github=github,
+        notifier=_FakeNotifier(),
     )
 
 
@@ -573,3 +590,53 @@ async def test_implement_malformed_blocker_falls_back_to_text_reply() -> None:
     await _wait(
         lambda: svc.get(wid).status == "awaiting_implement_approval"
     )
+
+
+@pytest.mark.asyncio
+async def test_notifier_fires_on_awaiting_and_done() -> None:
+    """Ensure attention-worthy statuses reach the notifier."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
+    notifier = _FakeNotifier()
+    svc = WorkflowService(
+        settings=Settings(git_base="https://github.com", github_token="t"),
+        sessions=runner.sessions,
+        workflows=WorkflowRegistry(),
+        runner=runner,
+        git=_FakeGit(),
+        github=gh,
+        notifier=notifier,
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "awaiting_implement_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert "awaiting_plan_approval" in notifier.notified
+    assert "awaiting_implement_approval" in notifier.notified
+    assert "done" in notifier.notified
+    assert "planning" not in notifier.notified
+    assert "implementing" not in notifier.notified
+
+
+@pytest.mark.asyncio
+async def test_notifier_does_not_fire_on_reject() -> None:
+    """Ensure a bare reject does not produce a notification."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
+    notifier = _FakeNotifier()
+    svc = WorkflowService(
+        settings=Settings(git_base="https://github.com", github_token="t"),
+        sessions=runner.sessions,
+        workflows=WorkflowRegistry(),
+        runner=runner,
+        git=_FakeGit(),
+        github=gh,
+        notifier=notifier,
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    svc.reject(wid)
+    await _wait(lambda: svc.get(wid).status == "rejected")
+    assert "rejected" not in notifier.notified

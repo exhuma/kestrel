@@ -18,6 +18,7 @@ from app.storage.workflow_registry import WorkflowRegistry
 from tests.test_workflow_service import (
     _FakeGit,
     _FakeGitHub,
+    _FakeNotifier,
     _FakeRunner,
     _wait,
 )
@@ -38,6 +39,7 @@ def _persistent_service(
         runner=runner,
         git=git,
         github=github,
+        notifier=_FakeNotifier(),
     )
 
 

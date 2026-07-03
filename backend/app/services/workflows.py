@@ -10,6 +10,8 @@ from functools import lru_cache
 
 from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun, WorkflowStep
+from app.notifications import InAppNotifier, Notifier
+from app.persistence.notification_store import get_notification_store
 from app.policy import get_policy
 from app.questionnaire import (
     format_answers,
@@ -136,6 +138,7 @@ class WorkflowService:
         runner: SessionRunner,
         git: GitService,
         github: GitHubClient,
+        notifier: Notifier,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -143,11 +146,30 @@ class WorkflowService:
         self.runner = runner
         self.git = git
         self.github = github
+        self.notifier = notifier
         self._control: dict[str, _Control] = {}
 
     def _new_control(self) -> _Control:
         loop = asyncio.get_running_loop()
         return _Control(gate=loop.create_future(), replies=asyncio.Queue())
+
+    def _save(self, run: WorkflowRun) -> None:
+        """
+        Persist the run and notify if its new status needs
+        attention.
+
+        The single choke point for every state-transition
+        checkpoint in this service — every internal call site
+        uses ``self._save(run)`` instead of calling
+        ``self.workflows.save(run)`` directly, so no call site
+        can forget to notify, and no call site needs to judge for
+        itself whether its status is notification-worthy (the
+        notifier does that filtering once, centrally).
+
+        :param run: The run to checkpoint.
+        """
+        self.workflows.save(run)
+        self.notifier.notify(run)
 
     # ---- queries -------------------------------------------------------
     def get(self, workflow_id: str) -> WorkflowRun:
@@ -302,7 +324,7 @@ class WorkflowService:
             elif run.status in _TRANSIENT:
                 run.status = "failed"
                 run.error = "backend restarted mid-step"
-                self.workflows.save(run)
+                self._save(run)
 
     async def _resume(self, workflow_id: str) -> None:
         """Re-enter a gate-parked run after recovery."""
@@ -311,7 +333,7 @@ class WorkflowService:
             await self._continue(run)
         except _Rejected:
             run.status = "rejected"
-            self.workflows.save(run)
+            self._save(run)
         except Exception as exc:
             _logger.exception(
                 "workflow %s (%s#%s) failed during %s",
@@ -320,17 +342,17 @@ class WorkflowService:
             )
             run.status = "failed"
             run.error = str(exc)
-            self.workflows.save(run)
+            self._save(run)
 
     async def _drive(self, workflow_id: str) -> None:
         run = self.get(workflow_id)
         try:
             run.status = "cloning"
-            self.workflows.save(run)
+            self._save(run)
             issue = await self.github.get_issue(run.repo, run.issue_number)
             run.issue_title = issue.title
             run.base_branch = await self.github.get_default_branch(run.repo)
-            self.workflows.save(run)
+            self._save(run)
             remote = f"{self.settings.git_base}/{run.repo}.git"
             await self.git.clone(remote, run.workspace)
             await self.git.checkout_branch(run.workspace, run.branch)
@@ -338,13 +360,13 @@ class WorkflowService:
             if has_sentinel(issue.body):
                 run.steps[0].status = "done"
                 run.steps[0].deliverable = issue.body
-                self.workflows.save(run)
+                self._save(run)
                 await self._continue(run)
             else:
                 await self._continue(run, issue_body=issue.body)
         except _Rejected:
             run.status = "rejected"
-            self.workflows.save(run)
+            self._save(run)
         except Exception as exc:  # record, do not crash the loop
             _logger.exception(
                 "workflow %s (%s#%s) failed during %s",
@@ -352,7 +374,7 @@ class WorkflowService:
             )
             run.status = "failed"
             run.error = str(exc)
-            self.workflows.save(run)
+            self._save(run)
 
     async def _continue(
         self, run: WorkflowRun, issue_body: str | None = None
@@ -390,7 +412,7 @@ class WorkflowService:
             if prompt is not None:
                 run.status = "refining"
                 step.status = "running"
-                self.workflows.save(run)
+                self._save(run)
                 sid = await self.runner.run_blocking(
                     prompt, run.workspace, "plan", resume_id=sid,
                     on_session_id=lambda s: setattr(
@@ -413,7 +435,7 @@ class WorkflowService:
                     )
                     step.status = "awaiting_input"
                     run.status = "awaiting_refine_input"
-                    self.workflows.save(run)
+                    self._save(run)
                     prompt = await (
                         self._control[run.id].replies.get()
                     )
@@ -421,7 +443,7 @@ class WorkflowService:
                 step.deliverable = refined
                 step.status = "awaiting_approval"
                 run.status = "awaiting_refine_approval"
-                self.workflows.save(run)
+                self._save(run)
             decision = await self._await_gate(run.id)
             if decision.approved:
                 final = decision.deliverable or (
@@ -433,7 +455,7 @@ class WorkflowService:
                 )
                 step.deliverable = final
                 step.status = "done"
-                self.workflows.save(run)
+                self._save(run)
                 return
             if decision.refinement is None:
                 raise _Rejected()
@@ -455,7 +477,7 @@ class WorkflowService:
             if prompt is not None:
                 run.status = "planning"
                 step.status = "running"
-                self.workflows.save(run)
+                self._save(run)
                 sid = await self.runner.run_blocking(
                     prompt, run.workspace, "plan",
                     resume_id=step.session_id,
@@ -473,11 +495,11 @@ class WorkflowService:
                 step.deliverable = extract_plan(text) or text
                 step.status = "awaiting_approval"
                 run.status = "awaiting_plan_approval"
-                self.workflows.save(run)
+                self._save(run)
             decision = await self._await_gate(run.id)
             if decision.approved:
                 step.status = "done"
-                self.workflows.save(run)
+                self._save(run)
                 # implement resumes this plan session via
                 # run.steps[1].session_id.
                 return
@@ -504,7 +526,7 @@ class WorkflowService:
             if prompt is not None:
                 run.status = "implementing"
                 step.status = "running"
-                self.workflows.save(run)
+                self._save(run)
                 sid = await self.runner.run_blocking(
                     prompt, run.workspace, "acceptEdits",
                     resume_id=(
@@ -529,7 +551,7 @@ class WorkflowService:
                     )
                     step.status = "awaiting_input"
                     run.status = "awaiting_implement_input"
-                    self.workflows.save(run)
+                    self._save(run)
                     prompt = await (
                         self._control[run.id].replies.get()
                     )
@@ -537,11 +559,11 @@ class WorkflowService:
                 step.deliverable = diff
                 step.status = "awaiting_approval"
                 run.status = "awaiting_implement_approval"
-                self.workflows.save(run)
+                self._save(run)
             decision = await self._await_gate(run.id)
             if decision.approved:
                 step.status = "done"
-                self.workflows.save(run)
+                self._save(run)
                 return
             if decision.refinement is None:
                 raise _Rejected()
@@ -552,7 +574,7 @@ class WorkflowService:
     async def _deliver(self, run: WorkflowRun) -> None:
         """Commit, push, open the PR, and finish the run."""
         run.status = "opening_pr"
-        self.workflows.save(run)
+        self._save(run)
         await self.git.commit_all(
             run.workspace, f"Implement #{run.issue_number}"
         )
@@ -565,7 +587,7 @@ class WorkflowService:
             body=f"Closes #{run.issue_number}\n\nOpened by kestrel.",
         )
         run.status = "done"
-        self.workflows.save(run)
+        self._save(run)
 
 
 class _Rejected(Exception):
@@ -584,4 +606,5 @@ def get_workflow_service() -> WorkflowService:
         runner=SessionRunner(settings, registry),
         git=GitService(settings.github_token),
         github=GitHubClient(settings.github_api_base, settings.github_token),
+        notifier=InAppNotifier(get_notification_store()),
     )
