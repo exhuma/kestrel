@@ -105,12 +105,23 @@ async def reject_workflow(
     return {"status": "ok"}
 
 
+@router.post("/{workflow_id}/answers/draft")
+async def save_draft_answers(
+    workflow_id: str,
+    body: AnswersIn,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """Persist a partial answer set without finalizing the interview."""
+    service.save_draft(workflow_id, body.answers)
+    return {"status": "ok"}
+
+
 @router.post("/{workflow_id}/answers")
 async def submit_answers(
     workflow_id: str,
     body: AnswersIn,
     service: WorkflowService = Depends(get_workflow_service),
 ) -> dict[str, str]:
-    """Submit structured answers to the pending questionnaire."""
+    """Finalize the pending questionnaire (all questions answered/waived)."""
     service.submit_answers(workflow_id, body.answers)
     return {"status": "ok"}

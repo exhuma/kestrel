@@ -64,6 +64,13 @@ class _FakeService:
             raise AnswerValidationError({"q1": "must be oidc"})
         self.answers = answers
 
+    def save_draft(
+        self, workflow_id: str, answers: dict[str, object]
+    ) -> None:
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        self.draft = answers
+
 
 def _client(service):
     app = create_app()
@@ -149,6 +156,19 @@ async def test_submit_answers_ok() -> None:
         )
     assert resp.status_code == 200
     assert service.answers == {"q1": "oidc"}
+
+
+@pytest.mark.asyncio
+async def test_save_draft_answers_ok() -> None:
+    """Ensure a partial draft posts through to the service."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.post(
+            "/api/workflows/wf-1/answers/draft",
+            json={"answers": {"q1": "oidc"}},
+        )
+    assert resp.status_code == 200
+    assert service.draft == {"q1": "oidc"}
 
 
 @pytest.mark.asyncio

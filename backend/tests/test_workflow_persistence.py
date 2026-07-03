@@ -135,9 +135,13 @@ async def test_gate_state_is_checkpointed(
     tmp_path: Path,
 ) -> None:
     """Ensure awaiting states are visible in the database."""
+    from app.questionnaire import parse_envelope
+    from tests.test_workflow_service import _coord, _q, _qs
+
     store = _store(tmp_path)
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        "What colour?",
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
     svc = _persistent_service(
         store, _FakeGitHub(body="vague"), runner, _FakeGit()
@@ -151,7 +155,8 @@ async def test_gate_state_is_checkpointed(
     assert persisted.status == "awaiting_refine_input"
     assert persisted.steps[0].status == "awaiting_input"
     assert persisted.steps[0].session_id is not None
-    assert persisted.steps[0].deliverable == "What colour?"
+    envelope = parse_envelope(persisted.steps[0].deliverable)
+    assert envelope.questionnaire.questions[0].prompt == "What colour?"
 
 
 def test_save_is_an_upsert(tmp_path: Path) -> None:

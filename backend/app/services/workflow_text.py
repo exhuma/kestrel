@@ -1,6 +1,7 @@
 """Sentinel and tagged-block extraction helpers for the workflow."""
 from __future__ import annotations
 
+import json
 import re
 
 from app.questionnaire import Questionnaire, parse_questionnaire_json
@@ -36,6 +37,35 @@ def extract_refined_issue(text: str) -> str | None:
 def extract_plan(text: str) -> str | None:
     """Return the plan if the agent emitted the delimiter block."""
     return _extract_tag(text, "PLAN")
+
+
+def extract_profiles(text: str) -> list[str] | None:
+    """
+    Return the coordinator's chosen profile ids from a PROFILES block.
+
+    The coordinator wraps a JSON array of profile ids (e.g.
+    ``["requester", "developer"]``) — or an object with a
+    ``"profiles"`` key — in ``<PROFILES>`` tags. An empty array means
+    "no more rounds; the interview is done".
+
+    :param text: The agent's full response text.
+    :returns: The list of ids (possibly empty), or None if the tag is
+        absent or its content is not valid JSON of the right shape.
+    """
+    raw = _extract_tag(text, "PROFILES")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if isinstance(data, dict):
+        data = data.get("profiles")
+    if not isinstance(data, list) or not all(
+        isinstance(item, str) for item in data
+    ):
+        return None
+    return data
 
 
 def extract_questionnaire(text: str) -> Questionnaire | None:

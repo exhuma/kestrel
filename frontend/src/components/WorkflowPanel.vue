@@ -2,12 +2,12 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
 import QuestionnaireForm from './QuestionnaireForm.vue'
-import { parseQuestionnaire } from '../lib/questionnaire'
+import { parseInterview } from '../lib/questionnaire'
 import EventCard from './EventCard.vue'
 import { toViewModel } from '../lib/eventView'
 
 const { workflows, current, events, error, refresh, select, ensureLive,
-  createWorkflow, reply, submitAnswers, approve, reject, stop } = useWorkflows()
+  createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop } = useWorkflows()
 
 const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
@@ -32,9 +32,9 @@ const activeStep = computed(() =>
 const awaitingInput = computed(() => activeStep.value?.status === 'awaiting_input')
 const awaitingApproval = computed(() => activeStep.value?.status === 'awaiting_approval')
 const stepRunning = computed(() => activeStep.value?.status === 'running')
-const pendingQuestionnaire = computed(() =>
+const pendingInterview = computed(() =>
   awaitingInput.value
-    ? parseQuestionnaire(activeStep.value?.deliverable ?? null)
+    ? parseInterview(activeStep.value?.deliverable ?? null)
     : null,
 )
 const issueUrl = computed(() =>
@@ -92,6 +92,15 @@ async function onSubmitAnswers(
     await submitAnswers(answers)
   } finally {
     busy.value = null
+  }
+}
+async function onSaveDraft(
+  answers: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await saveDraft(answers)
+  } catch {
+    /* draft saves are best-effort; ignore transient failures */
   }
 }
 function stepStatus(name: string): string {
@@ -194,7 +203,8 @@ function stepTone(status: string): string {
           </span>
         </div>
 
-        <div class="deliverable" v-if="activeStep?.deliverable">
+        <div class="deliverable"
+          v-if="activeStep?.deliverable && !(awaitingInput && pendingInterview)">
           <div class="eyebrow">
             {{ awaitingInput ? `${activeStep.name} — agent asks` : `${activeStep.name} deliverable` }}
           </div>
@@ -221,8 +231,10 @@ function stepTone(status: string): string {
         </div>
 
         <div class="gate" v-if="awaitingInput">
-          <QuestionnaireForm v-if="pendingQuestionnaire"
-            :questionnaire="pendingQuestionnaire" @submit="onSubmitAnswers" />
+          <QuestionnaireForm v-if="pendingInterview"
+            :questionnaire="pendingInterview.questionnaire"
+            :draft-answers="pendingInterview.draft_answers"
+            @submit="onSubmitAnswers" @save-draft="onSaveDraft" />
           <template v-else>
             <textarea v-model="answer" class="field" rows="3"
               placeholder="Answer the agent's questions…" />

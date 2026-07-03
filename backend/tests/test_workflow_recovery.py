@@ -17,6 +17,10 @@ from tests.test_workflow_service import (
     _FakeGit,
     _FakeGitHub,
     _FakeRunner,
+    _coord,
+    _q,
+    _qs,
+    _refined,
     _wait,
 )
 
@@ -35,7 +39,8 @@ async def test_recover_resumes_awaiting_input(
     """Ensure a run parked at the interview survives restart."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
-        "What colour?",
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
@@ -45,12 +50,13 @@ async def test_recover_resumes_awaiting_input(
         lambda: svc1.get(wid).status
         == "awaiting_refine_input"
     )
-    old_sid = svc1.get(wid).steps[0].session_id
 
     # --- simulated restart: fresh registry/service/fakes ---
+    # The interview state is rebuilt from the persisted envelope, so a
+    # further coordinator round can run and the writer can finish.
     runner2 = _FakeRunner(SessionRegistry(), outputs=[
-        "<REFINED_ISSUE>\nBuild a blue widget\n"
-        "</REFINED_ISSUE>",
+        _coord([]),
+        _refined("Build a blue widget"),
     ])
     svc2 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner2, _FakeGit()
@@ -60,13 +66,11 @@ async def test_recover_resumes_awaiting_input(
     run = svc2.get(wid)
     assert run.status == "awaiting_refine_input"
 
-    svc2.reply(wid, "Blue, please")
+    svc2.submit_answers(wid, {"developer:q1": "Blue, please"})
     await _wait(
         lambda: svc2.get(wid).status
         == "awaiting_refine_approval"
     )
-    # The reply resumed the ORIGINAL claude session.
-    assert runner2.calls[0]["resume_id"] == old_sid
     assert (
         svc2.get(wid).steps[0].deliverable
         == "Build a blue widget"
@@ -124,7 +128,8 @@ async def test_recover_fails_mid_step_runs(
     """Ensure runs that died mid-step fail loudly."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
-        "What colour?",
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()

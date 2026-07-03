@@ -5,6 +5,7 @@ from app.services.workflow_text import (
     SENTINEL,
     append_sentinel,
     extract_plan,
+    extract_profiles,
     extract_questionnaire,
     extract_refined_issue,
     has_sentinel,
@@ -71,3 +72,27 @@ def test_extract_questionnaire_returns_none_on_bad_json() -> None:
     """Ensure a malformed block yields None, not an exception."""
     text = "<QUESTIONS>{not json}</QUESTIONS>"
     assert extract_questionnaire(text) is None
+
+
+def test_extract_profiles_parses_array() -> None:
+    """Ensure a PROFILES array of ids is extracted."""
+    text = 'Picked:\n<PROFILES>["requester", "infosec"]</PROFILES>'
+    assert extract_profiles(text) == ["requester", "infosec"]
+
+
+def test_extract_profiles_empty_means_done() -> None:
+    """Ensure an empty array is returned as [] (interview done)."""
+    assert extract_profiles("<PROFILES>[]</PROFILES>") == []
+
+
+def test_extract_profiles_accepts_object_form() -> None:
+    """Ensure a {"profiles": [...]} object is also accepted."""
+    text = '<PROFILES>{"profiles": ["developer"]}</PROFILES>'
+    assert extract_profiles(text) == ["developer"]
+
+
+def test_extract_profiles_absent_or_malformed_returns_none() -> None:
+    """Ensure a missing or malformed block yields None."""
+    assert extract_profiles("no tag here") is None
+    assert extract_profiles("<PROFILES>{not json}</PROFILES>") is None
+    assert extract_profiles("<PROFILES>[1, 2]</PROFILES>") is None
