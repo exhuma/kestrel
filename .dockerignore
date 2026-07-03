@@ -1,0 +1,24 @@
+# Dependencies / build outputs
+**/node_modules
+frontend/dist
+backend/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# Local state (never bake into the image)
+**/*.db
+backend/.kestrel-workspaces
+backend/.dispatcher-workspaces
+**/.env
+
+# VCS / tooling / docs not needed at build time
+.git
+.gitignore
+.claude
+docs
+assets
+*.md
+!backend/README.md

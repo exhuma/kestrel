@@ -1,0 +1,38 @@
+# Run kestrel from the published alpha image:
+#   docker compose up
+#
+# To build from source instead, comment out `image:` and uncomment `build:`,
+# then run `docker compose up --build`.
+services:
+  kestrel:
+    image: ghcr.io/exhuma/kestrel:alpha
+    # build:
+    #   context: .
+    #   args:
+    #     VITE_API_BASE: ""
+    #     KESTREL_VERSION: dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the SQLite DB and the container's Claude HOME across restarts.
+      - kestrel-data:/data
+      # The git repos claude clones and edits, kept browsable on the host.
+      - ./workspaces:/workspaces
+      # Seed (read-only): your host Claude config is copied into the container
+      # at startup so the bundled CLI has your auth, MCP servers and plugins.
+      # The container never writes back to these. Note ~/.claude.json is a
+      # separate FILE from the ~/.claude directory — both are needed.
+      - ${HOME}/.claude:/seed/.claude:ro
+      - ${HOME}/.claude.json:/seed/claude.json:ro
+    environment:
+      # The repos claude works in (matches the ./workspaces bind mount above).
+      KESTREL_WORKSPACE_ROOT: /workspaces
+      # Optional: a token unlocks GitHub ingestion features.
+      KESTREL_GITHUB_TOKEN: ${KESTREL_GITHUB_TOKEN:-}
+      # Permission mode passed to spawned claude sessions.
+      KESTREL_PERMISSION_MODE: ${KESTREL_PERMISSION_MODE:-acceptEdits}
+      # JSON map of model overrides, e.g. '{"sonnet":"claude-sonnet-5"}'.
+      KESTREL_MODEL_OVERRIDES: ${KESTREL_MODEL_OVERRIDES:-{}}
+
+volumes:
+  kestrel-data:

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
     permission_mode: str = "acceptEdits"
+    # Directory of the built SPA to serve. Empty (dev default) means the
+    # backend is API-only and the SPA is served by the Vite dev server; the
+    # container image sets this to the baked-in static bundle.
+    static_dir: str = ""
     github_token: str = ""
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"

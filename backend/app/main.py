@@ -1,6 +1,7 @@
 """FastAPI application factory for kestrel."""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -88,9 +89,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get("/")
-    async def root() -> dict[str, str]:
-        """Report basic service liveness."""
+    @app.get("/healthz")
+    async def healthz() -> dict[str, str]:
+        """Report basic service liveness (used by the container healthcheck)."""
         return {"status": "ok"}
 
     from app.routers import notifications, sessions, workflows
@@ -98,6 +99,20 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(workflows.router)
     app.include_router(notifications.router)
+
+    # When packaged as a single image the backend also serves the built SPA.
+    # Mounted last so the API routers above keep priority; html=True serves
+    # index.html for unknown paths, giving the SPA its client-side routing.
+    from app.config import get_settings
+
+    static_dir = get_settings().static_dir
+    if static_dir and os.path.isdir(static_dir):
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount(
+            "/", StaticFiles(directory=static_dir, html=True), name="spa"
+        )
+
     return app
 
 

@@ -1,8 +1,9 @@
 [project]
 name = "kestrel-backend"
-version = "0.1.0"
-description = "Add your description here"
+version = "2026.7.3a1"
+description = "Dispatch and monitor Claude Code CLI sessions from a web UI."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.13",
