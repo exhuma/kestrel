@@ -82,11 +82,35 @@ function classifyUser(raw: Record<string, unknown>): EventViewKind {
   return { kind: 'unknown' }
 }
 
+/**
+ * Render the init event's MCP servers as "name (status), …", or the
+ * literal "none" when the CLI reported no servers — so the telemetry
+ * makes plain whether a configured MCP (e.g. quartermaster) actually
+ * loaded into this headless session.
+ */
+export function mcpSummary(raw: Record<string, unknown>): string {
+  const servers = Array.isArray(raw.mcp_servers)
+    ? (raw.mcp_servers as { name?: unknown; status?: unknown }[])
+    : []
+  if (!servers.length) return 'none'
+  return servers
+    .map((m) => {
+      const name = typeof m.name === 'string' ? m.name : '?'
+      const status = typeof m.status === 'string' ? m.status : ''
+      return status ? `${name} (${status})` : name
+    })
+    .join(', ')
+}
+
 function classifySystem(raw: Record<string, unknown>): EventViewKind {
   const subtype = typeof raw.subtype === 'string' ? raw.subtype : 'unknown'
   if (subtype === 'thinking_tokens') {
     const tokens = raw.estimated_tokens
     return { kind: 'thinking', tokens: typeof tokens === 'number' ? tokens : 0 }
+  }
+  if (subtype === 'init') {
+    // The init frame is where MCP availability is knowable.
+    return { kind: 'system', subtype, summary: `MCP: ${mcpSummary(raw)}` }
   }
   const summary =
     (typeof raw.hook_name === 'string' && raw.hook_name) ||

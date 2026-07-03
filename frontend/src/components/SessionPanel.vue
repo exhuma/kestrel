@@ -163,7 +163,16 @@ function preview(e: SessionEvent): string {
 
   if (e.type === 'system') {
     const tools = Array.isArray(r.tools) ? (r.tools as string[]).join(', ') : ''
-    const bits = [r.model, tools && `tools: ${tools}`].filter(Boolean)
+    const servers = Array.isArray(r.mcp_servers)
+      ? (r.mcp_servers as { name?: string; status?: string }[])
+          .map((m) => `${m.name}${m.status ? ` (${m.status})` : ''}`)
+          .join(', ')
+      : ''
+    // On the init frame, always report MCP — "none" is itself the answer
+    // to "did my configured MCP server load into this session?".
+    const mcp =
+      r.subtype === 'init' ? `MCP: ${servers || 'none'}` : servers && `MCP: ${servers}`
+    const bits = [r.model, mcp, tools && `tools: ${tools}`].filter(Boolean)
     if (bits.length) return bits.join('   ·   ')
   }
 
