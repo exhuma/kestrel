@@ -23,24 +23,26 @@ export function useWorkflows() {
   }
 
   function applyDetail(detail: WorkflowDetail): void {
-    // Re-subscribe to the live telemetry feed when the active step's
-    // session changes, or when the previous subscription was torn down
-    // by stop() (e.g. the panel was unmounted and remounted).
-    if (detail.current_session_id &&
-        (!source ||
-          detail.current_session_id !== current.value?.current_session_id)) {
-      watchSession(detail.current_session_id)
-    }
     current.value = detail
   }
 
-  function watchSession(sessionId: string): void {
+  // Telemetry is on-demand now: the workflow view stays compact and only
+  // streams a session's raw events when the user opens its chip.
+  function streamSession(sessionId: string): void {
     events.value = []
     if (source) source.close()
     source = new EventSource(`${API_BASE}/api/sessions/${sessionId}/events`)
     source.onmessage = (e) => {
       events.value.push(JSON.parse(e.data) as SessionEvent)
     }
+  }
+
+  function closeSession(): void {
+    if (source) {
+      source.close()
+      source = null
+    }
+    events.value = []
   }
 
   function select(id: string): void {
@@ -126,5 +128,5 @@ export function useWorkflows() {
     }
   }
 
-  return { workflows, current, events, error, refresh, select, ensureLive, createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop }
+  return { workflows, current, events, error, refresh, select, ensureLive, streamSession, closeSession, createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop }
 }

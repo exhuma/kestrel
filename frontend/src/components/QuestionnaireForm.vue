@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { reactive, computed, watch } from 'vue'
+import { reactive, computed, ref, watch } from 'vue'
 import type { Questionnaire, WaiverAnswer } from '../types/questionnaire'
-import { allRequiredAnswered, groupByProfile, isWaiver } from '../lib/questionnaire'
+import type { ProfileGroup } from '../lib/questionnaire'
+import {
+  allRequiredAnswered, groupByProfile, isAnswered, isWaiver,
+} from '../lib/questionnaire'
 
 const props = defineProps<{
   questionnaire: Questionnaire
@@ -27,6 +30,26 @@ const groups = computed(() => groupByProfile(props.questionnaire, answers))
 const canSubmit = computed(() =>
   allRequiredAnswered(props.questionnaire, answers),
 )
+
+// One tab per specialist; the tab reuses the same mnemonic + badge as
+// the session chip. Keep the active tab valid as rounds change.
+const activeTab = ref<string | null>(null)
+watch(
+  groups,
+  (gs) => {
+    if (!gs.some((g) => g.profile.id === activeTab.value)) {
+      activeTab.value = gs[0]?.profile.id ?? null
+    }
+  },
+  { immediate: true },
+)
+
+/** True once every required question in a group is answered or waived. */
+function groupComplete(g: ProfileGroup): boolean {
+  return g.questions
+    .filter((q) => q.required)
+    .every((q) => isAnswered(q, answers))
+}
 
 const BADGE: Record<string, string> = {
   user: 'var(--user)', agent: 'var(--signal)', warn: 'var(--warn)',
@@ -69,8 +92,35 @@ function onSaveDraft(): void {
 
 <template>
   <form class="qform" @submit.prevent="onSubmit">
-    <section v-for="g in groups" :key="g.profile.id" class="qgroup">
-      <header class="qgroup__head">
+    <div class="qtabs" role="tablist" v-if="groups.length > 1">
+      <button
+        v-for="g in groups"
+        :key="g.profile.id"
+        type="button"
+        role="tab"
+        class="qtab"
+        :class="{ 'qtab--on': activeTab === g.profile.id,
+          'qtab--done': groupComplete(g) }"
+        :style="{ '--c': badgeColor(g.profile.badge) }"
+        :aria-selected="activeTab === g.profile.id"
+        @click="activeTab = g.profile.id"
+      >
+        <span class="qtab__dot" aria-hidden="true" />
+        <span class="qtab__label">{{ g.profile.label }}</span>
+        <span class="qtab__count mono">
+          {{ g.answered }}/{{ g.questions.length }}
+        </span>
+      </button>
+    </div>
+
+    <section
+      v-for="g in groups"
+      v-show="activeTab === g.profile.id"
+      :key="g.profile.id"
+      class="qgroup"
+      role="tabpanel"
+    >
+      <header class="qgroup__head" v-if="groups.length === 1">
         <span class="qbadge" :style="{ '--c': badgeColor(g.profile.badge) }">
           {{ g.profile.label }}
         </span>
@@ -155,6 +205,42 @@ function onSaveDraft(): void {
 
 <style scoped>
 .qform { display: flex; flex-direction: column; gap: 18px; }
+
+/* One tab per specialist — same mnemonic + badge tone as the session
+   chips, so a profile reads as one identity across the whole view. */
+.qtabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  border-bottom: 1px solid var(--line); padding-bottom: 10px;
+}
+.qtab {
+  --c: var(--idle);
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: var(--r-md);
+  background: var(--ink-700); border: 1px solid var(--line);
+  color: var(--text-mid); cursor: pointer; font-family: var(--font-sans);
+  transition: border-color 0.15s ease, color 0.15s ease,
+    background 0.15s ease;
+}
+.qtab:hover { color: var(--text-hi); border-color: var(--c); }
+.qtab:focus-visible {
+  outline: none; box-shadow: 0 0 0 3px var(--signal-glow);
+}
+.qtab--on {
+  color: var(--text-hi); border-color: var(--c);
+  background: var(--ink-650);
+}
+.qtab__dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--c); opacity: 0.5;
+}
+.qtab--on .qtab__dot, .qtab--done .qtab__dot { opacity: 1; }
+.qtab--done .qtab__dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent);
+}
+.qtab__label { font-size: 12.5px; font-weight: 600; }
+.qtab__count { font-size: 11px; color: var(--text-dim); }
+.qtab--on .qtab__count { color: var(--text-mid); }
+
 .qgroup { display: flex; flex-direction: column; gap: 10px; }
 .qgroup__head { display: flex; align-items: center; justify-content: space-between; }
 .qbadge {
