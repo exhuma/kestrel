@@ -87,6 +87,32 @@ async def test_create_pull_request_returns_html_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_no_token_omits_authorization_header() -> None:
+    """Ensure an unset token sends no Authorization header at all.
+
+    Regression: a blank token used to render "Bearer " — an illegal
+    header value that made httpx raise LocalProtocolError before the
+    request left the process. With no token we now fall back to
+    unauthenticated access instead of crashing.
+    """
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["auth"] = req.headers.get("authorization")
+        return httpx.Response(
+            200, json={"number": 7, "title": "Bug", "body": "desc"}
+        )
+
+    client = GitHubClient("https://api.github.com", "")
+    client._http = httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(handler),
+    )
+    await client.get_issue("o/r", 7)
+    assert seen["auth"] is None
+
+
+@pytest.mark.asyncio
 async def test_non_2xx_raises_github_error() -> None:
     """Ensure a non-2xx response raises GitHubError."""
 

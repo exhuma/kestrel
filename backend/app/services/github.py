@@ -30,11 +30,19 @@ class GitHubClient:
         self._http = httpx.AsyncClient(base_url=self.base_url)
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.token}",
+        headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        # Only authenticate when a token is configured. Sending an empty
+        # "Bearer " is an illegal header value (httpx raises
+        # LocalProtocolError before the request is even sent); omitting
+        # it instead falls back to unauthenticated access, which works
+        # for public-repo reads and yields a clean 401/403 for anything
+        # that genuinely needs a token.
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
         resp = await self._http.request(
