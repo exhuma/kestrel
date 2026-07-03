@@ -13,6 +13,7 @@ from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import InAppNotifier, Notifier
 from app.persistence.notification_store import get_notification_store
+from app.storage.notification_bus import get_notification_bus
 from app.policy import get_policy
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
@@ -45,6 +46,7 @@ from app.services.workflow_text import (
     has_sentinel,
 )
 from app.storage.registry import SessionRegistry, get_registry
+from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 from app.storage.workflow_registry import (
     WorkflowRegistry,
     get_workflow_registry,
@@ -193,6 +195,7 @@ class WorkflowService:
         git: GitService,
         github: GitHubClient,
         notifier: Notifier,
+        bus: WorkflowBus | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -201,6 +204,7 @@ class WorkflowService:
         self.git = git
         self.github = github
         self.notifier = notifier
+        self.bus = bus
         self._control: dict[str, _Control] = {}
 
     def _new_control(self) -> _Control:
@@ -224,6 +228,10 @@ class WorkflowService:
         """
         self.workflows.save(run)
         self.notifier.notify(run)
+        if self.bus is not None:
+            # Tick every SSE subscriber so the UI re-reads this run
+            # (state, chips, deliverable) instead of polling.
+            self.bus.publish(run.id)
 
     # ---- queries -------------------------------------------------------
     def get(self, workflow_id: str) -> WorkflowRun:
@@ -915,5 +923,8 @@ def get_workflow_service() -> WorkflowService:
         runner=SessionRunner(settings, registry),
         git=GitService(settings.github_token),
         github=GitHubClient(settings.github_api_base, settings.github_token),
-        notifier=InAppNotifier(get_notification_store()),
+        notifier=InAppNotifier(
+            get_notification_store(), get_notification_bus()
+        ),
+        bus=get_workflow_bus(),
     )

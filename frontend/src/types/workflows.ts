@@ -5,6 +5,15 @@ export interface WorkflowStep {
   deliverable: string | null
 }
 
+/** A live session backing the active step, rendered as an activity chip. */
+export interface StepSession {
+  profile_id: string
+  label: string
+  badge: string
+  session_id: string | null
+  status: string
+}
+
 export interface WorkflowSummary {
   id: string
   repo: string
@@ -21,6 +30,7 @@ export interface WorkflowDetail {
   branch: string
   steps: WorkflowStep[]
   current_session_id: string | null
+  active_sessions: StepSession[]
   pr_url: string | null
   error: string | null
 }

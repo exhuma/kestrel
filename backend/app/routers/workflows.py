@@ -1,8 +1,12 @@
 """HTTP routes for GitHub issue -> code workflows."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import AsyncIterator
 
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+
+from app import sse
 from app.models_workflow import WorkflowRun
 from app.schemas import (
     AnswersIn,
@@ -16,6 +20,7 @@ from app.schemas import (
     WorkflowSummary,
 )
 from app.services.workflows import WorkflowService, get_workflow_service
+from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
 router = APIRouter(prefix="/api/workflows")
 
@@ -86,6 +91,43 @@ async def get_workflow(
 ) -> WorkflowDetail:
     """Return a workflow's full detail."""
     return _detail(service, service.get(workflow_id))
+
+
+@router.get("/{workflow_id}/events")
+async def stream_workflow(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+    bus: WorkflowBus = Depends(get_workflow_bus),
+) -> StreamingResponse:
+    """
+    Stream a workflow's full detail as Server-Sent Events.
+
+    Emits the current snapshot immediately, then a fresh snapshot on
+    every state change (status, step, deliverable, or session chips) —
+    replacing the old fixed-interval poll. Validates the id up front so
+    an unknown workflow is a clean 404 before streaming starts.
+    """
+    service.get(workflow_id)  # 404 before we start streaming
+
+    async def _frames() -> AsyncIterator[bytes]:
+        q = bus.subscribe(workflow_id)
+        try:
+            yield sse.encode(
+                _detail(service, service.get(workflow_id)).model_dump(
+                    mode="json"
+                )
+            )
+            while True:
+                await q.get()
+                yield sse.encode(
+                    _detail(
+                        service, service.get(workflow_id)
+                    ).model_dump(mode="json")
+                )
+        finally:
+            bus.unsubscribe(workflow_id, q)
+
+    return StreamingResponse(_frames(), media_type="text/event-stream")
 
 
 @router.post("/{workflow_id}/reply")

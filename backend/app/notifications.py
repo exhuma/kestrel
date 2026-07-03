@@ -14,6 +14,7 @@ from app.models_workflow import WorkflowRun
 
 if TYPE_CHECKING:
     from app.persistence.notification_store import NotificationStore
+    from app.storage.notification_bus import NotificationBus
 
 #: Statuses that warrant a notification: the human's attention is
 #: needed (any "awaiting_*" gate) or the run reached a terminal
@@ -86,8 +87,13 @@ class Notifier(Protocol):
 class InAppNotifier:
     """Persists a notification row for the in-app notification center."""
 
-    def __init__(self, store: "NotificationStore") -> None:
+    def __init__(
+        self,
+        store: "NotificationStore",
+        bus: "NotificationBus | None" = None,
+    ) -> None:
         self._store = store
+        self._bus = bus
 
     def notify(self, run: WorkflowRun) -> None:
         """
@@ -104,3 +110,5 @@ class InAppNotifier:
             status=run.status,
             message=render_message(run),
         )
+        if self._bus is not None:
+            self._bus.publish()

@@ -8,8 +8,8 @@ const current = ref<WorkflowDetail | null>(null)
 const events = ref<SessionEvent[]>([])
 const error = ref<string | null>(null)
 
+let detailSource: EventSource | null = null
 let source: EventSource | null = null
-let poll: ReturnType<typeof setInterval> | null = null
 
 function describe(e: unknown): string {
   if (e instanceof ApiError) return `Request failed (${e.status})`
@@ -22,11 +22,10 @@ export function useWorkflows() {
     workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
   }
 
-  async function loadDetail(id: string): Promise<void> {
-    const detail = await api.get<WorkflowDetail>(`/api/workflows/${id}`)
-    // Re-subscribe to the live feed when the active step's session
-    // changes, or when the previous subscription was torn down by
-    // stop() (e.g. the panel was unmounted and remounted).
+  function applyDetail(detail: WorkflowDetail): void {
+    // Re-subscribe to the live telemetry feed when the active step's
+    // session changes, or when the previous subscription was torn down
+    // by stop() (e.g. the panel was unmounted and remounted).
     if (detail.current_session_id &&
         (!source ||
           detail.current_session_id !== current.value?.current_session_id)) {
@@ -45,17 +44,21 @@ export function useWorkflows() {
   }
 
   function select(id: string): void {
-    if (poll) clearInterval(poll)
-    void loadDetail(id)
-    poll = setInterval(() => void loadDetail(id), 1500)
+    // Push, don't poll: the backend streams a fresh snapshot on every
+    // real state change, so the UI never re-renders (and never clobbers
+    // in-progress form input) on an idle interval.
+    stopDetail()
+    detailSource = new EventSource(`${API_BASE}/api/workflows/${id}/events`)
+    detailSource.onmessage = (e) => {
+      applyDetail(JSON.parse(e.data) as WorkflowDetail)
+    }
   }
 
   function ensureLive(): void {
-    // Re-arm polling and the event stream after stop() so a
-    // remounted panel keeps tracking the already-selected run.
-    // Without this, the UI freezes on the pre-unmount state and
-    // never surfaces awaiting_input / awaiting_approval gates.
-    if (current.value && !poll) select(current.value.id)
+    // Re-arm the event stream after stop() so a remounted panel keeps
+    // tracking the already-selected run. Without this, the UI freezes
+    // on the pre-unmount state and never surfaces awaiting_* gates.
+    if (current.value && !detailSource) select(current.value.id)
   }
 
   async function createWorkflow(repo: string, issueNumber: number): Promise<string | null> {
@@ -108,11 +111,15 @@ export function useWorkflows() {
       })
   }
 
-  function stop(): void {
-    if (poll) {
-      clearInterval(poll)
-      poll = null
+  function stopDetail(): void {
+    if (detailSource) {
+      detailSource.close()
+      detailSource = null
     }
+  }
+
+  function stop(): void {
+    stopDetail()
     if (source) {
       source.close()
       source = null

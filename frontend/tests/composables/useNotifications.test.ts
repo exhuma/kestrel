@@ -48,19 +48,28 @@ describe('useNotifications', () => {
     )
   })
 
-  it('start polls on an interval until stop', async () => {
-    vi.useFakeTimers()
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(sample), { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
-    const { start, stop } = useNotifications()
+  it('start opens a stream that populates items; stop closes it', () => {
+    const close = vi.fn()
+    let es: FakeEventSource | null = null
+    class FakeEventSource {
+      onmessage: ((e: MessageEvent) => void) | null = null
+      close = close
+      constructor(public url: string) {
+        es = this
+      }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource)
+
+    const { items, unreadCount, start, stop } = useNotifications()
     start()
-    await vi.advanceTimersByTimeAsync(0)
-    const afterStart = fetchMock.mock.calls.length
-    await vi.advanceTimersByTimeAsync(5000)
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterStart)
+    expect(es!.url).toContain('/api/notifications/events')
+    es!.onmessage?.({
+      data: JSON.stringify({ notifications: sample }),
+    } as MessageEvent)
+    expect(items.value.map((n) => n.id)).toEqual([2, 1])
+    expect(unreadCount.value).toBe(1)
+
     stop()
-    const afterStop = fetchMock.mock.calls.length
-    await vi.advanceTimersByTimeAsync(10000)
-    expect(fetchMock.mock.calls.length).toBe(afterStop)
+    expect(close).toHaveBeenCalled()
   })
 })

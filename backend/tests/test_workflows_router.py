@@ -143,6 +143,14 @@ async def test_detail_exposes_active_session_chips() -> None:
 
 
 @pytest.mark.asyncio
+async def test_workflow_events_unknown_returns_404() -> None:
+    """Ensure streaming an unknown workflow is a clean 404."""
+    async with _client(_FakeService()) as c:
+        r = await c.get("/api/workflows/nope/events")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_detail_unknown_returns_404() -> None:
     """Ensure an unknown workflow id maps to 404."""
     async with _client(_FakeService()) as c:

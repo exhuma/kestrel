@@ -1,9 +1,9 @@
 import { computed, ref } from 'vue'
-import { api } from '../api'
+import { api, API_BASE } from '../api'
 import type { Notification } from '../types/notifications'
 
 const items = ref<Notification[]>([])
-let poll: ReturnType<typeof setInterval> | null = null
+let source: EventSource | null = null
 
 export function useNotifications() {
   async function refresh(): Promise<void> {
@@ -12,19 +12,25 @@ export function useNotifications() {
 
   async function markRead(id: number): Promise<void> {
     await api.post(`/api/notifications/${id}/read`)
-    await refresh()
+    // Marking read ticks the server bus, which pushes the updated
+    // list back down the stream — no manual refetch needed.
   }
 
   function start(): void {
-    if (poll) return
-    void refresh()
-    poll = setInterval(() => void refresh(), 5000)
+    if (source) return
+    // Push, don't poll: the server streams the full list on connect and
+    // again on every change (new notification or one marked read).
+    source = new EventSource(`${API_BASE}/api/notifications/events`)
+    source.onmessage = (e) => {
+      const data = JSON.parse(e.data) as { notifications: Notification[] }
+      items.value = data.notifications
+    }
   }
 
   function stop(): void {
-    if (poll) {
-      clearInterval(poll)
-      poll = null
+    if (source) {
+      source.close()
+      source = null
     }
   }
 

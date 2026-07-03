@@ -555,6 +555,36 @@ async def test_waiver_reason_lands_in_refined_issue() -> None:
 
 
 @pytest.mark.asyncio
+async def test_save_publishes_to_bus() -> None:
+    """Ensure every state transition ticks the SSE bus for that run."""
+
+    class _Bus:
+        def __init__(self) -> None:
+            self.ticks: list[str] = []
+
+        def publish(self, workflow_id: str) -> None:
+            self.ticks.append(workflow_id)
+
+    bus = _Bus()
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
+    svc = WorkflowService(
+        settings=Settings(git_base="https://github.com", github_token="t"),
+        sessions=runner.sessions,
+        workflows=WorkflowRegistry(),
+        runner=runner,
+        git=_FakeGit(),
+        github=gh,
+        notifier=_FakeNotifier(),
+        bus=bus,
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    assert bus.ticks  # at least one push happened
+    assert all(t == wid for t in bus.ticks)
+
+
+@pytest.mark.asyncio
 async def test_profiles_are_interviewed_concurrently() -> None:
     """Ensure the coordinator-selected profiles are interviewed at the
     same time (each in its own live session), not one after another."""
