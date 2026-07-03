@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.persistence.db import get_sessionmaker
 from app.persistence.tables import (
+    NotificationRow,
     WorkflowRunRow,
     WorkflowStepRow,
 )
@@ -58,6 +59,27 @@ class WorkflowStore:
                         model=step.model,
                     )
                 )
+
+    def delete(self, workflow_id: str) -> None:
+        """
+        Delete a run with its steps and notifications (children first).
+
+        :param workflow_id: Unique id of the run to delete.
+        """
+        with self._factory.begin() as db:
+            db.execute(
+                delete(NotificationRow).where(
+                    NotificationRow.workflow_id == workflow_id
+                )
+            )
+            db.execute(
+                delete(WorkflowStepRow).where(
+                    WorkflowStepRow.workflow_id == workflow_id
+                )
+            )
+            row = db.get(WorkflowRunRow, workflow_id)
+            if row is not None:
+                db.delete(row)
 
     def load_all(self) -> list[WorkflowRun]:
         """

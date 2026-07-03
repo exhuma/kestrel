@@ -57,3 +57,15 @@ def test_registry_survives_restart(tmp_path: Path) -> None:
     assert rec.cwd == "/tmp/s1"
     assert rec.status == "idle"
     assert [e.raw for e in rec.events] == [{"n": 1}]
+
+
+def test_delete_removes_session_and_events(tmp_path: Path) -> None:
+    """Ensure deleting a session drops it and its events from the DB."""
+    store = _store(tmp_path)
+    reg = SessionRegistry(store=store)
+    reg.create("s1", "/tmp/s1")
+    reg.append_event(
+        "s1", ParsedEvent(type="assistant", session_id="s1", raw={})
+    )
+    store.delete("s1")
+    assert store.load_all() == []

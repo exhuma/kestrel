@@ -23,6 +23,16 @@ def test_create_get_list() -> None:
     assert [r.session_id for r in reg.list()] == ["s1"]
 
 
+def test_remove_drops_record() -> None:
+    """Ensure remove deletes the record and its subscribers."""
+    reg = SessionRegistry()
+    reg.create("s1", "/tmp/s1")
+    reg.remove("s1")
+    assert reg.get("s1") is None
+    assert reg.list() == []
+    reg.remove("s1")  # idempotent — no raise on unknown id
+
+
 def test_append_event_records_and_sets_status() -> None:
     """Ensure events accumulate and status can change."""
     reg = SessionRegistry()

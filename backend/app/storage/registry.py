@@ -70,6 +70,19 @@ class SessionRegistry:
         if self._store is not None:
             self._store.append_event(session_id, event)
 
+    def remove(self, session_id: str) -> None:
+        """
+        Drop a session record, its subscribers, and its persisted rows.
+
+        The write-through counterpart to :meth:`create`.
+
+        :param session_id: Unique id of the session to remove.
+        """
+        self._records.pop(session_id, None)
+        self._subs.pop(session_id, None)
+        if self._store is not None:
+            self._store.delete(session_id)
+
     def set_status(self, session_id: str, status: str) -> None:
         """
         Update the status of an existing session record.

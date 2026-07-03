@@ -46,6 +46,11 @@ class _FakeService:
         yield {"type": "system", "session_id": session_id, "raw": {}}
         yield {"type": "result", "session_id": session_id, "raw": {}}
 
+    def delete(self, session_id: str) -> None:
+        if not self._known:
+            raise SessionNotFoundError(session_id)
+        self.deleted = session_id
+
 
 def _client(service: _FakeService) -> httpx.AsyncClient:
     app = create_app()
@@ -91,6 +96,24 @@ async def test_list_sessions() -> None:
     assert body == [
         {"session_id": "s1", "status": "idle", "event_count": 2}
     ]
+
+
+@pytest.mark.asyncio
+async def test_delete_session_ok() -> None:
+    """Ensure DELETE /api/sessions/{id} returns 200."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.delete("/api/sessions/s1")
+    assert resp.status_code == 200
+    assert service.deleted == "s1"
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_session_returns_404() -> None:
+    """Ensure deleting an unknown session maps to HTTP 404."""
+    async with _client(_FakeService(known=False)) as client:
+        resp = await client.delete("/api/sessions/nope")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

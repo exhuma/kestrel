@@ -71,6 +71,24 @@ export function useSessions() {
     }
   }
 
+  function stopEvents(): void {
+    if (source) {
+      source.close()
+      source = null
+    }
+    events.value = []
+  }
+
+  async function remove(id: string): Promise<void> {
+    error.value = null
+    try {
+      await api.del(`/api/sessions/${id}`)
+      await refresh()
+    } catch (e) {
+      error.value = describe(e)
+    }
+  }
+
   return {
     sessions,
     events,
@@ -80,5 +98,7 @@ export function useSessions() {
     start,
     resume,
     watchEvents,
+    stopEvents,
+    remove,
   }
 }

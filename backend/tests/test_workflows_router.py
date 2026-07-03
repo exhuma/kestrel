@@ -71,6 +71,11 @@ class _FakeService:
             raise WorkflowNotFoundError(workflow_id)
         self.draft = answers
 
+    async def delete(self, workflow_id: str) -> None:
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        self.deleted = workflow_id
+
 
 def _client(service):
     app = create_app()
@@ -206,6 +211,24 @@ async def test_submit_answers_ok() -> None:
         )
     assert resp.status_code == 200
     assert service.answers == {"q1": "oidc"}
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_ok() -> None:
+    """Ensure DELETE /api/workflows/{id} returns 200."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.delete("/api/workflows/wf-1")
+    assert resp.status_code == 200
+    assert service.deleted == "wf-1"
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_workflow_returns_404() -> None:
+    """Ensure deleting an unknown workflow maps to HTTP 404."""
+    async with _client(_FakeService()) as client:
+        resp = await client.delete("/api/workflows/nope")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ import { toViewModel } from '../lib/eventView'
 
 const { workflows, current, events, error, refresh, select, ensureLive,
   streamSession, closeSession, createWorkflow, reply, submitAnswers,
-  saveDraft, approve, reject, stop } = useWorkflows()
+  saveDraft, approve, reject, stop, remove } = useWorkflows()
 
 const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
@@ -139,6 +139,11 @@ async function onSaveDraft(
     /* draft saves are best-effort; ignore transient failures */
   }
 }
+async function onDelete(id: string): Promise<void> {
+  if (!confirm('Abandon this workflow? This drops the local work only — '
+    + 'nothing on GitHub is changed.')) return
+  await remove(id)
+}
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
 }
@@ -168,20 +173,26 @@ function stepTone(status: string): string {
           <span class="pill mono">{{ workflows.length }}</span>
         </div>
         <div class="sessions scroll">
-          <button
-            v-for="w in workflows"
-            :key="w.id"
-            class="scard"
-            :class="{ 'scard--active': w.id === current?.id }"
-            @click="select(w.id)"
-          >
-            <span class="scard__id mono">{{ w.repo }}#{{ w.issue_number }}</span>
-            <span class="scard__meta">
-              <span v-if="w.status.startsWith('awaiting')" class="scard__dot"
-                aria-hidden="true" />
-              {{ w.status }}
-            </span>
-          </button>
+          <div v-for="w in workflows" :key="w.id" class="scard-wrap">
+            <button
+              class="scard"
+              :class="{ 'scard--active': w.id === current?.id }"
+              @click="select(w.id)"
+            >
+              <span class="scard__id mono">{{ w.repo }}#{{ w.issue_number }}</span>
+              <span class="scard__meta">
+                <span v-if="w.status.startsWith('awaiting')" class="scard__dot"
+                  aria-hidden="true" />
+                {{ w.status }}
+              </span>
+            </button>
+            <button
+              class="scard__del"
+              title="Abandon workflow"
+              aria-label="Abandon workflow"
+              @click.stop="onDelete(w.id)"
+            >✕</button>
+          </div>
           <p v-if="!workflows.length" class="sessions__empty mono">
             No workflows yet
           </p>
@@ -353,6 +364,19 @@ function stepTone(status: string): string {
   border-left: 2px solid var(--line); border-radius: var(--r-md); cursor: pointer;
 }
 .scard--active { border-left-color: var(--signal); background: var(--ink-650); }
+.scard-wrap { position: relative; display: flex; }
+.scard-wrap .scard { flex: 1; width: 100%; padding-right: 30px; }
+.scard__del {
+  position: absolute; top: 8px; right: 8px; width: 20px; height: 20px;
+  display: grid; place-items: center; border: none; border-radius: 4px;
+  background: transparent; color: var(--text-dim); font-size: 12px;
+  cursor: pointer; opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.scard-wrap:hover .scard__del, .scard__del:focus-visible { opacity: 1; }
+.scard__del:hover {
+  color: var(--err); background: color-mix(in srgb, var(--err) 15%, transparent);
+}
 .scard__id { font-size: 12.5px; color: var(--text-hi); }
 .scard__meta { font-size: 11.5px; color: var(--text-mid); }
 .sessions__empty { color: var(--text-dim); font-size: 12px; padding: 8px 2px; }

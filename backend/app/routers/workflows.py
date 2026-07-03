@@ -130,6 +130,16 @@ async def stream_workflow(
     return StreamingResponse(_frames(), media_type="text/event-stream")
 
 
+@router.delete("/{workflow_id}")
+async def delete_workflow(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """Abandon a workflow, dropping all local work (never touches GitHub)."""
+    await service.delete(workflow_id)
+    return {"status": "ok"}
+
+
 @router.post("/{workflow_id}/reply")
 async def reply_workflow(
     workflow_id: str,

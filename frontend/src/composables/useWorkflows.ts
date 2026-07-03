@@ -128,5 +128,19 @@ export function useWorkflows() {
     }
   }
 
-  return { workflows, current, events, error, refresh, select, ensureLive, streamSession, closeSession, createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop }
+  async function remove(id: string): Promise<void> {
+    error.value = null
+    try {
+      await api.del(`/api/workflows/${id}`)
+      if (current.value?.id === id) {
+        stop()
+        current.value = null
+      }
+      await refresh()
+    } catch (e) {
+      error.value = describe(e)
+    }
+  }
+
+  return { workflows, current, events, error, refresh, select, ensureLive, streamSession, closeSession, createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop, remove }
 }

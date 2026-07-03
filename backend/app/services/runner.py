@@ -19,6 +19,38 @@ from app.storage.registry import SessionRegistry, get_registry
 # process lifetime and drop each when it finishes.
 _TASKS: set[asyncio.Task[None]] = set()
 
+# Live claude subprocesses keyed by session id, so an abandon can kill
+# the in-flight process. Registered the moment a session id is known and
+# dropped when the process ends. Module-global because a SessionRunner is
+# created per request while the process outlives any one instance.
+_PROCS: dict[str, asyncio.subprocess.Process] = {}
+
+
+def _track_proc(session_id: str, proc: asyncio.subprocess.Process) -> None:
+    """Record a live subprocess under its session id."""
+    _PROCS[session_id] = proc
+
+
+def _drop_proc(proc: asyncio.subprocess.Process) -> None:
+    """Forget a subprocess once it has ended (by identity)."""
+    for sid in [s for s, p in _PROCS.items() if p is proc]:
+        _PROCS.pop(sid, None)
+
+
+def terminate_session(session_id: str) -> bool:
+    """
+    Kill the live subprocess for a session, if one is running.
+
+    :param session_id: Session whose subprocess to kill.
+    :returns: True if a running process was killed, else False.
+    """
+    proc = _PROCS.get(session_id)
+    if proc is None:
+        return False
+    if proc.returncode is None:
+        proc.kill()
+    return True
+
 # asyncio.create_subprocess_exec's default per-line StreamReader limit
 # is 64 KiB (65536 bytes); a single stream-json event (e.g. a
 # tool_result embedding a large file or diff) can legitimately exceed
@@ -149,6 +181,7 @@ class SessionRunner:
         sid_future: asyncio.Future[str] = loop.create_future()
 
         def _resolve(sid: str) -> None:
+            _track_proc(sid, proc)
             if not sid_future.done():
                 sid_future.set_result(sid)
 
@@ -181,6 +214,7 @@ class SessionRunner:
                 if proc.returncode is None:
                     proc.kill()
                 stderr_task.cancel()
+                _drop_proc(proc)
                 if not sid_future.done():
                     sid_future.set_exception(
                         SessionStartError("session ended without a session id")
@@ -229,10 +263,15 @@ class SessionRunner:
             stderr=asyncio.subprocess.PIPE,
             limit=_STREAM_LIMIT,
         )
+        def _track(sid: str) -> None:
+            _track_proc(sid, proc)
+            if on_session_id is not None:
+                on_session_id(sid)
+
         stderr_task = asyncio.create_task(_drain(proc.stderr))
         try:
             sid = await self.consume(
-                _stdout_lines(proc), cwd, resume_id, on_session_id
+                _stdout_lines(proc), cwd, resume_id, _track
             )
             await proc.wait()
             await stderr_task
@@ -240,6 +279,7 @@ class SessionRunner:
             if proc.returncode is None:
                 proc.kill()
             stderr_task.cancel()
+            _drop_proc(proc)
         if sid is None:
             raise SessionStartError("claude produced no session id")
         return sid
@@ -276,6 +316,15 @@ class SessionRunner:
             raise SessionNotFoundError(session_id)
         argv = self.build_argv(prompt, resume_id=session_id)
         return await self._launch(argv, record.cwd, record_id=session_id)
+
+    def terminate(self, session_id: str) -> bool:
+        """
+        Kill the live subprocess for a session, if one is running.
+
+        :param session_id: Session whose subprocess to kill.
+        :returns: True if a running process was killed, else False.
+        """
+        return terminate_session(session_id)
 
 
 def get_runner(

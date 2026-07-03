@@ -100,6 +100,11 @@ class _FakeRunner:
             on_session_id(sid)
         return sid
 
+    def terminate(self, session_id: str) -> bool:
+        self.terminated = getattr(self, "terminated", [])
+        self.terminated.append(session_id)
+        return True
+
 
 def _service(github, runner, git) -> WorkflowService:
     return WorkflowService(
@@ -816,3 +821,76 @@ async def test_notifier_does_not_fire_on_reject() -> None:
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
     assert "rejected" not in notifier.notified
+
+
+class _SpyGitHub(_FakeGitHub):
+    """Records any *mutating* GitHub call so a test can assert none fire."""
+
+    def __init__(self, body: str = "") -> None:
+        super().__init__(body)
+        self.mutations: list[str] = []
+
+    async def update_issue(self, repo, number, body) -> None:
+        self.mutations.append("update_issue")
+        await super().update_issue(repo, number, body)
+
+    async def create_pull_request(self, repo, head, base, title, body,
+                                  draft=True) -> str:
+        self.mutations.append("create_pull_request")
+        return await super().create_pull_request(
+            repo, head, base, title, body, draft
+        )
+
+
+@pytest.mark.asyncio
+async def test_delete_drops_run_without_touching_github() -> None:
+    """Ensure abandoning a run removes it and makes no GitHub calls."""
+    gh = _SpyGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("v1"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_approval"
+    )
+    before = list(gh.mutations)
+
+    await svc.delete(wid)
+
+    assert gh.mutations == before  # abandon touched nothing on GitHub
+    assert wid not in svc._tasks  # the driver task was cancelled/cleared
+    with pytest.raises(WorkflowNotFoundError):
+        svc.get(wid)
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_workspace_dir(tmp_path) -> None:
+    """Ensure abandoning a run deletes its local workspace clone."""
+    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    runner = _FakeRunner(SessionRegistry(), outputs=["the plan"])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_plan_approval"
+    )
+    workspace = tmp_path / "clone"
+    workspace.mkdir()
+    (workspace / "file.txt").write_text("work")
+    svc.get(wid).workspace = str(workspace)
+
+    await svc.delete(wid)
+
+    assert not workspace.exists()
+    with pytest.raises(WorkflowNotFoundError):
+        svc.get(wid)
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_raises_not_found() -> None:
+    """Ensure abandoning an unknown run raises the domain error."""
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]), _FakeGit()
+    )
+    with pytest.raises(WorkflowNotFoundError):
+        await svc.delete("nope")

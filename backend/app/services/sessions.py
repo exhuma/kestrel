@@ -49,6 +49,22 @@ class SessionService:
         self.registry.set_status(session_id, "running")
         return await self.runner.resume(session_id, prompt)
 
+    def delete(self, session_id: str) -> None:
+        """
+        Abandon a session: kill its subprocess and drop all its state.
+
+        Terminates the live claude subprocess (if any), then removes the
+        registry record and its persisted rows. Purely local — touches
+        nothing external.
+
+        :param session_id: Id of the session to abandon.
+        :raises SessionNotFoundError: If the session is unknown.
+        """
+        if self.registry.get(session_id) is None:
+            raise SessionNotFoundError(session_id)
+        self.runner.terminate(session_id)
+        self.registry.remove(session_id)
+
     def list_summaries(self) -> list[SessionSummary]:
         """
         Summarise all known sessions.

@@ -12,6 +12,8 @@ const {
   start,
   resume,
   watchEvents,
+  stopEvents,
+  remove,
 } = useSessions()
 
 const prompt = ref('Write a haiku about the sea into poem.txt')
@@ -56,6 +58,15 @@ async function onResume(): Promise<void> {
 function onSelect(id: string): void {
   current.value = id
   watchEvents(id)
+}
+
+async function onDelete(id: string): Promise<void> {
+  if (!confirm('Abandon this session? This drops the work locally.')) return
+  await remove(id)
+  if (current.value === id) {
+    current.value = null
+    stopEvents()
+  }
 }
 
 const currentStatus = computed(() => {
@@ -189,21 +200,31 @@ function preview(e: SessionEvent): string {
           <span class="pill mono">{{ sessions.length }}</span>
         </div>
         <div class="sessions scroll">
-          <button
+          <div
             v-for="s in sessions"
             :key="s.session_id"
-            class="scard"
-            :class="{ 'scard--active': s.session_id === current }"
-            @click="onSelect(s.session_id)"
+            class="scard-wrap"
           >
-            <span class="scard__id mono">{{ shortId(s.session_id) }}</span>
-            <span class="scard__meta" :class="`t-${statusTone(s.status)}`">
-              <span class="scard__dot" />
-              {{ s.status }}
-              <span class="scard__sep">·</span>
-              {{ s.event_count }} ev
-            </span>
-          </button>
+            <button
+              class="scard"
+              :class="{ 'scard--active': s.session_id === current }"
+              @click="onSelect(s.session_id)"
+            >
+              <span class="scard__id mono">{{ shortId(s.session_id) }}</span>
+              <span class="scard__meta" :class="`t-${statusTone(s.status)}`">
+                <span class="scard__dot" />
+                {{ s.status }}
+                <span class="scard__sep">·</span>
+                {{ s.event_count }} ev
+              </span>
+            </button>
+            <button
+              class="scard__del"
+              title="Abandon session"
+              aria-label="Abandon session"
+              @click.stop="onDelete(s.session_id)"
+            >✕</button>
+          </div>
           <p v-if="!sessions.length" class="sessions__empty mono">
             No sessions dispatched yet
           </p>
@@ -351,6 +372,43 @@ function preview(e: SessionEvent): string {
 .scard--active {
   border-left-color: var(--signal);
   background: var(--ink-650);
+}
+.scard-wrap {
+  position: relative;
+  display: flex;
+}
+.scard-wrap .scard {
+  flex: 1;
+  width: 100%;
+  padding-right: 30px;
+}
+.scard__del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    background 0.12s ease;
+}
+.scard-wrap:hover .scard__del,
+.scard__del:focus-visible {
+  opacity: 1;
+}
+.scard__del:hover {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 15%, transparent);
 }
 .scard__id {
   font-size: 12.5px;

@@ -25,6 +25,10 @@ class _FakeRunner:
         self.calls.append(("resume", session_id, prompt))
         return session_id
 
+    def terminate(self, session_id: str) -> bool:
+        self.calls.append(("terminate", session_id))
+        return True
+
 
 def _service() -> tuple[SessionService, SessionRegistry, _FakeRunner]:
     registry = SessionRegistry()
@@ -59,6 +63,22 @@ async def test_resume_resets_status_to_running() -> None:
     assert sid == "s1"
     assert registry.get("s1").status == "running"
     assert runner.calls == [("resume", "s1", "again")]
+
+
+def test_delete_unknown_raises_not_found() -> None:
+    """Ensure abandoning an unknown session raises the domain error."""
+    service, _, _ = _service()
+    with pytest.raises(SessionNotFoundError):
+        service.delete("missing")
+
+
+def test_delete_terminates_subprocess_and_removes_record() -> None:
+    """Ensure abandon kills the subprocess and drops the record."""
+    service, registry, runner = _service()
+    registry.create("s1", "/tmp/s1")
+    service.delete("s1")
+    assert registry.get("s1") is None
+    assert ("terminate", "s1") in runner.calls
 
 
 def test_list_summaries_shape() -> None:

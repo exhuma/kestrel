@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
@@ -206,6 +207,19 @@ class WorkflowService:
         self.notifier = notifier
         self.bus = bus
         self._control: dict[str, _Control] = {}
+        #: Driver task per run, so an abandon can cancel the in-flight
+        #: orchestration for exactly that run.
+        self._tasks: dict[str, asyncio.Task] = {}
+
+    def _spawn_driver(self, workflow_id: str, coro) -> None:
+        """Launch a run's driver task and track it by id for abandon."""
+        task = asyncio.create_task(coro)
+        self._tasks[workflow_id] = task
+        _WF_TASKS.add(task)
+        task.add_done_callback(_WF_TASKS.discard)
+        task.add_done_callback(
+            lambda t, wid=workflow_id: self._tasks.pop(wid, None)
+        )
 
     def _new_control(self) -> _Control:
         loop = asyncio.get_running_loop()
@@ -268,9 +282,7 @@ class WorkflowService:
         )
         self.workflows.create(run)
         self._control[run.id] = self._new_control()
-        task = asyncio.create_task(self._drive(run.id))
-        _WF_TASKS.add(task)
-        task.add_done_callback(_WF_TASKS.discard)
+        self._spawn_driver(run.id, self._drive(run.id))
         return run.id
 
     def _awaiting_input_step(self, run: WorkflowRun) -> WorkflowStep:
@@ -404,6 +416,36 @@ class WorkflowService:
             raise InvalidWorkflowStateError("no gate awaiting a decision")
         self._control[workflow_id].gate.set_result(decision)
 
+    async def delete(self, workflow_id: str) -> None:
+        """
+        Abandon a run: cancel it and drop every trace of its local work.
+
+        Cancels the driver task, kills any in-flight step subprocess,
+        forgets the control state, removes the registry record and its
+        persisted rows, and deletes the cloned workspace. Deliberately
+        never touches GitHub — abandoning drops work only, it does not
+        close issues, comment, or open/close PRs. Underlying sessions are
+        left intact.
+
+        :param workflow_id: Id of the run to abandon.
+        :raises WorkflowNotFoundError: If the run is unknown.
+        """
+        run = self.get(workflow_id)
+        task = self._tasks.pop(workflow_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:  # cancellation or a late step error
+                pass
+        for step in run.steps:
+            if step.session_id:
+                self.runner.terminate(step.session_id)
+        self._control.pop(workflow_id, None)
+        self.workflows.remove(workflow_id)
+        if run.workspace:
+            shutil.rmtree(run.workspace, ignore_errors=True)
+
     # ---- orchestration -------------------------------------------------
     async def _await_gate(self, workflow_id: str) -> _Decision:
         control = self._control[workflow_id]
@@ -433,11 +475,7 @@ class WorkflowService:
         for run in self.workflows.list():
             if run.status.startswith("awaiting_"):
                 self._control[run.id] = self._new_control()
-                task = asyncio.create_task(
-                    self._resume(run.id)
-                )
-                _WF_TASKS.add(task)
-                task.add_done_callback(_WF_TASKS.discard)
+                self._spawn_driver(run.id, self._resume(run.id))
             elif run.status in _TRANSIENT:
                 run.status = "failed"
                 run.error = "backend restarted mid-step"
