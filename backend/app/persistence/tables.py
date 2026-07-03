@@ -1,7 +1,9 @@
 """ORM table definitions for kestrel."""
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -75,3 +77,22 @@ class WorkflowStepRow(Base):
         Text, nullable=True
     )
     model: Mapped[str | None] = mapped_column(nullable=True)
+
+
+class NotificationRow(Base):
+    """One recorded notification for the in-app notification center."""
+
+    __tablename__ = "notification"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True, autoincrement=True
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflow_run.id")
+    )
+    repo: Mapped[str] = mapped_column()
+    issue_number: Mapped[int] = mapped_column()
+    status: Mapped[str] = mapped_column()
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
