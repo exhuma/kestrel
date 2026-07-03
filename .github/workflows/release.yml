@@ -63,10 +63,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:${{ steps.meta.outputs.version }}"
+          {
+            echo "Container image: \`${image}\`"
+            echo
+            echo "Run it with the published \`docker-compose.yml\` (\`docker compose up\`),"
+            echo "which mounts your host \`~/.claude\` for the bundled CLI. See the README."
+          } > "$RUNNER_TEMP/notes.md"
           pre=""
           [ "${{ steps.meta.outputs.prerelease }}" = "true" ] && pre="--prerelease"
           gh release create "$GITHUB_REF_NAME" $pre \
             --title "$GITHUB_REF_NAME" \
-            --notes "Container image: \`ghcr.io/${GITHUB_REPOSITORY,,}:${{ steps.meta.outputs.version }}\`
-
-Run it with the published \`docker-compose.yml\` (\`docker compose up\`), which mounts your host \`~/.claude\` for the bundled CLI. See the README for details."
+            --notes-file "$RUNNER_TEMP/notes.md"
