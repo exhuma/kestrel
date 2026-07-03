@@ -1,0 +1,31 @@
+# Run kestrel from the published alpha image:
+#   docker compose up
+#
+# To build from source instead, comment out `image:` and uncomment `build:`,
+# then run `docker compose up --build`.
+services:
+  kestrel:
+    image: ghcr.io/exhuma/kestrel:alpha
+    # build:
+    #   context: .
+    #   args:
+    #     VITE_API_BASE: ""
+    #     KESTREL_VERSION: dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the SQLite DB and session workspaces across restarts.
+      - kestrel-data:/data
+      # The bundled claude CLI authenticates via your host login/subscription.
+      # Mounted read-only; adjust the source path if your creds live elsewhere.
+      - ${HOME}/.claude:/root/.claude:ro
+    environment:
+      # Optional: a token unlocks GitHub ingestion features.
+      KESTREL_GITHUB_TOKEN: ${KESTREL_GITHUB_TOKEN:-}
+      # Permission mode passed to spawned claude sessions.
+      KESTREL_PERMISSION_MODE: ${KESTREL_PERMISSION_MODE:-acceptEdits}
+      # JSON map of model overrides, e.g. '{"sonnet":"claude-sonnet-5"}'.
+      KESTREL_MODEL_OVERRIDES: ${KESTREL_MODEL_OVERRIDES:-{}}
+
+volumes:
+  kestrel-data:

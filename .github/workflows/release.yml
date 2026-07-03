@@ -1,0 +1,72 @@
+# Tag-driven release: build & publish the container to GHCR and cut a GitHub
+# release. Triggered by pushing a CalVer tag, e.g. `git tag v2026.7.3-alpha.1`.
+#
+# Image tags published: the immutable full version plus the derived moving
+# channel pointers (alpha/beta/rc/stable). Never an unconditional `latest`.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # create the GitHub Release
+  packages: write   # push to GHCR
+
+jobs:
+  # Gate the release on the full test suite (reusable workflow, never inlined).
+  test:
+    uses: ./.github/workflows/testing.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify manifest versions match the tag
+        run: scripts/check_version_sync.sh "$GITHUB_REF_NAME"
+
+      - name: Compute image tags and release metadata
+        id: meta
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"   # lowercase for GHCR
+          version="${GITHUB_REF_NAME#v}"
+          tags="${image}:${version}"
+          for c in $(scripts/derive_channels.sh "$GITHUB_REF_NAME"); do
+            tags="${tags},${image}:${c}"
+          done
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-alpha.*|*-beta.*|*-rc.*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)                         echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "Publishing: ${tags}"
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push image
+        run: |
+          IFS=',' read -ra refs <<< "${{ steps.meta.outputs.tags }}"
+          tag_args=()
+          for r in "${refs[@]}"; do tag_args+=(--tag "$r"); done
+          docker buildx build --push \
+            "${tag_args[@]}" \
+            --build-arg VITE_API_BASE= \
+            --build-arg KESTREL_VERSION="${{ steps.meta.outputs.version }}" \
+            .
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pre=""
+          [ "${{ steps.meta.outputs.prerelease }}" = "true" ] && pre="--prerelease"
+          gh release create "$GITHUB_REF_NAME" $pre \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Container image: \`ghcr.io/${GITHUB_REPOSITORY,,}:${{ steps.meta.outputs.version }}\`
+
+Run it with the published \`docker-compose.yml\` (\`docker compose up\`), which mounts your host \`~/.claude\` for the bundled CLI. See the README for details."
