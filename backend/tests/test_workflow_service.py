@@ -631,6 +631,9 @@ async def test_profiles_are_interviewed_concurrently() -> None:
                options=[{"value": "a", "label": "A"}])),
         _qs(_q(prompt="Threats?",
                options=[{"value": "b", "label": "B"}])),
+        # Two distinct-audience questions: the reconciler runs and (here)
+        # keeps both, as they don't overlap.
+        "<KEEP>[\"developer:q1\", \"infosec:q1\"]</KEEP>",
         _coord([]),
         _refined("done"),
     ], expected=2)
@@ -642,6 +645,66 @@ async def test_profiles_are_interviewed_concurrently() -> None:
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     audiences = {q.audience for q in envelope.questionnaire.questions}
     assert audiences == {"developer", "infosec"}
+
+
+@pytest.mark.asyncio
+async def test_reconciler_drops_cross_profile_duplicate() -> None:
+    """Ensure a question two profiles both ask survives exactly once,
+    under the reconciler's chosen authoritative audience."""
+    from app.questionnaire import parse_envelope
+
+    gh = _FakeGitHub(body="let users sign in with a password")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["infosec", "developer"]),
+        # infosec asks first (coordinator order), developer duplicates it
+        _qs(_q(prompt="How should we hash stored passwords?",
+               options=[{"value": "argon2", "label": "Argon2"}])),
+        _qs(_q(prompt="Which password hashing algorithm?",
+               options=[{"value": "argon2", "label": "Argon2"}])),
+        # Reconciler keeps only the infosec copy of the overlap.
+        "<KEEP>[\"infosec:q1\"]</KEEP>",
+        _coord([]),
+        _refined("Store passwords hashed with Argon2"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    questions = envelope.questionnaire.questions
+    assert len(questions) == 1
+    assert questions[0].id == "infosec:q1"
+    assert questions[0].audience == "infosec"
+    # The dropped profile no longer yields a tab.
+    assert [p.id for p in envelope.questionnaire.profiles] == ["infosec"]
+
+
+@pytest.mark.asyncio
+async def test_reconciler_malformed_keep_keeps_all() -> None:
+    """Ensure a malformed <KEEP> block falls back to the full pool."""
+    from app.questionnaire import parse_envelope
+
+    gh = _FakeGitHub(body="let users sign in with a password")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["infosec", "developer"]),
+        _qs(_q(prompt="How should we hash stored passwords?",
+               options=[{"value": "argon2", "label": "Argon2"}])),
+        _qs(_q(prompt="Which password hashing algorithm?",
+               options=[{"value": "argon2", "label": "Argon2"}])),
+        "<KEEP>{not json}</KEEP>",  # malformed: keep everything
+        _coord([]),
+        _refined("Store passwords hashed with Argon2"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    ids = {q.id for q in envelope.questionnaire.questions}
+    assert ids == {"infosec:q1", "developer:q1"}
+    assert {p.id for p in envelope.questionnaire.profiles} == {
+        "infosec", "developer",
+    }
 
 
 @pytest.mark.asyncio

@@ -68,6 +68,36 @@ def extract_profiles(text: str) -> list[str] | None:
     return data
 
 
+def extract_kept_ids(text: str) -> list[str] | None:
+    """
+    Return the reconciler's kept question ids from a KEEP block.
+
+    The reconciler wraps a JSON array of the question ids to keep —
+    or an object with a ``"keep"`` key — in ``<KEEP>`` tags. Mirrors
+    :func:`extract_profiles`: the caller treats ``None`` (absent or
+    malformed) as "keep everything", so reconciliation can only trim,
+    never blank, the pooled questions.
+
+    :param text: The agent's full response text.
+    :returns: The list of ids to keep, or None if the tag is absent
+        or its content is not valid JSON of the right shape.
+    """
+    raw = _extract_tag(text, "KEEP")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if isinstance(data, dict):
+        data = data.get("keep")
+    if not isinstance(data, list) or not all(
+        isinstance(item, str) for item in data
+    ):
+        return None
+    return data
+
+
 def extract_questionnaire(text: str) -> Questionnaire | None:
     """
     Return the questionnaire if the agent emitted the block.

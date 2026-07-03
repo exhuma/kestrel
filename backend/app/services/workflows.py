@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -21,6 +22,7 @@ from app.questionnaire import (
     InterviewEnvelope,
     ProfileMeta,
     QAEntry,
+    Question,
     Questionnaire,
     build_envelope,
     format_answers,
@@ -40,6 +42,7 @@ from app.services.github import GitHubClient
 from app.services.runner import SessionRunner
 from app.services.workflow_text import (
     append_sentinel,
+    extract_kept_ids,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
@@ -70,16 +73,50 @@ _MAX_REFINE_ROUNDS = 3
 COORDINATOR_PROMPT = (
     "You are the refinement coordinator for a GitHub issue. Read the "
     "issue and the surrounding codebase, and consider the answers "
-    "gathered so far. Decide which stakeholder profiles still need to "
-    "be interviewed in the NEXT round. Choose from this roster (you may "
-    "also name a new profile id if a needed stakeholder is missing):\n"
-    "{roster}\n"
+    "gathered so far. Decide which stakeholder profiles — if any — "
+    "still need to be interviewed in the NEXT round.\n"
+    "Prefer RESTRAINT: pick the FEWEST profiles whose perspective this "
+    "issue genuinely needs. Every profile you add spends another agent "
+    "session and asks the requester more questions, so never summon a "
+    "specialist 'just in case'. For a small, unambiguous change it is "
+    "correct to pick just requester/developer — or an empty set, if no "
+    "clarification is needed at all. Summon a specialist ONLY when the "
+    "issue clearly raises a decision in its domain; lean on each "
+    "profile's when-to-summon signal in the roster below (for example: "
+    "the architect only for larger, distributed, or structural work; "
+    "the DBA only when the data model changes; infosec only for "
+    "sensitive-data or auth; UX only for a user-facing surface).\n"
+    "Choose from this roster (you may also name a new profile id if a "
+    "needed stakeholder is genuinely missing):\n{roster}\n"
     "Return ONLY a JSON array of profile ids wrapped EXACTLY in "
     "<PROFILES> and </PROFILES> tags and nothing else, e.g. "
     '<PROFILES>["requester", "infosec"]</PROFILES>. Return an empty '
     "array <PROFILES>[]</PROFILES> once enough detail has been gathered "
     "and no further questions are needed. Do not edit any files.\n\n"
     "ISSUE:\n{issue}\n\n{answers}"
+)
+RECONCILE_PROMPT = (
+    "You are reconciling the clarifying questions that several "
+    "stakeholder profiles independently proposed for a GitHub issue, "
+    "removing duplicates before they reach the human. Because the "
+    "profiles were interviewed in parallel and could not see each "
+    "other's questions, two of them may ask essentially the same "
+    "thing.\n"
+    "Below is the pooled set of questions as JSON — each with its "
+    '"id", the "audience" profile that asked it, and its "prompt" — '
+    "followed by the roster describing each profile's remit.\n"
+    "For each GROUP of questions that ask essentially the SAME thing, "
+    "keep EXACTLY ONE: the copy whose audience is the most "
+    "authoritative owner of that topic (judge from the roster — e.g. a "
+    "password-hashing choice belongs to infosec over developer). Keep "
+    "every question that has no overlap. Do NOT reword, merge, "
+    "combine, or invent questions — only choose which existing ids to "
+    "keep.\n"
+    "Return ONLY a JSON array of the question ids to keep, wrapped "
+    "EXACTLY in <KEEP> and </KEEP> tags and nothing else, e.g. "
+    '<KEEP>["infosec:q1", "developer:q2"]</KEEP>. Do not edit any '
+    "files.\n\nISSUE:\n{issue}\n\nQUESTIONS:\n{questions}\n\n"
+    "ROSTER:\n{roster}"
 )
 GENERATION_PROMPT = (
     "You are helping refine a GitHub issue before implementation by "
@@ -106,7 +143,12 @@ WRITE_REFINED_PROMPT = (
     "You have finished interviewing the stakeholders about this GitHub "
     "issue. Using the issue and all the answers below, write the "
     "complete refined issue description, folding the answers into a "
-    "clear, implementation-ready specification. Output ONLY the refined "
+    "clear, implementation-ready specification. When the answers carry "
+    "effort, timeline, dependency, or capacity signals (typically from "
+    "the PM or engineering), add a dedicated '## Effort & timeline' "
+    "section near the end of the issue with a rough estimate and the "
+    "assumptions behind it; omit that section entirely when there is "
+    "nothing to estimate. Output ONLY the refined "
     "issue wrapped EXACTLY in <REFINED_ISSUE> and </REFINED_ISSUE> tags "
     "and nothing else. Do not edit any files.\n\nISSUE:\n{issue}\n\n"
     "{answers}"
@@ -751,8 +793,7 @@ class WorkflowService:
 
         results = await asyncio.gather(*(_one(pid) for pid in ordered))
 
-        questions = []
-        profiles: dict[str, ProfileMeta] = {}
+        questions: list[Question] = []
         for pid, questionnaire in results:
             if questionnaire is None:
                 continue
@@ -761,17 +802,78 @@ class WorkflowService:
                 question.audience = profile.id
                 question.id = f"{profile.id}:{question.id}"
                 questions.append(question)
-            profiles.setdefault(
-                profile.id,
-                ProfileMeta(
-                    id=profile.id,
-                    label=profile.label,
-                    badge=profile.badge,
-                ),
+
+        # Within-round, cross-profile dedup: the generators ran blind
+        # to one another, so two profiles can independently ask
+        # essentially the same thing. Reconcile only when overlap is
+        # even possible — more than one audience and more than one
+        # question; a single-profile round has nothing to reconcile.
+        audiences = {q.audience for q in questions}
+        if len(audiences) > 1 and len(questions) > 1:
+            questions = await self._reconcile_questions(
+                run, issue, questions
+            )
+
+        # Rebuild the profile metadata from the *kept* questions, so a
+        # profile whose only question the reconciler dropped no longer
+        # yields an (empty) tab in the interview.
+        profiles: dict[str, ProfileMeta] = {}
+        for question in questions:
+            if question.audience in profiles:
+                continue
+            profile = profiles_by_id[question.audience]
+            profiles[question.audience] = ProfileMeta(
+                id=profile.id, label=profile.label, badge=profile.badge
             )
         return Questionnaire(
             questions=questions, profiles=list(profiles.values())
         )
+
+    async def _reconcile_questions(
+        self, run: WorkflowRun, issue: str, questions: list[Question]
+    ) -> list[Question]:
+        """Drop cross-profile duplicate questions via a reconciler agent.
+
+        The concurrent generators can each ask essentially the same
+        question (e.g. a password-hashing choice from both infosec and
+        developer). A reconciler sub-agent — shown as one more chip —
+        decides, per overlap, which single audience owns the topic and
+        returns the ids to keep; every non-overlapping question is
+        kept.
+
+        Guards mirror the extract-fallback style used elsewhere: an
+        absent or malformed keep-list — or one that would drop every
+        question — falls back to the full pool, so reconciliation can
+        only ever trim, never blank, the interview.
+
+        :param run: The run whose interview is being reconciled.
+        :param issue: The issue text, for the reconciler's context.
+        :param questions: The pooled, namespaced questions to dedup.
+        :returns: The kept questions, in their original order.
+        """
+        slot = StepSession(
+            profile_id="reconciler", label="Reconciler", badge="sys"
+        )
+        self._show_sessions(run, [slot])
+        payload = json.dumps(
+            [
+                {"id": q.id, "audience": q.audience, "prompt": q.prompt}
+                for q in questions
+            ]
+        )
+        text = await self._run_refine_agent(
+            run,
+            RECONCILE_PROMPT.format(
+                issue=issue, questions=payload, roster=roster_summary()
+            ),
+            slot,
+        )
+        kept_ids = extract_kept_ids(text)
+        if kept_ids is None:
+            return questions
+        keep = set(kept_ids)
+        filtered = [q for q in questions if q.id in keep]
+        return filtered or questions
 
     async def _write_refined(
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]
