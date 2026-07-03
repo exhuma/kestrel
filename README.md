@@ -23,11 +23,45 @@ docker compose up
 
 Then open <http://localhost:8000>.
 
-`docker-compose.yml` mounts:
+### Volumes
 
-- a named volume at `/data` — the SQLite DB and session workspaces persist
-  across restarts;
-- your host `~/.claude` (read-only) — so the bundled CLI is authenticated.
+`docker-compose.yml` mounts four things:
+
+| Mount | Mode | Purpose |
+| --- | --- | --- |
+| `kestrel-data` → `/data` | read-write | SQLite DB and the container's Claude `HOME`, persisted across restarts |
+| `./workspaces` → `/workspaces` | read-write | The git repos claude clones and edits — **browsable on the host** |
+| `~/.claude` → `/seed/.claude` | read-only | Seed: your host Claude config/plugins/credentials |
+| `~/.claude.json` → `/seed/claude.json` | read-only | Seed: your host Claude config file (MCP servers, plugin state) |
+
+On startup the container **copies** the two read-only seeds into its own
+writable `HOME` (on the `/data` volume). It never writes back to your host
+Claude config. Credentials are refreshed from the seed on every restart, so
+re-logging-in on the host (`claude`) propagates after a `docker compose restart`.
+
+### MCP servers & plugins
+
+The spawned `claude` sessions pick up **your** user-level MCP servers and
+plugins, because the container's `HOME` is seeded from your host `~/.claude` and
+`~/.claude.json` (where those are configured). No extra setup is required beyond
+the seed mounts above.
+
+Supported MCP server runtimes are the ones bundled in the image: **node/npx**,
+**uv/uvx**, **python**, and **git**. Not supported inside the container:
+
+- MCP servers launched via **docker** or a **custom host binary** (those tools
+  aren't in the image);
+- servers or config that point at **host-absolute paths** that don't exist in
+  the container;
+- project-scoped `.mcp.json` servers may need to be **pre-approved** on the host
+  first (approval state is read from the seeded `~/.claude.json`).
+
+> **Alpha limitation.** MCP is the load-bearing piece and works (HTTP/stdio
+> servers whose runtime is in the image connect fine). **Plugin _enablement_**,
+> however, is per-config/per-project state carried in your seeded config — a
+> plugin that isn't enabled for the spawned session's context on the host won't
+> be active in the container either. Getting plugins to activate reliably in
+> dispatched sessions is deferred; expect to iterate here post-alpha.
 
 ### Configuration
 
@@ -39,9 +73,10 @@ Optional environment variables (see `docker-compose.yml`):
 | `KESTREL_PERMISSION_MODE` | `acceptEdits` | Permission mode for spawned sessions |
 | `KESTREL_MODEL_OVERRIDES` | `{}` | JSON map of model overrides |
 
-State locations inside the container are fixed by the image
-(`KESTREL_DATABASE_URL`, `KESTREL_WORKSPACE_ROOT`, `KESTREL_STATIC_DIR`) and
-normally need no changes.
+Other state locations are set by the image (`KESTREL_DATABASE_URL`,
+`KESTREL_STATIC_DIR`, `HOME`) and normally need no changes.
+`KESTREL_WORKSPACE_ROOT` defaults to `/workspaces` to match the host bind mount
+above.
 
 ## Running from source (development)
 

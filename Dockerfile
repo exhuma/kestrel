@@ -52,14 +52,17 @@ COPY --from=frontend-build /frontend/dist ./static
 ARG KESTREL_VERSION=0.0.0-dev
 ENV KESTREL_VERSION=${KESTREL_VERSION}
 
-# Runtime defaults: serve the baked SPA and keep all state under /data.
+# Runtime defaults. /data (persisted): SQLite DB + the writable Claude HOME
+# seeded from the host at startup. /workspaces (host bind mount): the git repos
+# claude clones and edits, kept browsable on the host. /seed (read-only): where
+# the host ~/.claude and ~/.claude.json are mounted for the entrypoint to copy.
 ENV KESTREL_STATIC_DIR=/app/static \
     KESTREL_DATABASE_URL=sqlite:////data/kestrel.db \
-    KESTREL_WORKSPACE_ROOT=/data/workspaces \
-    HOME=/root
+    KESTREL_WORKSPACE_ROOT=/workspaces \
+    CLAUDE_SEED_DIR=/seed \
+    HOME=/data/home
 
-RUN mkdir -p /data/workspaces
-VOLUME ["/data"]
+VOLUME ["/data", "/workspaces"]
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

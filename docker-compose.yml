@@ -14,12 +14,19 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Persist the SQLite DB and session workspaces across restarts.
+      # Persist the SQLite DB and the container's Claude HOME across restarts.
       - kestrel-data:/data
-      # The bundled claude CLI authenticates via your host login/subscription.
-      # Mounted read-only; adjust the source path if your creds live elsewhere.
-      - ${HOME}/.claude:/root/.claude:ro
+      # The git repos claude clones and edits, kept browsable on the host.
+      - ./workspaces:/workspaces
+      # Seed (read-only): your host Claude config is copied into the container
+      # at startup so the bundled CLI has your auth, MCP servers and plugins.
+      # The container never writes back to these. Note ~/.claude.json is a
+      # separate FILE from the ~/.claude directory — both are needed.
+      - ${HOME}/.claude:/seed/.claude:ro
+      - ${HOME}/.claude.json:/seed/claude.json:ro
     environment:
+      # The repos claude works in (matches the ./workspaces bind mount above).
+      KESTREL_WORKSPACE_ROOT: /workspaces
       # Optional: a token unlocks GitHub ingestion features.
       KESTREL_GITHUB_TOKEN: ${KESTREL_GITHUB_TOKEN:-}
       # Permission mode passed to spawned claude sessions.
