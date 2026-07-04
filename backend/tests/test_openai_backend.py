@@ -1,0 +1,147 @@
+"""Tests for the OpenAI-compatible (self-hosted LLM) backend."""
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Callable
+
+import httpx
+import pytest
+
+from app.backends.base import Capability, TurnRequest
+from app.backends.openai_compat import OpenAICompatBackend
+from app.backends.registry import BackendRegistry
+from app.config import BackendConfig, Settings
+from app.models import EventKind
+from app.storage.registry import SessionRegistry
+
+
+def _settings() -> Settings:
+    return Settings(workspace_root="/tmp/ws", permission_mode="acceptEdits")
+
+
+def _backend(
+    handler: Callable[[httpx.Request], httpx.Response],
+    cfg: BackendConfig | None = None,
+) -> tuple[OpenAICompatBackend, SessionRegistry]:
+    registry = SessionRegistry()
+    cfg = cfg or BackendConfig(
+        id="local", type="openai_compat",
+        base_url="http://model.local/v1", model="llama3",
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return OpenAICompatBackend(_settings(), registry, cfg, client=client), registry
+
+
+def _echo(captured: list[dict]) -> Callable[[httpx.Request], httpx.Response]:
+    """A handler that records each request and replies "reply-<n msgs>"."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        captured.append(body)
+        n = len(body["messages"])
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": f"reply-{n}"}}]}
+        )
+    return handler
+
+
+def test_backend_is_text_only() -> None:
+    """Ensure the LLM backend cannot serve file-editing steps."""
+    backend, _ = _backend(_echo([]))
+    assert backend.caps == frozenset({Capability.TEXT})
+
+
+@pytest.mark.asyncio
+async def test_run_turn_emits_canonical_events_and_calls_endpoint() -> None:
+    """Ensure a turn records user/assistant/result and posts the prompt."""
+    captured: list[dict] = []
+    backend, reg = _backend(_echo(captured))
+
+    result = await backend.run_turn(
+        TurnRequest(prompt="hello", cwd="/tmp/s", permission_mode="n/a")
+    )
+
+    rec = reg.get(result.session_id)
+    assert [e.kind for e in rec.events] == [
+        EventKind.USER_TEXT, EventKind.ASSISTANT_TEXT, EventKind.RESULT,
+    ]
+    assert result.final_text == "reply-1"
+    assert rec.events[1].text == "reply-1"
+    assert rec.events[1].model == "llama3"
+    assert rec.status == "idle"
+    assert captured[0]["model"] == "llama3"
+    assert captured[0]["messages"] == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
+async def test_resume_replays_prior_turns_as_history() -> None:
+    """Ensure a resumed turn resends the whole conversation (stateless)."""
+    captured: list[dict] = []
+    backend, reg = _backend(_echo(captured))
+
+    first = await backend.run_turn(
+        TurnRequest(prompt="hi", cwd="/tmp/s", permission_mode="n/a")
+    )
+    second = await backend.run_turn(
+        TurnRequest(
+            prompt="again", cwd="/tmp/s", permission_mode="n/a",
+            resume_id=first.session_id,
+        )
+    )
+
+    # Second call carries: user hi, assistant reply-1, user again.
+    assert len(captured[1]["messages"]) == 3
+    assert captured[1]["messages"][-1] == {"role": "user", "content": "again"}
+    assert second.final_text == "reply-3"
+
+
+@pytest.mark.asyncio
+async def test_start_streams_a_turn_in_the_background() -> None:
+    """Ensure start returns immediately then completes the turn."""
+    backend, reg = _backend(_echo([]))
+    sid = await backend.start("hello")
+
+    for _ in range(100):
+        if reg.get(sid).status == "idle":
+            break
+        await asyncio.sleep(0.01)
+
+    rec = reg.get(sid)
+    assert rec.status == "idle"
+    assert any(e.kind is EventKind.RESULT for e in rec.events)
+
+
+@pytest.mark.asyncio
+async def test_endpoint_failure_surfaces_as_a_failed_result() -> None:
+    """Ensure an endpoint error never leaves the session stuck running."""
+    def boom(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "model offline"})
+
+    backend, reg = _backend(boom)
+    sid = await backend.start("hi")
+
+    for _ in range(100):
+        if reg.get(sid).status == "idle":
+            break
+        await asyncio.sleep(0.01)
+
+    rec = reg.get(sid)
+    assert rec.status == "idle"
+    last = rec.events[-1]
+    assert last.kind is EventKind.RESULT
+    assert last.is_error is True
+
+
+def test_registry_builds_an_openai_backend() -> None:
+    """Ensure a configured openai_compat backend is resolvable."""
+    settings = Settings(
+        workspace_root="/tmp/ws",
+        backends=[
+            BackendConfig(
+                id="local", type="openai_compat", base_url="http://x/v1"
+            )
+        ],
+        default_session_backend="local",
+    )
+    registry = BackendRegistry(settings, SessionRegistry())
+    assert isinstance(registry.get("local"), OpenAICompatBackend)

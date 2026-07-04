@@ -78,6 +78,34 @@ Other state locations are set by the image (`KESTREL_DATABASE_URL`,
 `KESTREL_WORKSPACE_ROOT` defaults to `/workspaces` to match the host bind mount
 above.
 
+### Backends (experimental)
+
+Kestrel dispatches to a pluggable **backend**. By default the only backend is
+the bundled `claude` CLI, so no configuration is needed. To make ad-hoc
+sessions (the **Sessions** panel / `POST /api/sessions`) run on a different
+system, declare backends as JSON and pick the default:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `KESTREL_BACKENDS` | `[{"id":"claude","type":"claude_cli"}]` | Available backends |
+| `KESTREL_DEFAULT_SESSION_BACKEND` | `claude` | Backend for ad-hoc sessions |
+
+A backend entry has `id`, `type` (`claude_cli` \| `openai_compat` \|
+`opencode`), and per-type fields (`base_url`, `model`, `api_key_env`). Example —
+route ad-hoc sessions to a self-hosted, OpenAI-compatible model (Ollama, vLLM,
+LocalAI, …):
+
+```bash
+KESTREL_BACKENDS='[{"id":"claude","type":"claude_cli"},
+  {"id":"local","type":"openai_compat",
+   "base_url":"http://localhost:11434/v1","model":"llama3"}]'
+KESTREL_DEFAULT_SESSION_BACKEND=local
+```
+
+The `openai_compat` backend is **text-only** (no file edits or tools); kestrel
+owns the conversation history and replays it each turn. `opencode` and
+per-workflow-step backend selection are in progress.
+
 ## Running from source (development)
 
 ```bash

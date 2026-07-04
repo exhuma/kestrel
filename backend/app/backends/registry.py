@@ -5,6 +5,7 @@ from functools import lru_cache
 
 from app.backends.base import Backend
 from app.backends.claude_cli import ClaudeCliBackend
+from app.backends.openai_compat import OpenAICompatBackend
 from app.config import BackendConfig, Settings, get_settings
 from app.storage.registry import SessionRegistry, get_registry
 
@@ -31,6 +32,10 @@ class BackendRegistry:
         if cfg.type == "claude_cli":
             return ClaudeCliBackend(
                 self._settings, self._session_registry, backend_id=cfg.id
+            )
+        if cfg.type == "openai_compat":
+            return OpenAICompatBackend(
+                self._settings, self._session_registry, cfg
             )
         raise NotImplementedError(
             f"backend type {cfg.type!r} is not implemented yet"
