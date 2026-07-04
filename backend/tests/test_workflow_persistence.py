@@ -37,7 +37,7 @@ def _persistent_service(
         ),
         sessions=runner.sessions,
         workflows=reg,
-        runner=runner,
+        backends=runner,
         git=git,
         github=github,
         notifier=_FakeNotifier(),

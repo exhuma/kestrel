@@ -89,11 +89,19 @@ system, declare backends as JSON and pick the default:
 | --- | --- | --- |
 | `KESTREL_BACKENDS` | `[{"id":"claude","type":"claude_cli"}]` | Available backends |
 | `KESTREL_DEFAULT_SESSION_BACKEND` | `claude` | Backend for ad-hoc sessions |
+| `KESTREL_STEP_BACKENDS` | `{}` | Per-workflow-step backend, e.g. `{"implement":"claude"}` |
 
 Config is read once at startup — **restart the backend after editing `.env`**.
 On boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
-to: …`), and `GET /api/backends` reports it live. Note this only affects
-**ad-hoc sessions**; the GitHub workflow engine still uses `claude`.
+to: …`), and `GET /api/backends` reports it live.
+
+**Where backends apply.** Ad-hoc sessions use `KESTREL_DEFAULT_SESSION_BACKEND`.
+Each GitHub-workflow step (`refine`, `plan`, `implement`) uses
+`KESTREL_STEP_BACKENDS[step]` if set, else the same default. A step only
+accepts a backend that can satisfy it: `implement` needs file-editing
+(`claude`/`opencode`), while `refine`/`plan` need only text — so a plain LLM
+may serve them (it just won't read the repo). A bad mapping (e.g. a text-only
+LLM on `implement`) fails that run with a clear capability error.
 
 A backend entry has `id`, `type` (`claude_cli` \| `openai_compat` \|
 `opencode`), and per-type fields (`base_url`, `model`, `api_key_env`). Example —
@@ -134,9 +142,13 @@ KESTREL_BACKENDS='[{"id":"oc","type":"opencode","base_url":"http://localhost:409
 KESTREL_DEFAULT_SESSION_BACKEND=oc
 ```
 
-Its sessions run in the directory where `opencode serve` was started. Live
-token-streaming (via opencode's `/event` SSE), an auto-started `serve`
-supervisor, and per-workflow-step backend selection are still in progress.
+Its sessions run in the directory where `opencode serve` was started —
+opencode has no per-session working directory. That's fine for ad-hoc
+sessions, but means opencode is **not yet suitable for the workflow
+`implement` step**, which needs the agent to edit a per-run cloned workspace;
+keep `implement` on `claude` (which honours the workspace). Live
+token-streaming (via opencode's `/event` SSE) and an auto-started `serve`
+supervisor are still in progress.
 
 ## Running from source (development)
 

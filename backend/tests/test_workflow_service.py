@@ -7,6 +7,7 @@ import json
 import pytest
 
 from app.config import Settings
+from app.backends.base import Capability, TurnResult
 from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
@@ -72,27 +73,34 @@ class _FakeGitHub:
 
 
 class _FakeRunner:
-    """Records a session with a canned final result text per call."""
+    """A fake backend (canned result per turn) that is also its own policy.
+
+    Doubles as the ``BackendPolicy`` the WorkflowService now depends on:
+    every step resolves to this one backend.
+    """
+
+    caps = frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
     def __init__(self, sessions: SessionRegistry, outputs: list[str]) -> None:
         self.sessions = sessions
         self._outputs = list(outputs)
         self._n = 0
+        self.calls: list[dict] = []
+        self.terminated: list[str] = []
 
-    async def run_blocking(self, prompt, cwd, permission_mode,
-                           resume_id=None, on_session_id=None,
-                           model=None) -> str:
-        sid = resume_id or f"s{self._n}"
+    async def run_turn(self, req, on_session_id=None):
+        sid = req.resume_id or f"s{self._n}"
         self._n += 1
-        self.calls = getattr(self, "calls", [])
         self.calls.append(
-            {"resume_id": resume_id, "model": model,
-             "permission_mode": permission_mode,
-             "prompt": prompt}
+            {"resume_id": req.resume_id, "model": req.model,
+             "permission_mode": req.permission_mode,
+             "prompt": req.prompt}
         )
         text = self._outputs.pop(0)
         if self.sessions.get(sid) is None:
-            self.sessions._records[sid] = SessionRecord(session_id=sid, cwd=cwd)
+            self.sessions._records[sid] = SessionRecord(
+                session_id=sid, cwd=req.cwd
+            )
         rec = self.sessions.get(sid)
         rec.events.append(
             CanonicalEvent(EventKind.RESULT, sid, text=text)
@@ -100,12 +108,18 @@ class _FakeRunner:
         rec.status = "idle"
         if on_session_id:
             on_session_id(sid)
-        return sid
+        return TurnResult(session_id=sid, final_text=text)
 
     def terminate(self, session_id: str) -> bool:
-        self.terminated = getattr(self, "terminated", [])
         self.terminated.append(session_id)
         return True
+
+    # -- BackendPolicy interface (every step uses this backend) --
+    def backend_for(self, step: str):
+        return self
+
+    def backends(self):
+        return [self]
 
 
 def _service(github, runner, git) -> WorkflowService:
@@ -113,7 +127,7 @@ def _service(github, runner, git) -> WorkflowService:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=git,
         github=github,
         notifier=_FakeNotifier(),
@@ -586,7 +600,7 @@ async def test_save_publishes_to_bus() -> None:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=_FakeGit(),
         github=gh,
         notifier=_FakeNotifier(),
@@ -615,23 +629,18 @@ async def test_profiles_are_interviewed_concurrently() -> None:
             self._expected = expected
             self._all_in = asyncio.Event()
 
-        async def run_blocking(self, prompt, cwd, permission_mode,
-                               resume_id=None, on_session_id=None,
-                               model=None) -> str:
-            gen = "interviewing one stakeholder profile" in prompt
+        async def run_turn(self, req, on_session_id=None):
+            gen = "interviewing one stakeholder profile" in req.prompt
             if gen:
                 self.inflight += 1
                 self.max_inflight = max(self.max_inflight, self.inflight)
                 if self.inflight >= self._expected:
                     self._all_in.set()
                 await self._all_in.wait()
-            sid = await super().run_blocking(
-                prompt, cwd, permission_mode, resume_id,
-                on_session_id, model,
-            )
+            result = await super().run_turn(req, on_session_id)
             if gen:
                 self.inflight -= 1
-            return sid
+            return result
 
     gh = _FakeGitHub(body="vague issue")
     runner = _BarrierRunner(SessionRegistry(), outputs=[
@@ -894,7 +903,7 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=_FakeGit(),
         github=gh,
         notifier=notifier,
@@ -922,7 +931,7 @@ async def test_notifier_does_not_fire_on_reject() -> None:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=_FakeGit(),
         github=gh,
         notifier=notifier,

@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable
 
+from app.backends.base import TurnRequest
 from app.config import Settings, get_settings
-from app.models import EventKind
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import InAppNotifier, Notifier
 from app.persistence.notification_store import get_notification_store
 from app.storage.notification_bus import get_notification_bus
-from app.policy import get_policy
+from app.policy import BackendPolicy, get_backend_policy, get_policy
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
     InterviewEnvelope,
@@ -40,7 +40,6 @@ from app.services.exceptions import (
 )
 from app.services.git import GitService
 from app.services.github import GitHubClient
-from app.services.runner import SessionRunner
 from app.services.workflow_text import (
     append_sentinel,
     extract_plan,
@@ -247,7 +246,7 @@ class WorkflowService:
         settings: Settings,
         sessions: SessionRegistry,
         workflows: WorkflowRegistry,
-        runner: SessionRunner,
+        backends: BackendPolicy,
         git: GitService,
         github: GitHubClient,
         notifier: Notifier,
@@ -256,7 +255,7 @@ class WorkflowService:
         self.settings = settings
         self.sessions = sessions
         self.workflows = workflows
-        self.runner = runner
+        self.backends = backends
         self.git = git
         self.github = github
         self.notifier = notifier
@@ -495,7 +494,10 @@ class WorkflowService:
                 pass
         for step in run.steps:
             if step.session_id:
-                self.runner.terminate(step.session_id)
+                # A step may have run on any backend; each ignores ids it
+                # doesn't own, so ask them all to stop it.
+                for backend in self.backends.backends():
+                    backend.terminate(step.session_id)
         self._control.pop(workflow_id, None)
         self.workflows.remove(workflow_id)
         if run.workspace:
@@ -507,15 +509,6 @@ class WorkflowService:
         decision = await control.gate
         control.gate = asyncio.get_running_loop().create_future()
         return decision
-
-    def _result_text(self, session_id: str) -> str:
-        rec = self.sessions.get(session_id)
-        if rec is None:
-            return ""
-        for ev in reversed(rec.events):
-            if ev.kind == EventKind.RESULT:
-                return ev.text if isinstance(ev.text, str) else ""
-        return ""
 
     async def recover(self) -> None:
         """
@@ -732,13 +725,16 @@ class WorkflowService:
             slot.session_id = s
             step.session_id = s
 
-        sid = await self.runner.run_blocking(
-            prompt, run.workspace, "plan",
+        backend = self.backends.backend_for("refine")
+        result = await backend.run_turn(
+            TurnRequest(
+                prompt=prompt, cwd=run.workspace,
+                permission_mode="plan", model=step.model,
+            ),
             on_session_id=_on_sid,
-            model=step.model,
         )
         slot.status = "idle"
-        return self._result_text(sid)
+        return result.final_text
 
     async def _coordinator_profiles(
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]
@@ -967,13 +963,15 @@ class WorkflowService:
                 )
                 step.active_sessions = [slot]
                 self._save(run)
-                sid = await self.runner.run_blocking(
-                    prompt, run.workspace, "plan",
-                    resume_id=step.session_id,
+                result = await self.backends.backend_for("plan").run_turn(
+                    TurnRequest(
+                        prompt=prompt, cwd=run.workspace,
+                        permission_mode="plan",
+                        model=model, resume_id=step.session_id,
+                    ),
                     on_session_id=_bind(step, slot),
-                    model=model,
                 )
-                text = self._result_text(sid)
+                text = result.final_text
                 # Prefer the tagged block; fall back to the raw
                 # text so a run still gets a reviewable
                 # deliverable if the model doesn't comply (e.g.
@@ -1019,16 +1017,19 @@ class WorkflowService:
                 )
                 step.active_sessions = [slot]
                 self._save(run)
-                sid = await self.runner.run_blocking(
-                    prompt, run.workspace, "acceptEdits",
-                    resume_id=(
-                        step.session_id
-                        or run.steps[1].session_id
+                result = await self.backends.backend_for("implement").run_turn(
+                    TurnRequest(
+                        prompt=prompt, cwd=run.workspace,
+                        permission_mode="acceptEdits",
+                        model=model,
+                        resume_id=(
+                            step.session_id
+                            or run.steps[1].session_id
+                        ),
                     ),
                     on_session_id=_bind(step, slot),
-                    model=model,
                 )
-                text = self._result_text(sid)
+                text = result.final_text
                 diff = await self.git.diff(run.workspace)
                 if not diff.strip():
                     # No changes yet: treat the response as a
@@ -1095,7 +1096,7 @@ def get_workflow_service() -> WorkflowService:
         settings=settings,
         sessions=registry,
         workflows=get_workflow_registry(),
-        runner=SessionRunner(settings, registry),
+        backends=get_backend_policy(),
         git=GitService(settings.github_token),
         github=GitHubClient(settings.github_api_base, settings.github_token),
         notifier=InAppNotifier(

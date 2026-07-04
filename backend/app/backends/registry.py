@@ -63,6 +63,10 @@ class BackendRegistry:
         """Return the backend used for ad-hoc ``/api/sessions`` dispatch."""
         return self.get(self._settings.default_session_backend)
 
+    def all(self) -> list[Backend]:
+        """Return every configured backend."""
+        return list(self._backends.values())
+
 
 @lru_cache
 def get_backend_registry() -> BackendRegistry:
