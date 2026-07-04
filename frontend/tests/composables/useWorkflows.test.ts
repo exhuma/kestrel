@@ -76,6 +76,31 @@ describe('useWorkflows', () => {
     expect(current.value?.status).toBe('refining')
   })
 
+  it('applies live snapshots to the sidebar list card status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify([
+            { id: 'wf-2', repo: 'o/r', issue_number: 4, status: 'cloning' },
+          ]),
+          { status: 200 },
+        ),
+      ),
+    )
+    const { workflows, refresh, select } = useWorkflows()
+    await refresh()
+    select('wf-2')
+    lastEs?.emit({
+      id: 'wf-2', repo: 'o/r', issue_number: 4, issue_title: 't',
+      status: 'refining', branch: 'b', steps: [],
+      current_session_id: null, active_sessions: [], pr_url: null,
+      error: null,
+    })
+    // The list card status advanced from its create-time value, live.
+    expect(workflows.value.find((w) => w.id === 'wf-2')?.status).toBe('refining')
+  })
+
   it('stop closes the active EventSource', async () => {
     const { select, stop } = useWorkflows()
     select('wf-1')

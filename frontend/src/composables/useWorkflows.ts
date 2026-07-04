@@ -24,6 +24,17 @@ export function useWorkflows() {
 
   function applyDetail(detail: WorkflowDetail): void {
     current.value = detail
+    // Keep the sidebar list card in sync with the live detail — the list
+    // is only fetched on mount/create, so without this its status label
+    // (e.g. "cloning") never advances while the run progresses.
+    const list = workflows.value
+    if (!Array.isArray(list)) return
+    const i = list.findIndex((w) => w.id === detail.id)
+    if (i !== -1 && list[i].status !== detail.status) {
+      workflows.value = list.map((w) =>
+        w.id === detail.id ? { ...w, status: detail.status } : w,
+      )
+    }
   }
 
   // Telemetry is on-demand now: the workflow view stays compact and only
@@ -53,6 +64,15 @@ export function useWorkflows() {
     detailSource = new EventSource(`${API_BASE}/api/workflows/${id}/events`)
     detailSource.onmessage = (e) => {
       applyDetail(JSON.parse(e.data) as WorkflowDetail)
+    }
+    detailSource.onerror = () => {
+      // The browser auto-reconnects on a transient drop; if it gives up
+      // (connection permanently closed — e.g. a network path dropped the
+      // idle stream), re-open so the view self-heals instead of freezing.
+      if (detailSource?.readyState === EventSource.CLOSED &&
+          current.value?.id === id) {
+        setTimeout(() => { if (current.value?.id === id) select(id) }, 2000)
+      }
     }
   }
 
