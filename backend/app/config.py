@@ -2,8 +2,27 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class BackendConfig(BaseModel):
+    """One dispatchable agent backend.
+
+    ``type`` selects the adapter; the remaining fields configure it
+    (``base_url``/``model``/``api_key_env`` are used by the HTTP-based
+    backends added in later phases). ``caps`` overrides the adapter's
+    default capabilities when set.
+    """
+
+    id: str
+    type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
+    base_url: str | None = None
+    model: str | None = None
+    api_key_env: str | None = None
+    caps: list[str] | None = None
 
 
 class Settings(BaseSettings):
@@ -29,6 +48,16 @@ class Settings(BaseSettings):
     git_base: str = "https://github.com"
     database_url: str = "sqlite:///./kestrel.db"
     model_overrides: dict[str, str] = {}
+    #: Dispatchable agent backends. Defaults to claude-only, preserving
+    #: today's behavior. Supply as JSON via ``KESTREL_BACKENDS``.
+    backends: list[BackendConfig] = Field(
+        default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
+    )
+    #: Per-workflow-step backend assignment (step name -> backend id).
+    #: Steps not listed use the step's default backend.
+    step_backends: dict[str, str] = {}
+    #: Backend used for ad-hoc ``/api/sessions`` dispatch.
+    default_session_backend: str = "claude"
 
 
 @lru_cache

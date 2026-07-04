@@ -11,10 +11,11 @@ from typing import AsyncIterator
 
 from fastapi import Depends
 
+from app.backends.base import Backend
+from app.backends.registry import get_backend_registry
 from app.models import CanonicalEvent
 from app.schemas import SessionSummary
 from app.services.exceptions import SessionNotFoundError
-from app.services.runner import SessionRunner, get_runner
 from app.storage.registry import SessionRegistry, get_registry
 from app.storage.workflow_registry import (
     WorkflowRegistry,
@@ -23,15 +24,15 @@ from app.storage.workflow_registry import (
 
 
 class SessionService:
-    """Coordinates the runner and registry behind one API."""
+    """Coordinates a dispatch backend and the registry behind one API."""
 
     def __init__(
         self,
-        runner: SessionRunner,
+        backend: Backend,
         registry: SessionRegistry,
         workflows: WorkflowRegistry | None = None,
     ) -> None:
-        self.runner = runner
+        self.backend = backend
         self.registry = registry
         self.workflows = workflows
 
@@ -42,7 +43,7 @@ class SessionService:
         :param prompt: The initial prompt text.
         :returns: The resolved session id.
         """
-        return await self.runner.start(prompt)
+        return await self.backend.start(prompt)
 
     async def resume(self, session_id: str, prompt: str) -> str:
         """
@@ -56,7 +57,7 @@ class SessionService:
         if self.registry.get(session_id) is None:
             raise SessionNotFoundError(session_id)
         self.registry.set_status(session_id, "running")
-        return await self.runner.resume(session_id, prompt)
+        return await self.backend.resume(session_id, prompt)
 
     def delete(self, session_id: str) -> None:
         """
@@ -71,7 +72,7 @@ class SessionService:
         """
         if self.registry.get(session_id) is None:
             raise SessionNotFoundError(session_id)
-        self.runner.terminate(session_id)
+        self.backend.terminate(session_id)
         self.registry.remove(session_id)
 
     def list_summaries(self) -> list[SessionSummary]:
@@ -144,14 +145,13 @@ def _payload(event: CanonicalEvent) -> dict[str, object]:
 
 
 def get_session_service(
-    runner: SessionRunner = Depends(get_runner),
     registry: SessionRegistry = Depends(get_registry),
 ) -> SessionService:
     """
     Provide a SessionService as a FastAPI dependency.
 
-    :param runner: Session runner, injected.
     :param registry: Session registry singleton, injected.
-    :returns: A SessionService bound to the shared registry.
+    :returns: A SessionService bound to the default session backend.
     """
-    return SessionService(runner, registry, get_workflow_registry())
+    backend = get_backend_registry().default_session_backend()
+    return SessionService(backend, registry, get_workflow_registry())
