@@ -5,10 +5,16 @@ import pytest
 
 from app.questionnaire import (
     AnswerValidationError,
+    InterviewEnvelope,
     Question,
     QuestionOption,
     Questionnaire,
+    all_required_answered,
+    build_envelope,
     format_answers,
+    parse_envelope,
+    render_assumptions_and_risks,
+    to_entries,
     validate_answers,
 )
 
@@ -103,3 +109,87 @@ def test_format_answers_renders_labels() -> None:
     assert "Which auth flow?" in text
     assert "OIDC" in text
     assert "Nothing else" in text
+
+
+_WAIVER = {"waived": True, "reason": "Risk accepted by owner"}
+
+
+def test_waiver_requires_a_reason() -> None:
+    """Ensure a waiver without a reason is rejected."""
+    with pytest.raises(AnswerValidationError) as exc:
+        validate_answers(_questionnaire(), {"q1": {"waived": True}})
+    assert "q1" in exc.value.errors
+
+
+def test_waiver_with_reason_is_accepted() -> None:
+    """Ensure a required question may be waived with a reason."""
+    validate_answers(_questionnaire(), {"q1": _WAIVER})
+
+
+def test_partial_tolerates_missing_required() -> None:
+    """Ensure a draft save does not require the missing required answer."""
+    validate_answers(_questionnaire(), {}, partial=True)
+    with pytest.raises(AnswerValidationError):
+        validate_answers(_questionnaire(), {})  # finalize still requires it
+
+
+def test_completeness_counts_waivers_as_answered() -> None:
+    """Ensure a waived (with reason) required question counts as answered."""
+    assert all_required_answered(_questionnaire(), {}) is False
+    assert all_required_answered(_questionnaire(), {"q1": _WAIVER}) is True
+    assert (
+        all_required_answered(_questionnaire(), {"q1": {"waived": True}})
+        is False
+    )
+
+
+def test_render_assumptions_and_risks_lists_waivers() -> None:
+    """Ensure every waived answer appears in the risk section."""
+    entries = to_entries(_questionnaire(), {"q1": _WAIVER, "q2": "text"})
+    section = render_assumptions_and_risks(entries)
+    assert "Assumptions & accepted risks" in section
+    assert "Which auth flow?" in section
+    assert "Risk accepted by owner" in section
+    # A concretely answered question is not a risk.
+    assert "Anything else?" not in section
+
+
+def test_render_assumptions_and_risks_empty_when_none_waived() -> None:
+    """Ensure no section is emitted when nothing was waived."""
+    entries = to_entries(_questionnaire(), {"q1": "oidc"})
+    assert render_assumptions_and_risks(entries) == ""
+
+
+def test_to_entries_carries_audience_and_waiver() -> None:
+    """Ensure accumulated entries carry audience and waiver detail."""
+    q = Questionnaire(
+        questions=[
+            Question(id="s1", prompt="Encrypt at rest?", type="boolean",
+                     audience="infosec"),
+        ]
+    )
+    entry = to_entries(q, {"s1": _WAIVER})[0]
+    assert entry.audience == "infosec"
+    assert entry.waived is True
+    assert entry.reason == "Risk accepted by owner"
+
+
+def test_envelope_round_trips() -> None:
+    """Ensure an interview envelope survives serialisation."""
+    env = InterviewEnvelope(
+        questionnaire=_questionnaire(),
+        draft_answers={"q1": "oidc"},
+        round=2,
+        issue="Original issue text",
+    )
+    restored = parse_envelope(build_envelope(env))
+    assert restored is not None
+    assert restored.draft_answers == {"q1": "oidc"}
+    assert restored.round == 2
+    assert restored.issue == "Original issue text"
+
+
+def test_parse_envelope_rejects_non_envelope() -> None:
+    """Ensure a bare questionnaire is not mistaken for an envelope."""
+    assert parse_envelope('{"questions": []}') is None
+    assert parse_envelope("not json") is None

@@ -16,11 +16,26 @@ class SessionSummary(BaseModel):
     :param session_id: Unique id of the session.
     :param status: Current lifecycle status (e.g. running, idle).
     :param event_count: Number of events recorded so far.
+    :param created_at: When the session started, if known.
+    :param workflow: The run that used this session ("repo#issue"),
+        or None for a free-form session.
     """
 
     session_id: str
     status: str
     event_count: int
+    created_at: datetime | None = None
+    workflow: str | None = None
+
+
+class StepSessionOut(BaseModel):
+    """One live session chip for the active workflow step."""
+
+    profile_id: str
+    label: str
+    badge: str
+    session_id: str | None
+    status: str
 
 
 class WorkflowStepOut(BaseModel):
@@ -52,6 +67,8 @@ class WorkflowDetail(BaseModel):
     branch: str
     steps: list[WorkflowStepOut]
     current_session_id: str | None
+    #: Live session chips for the step currently working/awaiting.
+    active_sessions: list[StepSessionOut]
     pr_url: str | None
     error: str | None
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import ParsedEvent, SessionRecord
@@ -32,6 +32,7 @@ class SessionStore:
                     session_id=record.session_id,
                     cwd=record.cwd,
                     status=record.status,
+                    created_at=record.created_at,
                 )
             )
 
@@ -67,6 +68,22 @@ class SessionStore:
                 )
             )
 
+    def delete(self, session_id: str) -> None:
+        """
+        Delete a session and its events (events first for the FK).
+
+        :param session_id: Unique id of the session to delete.
+        """
+        with self._factory.begin() as db:
+            db.execute(
+                delete(EventRow).where(
+                    EventRow.session_id == session_id
+                )
+            )
+            row = db.get(SessionRow, session_id)
+            if row is not None:
+                db.delete(row)
+
     def load_all(self) -> list[SessionRecord]:
         """
         Load all sessions with their events, oldest first.
@@ -97,6 +114,7 @@ class SessionStore:
                         cwd=row.cwd,
                         status=row.status,
                         events=events,
+                        created_at=row.created_at,
                     )
                 )
             return records

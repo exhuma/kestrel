@@ -19,6 +19,29 @@ async def _drain_background() -> None:
     await asyncio.gather(*list(_TASKS), return_exceptions=True)
 
 
+def test_terminate_session_kills_registered_proc() -> None:
+    """Ensure terminate_session kills a live registered subprocess."""
+    from app.services.runner import _PROCS, terminate_session
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.returncode: int | None = None
+            self.killed = False
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+    proc = _FakeProc()
+    _PROCS["sx"] = proc  # type: ignore[assignment]
+    try:
+        assert terminate_session("sx") is True
+        assert proc.killed is True
+        assert terminate_session("unknown") is False
+    finally:
+        _PROCS.pop("sx", None)
+
+
 def _streaming_claude(tmp_path: Path) -> Path:
     """A fake claude that emits an id, pauses, then finishes."""
     script = tmp_path / "claude.py"

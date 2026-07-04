@@ -12,6 +12,8 @@ const {
   start,
   resume,
   watchEvents,
+  stopEvents,
+  remove,
 } = useSessions()
 
 const prompt = ref('Write a haiku about the sea into poem.txt')
@@ -58,6 +60,15 @@ function onSelect(id: string): void {
   watchEvents(id)
 }
 
+async function onDelete(id: string): Promise<void> {
+  if (!confirm('Abandon this session? This drops the work locally.')) return
+  await remove(id)
+  if (current.value === id) {
+    current.value = null
+    stopEvents()
+  }
+}
+
 const currentStatus = computed(() => {
   const s = sessions.value.find((x) => x.session_id === current.value)
   return s?.status ?? (current.value ? 'running' : 'standby')
@@ -65,6 +76,29 @@ const currentStatus = computed(() => {
 
 function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-3)}` : id
+}
+
+// Session start, shown two ways: a glanceable "x ago" and the exact
+// local wall-clock — useful when correlating a session with logs.
+function relTime(iso: string | null): string {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000))
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.round(hrs / 24)}d ago`
+}
+function absTime(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 // Map an event to a semantic tone + glyph. Tone drives the --c colour
@@ -129,7 +163,16 @@ function preview(e: SessionEvent): string {
 
   if (e.type === 'system') {
     const tools = Array.isArray(r.tools) ? (r.tools as string[]).join(', ') : ''
-    const bits = [r.model, tools && `tools: ${tools}`].filter(Boolean)
+    const servers = Array.isArray(r.mcp_servers)
+      ? (r.mcp_servers as { name?: string; status?: string }[])
+          .map((m) => `${m.name}${m.status ? ` (${m.status})` : ''}`)
+          .join(', ')
+      : ''
+    // On the init frame, always report MCP — "none" is itself the answer
+    // to "did my configured MCP server load into this session?".
+    const mcp =
+      r.subtype === 'init' ? `MCP: ${servers || 'none'}` : servers && `MCP: ${servers}`
+    const bits = [r.model, mcp, tools && `tools: ${tools}`].filter(Boolean)
     if (bits.length) return bits.join('   ·   ')
   }
 
@@ -189,21 +232,37 @@ function preview(e: SessionEvent): string {
           <span class="pill mono">{{ sessions.length }}</span>
         </div>
         <div class="sessions scroll">
-          <button
+          <div
             v-for="s in sessions"
             :key="s.session_id"
-            class="scard"
-            :class="{ 'scard--active': s.session_id === current }"
-            @click="onSelect(s.session_id)"
+            class="scard-wrap"
           >
-            <span class="scard__id mono">{{ shortId(s.session_id) }}</span>
-            <span class="scard__meta" :class="`t-${statusTone(s.status)}`">
-              <span class="scard__dot" />
-              {{ s.status }}
-              <span class="scard__sep">·</span>
-              {{ s.event_count }} ev
-            </span>
-          </button>
+            <button
+              class="scard"
+              :class="{ 'scard--active': s.session_id === current }"
+              @click="onSelect(s.session_id)"
+            >
+              <span class="scard__id mono">{{ shortId(s.session_id) }}</span>
+              <span class="scard__meta" :class="`t-${statusTone(s.status)}`">
+                <span class="scard__dot" />
+                {{ s.status }}
+                <span class="scard__sep">·</span>
+                {{ s.event_count }} ev
+              </span>
+              <span v-if="s.workflow" class="scard__wf mono">
+                ⟐ {{ s.workflow }}
+              </span>
+              <span v-if="s.created_at" class="scard__time mono">
+                {{ relTime(s.created_at) }} · {{ absTime(s.created_at) }}
+              </span>
+            </button>
+            <button
+              class="scard__del"
+              title="Abandon session"
+              aria-label="Abandon session"
+              @click.stop="onDelete(s.session_id)"
+            >✕</button>
+          </div>
           <p v-if="!sessions.length" class="sessions__empty mono">
             No sessions dispatched yet
           </p>
@@ -352,6 +411,43 @@ function preview(e: SessionEvent): string {
   border-left-color: var(--signal);
   background: var(--ink-650);
 }
+.scard-wrap {
+  position: relative;
+  display: flex;
+}
+.scard-wrap .scard {
+  flex: 1;
+  width: 100%;
+  padding-right: 30px;
+}
+.scard__del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    background 0.12s ease;
+}
+.scard-wrap:hover .scard__del,
+.scard__del:focus-visible {
+  opacity: 1;
+}
+.scard__del:hover {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 15%, transparent);
+}
 .scard__id {
   font-size: 12.5px;
   color: var(--text-hi);
@@ -371,6 +467,20 @@ function preview(e: SessionEvent): string {
 }
 .scard__sep {
   color: var(--text-dim);
+}
+.scard__wf {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--signal) 30%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.scard__time {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
 }
 .sessions__empty {
   color: var(--text-dim);

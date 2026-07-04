@@ -64,6 +64,18 @@ class _FakeService:
             raise AnswerValidationError({"q1": "must be oidc"})
         self.answers = answers
 
+    def save_draft(
+        self, workflow_id: str, answers: dict[str, object]
+    ) -> None:
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        self.draft = answers
+
+    async def delete(self, workflow_id: str) -> None:
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        self.deleted = workflow_id
+
 
 def _client(service):
     app = create_app()
@@ -91,6 +103,56 @@ async def test_detail_exposes_steps_and_current_session() -> None:
     assert r.status_code == 200
     assert body["current_session_id"] == "s1"
     assert body["steps"][1]["deliverable"] == "the plan"
+
+
+@pytest.mark.asyncio
+async def test_detail_exposes_active_session_chips() -> None:
+    """Ensure the active step's live sessions surface as chips."""
+    from app.models_workflow import StepSession
+
+    class _RunningService(_FakeService):
+        def get(self, workflow_id: str) -> WorkflowRun:
+            return WorkflowRun(
+                id="wf-1", repo="o/r", issue_number=3, issue_title="T",
+                status="refining",
+                steps=[
+                    WorkflowStep(
+                        "refine", "s2", "running", None,
+                        active_sessions=[
+                            StepSession(
+                                "developer", "Developer", "agent",
+                                "s2", "running",
+                            ),
+                            StepSession(
+                                "infosec", "InfoSec", "warn",
+                                "s3", "running",
+                            ),
+                        ],
+                    ),
+                    WorkflowStep("plan"),
+                    WorkflowStep("implement"),
+                ],
+            )
+
+        def current_session_id(self, run) -> str:
+            return "s2"
+
+    async with _client(_RunningService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    assert [s["label"] for s in body["active_sessions"]] == [
+        "Developer", "InfoSec",
+    ]
+    assert body["active_sessions"][0]["badge"] == "agent"
+
+
+@pytest.mark.asyncio
+async def test_workflow_events_unknown_returns_404() -> None:
+    """Ensure streaming an unknown workflow is a clean 404."""
+    async with _client(_FakeService()) as c:
+        r = await c.get("/api/workflows/nope/events")
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -149,6 +211,37 @@ async def test_submit_answers_ok() -> None:
         )
     assert resp.status_code == 200
     assert service.answers == {"q1": "oidc"}
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_ok() -> None:
+    """Ensure DELETE /api/workflows/{id} returns 200."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.delete("/api/workflows/wf-1")
+    assert resp.status_code == 200
+    assert service.deleted == "wf-1"
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_workflow_returns_404() -> None:
+    """Ensure deleting an unknown workflow maps to HTTP 404."""
+    async with _client(_FakeService()) as client:
+        resp = await client.delete("/api/workflows/nope")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_save_draft_answers_ok() -> None:
+    """Ensure a partial draft posts through to the service."""
+    service = _FakeService()
+    async with _client(service) as client:
+        resp = await client.post(
+            "/api/workflows/wf-1/answers/draft",
+            json={"answers": {"q1": "oidc"}},
+        )
+    assert resp.status_code == 200
+    assert service.draft == {"q1": "oidc"}
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,9 @@ class SessionRow(Base):
     session_id: Mapped[str] = mapped_column(primary_key=True)
     cwd: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column()
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
 
 class EventRow(Base):

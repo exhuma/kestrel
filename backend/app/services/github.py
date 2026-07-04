@@ -30,11 +30,19 @@ class GitHubClient:
         self._http = httpx.AsyncClient(base_url=self.base_url)
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.token}",
+        headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        # Only authenticate when a token is configured. Sending an empty
+        # "Bearer " is an illegal header value (httpx raises
+        # LocalProtocolError before the request is even sent); omitting
+        # it instead falls back to unauthenticated access, which works
+        # for public-repo reads and yields a clean 401/403 for anything
+        # that genuinely needs a token.
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
         resp = await self._http.request(
@@ -43,8 +51,31 @@ class GitHubClient:
         if resp.status_code >= 300:
             raise GitHubError(
                 f"{method} {path} -> {resp.status_code}: {resp.text}"
+                f"{self._auth_hint(resp.status_code)}"
             )
         return resp
+
+    def _auth_hint(self, status_code: int) -> str:
+        """A human hint for the auth-shaped failures (401/403/404).
+
+        GitHub returns 404 (not 403) for a private repo the caller can't
+        see, so a 404 is ambiguous between "no access" and "does not
+        exist". Point at the most likely cause given whether we sent a
+        token at all.
+        """
+        if status_code not in (401, 403, 404):
+            return ""
+        if not self.token:
+            return (
+                " — no GitHub token is configured, so this request was "
+                "unauthenticated. Set KESTREL_GITHUB_TOKEN and make sure "
+                "your .env is in the backend working directory."
+            )
+        return (
+            " — the configured token may lack access to this repo "
+            "(a fine-grained PAT must grant it Contents, Issues, and "
+            "Pull requests), or the repo/resource does not exist."
+        )
 
     async def get_issue(self, repo: str, number: int) -> Issue:
         """Fetch an issue by number."""

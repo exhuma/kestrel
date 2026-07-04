@@ -65,3 +65,5 @@ async def test_mark_read_calls_store() -> None:
         resp = await client.post("/api/notifications/1/read")
     assert resp.status_code == 200
     assert store.read_ids == [1]
+
+

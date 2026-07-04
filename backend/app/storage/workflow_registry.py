@@ -48,6 +48,18 @@ class WorkflowRegistry:
         """
         return list(self._runs.values())
 
+    def remove(self, workflow_id: str) -> None:
+        """
+        Drop a run from the registry and its persisted rows.
+
+        The write-through counterpart to :meth:`create`.
+
+        :param workflow_id: Unique id of the run to remove.
+        """
+        self._runs.pop(workflow_id, None)
+        if self._store is not None:
+            self._store.delete(workflow_id)
+
     def save(self, run: WorkflowRun) -> None:
         """
         Persist a run's current state.

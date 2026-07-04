@@ -87,6 +87,32 @@ async def test_create_pull_request_returns_html_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_no_token_omits_authorization_header() -> None:
+    """Ensure an unset token sends no Authorization header at all.
+
+    Regression: a blank token used to render "Bearer " — an illegal
+    header value that made httpx raise LocalProtocolError before the
+    request left the process. With no token we now fall back to
+    unauthenticated access instead of crashing.
+    """
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["auth"] = req.headers.get("authorization")
+        return httpx.Response(
+            200, json={"number": 7, "title": "Bug", "body": "desc"}
+        )
+
+    client = GitHubClient("https://api.github.com", "")
+    client._http = httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(handler),
+    )
+    await client.get_issue("o/r", 7)
+    assert seen["auth"] is None
+
+
+@pytest.mark.asyncio
 async def test_non_2xx_raises_github_error() -> None:
     """Ensure a non-2xx response raises GitHubError."""
 
@@ -95,3 +121,32 @@ async def test_non_2xx_raises_github_error() -> None:
 
     with pytest.raises(GitHubError):
         await _client(handler).get_issue("o/r", 7)
+
+
+@pytest.mark.asyncio
+async def test_404_with_token_hints_at_access_or_existence() -> None:
+    """Ensure a 404 while authenticated points at access/existence."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    with pytest.raises(GitHubError) as exc:
+        await _client(handler).get_issue("o/r", 7)  # _client sends a token
+    assert "lack access" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_404_without_token_hints_at_missing_config() -> None:
+    """Ensure a 404 while unauthenticated points at the missing token."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    client = GitHubClient("https://api.github.com", "")
+    client._http = httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(GitHubError) as exc:
+        await client.get_issue("o/r", 7)
+    assert "KESTREL_GITHUB_TOKEN" in str(exc.value)

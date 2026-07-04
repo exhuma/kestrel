@@ -111,6 +111,26 @@ describe('toViewModel', () => {
     })
   })
 
+  it('surfaces MCP servers on the init event', () => {
+    const vm = toViewModel(ev({
+      type: 'system', subtype: 'init', model: 'sonnet',
+      mcp_servers: [{ name: 'quartermaster', status: 'connected' }],
+    }))
+    expect(vm.view).toEqual({
+      kind: 'system', subtype: 'init',
+      summary: 'MCP: quartermaster (connected)',
+    })
+  })
+
+  it('reports MCP: none when the init event lists no servers', () => {
+    const vm = toViewModel(ev({
+      type: 'system', subtype: 'init', model: 'sonnet', mcp_servers: [],
+    }))
+    expect(vm.view).toEqual({
+      kind: 'system', subtype: 'init', summary: 'MCP: none',
+    })
+  })
+
   it('classifies rate_limit_event', () => {
     const vm = toViewModel(ev({
       type: 'rate_limit_event',

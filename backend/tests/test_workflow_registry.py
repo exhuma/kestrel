@@ -17,3 +17,18 @@ def test_create_get_list() -> None:
     assert reg.get("missing") is None
     assert [r.id for r in reg.list()] == ["wf-1"]
     assert reg.get("wf-1").steps[0].status == "pending"
+
+
+def test_remove_drops_run() -> None:
+    """Ensure remove deletes the run from the registry."""
+    reg = WorkflowRegistry()
+    reg.create(
+        WorkflowRun(
+            id="wf-1", repo="o/r", issue_number=3,
+            steps=[WorkflowStep(name="refine")],
+        )
+    )
+    reg.remove("wf-1")
+    assert reg.get("wf-1") is None
+    assert reg.list() == []
+    reg.remove("wf-1")  # idempotent

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from app.models import ParsedEvent, SessionRecord
@@ -28,7 +29,10 @@ class SessionRegistry:
         :param cwd: Working directory the session runs in.
         :returns: The newly created session record.
         """
-        record = SessionRecord(session_id=session_id, cwd=cwd)
+        record = SessionRecord(
+            session_id=session_id, cwd=cwd,
+            created_at=datetime.now(timezone.utc),
+        )
         self._records[session_id] = record
         self._subs.setdefault(session_id, [])
         if self._store is not None:
@@ -69,6 +73,19 @@ class SessionRegistry:
             q.put_nowait(event)
         if self._store is not None:
             self._store.append_event(session_id, event)
+
+    def remove(self, session_id: str) -> None:
+        """
+        Drop a session record, its subscribers, and its persisted rows.
+
+        The write-through counterpart to :meth:`create`.
+
+        :param session_id: Unique id of the session to remove.
+        """
+        self._records.pop(session_id, None)
+        self._subs.pop(session_id, None)
+        if self._store is not None:
+            self._store.delete(session_id)
 
     def set_status(self, session_id: str, status: str) -> None:
         """

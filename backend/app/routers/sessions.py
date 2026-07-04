@@ -85,6 +85,22 @@ async def list_sessions(
     return service.list_summaries()
 
 
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    service: SessionService = Depends(get_session_service),
+) -> dict[str, str]:
+    """
+    Abandon a session, killing its subprocess and dropping its state.
+
+    :param session_id: Id of the session to abandon.
+    :param service: Session service, injected.
+    :returns: A simple ok acknowledgement.
+    """
+    service.delete(session_id)
+    return {"status": "ok"}
+
+
 @router.get("/sessions/{session_id}/events")
 async def stream_events(
     session_id: str,

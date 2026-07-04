@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.models_workflow import WorkflowRun, WorkflowStep
+from app.persistence.notification_store import NotificationStore
 from app.persistence.workflow_store import WorkflowStore
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
@@ -135,9 +136,13 @@ async def test_gate_state_is_checkpointed(
     tmp_path: Path,
 ) -> None:
     """Ensure awaiting states are visible in the database."""
+    from app.questionnaire import parse_envelope
+    from tests.test_workflow_service import _coord, _q, _qs
+
     store = _store(tmp_path)
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        "What colour?",
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
     svc = _persistent_service(
         store, _FakeGitHub(body="vague"), runner, _FakeGit()
@@ -151,7 +156,25 @@ async def test_gate_state_is_checkpointed(
     assert persisted.status == "awaiting_refine_input"
     assert persisted.steps[0].status == "awaiting_input"
     assert persisted.steps[0].session_id is not None
-    assert persisted.steps[0].deliverable == "What colour?"
+    envelope = parse_envelope(persisted.steps[0].deliverable)
+    assert envelope.questionnaire.questions[0].prompt == "What colour?"
+
+
+def test_delete_removes_run_steps_and_notifications(
+    tmp_path: Path,
+) -> None:
+    """Ensure deleting a run also drops its steps and notifications."""
+    url = _migrate(tmp_path / "del.db")
+    factory = sessionmaker(bind=sa.create_engine(url))
+    store = WorkflowStore(factory)
+    notifs = NotificationStore(factory)
+    store.save(_run())  # id wf-1, three steps
+    notifs.add("wf-1", "o/r", 7, "awaiting_refine_input", "needs you")
+
+    store.delete("wf-1")
+
+    assert store.load_all() == []
+    assert notifs.list_all() == []
 
 
 def test_save_is_an_upsert(tmp_path: Path) -> None:

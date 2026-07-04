@@ -5,6 +5,31 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class StepSession:
+    """One live claude session backing a step, shown as a UI chip.
+
+    A named session (a refinement specialist, the coordinator, the
+    writer, or a plan/implement worker) that is or was active during a
+    step. Purely ephemeral telemetry: it exists only while a step is
+    running — a transient phase that never survives a restart — so it is
+    deliberately *not* persisted to ``WorkflowStepRow``.
+
+    :param profile_id: Stable id (a profile id, or "coordinator"/
+        "writer"/"planner"/"builder").
+    :param label: Human-readable mnemonic for the chip.
+    :param badge: Theme tone token (see ``styles/theme.css``).
+    :param session_id: The claude session id once known, else None.
+    :param status: "running" while live, "idle" once finished.
+    """
+
+    profile_id: str
+    label: str
+    badge: str = "sys"
+    session_id: str | None = None
+    status: str = "running"
+
+
+@dataclass
 class WorkflowStep:
     """One step of a workflow run, with its deliverable."""
 
@@ -13,6 +38,9 @@ class WorkflowStep:
     status: str = "pending"
     deliverable: str | None = None
     model: str | None = None
+    #: Live sessions backing this step right now (ephemeral chip state;
+    #: never persisted — see :class:`StepSession`).
+    active_sessions: list[StepSession] = field(default_factory=list)
 
 
 @dataclass

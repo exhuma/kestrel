@@ -2,7 +2,7 @@
 
 The workflow feature (refine → plan → implement → draft PR) needs a GitHub
 personal access token to read/update issues, clone/push, and open PRs. There
-is no separate "API key" concept — it's one setting: `DISPATCHER_GITHUB_TOKEN`.
+is no separate "API key" concept — it's one setting: `KESTREL_GITHUB_TOKEN`.
 
 ## 1. Create a token
 
@@ -18,13 +18,13 @@ A classic PAT with the `repo` scope also works for a quick throwaway test.
 
 ## 2. Configure the backend
 
-Settings live in `backend/app/config.py`, env-prefixed `DISPATCHER_`. From
+Settings live in `backend/app/config.py`, env-prefixed `KESTREL_`. From
 `backend/.env.example`:
 
 ```
-DISPATCHER_GITHUB_TOKEN=
-DISPATCHER_GITHUB_API_BASE=https://api.github.com
-DISPATCHER_GIT_BASE=https://github.com
+KESTREL_GITHUB_TOKEN=
+KESTREL_GITHUB_API_BASE=https://api.github.com
+KESTREL_GIT_BASE=https://github.com
 ```
 
 **Option A — `.env` file** (persists across restarts):
@@ -33,18 +33,18 @@ DISPATCHER_GIT_BASE=https://github.com
 cd backend
 cp .env.example .env
 # edit .env, set:
-DISPATCHER_GITHUB_TOKEN=ghp_your_token_here
+KESTREL_GITHUB_TOKEN=ghp_your_token_here
 ```
 
 **Option B — inline env var** for a one-off run:
 
 ```bash
-DISPATCHER_GITHUB_TOKEN=ghp_your_token_here \
-DISPATCHER_WORKSPACE_ROOT=/tmp/dispatcher-ws \
+KESTREL_GITHUB_TOKEN=ghp_your_token_here \
+KESTREL_WORKSPACE_ROOT=/tmp/kestrel-ws \
 uv run uvicorn app.main:app --port 8001
 ```
 
-`DISPATCHER_GITHUB_API_BASE` and `DISPATCHER_GIT_BASE` default to github.com
+`KESTREL_GITHUB_API_BASE` and `KESTREL_GIT_BASE` default to github.com
 and rarely need changing (only for GitHub Enterprise). `GIT_BASE` is used to
 build the clone URL as `{git_base}/{owner}/{repo}.git`.
 

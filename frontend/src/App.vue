@@ -11,7 +11,9 @@ const running = computed(() =>
   sessions.value.some((s) => s.status === 'running'),
 )
 
-const view = ref<'sessions' | 'workflows'>('sessions')
+// Workflows lead; the raw sessions view is kept only as a debugging
+// affordance (see the muted control in the header).
+const view = ref<'sessions' | 'workflows'>('workflows')
 </script>
 
 <template>
@@ -23,10 +25,14 @@ const view = ref<'sessions' | 'workflows'>('sessions')
         <span class="brand__tag mono">mission control</span>
       </div>
       <nav class="viewnav">
-        <button class="viewnav__btn" :class="{ 'viewnav__btn--on': view === 'sessions' }"
-          @click="view = 'sessions'">Sessions</button>
         <button class="viewnav__btn" :class="{ 'viewnav__btn--on': view === 'workflows' }"
           @click="view = 'workflows'">Workflows</button>
+        <button class="viewnav__debug" :class="{ 'viewnav__debug--on': view === 'sessions' }"
+          :aria-pressed="view === 'sessions'"
+          title="Raw agent sessions (debugging)"
+          @click="view = view === 'sessions' ? 'workflows' : 'sessions'">
+          <span aria-hidden="true">‹/›</span> sessions
+        </button>
       </nav>
       <div class="status" :class="running ? 'status--live' : 'status--idle'">
         <span class="status__dot" />
@@ -114,6 +120,17 @@ const view = ref<'sessions' | 'workflows'>('sessions')
   font-family: var(--font-sans);
 }
 .viewnav__btn--on { color: var(--signal-ink); background: var(--signal); border-color: var(--signal); }
+.viewnav__debug {
+  align-self: center; display: inline-flex; align-items: center; gap: 5px;
+  background: transparent; border: none; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+  padding: 5px 8px; border-radius: 999px; cursor: pointer;
+}
+.viewnav__debug:hover { color: var(--text-mid); }
+.viewnav__debug--on { color: var(--signal); }
+.viewnav__debug:focus-visible {
+  outline: none; box-shadow: 0 0 0 3px var(--signal-glow);
+}
 
 .status {
   display: inline-flex;

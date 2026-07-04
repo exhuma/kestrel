@@ -1,8 +1,12 @@
 """HTTP routes for GitHub issue -> code workflows."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import AsyncIterator
 
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+
+from app import sse
 from app.models_workflow import WorkflowRun
 from app.schemas import (
     AnswersIn,
@@ -10,16 +14,32 @@ from app.schemas import (
     CreateWorkflowIn,
     RejectIn,
     ReplyIn,
+    StepSessionOut,
     WorkflowDetail,
     WorkflowStepOut,
     WorkflowSummary,
 )
 from app.services.workflows import WorkflowService, get_workflow_service
+from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
 router = APIRouter(prefix="/api/workflows")
 
 
 def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
+    active = next(
+        (
+            s for s in run.steps
+            if s.status in ("running", "awaiting_input", "awaiting_approval")
+        ),
+        None,
+    )
+    active_sessions = [
+        StepSessionOut(
+            profile_id=ss.profile_id, label=ss.label, badge=ss.badge,
+            session_id=ss.session_id, status=ss.status,
+        )
+        for ss in (active.active_sessions if active else [])
+    ]
     return WorkflowDetail(
         id=run.id,
         repo=run.repo,
@@ -35,6 +55,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
             for s in run.steps
         ],
         current_session_id=service.current_session_id(run),
+        active_sessions=active_sessions,
         pr_url=run.pr_url,
         error=run.error,
     )
@@ -72,6 +93,53 @@ async def get_workflow(
     return _detail(service, service.get(workflow_id))
 
 
+@router.get("/{workflow_id}/events")
+async def stream_workflow(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+    bus: WorkflowBus = Depends(get_workflow_bus),
+) -> StreamingResponse:
+    """
+    Stream a workflow's full detail as Server-Sent Events.
+
+    Emits the current snapshot immediately, then a fresh snapshot on
+    every state change (status, step, deliverable, or session chips) —
+    replacing the old fixed-interval poll. Validates the id up front so
+    an unknown workflow is a clean 404 before streaming starts.
+    """
+    service.get(workflow_id)  # 404 before we start streaming
+
+    async def _frames() -> AsyncIterator[bytes]:
+        q = bus.subscribe(workflow_id)
+        try:
+            yield sse.encode(
+                _detail(service, service.get(workflow_id)).model_dump(
+                    mode="json"
+                )
+            )
+            while True:
+                await q.get()
+                yield sse.encode(
+                    _detail(
+                        service, service.get(workflow_id)
+                    ).model_dump(mode="json")
+                )
+        finally:
+            bus.unsubscribe(workflow_id, q)
+
+    return StreamingResponse(_frames(), media_type="text/event-stream")
+
+
+@router.delete("/{workflow_id}")
+async def delete_workflow(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """Abandon a workflow, dropping all local work (never touches GitHub)."""
+    await service.delete(workflow_id)
+    return {"status": "ok"}
+
+
 @router.post("/{workflow_id}/reply")
 async def reply_workflow(
     workflow_id: str,
@@ -105,12 +173,23 @@ async def reject_workflow(
     return {"status": "ok"}
 
 
+@router.post("/{workflow_id}/answers/draft")
+async def save_draft_answers(
+    workflow_id: str,
+    body: AnswersIn,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """Persist a partial answer set without finalizing the interview."""
+    service.save_draft(workflow_id, body.answers)
+    return {"status": "ok"}
+
+
 @router.post("/{workflow_id}/answers")
 async def submit_answers(
     workflow_id: str,
     body: AnswersIn,
     service: WorkflowService = Depends(get_workflow_service),
 ) -> dict[str, str]:
-    """Submit structured answers to the pending questionnaire."""
+    """Finalize the pending questionnaire (all questions answered/waived)."""
     service.submit_answers(workflow_id, body.answers)
     return {"status": "ok"}

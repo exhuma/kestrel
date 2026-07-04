@@ -1,7 +1,31 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useWorkflows } from '../../src/composables/useWorkflows'
 
-afterEach(() => vi.restoreAllMocks())
+// A minimal EventSource stand-in: records how many streams opened, the
+// last url, and lets a test push a message frame.
+let esInstances = 0
+let lastEs: FakeEventSource | null = null
+class FakeEventSource {
+  onmessage: ((e: MessageEvent) => void) | null = null
+  close = vi.fn()
+  constructor(public url: string) {
+    esInstances += 1
+    lastEs = this
+  }
+  emit(data: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent)
+  }
+}
+
+beforeEach(() => {
+  esInstances = 0
+  lastEs = null
+  vi.stubGlobal('EventSource', FakeEventSource)
+})
+afterEach(() => {
+  useWorkflows().stop()
+  vi.restoreAllMocks()
+})
 
 describe('useWorkflows', () => {
   it('refresh populates workflows from the api', async () => {
@@ -22,8 +46,10 @@ describe('useWorkflows', () => {
   })
 
   it('createWorkflow posts repo and issue number', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ workflow_id: 'wf-9' }), { status: 200 }),
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/api/workflows')
+        ? new Response(JSON.stringify({ workflow_id: 'wf-9' }), { status: 200 })
+        : new Response(JSON.stringify([]), { status: 200 }),
     )
     vi.stubGlobal('fetch', fetchMock)
     const { createWorkflow } = useWorkflows()
@@ -36,46 +62,39 @@ describe('useWorkflows', () => {
     })
   })
 
-  it('stop closes the active EventSource and clears the poll interval', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            id: 'wf-1',
-            repo: 'o/r',
-            issue_number: 3,
-            issue_title: 't',
-            status: 'planning',
-            branch: 'b',
-            steps: [],
-            current_session_id: 'sess-1',
-            pr_url: null,
-            error: null,
-          }),
-          { status: 200 },
-        ),
-      ),
-    )
-    const closeSpy = vi.fn()
-    let instances = 0
-    class FakeEventSource {
-      onmessage: ((e: MessageEvent) => void) | null = null
-      close = closeSpy
-      constructor(public url: string) {
-        instances += 1
-      }
-    }
-    vi.stubGlobal('EventSource', FakeEventSource)
+  it('select opens a workflow event stream and applies snapshots', async () => {
+    const { select, current } = useWorkflows()
+    select('wf-1')
+    expect(esInstances).toBe(1)
+    expect(lastEs?.url).toContain('/api/workflows/wf-1/events')
+    lastEs?.emit({
+      id: 'wf-1', repo: 'o/r', issue_number: 3, issue_title: 't',
+      status: 'refining', branch: 'b', steps: [],
+      current_session_id: null, active_sessions: [], pr_url: null,
+      error: null,
+    })
+    expect(current.value?.status).toBe('refining')
+  })
 
+  it('stop closes the active EventSource', async () => {
     const { select, stop } = useWorkflows()
     select('wf-1')
-    // allow the initial loadDetail() call to resolve and open the EventSource
-    await vi.waitFor(() => expect(instances).toBeGreaterThan(0))
-
+    const closed = lastEs!.close
     stop()
+    expect(closed).toHaveBeenCalled()
+  })
 
-    expect(closeSpy).toHaveBeenCalled()
+  it('ensureLive resumes the stream after stop', async () => {
+    // Regression: switching views unmounts the panel (stop());
+    // remounting must reopen the stream for the selected run, or the
+    // UI freezes and never shows the awaiting_input reply gate.
+    const { select, stop, ensureLive } = useWorkflows()
+    select('wf-1')
+    expect(esInstances).toBe(1)
+    stop()
+    ensureLive()
+    expect(esInstances).toBe(2) // stream reopened
+    stop()
   })
 
   it('reject sends the refinement prompt', async () => {
@@ -88,7 +107,8 @@ describe('useWorkflows', () => {
     wf.current.value = {
       id: 'wf-1', repo: 'o/r', issue_number: 1, issue_title: 't',
       status: 'awaiting_plan_approval', branch: 'b', steps: [],
-      current_session_id: null, pr_url: null, error: null,
+      current_session_id: null, active_sessions: [], pr_url: null,
+      error: null,
     }
     await wf.reject('tighten scope')
     const [url, init] = fetchMock.mock.calls[0]
@@ -101,58 +121,5 @@ describe('useWorkflows', () => {
     expect(JSON.parse((init2 as RequestInit).body as string)).toEqual({
       refinement_prompt: null,
     })
-  })
-
-  it('ensureLive resumes detail polling after stop', async () => {
-    // Regression: switching views unmounts the panel (stop());
-    // remounting must resume polling for the selected run, or the
-    // UI freezes and never shows the awaiting_input reply gate.
-    vi.useFakeTimers()
-    try {
-      class FakeEventSource {
-        onmessage: ((e: MessageEvent) => void) | null = null
-        close(): void {}
-        constructor(public url: string) {}
-      }
-      vi.stubGlobal('EventSource', FakeEventSource)
-      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-        String(input).endsWith('/api/workflows')
-          ? new Response(JSON.stringify([]), { status: 200 })
-          : new Response(
-              JSON.stringify({
-                id: 'wf-1',
-                repo: 'o/r',
-                issue_number: 3,
-                issue_title: 't',
-                status: 'refining',
-                branch: 'b',
-                steps: [],
-                current_session_id: 'sess-1',
-                pr_url: null,
-                error: null,
-              }),
-              { status: 200 },
-            ),
-      )
-      vi.stubGlobal('fetch', fetchMock)
-
-      const { select, stop, ensureLive } = useWorkflows()
-      select('wf-1')
-      await vi.advanceTimersByTimeAsync(3200)
-      const whilePolling = fetchMock.mock.calls.length
-      expect(whilePolling).toBeGreaterThan(1)
-
-      stop() // what onUnmounted does when the user switches views
-      await vi.advanceTimersByTimeAsync(5000)
-      const afterStop = fetchMock.mock.calls.length
-      expect(afterStop).toBe(whilePolling)
-
-      ensureLive() // what onMounted must do when the user returns
-      await vi.advanceTimersByTimeAsync(3200)
-      expect(fetchMock.mock.calls.length).toBeGreaterThan(afterStop)
-      stop()
-    } finally {
-      vi.useRealTimers()
-    }
   })
 })
