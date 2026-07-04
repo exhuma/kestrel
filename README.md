@@ -122,6 +122,18 @@ KESTREL_BACKENDS='[{"id":"claude","type":"claude_cli"},
 KESTREL_DEFAULT_SESSION_BACKEND=oc
 ```
 
+For a **secured** server (one started with `OPENCODE_SERVER_PASSWORD`), set
+`api_key_env` to the name of the env var holding that password — kestrel sends
+it as HTTP Basic auth (username defaults to `opencode`; override with
+`username`). Make sure that env var is exported in kestrel's own process:
+
+```bash
+export OPENCODE_SERVER_PASSWORD=…            # same secret the server uses
+KESTREL_BACKENDS='[{"id":"oc","type":"opencode","base_url":"http://localhost:4096",
+   "model":"opencode/deepseek-v4-flash-free","api_key_env":"OPENCODE_SERVER_PASSWORD"}]'
+KESTREL_DEFAULT_SESSION_BACKEND=oc
+```
+
 Its sessions run in the directory where `opencode serve` was started. Live
 token-streaming (via opencode's `/event` SSE), an auto-started `serve`
 supervisor, and per-workflow-step backend selection are still in progress.

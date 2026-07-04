@@ -21,7 +21,12 @@ class BackendConfig(BaseModel):
     type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
     base_url: str | None = None
     model: str | None = None
+    #: Name of the env var holding this backend's secret — a bearer API
+    #: key (``openai_compat``) or the HTTP Basic password (``opencode``).
     api_key_env: str | None = None
+    #: HTTP Basic username for a secured ``opencode`` server. Defaults to
+    #: opencode's own default ("opencode") when a password is configured.
+    username: str | None = None
     caps: list[str] | None = None
 
 

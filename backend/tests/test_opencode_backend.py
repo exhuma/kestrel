@@ -9,6 +9,7 @@ messages, which the POST response omits) is read from
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 
 import httpx
@@ -164,6 +165,60 @@ async def test_server_error_surfaces_as_a_failed_result() -> None:
     assert rec.status == "idle"
     assert rec.events[-1].kind is EventKind.RESULT
     assert rec.events[-1].is_error is True
+
+
+@pytest.mark.asyncio
+async def test_basic_auth_sent_when_password_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure a configured password produces HTTP Basic auth on every call."""
+    monkeypatch.setenv("OC_PW", "s3cret")
+    cfg = BackendConfig(
+        id="oc", type="opencode",
+        base_url="http://oc.local:4096", model="anthropic/claude-sonnet-4",
+        api_key_env="OC_PW",
+    )
+    backend, _, seen = _backend(_transcript_handler(), cfg)
+
+    await backend.run_turn(
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
+    )
+
+    expected = "Basic " + base64.b64encode(b"opencode:s3cret").decode()
+    assert seen  # requests were made
+    assert all(r.headers.get("authorization") == expected for r in seen)
+
+
+@pytest.mark.asyncio
+async def test_custom_basic_auth_username() -> None:
+    """Ensure the username override is honoured."""
+    import os
+
+    os.environ["OC_PW2"] = "pw"
+    try:
+        cfg = BackendConfig(
+            id="oc", type="opencode", base_url="http://oc.local:4096",
+            api_key_env="OC_PW2", username="admin",
+        )
+        backend, _, seen = _backend(_transcript_handler(), cfg)
+        await backend.run_turn(
+            TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
+        )
+    finally:
+        os.environ.pop("OC_PW2", None)
+
+    expected = "Basic " + base64.b64encode(b"admin:pw").decode()
+    assert all(r.headers.get("authorization") == expected for r in seen)
+
+
+@pytest.mark.asyncio
+async def test_no_auth_header_without_a_password() -> None:
+    """Ensure no auth is sent to an unsecured server."""
+    backend, _, seen = _backend(_transcript_handler())
+    await backend.run_turn(
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
+    )
+    assert all(r.headers.get("authorization") is None for r in seen)
 
 
 def test_registry_builds_an_opencode_backend() -> None:
