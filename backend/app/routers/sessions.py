@@ -139,6 +139,8 @@ async def stream_events(
 
     async def _frames() -> AsyncIterator[bytes]:
         async for payload in service.stream(session_id):
-            yield sse.encode(payload)
+            yield sse.KEEPALIVE if payload is None else sse.encode(payload)
 
-    return StreamingResponse(_frames(), media_type="text/event-stream")
+    return StreamingResponse(
+        _frames(), media_type="text/event-stream", headers=sse.HEADERS
+    )

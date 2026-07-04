@@ -66,13 +66,17 @@ async def stream_notifications(
         q = bus.subscribe()
         try:
             yield sse.encode(_payload(store))
-            while True:
-                await q.get()
-                yield sse.encode(_payload(store))
+            async for tick in sse.with_heartbeat(q):
+                if tick is None:
+                    yield sse.KEEPALIVE
+                else:
+                    yield sse.encode(_payload(store))
         finally:
             bus.unsubscribe(q)
 
-    return StreamingResponse(_frames(), media_type="text/event-stream")
+    return StreamingResponse(
+        _frames(), media_type="text/event-stream", headers=sse.HEADERS
+    )
 
 
 @router.post("/{notification_id}/read")

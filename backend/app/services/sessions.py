@@ -11,6 +11,7 @@ from typing import AsyncIterator
 
 from fastapi import Depends
 
+from app import sse
 from app.backends.base import Backend
 from app.backends.registry import get_backend_registry
 from app.models import CanonicalEvent
@@ -106,17 +107,20 @@ class SessionService:
 
     async def stream(
         self, session_id: str
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> AsyncIterator[dict[str, object] | None]:
         """
         Yield event payloads for a session: replay then live.
 
         Replays already-recorded events, then streams new ones as they
-        arrive. Unknown sessions yield nothing and register no
-        subscriber, so no queue leaks. The subscriber is always removed
-        on exit.
+        arrive, interleaving ``None`` keepalive ticks so a session that
+        goes quiet (e.g. a slow model generating) doesn't leave the SSE
+        connection idle and drop. Unknown sessions yield nothing and
+        register no subscriber, so no queue leaks. The subscriber is
+        always removed on exit.
 
         :param session_id: Id of the session to stream.
-        :returns: Async iterator of canonical event dicts.
+        :returns: Canonical event dicts, interleaved with ``None``
+            keepalive ticks.
         """
         record = self.registry.get(session_id)
         if record is None:
@@ -125,9 +129,8 @@ class SessionService:
             yield _payload(ev)
         q = self.registry.subscribe(session_id)
         try:
-            while True:
-                ev = await q.get()
-                yield _payload(ev)
+            async for ev in sse.with_heartbeat(q):
+                yield None if ev is None else _payload(ev)
         finally:
             self.registry.unsubscribe(session_id, q)
 

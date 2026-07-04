@@ -140,6 +140,9 @@ async def test_events_stream_returns_sse_frames() -> None:
         resp = await client.get("/api/sessions/s1/events")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
+    # Anti-buffering headers so intermediaries flush frames promptly.
+    assert resp.headers["cache-control"] == "no-cache"
+    assert resp.headers["x-accel-buffering"] == "no"
     frames = [
         line for line in resp.text.split("\n\n") if line.startswith("data: ")
     ]
