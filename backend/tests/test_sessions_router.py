@@ -120,6 +120,20 @@ async def test_delete_unknown_session_returns_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_backends_endpoint_reports_effective_config() -> None:
+    """Ensure GET /api/backends surfaces the resolved backend config."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/backends")
+    assert resp.status_code == 200
+    body = resp.json()
+    # Hermetic default config (see tests/conftest.py): claude only.
+    assert body["default_session_backend"] == "claude"
+    assert body["backends"] == [
+        {"id": "claude", "type": "claude_cli", "model": None}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_events_stream_returns_sse_frames() -> None:
     """Ensure GET events streams SSE data frames from the service."""
     async with _client(_FakeService()) as client:

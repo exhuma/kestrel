@@ -90,6 +90,11 @@ system, declare backends as JSON and pick the default:
 | `KESTREL_BACKENDS` | `[{"id":"claude","type":"claude_cli"}]` | Available backends |
 | `KESTREL_DEFAULT_SESSION_BACKEND` | `claude` | Backend for ad-hoc sessions |
 
+Config is read once at startup — **restart the backend after editing `.env`**.
+On boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
+to: …`), and `GET /api/backends` reports it live. Note this only affects
+**ad-hoc sessions**; the GitHub workflow engine still uses `claude`.
+
 A backend entry has `id`, `type` (`claude_cli` \| `openai_compat` \|
 `opencode`), and per-type fields (`base_url`, `model`, `api_key_env`). Example —
 route ad-hoc sessions to a self-hosted, OpenAI-compatible model (Ollama, vLLM,

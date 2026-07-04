@@ -18,7 +18,9 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 
-_logger = logging.getLogger("app.main")
+# Log through uvicorn's own logger so the line actually surfaces — uvicorn
+# only attaches handlers to its loggers, not to arbitrary app loggers.
+_logger = logging.getLogger("uvicorn.error")
 
 
 @asynccontextmanager
