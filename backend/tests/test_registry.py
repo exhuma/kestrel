@@ -5,12 +5,12 @@ import asyncio
 
 import pytest
 
-from app.models import ParsedEvent
+from app.models import CanonicalEvent, EventKind
 from app.storage.registry import SessionRegistry
 
 
-def _event(kind: str = "assistant") -> ParsedEvent:
-    return ParsedEvent(type=kind, session_id="s1", raw={})
+def _event(kind: EventKind = EventKind.ASSISTANT_TEXT) -> CanonicalEvent:
+    return CanonicalEvent(kind=kind, session_id="s1")
 
 
 def test_create_get_list() -> None:
@@ -45,12 +45,20 @@ def test_append_event_records_and_sets_status() -> None:
     assert rec.status == "idle"
 
 
+def test_append_result_event_flips_status_to_idle() -> None:
+    """Ensure a terminal RESULT event auto-idles the session."""
+    reg = SessionRegistry()
+    reg.create("s1", "/tmp/s1")
+    reg.append_event("s1", _event(EventKind.RESULT))
+    assert reg.get("s1").status == "idle"
+
+
 @pytest.mark.asyncio
 async def test_subscribe_receives_appended_events() -> None:
     """Ensure subscribers receive events appended after subscribe."""
     reg = SessionRegistry()
     reg.create("s1", "/tmp/s1")
     q = reg.subscribe("s1")
-    reg.append_event("s1", _event("result"))
+    reg.append_event("s1", _event(EventKind.RESULT))
     received = await asyncio.wait_for(q.get(), timeout=1.0)
-    assert received.type == "result"
+    assert received.kind is EventKind.RESULT

@@ -9,7 +9,7 @@ from typing import AsyncIterator, Callable
 from fastapi import Depends
 
 from app.config import Settings, get_settings
-from app.models import parse_event
+from app.models import map_claude_line
 from app.services.exceptions import SessionNotFoundError, SessionStartError
 from app.storage.registry import SessionRegistry, get_registry
 
@@ -145,7 +145,7 @@ class SessionRunner:
         if session_id is not None and on_session_id is not None:
             on_session_id(session_id)
         async for line in lines:
-            event = parse_event(line)
+            event = map_claude_line(line)
             if event is None:
                 continue
             if session_id is None and event.session_id is not None:
@@ -155,8 +155,6 @@ class SessionRunner:
                     on_session_id(session_id)
             if session_id is not None:
                 self.registry.append_event(session_id, event)
-                if event.type == "result":
-                    self.registry.set_status(session_id, "idle")
         return session_id
 
     async def _launch(

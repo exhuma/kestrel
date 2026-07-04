@@ -67,7 +67,7 @@ export function useSessions() {
       events.value.push(event)
       // A result event ends a run — refresh so the session's status
       // flips running -> idle in the list without a manual reload.
-      if (event.type === 'result') void refresh()
+      if (event.kind === 'result') void refresh()
     }
   }
 

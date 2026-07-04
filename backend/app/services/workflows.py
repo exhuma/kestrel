@@ -12,6 +12,7 @@ from functools import lru_cache
 from typing import Callable
 
 from app.config import Settings, get_settings
+from app.models import EventKind
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import InAppNotifier, Notifier
 from app.persistence.notification_store import get_notification_store
@@ -512,9 +513,8 @@ class WorkflowService:
         if rec is None:
             return ""
         for ev in reversed(rec.events):
-            if ev.type == "result":
-                value = ev.raw.get("result")
-                return value if isinstance(value, str) else ""
+            if ev.kind == EventKind.RESULT:
+                return ev.text if isinstance(ev.text, str) else ""
         return ""
 
     async def recover(self) -> None:

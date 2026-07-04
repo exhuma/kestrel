@@ -101,18 +101,25 @@ function absTime(iso: string | null): string {
     `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-// Map an event to a semantic tone + glyph. Tone drives the --c colour
-// custom property shared by the dot, rule, and labels.
+// Map a canonical event to a semantic tone + glyph. Tone drives the --c
+// colour custom property shared by the dot, rule, and labels. Reads the
+// canonical vocabulary — no backend-specific raw parsing.
 function tone(e: SessionEvent): string {
-  const t = e.type
-  const sub = subtype(e) ?? ''
-  if (t === 'result') return e.raw?.is_error ? 'err' : 'ok'
-  if (sub.includes('tool')) return 'tool'
-  if (t === 'assistant') return 'agent'
-  if (t === 'user') return 'user'
-  if (t.startsWith('tool')) return 'tool'
-  if (t === 'error') return 'err'
-  return 'sys'
+  switch (e.kind) {
+    case 'result':
+      return e.is_error ? 'err' : 'ok'
+    case 'tool_use':
+    case 'tool_result':
+      return 'tool'
+    case 'assistant_text':
+      return 'agent'
+    case 'user_text':
+      return 'user'
+    case 'error':
+      return 'err'
+    default:
+      return 'sys'
+  }
 }
 function glyph(e: SessionEvent): string {
   return (
@@ -133,58 +140,54 @@ function statusTone(s: string): string {
   return 'sys'
 }
 function subtype(e: SessionEvent): string | null {
-  const v = e.raw?.subtype
-  return typeof v === 'string' ? v : null
+  return typeof e.subtype === 'string' ? e.subtype : null
 }
-// Surface the human-meaningful line from a claude stream-json event,
-// falling back to compact JSON for shapes we don't recognise.
+// Surface the human-meaningful line from a canonical event, falling back
+// to compact JSON of the native payload for shapes we don't recognise.
 function preview(e: SessionEvent): string {
-  const r = e.raw as Record<string, unknown>
-  const msg = r.message as { content?: unknown } | undefined
-  const content = msg?.content
-
-  if (Array.isArray(content)) {
-    const parts: string[] = []
-    for (const c of content as Record<string, unknown>[]) {
-      if (c.type === 'text' && typeof c.text === 'string') {
-        parts.push(c.text)
-      } else if (c.type === 'tool_use') {
-        const input = (c.input ?? {}) as Record<string, unknown>
-        const arg = input.file_path ?? input.path ?? input.command
-        parts.push(`${c.name}${arg ? ` · ${arg}` : ''}`)
-      } else if (c.type === 'tool_result') {
-        parts.push(
-          typeof c.content === 'string' ? c.content : JSON.stringify(c.content),
-        )
-      }
+  switch (e.kind) {
+    case 'assistant_text':
+    case 'user_text':
+    case 'tool_result':
+      return e.text || '—'
+    case 'tool_use': {
+      const call = `${e.tool_name ?? ''}${
+        e.tool_summary ? ` · ${e.tool_summary}` : ''
+      }`
+      return e.text ? `${e.text}   ${call}` : call
     }
-    if (parts.length) return parts.join('   ')
+    case 'thinking':
+      return `~${e.tokens ?? 0} tok`
+    case 'system': {
+      const servers = e.mcp_servers?.length
+        ? e.mcp_servers
+            .map((m) => `${m.name}${m.status ? ` (${m.status})` : ''}`)
+            .join(', ')
+        : ''
+      // On the init frame, always report MCP — "none" is itself the answer
+      // to "did my configured MCP server load into this session?".
+      const mcp =
+        e.subtype === 'init'
+          ? `MCP: ${servers || 'none'}`
+          : servers && `MCP: ${servers}`
+      const tools = e.tools?.length ? `tools: ${e.tools.join(', ')}` : ''
+      const bits = [e.model, mcp, tools].filter(Boolean)
+      return bits.length ? bits.join('   ·   ') : e.summary ?? '—'
+    }
+    case 'rate_limit':
+      return e.status ?? '—'
+    case 'result':
+      return e.text || '—'
+    default: {
+      const clone: Record<string, unknown> = { ...(e.native ?? {}) }
+      delete clone.type
+      delete clone.session_id
+      delete clone.subtype
+      const s = JSON.stringify(clone)
+      if (!s || s === '{}') return '—'
+      return s.length > 200 ? `${s.slice(0, 200)}…` : s
+    }
   }
-
-  if (e.type === 'system') {
-    const tools = Array.isArray(r.tools) ? (r.tools as string[]).join(', ') : ''
-    const servers = Array.isArray(r.mcp_servers)
-      ? (r.mcp_servers as { name?: string; status?: string }[])
-          .map((m) => `${m.name}${m.status ? ` (${m.status})` : ''}`)
-          .join(', ')
-      : ''
-    // On the init frame, always report MCP — "none" is itself the answer
-    // to "did my configured MCP server load into this session?".
-    const mcp =
-      r.subtype === 'init' ? `MCP: ${servers || 'none'}` : servers && `MCP: ${servers}`
-    const bits = [r.model, mcp, tools && `tools: ${tools}`].filter(Boolean)
-    if (bits.length) return bits.join('   ·   ')
-  }
-
-  if (e.type === 'result' && typeof r.result === 'string') return r.result
-
-  const clone: Record<string, unknown> = { ...r }
-  delete clone.type
-  delete clone.session_id
-  delete clone.subtype
-  const s = JSON.stringify(clone)
-  if (s === '{}' || s === undefined) return '—'
-  return s.length > 200 ? `${s.slice(0, 200)}…` : s
 }
 </script>
 
@@ -317,7 +320,7 @@ function preview(e: SessionEvent): string {
             <div class="ev__body">
               <div class="ev__meta">
                 <span class="ev__tick mono">{{ stamps[i] }}</span>
-                <span class="ev__type">{{ e.type }}</span>
+                <span class="ev__type">{{ e.kind }}</span>
                 <span v-if="subtype(e)" class="ev__sub mono">{{
                   subtype(e)
                 }}</span>

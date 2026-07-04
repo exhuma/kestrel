@@ -7,7 +7,7 @@ import json
 import pytest
 
 from app.config import Settings
-from app.models import ParsedEvent, SessionRecord
+from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
@@ -94,7 +94,9 @@ class _FakeRunner:
         if self.sessions.get(sid) is None:
             self.sessions._records[sid] = SessionRecord(session_id=sid, cwd=cwd)
         rec = self.sessions.get(sid)
-        rec.events.append(ParsedEvent("result", sid, {"result": text}))
+        rec.events.append(
+            CanonicalEvent(EventKind.RESULT, sid, text=text)
+        )
         rec.status = "idle"
         if on_session_id:
             on_session_id(sid)

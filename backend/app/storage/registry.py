@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timezone
 from functools import lru_cache
 
-from app.models import ParsedEvent, SessionRecord
+from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.persistence.store import SessionStore, get_store
 
 
@@ -17,7 +17,7 @@ class SessionRegistry:
     ) -> None:
         self._records: dict[str, SessionRecord] = {}
         self._subs: dict[
-            str, list[asyncio.Queue[ParsedEvent]]
+            str, list[asyncio.Queue[CanonicalEvent]]
         ] = {}
         self._store = store
 
@@ -57,13 +57,17 @@ class SessionRegistry:
         return list(self._records.values())
 
     def append_event(
-        self, session_id: str, event: ParsedEvent
+        self, session_id: str, event: CanonicalEvent
     ) -> None:
         """
         Append an event and notify all live subscribers.
 
+        A terminal ``RESULT`` event flips the session to ``idle`` — the
+        backend-agnostic replacement for the old claude-specific
+        ``type == "result"`` check.
+
         :param session_id: Unique id of the session.
-        :param event: The parsed event to append.
+        :param event: The canonical event to append.
         """
         record = self._records.get(session_id)
         if record is None:
@@ -73,6 +77,8 @@ class SessionRegistry:
             q.put_nowait(event)
         if self._store is not None:
             self._store.append_event(session_id, event)
+        if event.kind == EventKind.RESULT:
+            self.set_status(session_id, "idle")
 
     def remove(self, session_id: str) -> None:
         """
@@ -116,19 +122,19 @@ class SessionRegistry:
 
     def subscribe(
         self, session_id: str
-    ) -> asyncio.Queue[ParsedEvent]:
+    ) -> asyncio.Queue[CanonicalEvent]:
         """
         Register and return a new subscriber queue.
 
         :param session_id: Unique id of the session.
         :returns: A new asyncio queue for this subscriber.
         """
-        q: asyncio.Queue[ParsedEvent] = asyncio.Queue()
+        q: asyncio.Queue[CanonicalEvent] = asyncio.Queue()
         self._subs.setdefault(session_id, []).append(q)
         return q
 
     def unsubscribe(
-        self, session_id: str, q: asyncio.Queue[ParsedEvent]
+        self, session_id: str, q: asyncio.Queue[CanonicalEvent]
     ) -> None:
         """
         Remove a subscriber queue if present.

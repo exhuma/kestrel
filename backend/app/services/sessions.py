@@ -6,11 +6,12 @@ delegation to the subprocess runner. Holds no HTTP concepts.
 """
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import AsyncIterator
 
 from fastapi import Depends
 
-from app.models import ParsedEvent
+from app.models import CanonicalEvent
 from app.schemas import SessionSummary
 from app.services.exceptions import SessionNotFoundError
 from app.services.runner import SessionRunner, get_runner
@@ -114,7 +115,7 @@ class SessionService:
         on exit.
 
         :param session_id: Id of the session to stream.
-        :returns: Async iterator of ``{type, session_id, raw}`` dicts.
+        :returns: Async iterator of canonical event dicts.
         """
         record = self.registry.get(session_id)
         if record is None:
@@ -130,18 +131,16 @@ class SessionService:
             self.registry.unsubscribe(session_id, q)
 
 
-def _payload(event: ParsedEvent) -> dict[str, object]:
+def _payload(event: CanonicalEvent) -> dict[str, object]:
     """
-    Shape a parsed event into the wire ``SessionEvent`` contract.
+    Shape a canonical event into the wire ``SessionEvent`` contract.
 
-    :param event: The parsed event to serialise.
-    :returns: A ``{type, session_id, raw}`` dict.
+    :param event: The canonical event to serialise.
+    :returns: A JSON-ready canonical event dict.
     """
-    return {
-        "type": event.type,
-        "session_id": event.session_id,
-        "raw": event.raw,
-    }
+    data = asdict(event)
+    data["kind"] = event.kind.value
+    return data
 
 
 def get_session_service(

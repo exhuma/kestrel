@@ -9,6 +9,7 @@ from typing import AsyncIterator
 import pytest
 
 from app.config import Settings
+from app.models import EventKind
 from app.services.exceptions import SessionStartError
 from app.services.runner import _TASKS, SessionRunner
 from app.storage.registry import SessionRegistry
@@ -184,7 +185,7 @@ async def test_start_returns_before_subprocess_completes(tmp_path) -> None:
     rec = reg.get(sid)
     assert rec is not None
     assert rec.status == "running"
-    assert all(e.type != "result" for e in rec.events)
+    assert all(e.kind is not EventKind.RESULT for e in rec.events)
 
     # The background task keeps consuming to completion.
     for _ in range(60):
@@ -192,7 +193,7 @@ async def test_start_returns_before_subprocess_completes(tmp_path) -> None:
             break
         await asyncio.sleep(0.05)
     assert reg.get(sid).status == "idle"
-    assert any(e.type == "result" for e in reg.get(sid).events)
+    assert any(e.kind is EventKind.RESULT for e in reg.get(sid).events)
     await _drain_background()
 
 
@@ -238,7 +239,7 @@ async def test_run_blocking_streams_and_awaits(tmp_path) -> None:
     assert seen == ["stream-1"]
     rec = reg.get(sid)
     assert rec.status == "idle"
-    assert any(e.type == "result" for e in rec.events)
+    assert any(e.kind is EventKind.RESULT for e in rec.events)
     await _drain_background()
 
 
@@ -264,9 +265,9 @@ async def test_run_blocking_handles_a_line_over_64kib(tmp_path) -> None:
     assert sid == "big-1"
     rec = reg.get(sid)
     assert rec.status == "idle"
-    result_events = [e for e in rec.events if e.type == "result"]
+    result_events = [e for e in rec.events if e.kind is EventKind.RESULT]
     assert len(result_events) == 1
-    assert len(result_events[0].raw["result"]) == 100_000
+    assert len(result_events[0].text) == 100_000
     await _drain_background()
 
 

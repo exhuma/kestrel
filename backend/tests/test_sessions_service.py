@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from app.models import ParsedEvent
+from app.models import CanonicalEvent, EventKind, map_claude_line
 from app.services.exceptions import SessionNotFoundError
 from app.services.sessions import SessionService
 from app.storage.registry import SessionRegistry
@@ -107,7 +107,9 @@ def test_list_summaries_shape() -> None:
     """Ensure summaries expose id, status and event count."""
     service, registry, _ = _service()
     registry.create("s1", "/tmp/s1")
-    registry.append_event("s1", ParsedEvent("assistant", "s1", {}))
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.ASSISTANT_TEXT, "s1")
+    )
     summaries = service.list_summaries()
     assert len(summaries) == 1
     summary = summaries[0]
@@ -121,14 +123,20 @@ async def test_stream_replays_then_streams_live_and_unsubscribes() -> None:
     """Ensure stream replays stored events, yields live ones, cleans up."""
     service, registry, _ = _service()
     registry.create("s1", "/tmp/s1")
-    registry.append_event("s1", ParsedEvent("system", "s1", {"n": 1}))
-    registry.append_event("s1", ParsedEvent("assistant", "s1", {"n": 2}))
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.SYSTEM, "s1", native={"n": 1})
+    )
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.ASSISTANT_TEXT, "s1", native={"n": 2})
+    )
 
     gen = service.stream("s1")
     first = await gen.__anext__()
     second = await gen.__anext__()
-    assert first == {"type": "system", "session_id": "s1", "raw": {"n": 1}}
-    assert second["raw"] == {"n": 2}
+    assert first["kind"] == "system"
+    assert first["session_id"] == "s1"
+    assert first["native"] == {"n": 1}
+    assert second["native"] == {"n": 2}
 
     # The live event must be appended only after the generator has
     # subscribed (which happens once replay is exhausted), mirroring a
@@ -136,12 +144,41 @@ async def test_stream_replays_then_streams_live_and_unsubscribes() -> None:
     task = asyncio.create_task(gen.__anext__())
     while not registry._subs.get("s1"):
         await asyncio.sleep(0)
-    registry.append_event("s1", ParsedEvent("result", "s1", {"n": 3}))
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.RESULT, "s1", text="done")
+    )
     third = await asyncio.wait_for(task, timeout=1.0)
-    assert third["type"] == "result"
+    assert third["kind"] == "result"
 
     await gen.aclose()
     assert registry._subs.get("s1") == []
+
+
+@pytest.mark.asyncio
+async def test_stream_payload_carries_canonical_fields_for_a_claude_line() -> None:
+    """Ensure a real claude assistant line reaches the wire as canonical.
+
+    Ties the claude mapping to the SSE payload the browser consumes: the
+    frame must expose the normalized ``kind``/``text`` fields plus the
+    original ``native`` blob, not the raw stream-json passthrough.
+    """
+    service, registry, _ = _service()
+    registry.create("s1", "/tmp/s1")
+    event = map_claude_line(
+        '{"type":"assistant","session_id":"s1","message":{"content":'
+        '[{"type":"text","text":"hi there"}]}}'
+    )
+    assert event is not None
+    registry.append_event("s1", event)
+
+    gen = service.stream("s1")
+    frame = await gen.__anext__()
+    await gen.aclose()
+
+    assert frame["kind"] == "assistant_text"
+    assert frame["text"] == "hi there"
+    assert frame["session_id"] == "s1"
+    assert frame["native"]["type"] == "assistant"
 
 
 @pytest.mark.asyncio

@@ -2,14 +2,51 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from functools import lru_cache
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import ParsedEvent, SessionRecord
+from app.models import (
+    CanonicalEvent,
+    EventKind,
+    SessionRecord,
+    map_claude_dict,
+)
 from app.persistence.db import get_sessionmaker
 from app.persistence.tables import EventRow, SessionRow
+
+
+def _event_to_json(event: CanonicalEvent) -> dict[str, object]:
+    """Serialise a canonical event to a JSON-ready dict."""
+    data = asdict(event)
+    data["kind"] = event.kind.value
+    return data
+
+
+def _event_from_json(
+    data: dict[str, object], session_id: str
+) -> CanonicalEvent:
+    """
+    Rebuild a canonical event from a stored JSON payload.
+
+    Rows written before the canonical-event migration hold a raw claude
+    stream-json object (no ``kind``/``native`` keys); those are mapped
+    on read so existing session history survives the upgrade.
+    """
+    if "kind" in data and "native" in data:
+        fields = dict(data)
+        fields["kind"] = EventKind(fields["kind"])
+        fields["session_id"] = session_id
+        return CanonicalEvent(**fields)  # type: ignore[arg-type]
+    legacy = map_claude_dict(data)
+    if legacy is None:
+        return CanonicalEvent(
+            kind=EventKind.UNKNOWN, session_id=session_id, native=data
+        )
+    legacy.session_id = session_id
+    return legacy
 
 
 class SessionStore:
@@ -51,20 +88,23 @@ class SessionStore:
                 row.status = status
 
     def append_event(
-        self, session_id: str, event: ParsedEvent
+        self, session_id: str, event: CanonicalEvent
     ) -> None:
         """
-        Persist one parsed event.
+        Persist one canonical event.
+
+        The ``type`` column stores the event kind; ``raw`` stores the
+        full canonical payload (including the original ``native`` blob).
 
         :param session_id: Unique id of the session.
-        :param event: The parsed event to persist.
+        :param event: The canonical event to persist.
         """
         with self._factory.begin() as db:
             db.add(
                 EventRow(
                     session_id=session_id,
-                    type=event.type,
-                    raw=json.dumps(event.raw),
+                    type=event.kind.value,
+                    raw=json.dumps(_event_to_json(event)),
                 )
             )
 
@@ -101,10 +141,8 @@ class SessionStore:
                     .order_by(EventRow.id)
                 )
                 events = [
-                    ParsedEvent(
-                        type=e.type,
-                        session_id=row.session_id,
-                        raw=json.loads(e.raw),
+                    _event_from_json(
+                        json.loads(e.raw), row.session_id
                     )
                     for e in db.scalars(stmt)
                 ]
