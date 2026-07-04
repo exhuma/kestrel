@@ -251,10 +251,6 @@ function stepTone(status: string): string {
             >
               <span class="chip__dot" aria-hidden="true" />
               <span class="chip__label mono">{{ s.label }}</span>
-              <!-- live flourish: swap the element + .chip__fx CSS block to
-                   try a different effect (see CSS). -->
-              <span v-if="s.status === 'running'" class="chip__fx"
-                aria-hidden="true">✦</span>
             </button>
           </div>
           <div v-else class="working">
@@ -490,27 +486,29 @@ function stepTone(status: string): string {
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
-/* ---- live-chip flourish — SWAPPABLE (currently: sparkle) -------------
-   A subtle "AI is working" twinkle on the trailing ✦. To try a different
-   effect (e.g. a rainbow gradient sweep), replace this block and the
-   `.chip__fx` element in the template above; nothing else references it. */
-.chip__fx {
-  font-size: 10px;
-  line-height: 1;
-  color: var(--c);
-  transform-origin: center;
-  animation: chip-sparkle 1.6s ease-in-out infinite;
+/* ---- live-chip flourish — SWAPPABLE (currently: rainbow border) ------
+   An animated rainbow gradient flowing through the border of a running
+   chip: "AI is working", noticeable but calm. Technique: two backgrounds
+   — the chip fill on padding-box, the rainbow on border-box — with the
+   border made transparent so the gradient shows through it; the border
+   layer is oversized and its position animated for a seamless flow.
+   To try a different effect (e.g. the trailing ✦ sparkle, see git
+   74e5b86), replace this block; nothing else references it. */
+.chip--live {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--ink-700), var(--ink-700)) padding-box,
+    linear-gradient(90deg,
+      #ff6b8b, #ffb347, #ffe66d, #4ade80, #38bdf8, #a78bfa, #ff6b8b)
+      border-box;
+  background-size: 100% 100%, 220% 100%;
+  animation: chip-rainbow 6s linear infinite;
 }
-@keyframes chip-sparkle {
-  0%, 100% { opacity: 0.35; transform: scale(0.75) rotate(0deg); }
-  50% {
-    opacity: 1;
-    transform: scale(1.15) rotate(90deg);
-    filter: drop-shadow(0 0 3px var(--c));
-  }
+@keyframes chip-rainbow {
+  to { background-position: 0 0, -220% 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chip__fx { animation: none; opacity: 0.8; }
+  .chip--live { animation: none; }
 }
 /* --------------------------------------------------------------------- */
 
