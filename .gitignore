@@ -4,6 +4,8 @@ backend/.kestrel-workspaces/
 backend/.dispatcher-workspaces/
 backend/kestrel.db
 backend/.env
+backends.toml
+backend/backends.toml
 __pycache__/
 .pytest_cache/
 frontend/node_modules/

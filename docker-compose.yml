@@ -24,6 +24,9 @@ services:
       # separate FILE from the ~/.claude directory — both are needed.
       - ${HOME}/.claude:/seed/.claude:ro
       - ${HOME}/.claude.json:/seed/claude.json:ro
+      # Optional: mount a backends config (see backends.toml.example) to
+      # dispatch to opencode / self-hosted LLMs. Pair with the env var below.
+      # - ./backends.toml:/config/backends.toml:ro
     environment:
       # The repos claude works in (matches the ./workspaces bind mount above).
       KESTREL_WORKSPACE_ROOT: /workspaces
@@ -33,6 +36,8 @@ services:
       KESTREL_PERMISSION_MODE: ${KESTREL_PERMISSION_MODE:-acceptEdits}
       # JSON map of model overrides, e.g. '{"sonnet":"claude-sonnet-5"}'.
       KESTREL_MODEL_OVERRIDES: ${KESTREL_MODEL_OVERRIDES:-{}}
+      # Optional: point at the mounted backends config (uncomment the volume).
+      # KESTREL_BACKENDS_FILE: /config/backends.toml
 
 volumes:
   kestrel-data:

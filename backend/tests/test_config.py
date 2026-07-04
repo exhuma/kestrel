@@ -5,7 +5,23 @@ from pathlib import Path
 
 import pytest
 
-from app.config import Settings
+from app.config import BackendConfig, Settings
+
+
+def test_backend_secret_prefers_inline_then_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure secret() reads an inline value, else the named env var."""
+    assert BackendConfig(id="x", password="pw").secret() == "pw"
+    assert BackendConfig(id="x", api_key="key").secret() == "key"
+    assert BackendConfig(id="x").secret() is None
+    monkeypatch.setenv("MY_SECRET", "from-env")
+    assert BackendConfig(id="x", api_key_env="MY_SECRET").secret() == "from-env"
+    # An inline value wins over the env var.
+    assert (
+        BackendConfig(id="x", password="pw", api_key_env="MY_SECRET").secret()
+        == "pw"
+    )
 
 
 def test_settings_read_kestrel_env(
@@ -57,3 +73,47 @@ def test_github_settings_read_env(
     s = Settings()
     assert s.github_token == "tok-123"
     assert s.github_api_base == "https://ghe.example/api/v3"
+
+
+def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
+    """Ensure a TOML backends_file populates the backend settings."""
+    toml = tmp_path / "backends.toml"
+    toml.write_text(
+        'default_session_backend = "oc"\n'
+        "\n"
+        "[step_backends]\n"
+        'implement = "claude"\n'
+        "\n"
+        "[[backends]]\n"
+        'id = "claude"\n'
+        'type = "claude_cli"\n'
+        "\n"
+        "[[backends]]\n"
+        'id = "oc"\n'
+        'type = "opencode"\n'
+        'base_url = "http://localhost:4096"\n'
+        'model = "opencode/deepseek-v4-flash-free"\n'
+    )
+    s = Settings(_env_file=None, backends_file=str(toml))
+    assert s.default_session_backend == "oc"
+    assert s.step_backends == {"implement": "claude"}
+    assert [(b.id, b.type) for b in s.backends] == [
+        ("claude", "claude_cli"), ("oc", "opencode")
+    ]
+    assert s.backends[1].base_url == "http://localhost:4096"
+
+
+def test_backends_file_missing_fails_fast(tmp_path: Path) -> None:
+    """Ensure a bad backends_file path raises at settings load."""
+    with pytest.raises(Exception) as exc:
+        Settings(_env_file=None, backends_file=str(tmp_path / "nope.toml"))
+    assert "backends_file not found" in str(exc.value)
+
+
+def test_backends_file_invalid_toml_fails_fast(tmp_path: Path) -> None:
+    """Ensure malformed TOML in backends_file raises a clear error."""
+    toml = tmp_path / "bad.toml"
+    toml.write_text("this is = = not valid toml")
+    with pytest.raises(Exception) as exc:
+        Settings(_env_file=None, backends_file=str(toml))
+    assert "invalid TOML" in str(exc.value)

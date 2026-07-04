@@ -7,7 +7,8 @@ import json
 import pytest
 
 from app.config import Settings
-from app.models import ParsedEvent, SessionRecord
+from app.backends.base import Capability, TurnResult
+from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
@@ -72,38 +73,53 @@ class _FakeGitHub:
 
 
 class _FakeRunner:
-    """Records a session with a canned final result text per call."""
+    """A fake backend (canned result per turn) that is also its own policy.
+
+    Doubles as the ``BackendPolicy`` the WorkflowService now depends on:
+    every step resolves to this one backend.
+    """
+
+    caps = frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
     def __init__(self, sessions: SessionRegistry, outputs: list[str]) -> None:
         self.sessions = sessions
         self._outputs = list(outputs)
         self._n = 0
+        self.calls: list[dict] = []
+        self.terminated: list[str] = []
 
-    async def run_blocking(self, prompt, cwd, permission_mode,
-                           resume_id=None, on_session_id=None,
-                           model=None) -> str:
-        sid = resume_id or f"s{self._n}"
+    async def run_turn(self, req, on_session_id=None):
+        sid = req.resume_id or f"s{self._n}"
         self._n += 1
-        self.calls = getattr(self, "calls", [])
         self.calls.append(
-            {"resume_id": resume_id, "model": model,
-             "permission_mode": permission_mode,
-             "prompt": prompt}
+            {"resume_id": req.resume_id, "model": req.model,
+             "permission_mode": req.permission_mode,
+             "prompt": req.prompt}
         )
         text = self._outputs.pop(0)
         if self.sessions.get(sid) is None:
-            self.sessions._records[sid] = SessionRecord(session_id=sid, cwd=cwd)
+            self.sessions._records[sid] = SessionRecord(
+                session_id=sid, cwd=req.cwd
+            )
         rec = self.sessions.get(sid)
-        rec.events.append(ParsedEvent("result", sid, {"result": text}))
+        rec.events.append(
+            CanonicalEvent(EventKind.RESULT, sid, text=text)
+        )
         rec.status = "idle"
         if on_session_id:
             on_session_id(sid)
-        return sid
+        return TurnResult(session_id=sid, final_text=text)
 
     def terminate(self, session_id: str) -> bool:
-        self.terminated = getattr(self, "terminated", [])
         self.terminated.append(session_id)
         return True
+
+    # -- BackendPolicy interface (every step uses this backend) --
+    def backend_for(self, step: str):
+        return self
+
+    def backends(self):
+        return [self]
 
 
 def _service(github, runner, git) -> WorkflowService:
@@ -111,7 +127,7 @@ def _service(github, runner, git) -> WorkflowService:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=git,
         github=github,
         notifier=_FakeNotifier(),
@@ -584,7 +600,7 @@ async def test_save_publishes_to_bus() -> None:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=_FakeGit(),
         github=gh,
         notifier=_FakeNotifier(),
@@ -613,23 +629,18 @@ async def test_profiles_are_interviewed_concurrently() -> None:
             self._expected = expected
             self._all_in = asyncio.Event()
 
-        async def run_blocking(self, prompt, cwd, permission_mode,
-                               resume_id=None, on_session_id=None,
-                               model=None) -> str:
-            gen = "interviewing one stakeholder profile" in prompt
+        async def run_turn(self, req, on_session_id=None):
+            gen = "interviewing one stakeholder profile" in req.prompt
             if gen:
                 self.inflight += 1
                 self.max_inflight = max(self.max_inflight, self.inflight)
                 if self.inflight >= self._expected:
                     self._all_in.set()
                 await self._all_in.wait()
-            sid = await super().run_blocking(
-                prompt, cwd, permission_mode, resume_id,
-                on_session_id, model,
-            )
+            result = await super().run_turn(req, on_session_id)
             if gen:
                 self.inflight -= 1
-            return sid
+            return result
 
     gh = _FakeGitHub(body="vague issue")
     runner = _BarrierRunner(SessionRegistry(), outputs=[
@@ -892,7 +903,7 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=_FakeGit(),
         github=gh,
         notifier=notifier,
@@ -920,7 +931,7 @@ async def test_notifier_does_not_fire_on_reject() -> None:
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
-        runner=runner,
+        backends=runner,
         git=_FakeGit(),
         github=gh,
         notifier=notifier,
@@ -1003,3 +1014,55 @@ async def test_delete_unknown_raises_not_found() -> None:
     )
     with pytest.raises(WorkflowNotFoundError):
         await svc.delete("nope")
+
+
+@pytest.mark.asyncio
+async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
+    """Ensure a single profile's backend failure (e.g. an LLM timeout)
+    doesn't fail the whole run — the panel proceeds on the survivors."""
+
+    class _FlakyRunner(_FakeRunner):
+        def __init__(self, sessions, outputs) -> None:
+            super().__init__(sessions, outputs)
+            self._failed_one = False
+
+        async def run_turn(self, req, on_session_id=None):
+            # Fail exactly one concurrent generator (atomic in asyncio:
+            # no await between the check and the flag set).
+            if ("interviewing one stakeholder profile" in req.prompt
+                    and not self._failed_one):
+                self._failed_one = True
+                raise RuntimeError("simulated backend timeout")
+            return await super().run_turn(req, on_session_id)
+
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FlakyRunner(SessionRegistry(), outputs=[
+        _coord(["requester", "infosec"]),   # coordinator selects two
+        _qs(_q(qid="q1")),                   # the surviving profile's questions
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    assert svc.get(wid).status != "failed"
+
+
+@pytest.mark.asyncio
+async def test_all_specialists_failing_fails_with_a_clear_error() -> None:
+    """Ensure a run where every specialist fails reports a real error,
+    not the empty message an httpx timeout would otherwise leave."""
+
+    class _AllFlaky(_FakeRunner):
+        async def run_turn(self, req, on_session_id=None):
+            if "interviewing one stakeholder profile" in req.prompt:
+                raise RuntimeError("simulated backend timeout")
+            return await super().run_turn(req, on_session_id)
+
+    runner = _AllFlaky(SessionRegistry(), outputs=[
+        _coord(["requester", "infosec"]),   # coordinator ok; all generators fail
+    ])
+    svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "failed")
+    assert "all specialist interviews failed" in (svc.get(wid).error or "")

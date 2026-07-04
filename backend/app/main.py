@@ -1,6 +1,7 @@
 """FastAPI application factory for kestrel."""
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -17,11 +18,28 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 
+# Log through uvicorn's own logger so the line actually surfaces — uvicorn
+# only attaches handlers to its loggers, not to arbitrary app loggers.
+_logger = logging.getLogger("uvicorn.error")
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Recover persisted workflow runs on startup."""
+    """Report the backend configuration, then recover persisted runs."""
+    from app.backends.registry import get_backend_registry
+    from app.config import get_settings
     from app.services.workflows import get_workflow_service
+
+    settings = get_settings()
+    # Building the registry now fails fast on a misconfigured default and
+    # makes the effective config visible in the logs — the first thing to
+    # check when a session runs on the wrong backend.
+    get_backend_registry()
+    _logger.info(
+        "backends: %s | ad-hoc sessions dispatch to: %r",
+        {c.id: c.type for c in settings.backends},
+        settings.default_session_backend,
+    )
 
     await get_workflow_service().recover()
     yield

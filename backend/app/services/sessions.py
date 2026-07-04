@@ -6,14 +6,17 @@ delegation to the subprocess runner. Holds no HTTP concepts.
 """
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import AsyncIterator
 
 from fastapi import Depends
 
-from app.models import ParsedEvent
+from app import sse
+from app.backends.base import Backend
+from app.backends.registry import get_backend_registry
+from app.models import CanonicalEvent
 from app.schemas import SessionSummary
 from app.services.exceptions import SessionNotFoundError
-from app.services.runner import SessionRunner, get_runner
 from app.storage.registry import SessionRegistry, get_registry
 from app.storage.workflow_registry import (
     WorkflowRegistry,
@@ -22,15 +25,15 @@ from app.storage.workflow_registry import (
 
 
 class SessionService:
-    """Coordinates the runner and registry behind one API."""
+    """Coordinates a dispatch backend and the registry behind one API."""
 
     def __init__(
         self,
-        runner: SessionRunner,
+        backend: Backend,
         registry: SessionRegistry,
         workflows: WorkflowRegistry | None = None,
     ) -> None:
-        self.runner = runner
+        self.backend = backend
         self.registry = registry
         self.workflows = workflows
 
@@ -41,7 +44,7 @@ class SessionService:
         :param prompt: The initial prompt text.
         :returns: The resolved session id.
         """
-        return await self.runner.start(prompt)
+        return await self.backend.start(prompt)
 
     async def resume(self, session_id: str, prompt: str) -> str:
         """
@@ -55,7 +58,7 @@ class SessionService:
         if self.registry.get(session_id) is None:
             raise SessionNotFoundError(session_id)
         self.registry.set_status(session_id, "running")
-        return await self.runner.resume(session_id, prompt)
+        return await self.backend.resume(session_id, prompt)
 
     def delete(self, session_id: str) -> None:
         """
@@ -70,7 +73,7 @@ class SessionService:
         """
         if self.registry.get(session_id) is None:
             raise SessionNotFoundError(session_id)
-        self.runner.terminate(session_id)
+        self.backend.terminate(session_id)
         self.registry.remove(session_id)
 
     def list_summaries(self) -> list[SessionSummary]:
@@ -104,17 +107,20 @@ class SessionService:
 
     async def stream(
         self, session_id: str
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> AsyncIterator[dict[str, object] | None]:
         """
         Yield event payloads for a session: replay then live.
 
         Replays already-recorded events, then streams new ones as they
-        arrive. Unknown sessions yield nothing and register no
-        subscriber, so no queue leaks. The subscriber is always removed
-        on exit.
+        arrive, interleaving ``None`` keepalive ticks so a session that
+        goes quiet (e.g. a slow model generating) doesn't leave the SSE
+        connection idle and drop. Unknown sessions yield nothing and
+        register no subscriber, so no queue leaks. The subscriber is
+        always removed on exit.
 
         :param session_id: Id of the session to stream.
-        :returns: Async iterator of ``{type, session_id, raw}`` dicts.
+        :returns: Canonical event dicts, interleaved with ``None``
+            keepalive ticks.
         """
         record = self.registry.get(session_id)
         if record is None:
@@ -123,36 +129,32 @@ class SessionService:
             yield _payload(ev)
         q = self.registry.subscribe(session_id)
         try:
-            while True:
-                ev = await q.get()
-                yield _payload(ev)
+            async for ev in sse.with_heartbeat(q):
+                yield None if ev is None else _payload(ev)
         finally:
             self.registry.unsubscribe(session_id, q)
 
 
-def _payload(event: ParsedEvent) -> dict[str, object]:
+def _payload(event: CanonicalEvent) -> dict[str, object]:
     """
-    Shape a parsed event into the wire ``SessionEvent`` contract.
+    Shape a canonical event into the wire ``SessionEvent`` contract.
 
-    :param event: The parsed event to serialise.
-    :returns: A ``{type, session_id, raw}`` dict.
+    :param event: The canonical event to serialise.
+    :returns: A JSON-ready canonical event dict.
     """
-    return {
-        "type": event.type,
-        "session_id": event.session_id,
-        "raw": event.raw,
-    }
+    data = asdict(event)
+    data["kind"] = event.kind.value
+    return data
 
 
 def get_session_service(
-    runner: SessionRunner = Depends(get_runner),
     registry: SessionRegistry = Depends(get_registry),
 ) -> SessionService:
     """
     Provide a SessionService as a FastAPI dependency.
 
-    :param runner: Session runner, injected.
     :param registry: Session registry singleton, injected.
-    :returns: A SessionService bound to the shared registry.
+    :returns: A SessionService bound to the default session backend.
     """
-    return SessionService(runner, registry, get_workflow_registry())
+    backend = get_backend_registry().default_session_backend()
+    return SessionService(backend, registry, get_workflow_registry())

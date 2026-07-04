@@ -249,7 +249,10 @@ function stepTone(status: string): string {
               :disabled="!s.session_id"
               @click="toggleSession(s.session_id)"
             >
-              <span class="chip__dot" aria-hidden="true" />
+              <!-- live chips get a sparkle in place of the pulsing dot -->
+              <span v-if="s.status === 'running'" class="chip__fx"
+                aria-hidden="true">✦</span>
+              <span v-else class="chip__dot" aria-hidden="true" />
               <span class="chip__label mono">{{ s.label }}</span>
             </button>
           </div>
@@ -466,10 +469,6 @@ function stepTone(status: string): string {
   width: 8px; height: 8px; border-radius: 50%; background: var(--c);
   flex: none;
 }
-.chip--live .chip__dot {
-  box-shadow: 0 0 0 0 var(--c);
-  animation: chip-pulse 1.6s ease-out infinite;
-}
 .chip--open {
   border-color: var(--c); color: var(--text-hi);
   background: var(--ink-650);
@@ -480,11 +479,55 @@ function stepTone(status: string): string {
 .chip--ok { --c: var(--ok); }
 .chip--err { --c: var(--err); }
 .chip--sys { --c: var(--idle); }
-@keyframes chip-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); }
-  70% { box-shadow: 0 0 0 6px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
+
+/* ---- live-chip flourish — SWAPPABLE (rainbow border + sparkle) -------
+   A running chip gets two combined effects: an animated rainbow gradient
+   flowing through its border, and a bright ✦ sparkle in place of the
+   resting dot. Border technique: two backgrounds — the chip fill on
+   padding-box, the rainbow on border-box — with the border made
+   transparent so the gradient shows through it; the border layer is
+   oversized and its position animated for a seamless flow. To try a
+   different effect, replace this block; nothing else references it. */
+.chip__fx {
+  font-size: 11px;
+  line-height: 1;
+  flex: none;
+  color: color-mix(in srgb, var(--c) 72%, white);
+  transform-origin: center;
+  animation: chip-sparkle 1.6s ease-in-out infinite;
 }
+@keyframes chip-sparkle {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.85) rotate(0deg);
+    filter: drop-shadow(0 0 2px var(--c));
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2) rotate(90deg);
+    filter: drop-shadow(0 0 6px var(--c));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip__fx { animation: none; opacity: 0.9; }
+}
+.chip--live {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--ink-700), var(--ink-700)) padding-box,
+    linear-gradient(90deg,
+      #ff6b8b, #ffb347, #ffe66d, #4ade80, #38bdf8, #a78bfa, #ff6b8b)
+      border-box;
+  background-size: 100% 100%, 220% 100%;
+  animation: chip-rainbow 6s linear infinite;
+}
+@keyframes chip-rainbow {
+  to { background-position: 0 0, -220% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip--live { animation: none; }
+}
+/* --------------------------------------------------------------------- */
 
 /* Telemetry drawer — opened on demand from a chip, capped in height so
    the raw event stream can never push the panel around. */

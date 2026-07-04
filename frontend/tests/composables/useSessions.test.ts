@@ -41,7 +41,7 @@ describe('useSessions', () => {
     const before = fetchMock.mock.calls.length
 
     handler!({
-      data: JSON.stringify({ type: 'result', session_id: 's1', raw: {} }),
+      data: JSON.stringify({ kind: 'result', session_id: 's1', native: {} }),
     })
     await Promise.resolve()
     await Promise.resolve()

@@ -12,10 +12,33 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import sse
+from app.config import Settings, get_settings
 from app.schemas import SessionSummary
 from app.services.sessions import SessionService, get_session_service
 
 router = APIRouter(prefix="/api")
+
+
+@router.get("/backends")
+async def list_backends(
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """
+    Report the effective backend configuration.
+
+    A diagnostic: confirms which backends are configured and which one
+    ad-hoc sessions dispatch to, so a misread ``.env`` is obvious.
+
+    :param settings: Application settings, injected.
+    :returns: The default session backend and the configured backends.
+    """
+    return {
+        "default_session_backend": settings.default_session_backend,
+        "backends": [
+            {"id": b.id, "type": b.type, "model": b.model}
+            for b in settings.backends
+        ],
+    }
 
 
 class PromptIn(BaseModel):
@@ -116,6 +139,8 @@ async def stream_events(
 
     async def _frames() -> AsyncIterator[bytes]:
         async for payload in service.stream(session_id):
-            yield sse.encode(payload)
+            yield sse.KEEPALIVE if payload is None else sse.encode(payload)
 
-    return StreamingResponse(_frames(), media_type="text/event-stream")
+    return StreamingResponse(
+        _frames(), media_type="text/event-stream", headers=sse.HEADERS
+    )

@@ -109,25 +109,23 @@ async def stream_workflow(
     """
     service.get(workflow_id)  # 404 before we start streaming
 
+    def _snapshot() -> bytes:
+        return sse.encode(
+            _detail(service, service.get(workflow_id)).model_dump(mode="json")
+        )
+
     async def _frames() -> AsyncIterator[bytes]:
         q = bus.subscribe(workflow_id)
         try:
-            yield sse.encode(
-                _detail(service, service.get(workflow_id)).model_dump(
-                    mode="json"
-                )
-            )
-            while True:
-                await q.get()
-                yield sse.encode(
-                    _detail(
-                        service, service.get(workflow_id)
-                    ).model_dump(mode="json")
-                )
+            yield _snapshot()
+            async for tick in sse.with_heartbeat(q):
+                yield sse.KEEPALIVE if tick is None else _snapshot()
         finally:
             bus.unsubscribe(workflow_id, q)
 
-    return StreamingResponse(_frames(), media_type="text/event-stream")
+    return StreamingResponse(
+        _frames(), media_type="text/event-stream", headers=sse.HEADERS
+    )
 
 
 @router.delete("/{workflow_id}")
