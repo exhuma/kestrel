@@ -799,7 +799,32 @@ class WorkflowService:
             )
             return pid, extract_questionnaire(text)
 
-        results = await asyncio.gather(*(_one(pid) for pid in ordered))
+        # One specialist failing (e.g. a flaky/slow local LLM timing out)
+        # must not sink the whole panel: collect per-profile results, mark
+        # a failed profile's chip and drop it, and only fail the step if
+        # every profile failed (leaving nothing to ask).
+        raw = await asyncio.gather(
+            *(_one(pid) for pid in ordered), return_exceptions=True
+        )
+        results: list[tuple[str, Questionnaire | None]] = []
+        failures: list[tuple[str, BaseException]] = []
+        for pid, outcome in zip(ordered, raw):
+            if isinstance(outcome, Exception):
+                slots[pid].status = "error"
+                failures.append((pid, outcome))
+                _logger.warning(
+                    "refine profile %s failed: %r", pid, outcome
+                )
+            else:
+                results.append(outcome)
+        if failures:
+            self._show_sessions(run, list(slots.values()))
+        if failures and not results:
+            detail = ", ".join(
+                f"{pid} ({type(exc).__name__}: {exc})" or pid
+                for pid, exc in failures
+            )
+            raise RuntimeError(f"all specialist interviews failed: {detail}")
 
         questions: list[Question] = []
         for pid, questionnaire in results:

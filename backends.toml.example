@@ -24,18 +24,25 @@ id = "claude"
 type = "claude_cli"
 
 # A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). Text-only.
+# `api_key` (or api_key_env) sets a bearer token if the endpoint needs one.
+# `timeout` (seconds) is worth raising for big/slow models.
 [[backends]]
 id = "local"
 type = "openai_compat"
 base_url = "http://localhost:11434/v1"
 model = "llama3.1:8b"
+# api_key = "sk-…"
+# timeout = 300
 
 # opencode via `opencode serve`. `model` is "provider/model". For a secured
-# server, set api_key_env to the env var holding OPENCODE_SERVER_PASSWORD
-# (and `username` if you overrode OPENCODE_SERVER_USERNAME).
+# server (OPENCODE_SERVER_PASSWORD), give the password inline via `password`
+# (this file is gitignored) or via `api_key_env` (name of an exported env
+# var). `username` defaults to "opencode".
 [[backends]]
 id = "oc"
 type = "opencode"
 base_url = "http://localhost:4096"
 model = "anthropic/claude-sonnet-4"
-# api_key_env = "OPENCODE_SERVER_PASSWORD"
+# username = "opencode"
+# password = "changeme"
+# api_key_env = "OPENCODE_SERVER_PASSWORD"   # alternative to `password`

@@ -67,12 +67,12 @@ class OpenCodeBackend(Backend):
         self._base_url = (cfg.base_url or "http://localhost:4096").rstrip("/")
         self._model = _split_model(cfg.model)
         self._client = client  # injectable for tests
+        self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
         self._live: dict[str, asyncio.Task[None]] = {}
-        # HTTP Basic auth for a secured `opencode serve`
-        # (OPENCODE_SERVER_PASSWORD); username defaults to opencode's own.
-        password = (
-            os.environ.get(cfg.api_key_env) if cfg.api_key_env else None
-        )
+        # HTTP Basic auth for a secured `opencode serve`; username defaults
+        # to opencode's own. The password may be given inline (password/
+        # api_key) or via api_key_env.
+        password = cfg.secret()
         self._auth = (
             httpx.BasicAuth(cfg.username or "opencode", password)
             if password
@@ -276,7 +276,7 @@ class OpenCodeBackend(Backend):
         self, method: str, path: str, json: object | None = None
     ) -> object:
         """Issue one HTTP request against the opencode server."""
-        client = self._client or httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
+        client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.request(
                 method, f"{self._base_url}{path}", json=json, auth=self._auth

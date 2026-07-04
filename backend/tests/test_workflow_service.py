@@ -1014,3 +1014,55 @@ async def test_delete_unknown_raises_not_found() -> None:
     )
     with pytest.raises(WorkflowNotFoundError):
         await svc.delete("nope")
+
+
+@pytest.mark.asyncio
+async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
+    """Ensure a single profile's backend failure (e.g. an LLM timeout)
+    doesn't fail the whole run — the panel proceeds on the survivors."""
+
+    class _FlakyRunner(_FakeRunner):
+        def __init__(self, sessions, outputs) -> None:
+            super().__init__(sessions, outputs)
+            self._failed_one = False
+
+        async def run_turn(self, req, on_session_id=None):
+            # Fail exactly one concurrent generator (atomic in asyncio:
+            # no await between the check and the flag set).
+            if ("interviewing one stakeholder profile" in req.prompt
+                    and not self._failed_one):
+                self._failed_one = True
+                raise RuntimeError("simulated backend timeout")
+            return await super().run_turn(req, on_session_id)
+
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FlakyRunner(SessionRegistry(), outputs=[
+        _coord(["requester", "infosec"]),   # coordinator selects two
+        _qs(_q(qid="q1")),                   # the surviving profile's questions
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    assert svc.get(wid).status != "failed"
+
+
+@pytest.mark.asyncio
+async def test_all_specialists_failing_fails_with_a_clear_error() -> None:
+    """Ensure a run where every specialist fails reports a real error,
+    not the empty message an httpx timeout would otherwise leave."""
+
+    class _AllFlaky(_FakeRunner):
+        async def run_turn(self, req, on_session_id=None):
+            if "interviewing one stakeholder profile" in req.prompt:
+                raise RuntimeError("simulated backend timeout")
+            return await super().run_turn(req, on_session_id)
+
+    runner = _AllFlaky(SessionRegistry(), outputs=[
+        _coord(["requester", "infosec"]),   # coordinator ok; all generators fail
+    ])
+    svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "failed")
+    assert "all specialist interviews failed" in (svc.get(wid).error or "")

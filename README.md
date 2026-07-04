@@ -143,11 +143,11 @@ base_url = "http://localhost:4096"
 model = "anthropic/claude-sonnet-4"
 ```
 
-For a **secured** server (one started with `OPENCODE_SERVER_PASSWORD`), add
-`api_key_env` naming the env var that holds that password — kestrel sends it as
-HTTP Basic auth (username defaults to `opencode`; override with `username`).
-That env var must be **exported** in kestrel's own process (a `.env` line is
-not enough — it isn't exported to the environment the adapter reads):
+For a **secured** server (one started with `OPENCODE_SERVER_PASSWORD`), give the
+password so kestrel can send HTTP Basic auth (username defaults to `opencode`;
+override with `username`). Put it inline via `password` — the config file is
+gitignored — or, to keep it out of the file, use `api_key_env` naming an env
+var you **export** in kestrel's process:
 
 ```toml
 [[backends]]
@@ -155,7 +155,8 @@ id = "oc"
 type = "opencode"
 base_url = "http://localhost:4096"
 model = "opencode/deepseek-v4-flash-free"
-api_key_env = "OPENCODE_SERVER_PASSWORD"   # export this in the shell
+password = "changeme"                      # inline (gitignored file), or:
+# api_key_env = "OPENCODE_SERVER_PASSWORD"  # name of an exported env var
 ```
 
 Its sessions run in the directory where `opencode serve` was started —

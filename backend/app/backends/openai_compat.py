@@ -45,9 +45,8 @@ class OpenAICompatBackend(Backend):
         self.registry = registry
         self._base_url = (cfg.base_url or "http://localhost:11434/v1").rstrip("/")
         self._model = cfg.model or "llama3"
-        self._api_key = (
-            os.environ.get(cfg.api_key_env) if cfg.api_key_env else None
-        )
+        self._api_key = cfg.secret()
+        self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
         self._client = client  # injectable for tests
         self._live: dict[str, asyncio.Task[None]] = {}
 
@@ -164,7 +163,7 @@ class OpenAICompatBackend(Backend):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         payload = {"model": self._model, "messages": messages, "stream": False}
-        client = self._client or httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
+        client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.post(
                 f"{self._base_url}/chat/completions",
@@ -173,7 +172,27 @@ class OpenAICompatBackend(Backend):
             )
             resp.raise_for_status()
             data = resp.json()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"LLM request to {self._base_url} timed out after "
+                f"{self._timeout:.0f}s (model {self._model!r})"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"LLM endpoint {self._base_url} returned "
+                f"{exc.response.status_code} for model {self._model!r}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                f"LLM request to {self._base_url} failed: {exc!r}"
+            ) from exc
         finally:
             if self._client is None:
                 await client.aclose()
-        return data["choices"][0]["message"]["content"]
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError(
+                f"unexpected response from {self._base_url}: "
+                f"{str(data)[:200]}"
+            ) from exc

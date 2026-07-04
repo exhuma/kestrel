@@ -190,6 +190,21 @@ async def test_basic_auth_sent_when_password_configured(
 
 
 @pytest.mark.asyncio
+async def test_inline_password_produces_basic_auth() -> None:
+    """Ensure a password given inline (no env var) is sent as Basic auth."""
+    cfg = BackendConfig(
+        id="oc", type="opencode", base_url="http://oc.local:4096",
+        password="changeme",
+    )
+    backend, _, seen = _backend(_transcript_handler(), cfg)
+    await backend.run_turn(
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
+    )
+    expected = "Basic " + base64.b64encode(b"opencode:changeme").decode()
+    assert all(r.headers.get("authorization") == expected for r in seen)
+
+
+@pytest.mark.asyncio
 async def test_custom_basic_auth_username() -> None:
     """Ensure the username override is honoured."""
     import os

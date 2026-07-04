@@ -23,13 +23,31 @@ class BackendConfig(BaseModel):
     type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
     base_url: str | None = None
     model: str | None = None
-    #: Name of the env var holding this backend's secret — a bearer API
-    #: key (``openai_compat``) or the HTTP Basic password (``opencode``).
+    #: This backend's secret, given directly (fine in a gitignored config
+    #: file): a bearer API key (``openai_compat``) or the HTTP Basic
+    #: password (``opencode``). Prefer ``api_key`` / ``password``; these
+    #: aliases are equivalent.
+    api_key: str | None = None
+    password: str | None = None
+    #: Name of an env var holding the secret instead of giving it inline
+    #: (used when the value is provided by the environment). Takes effect
+    #: only when the direct secret above is unset.
     api_key_env: str | None = None
     #: HTTP Basic username for a secured ``opencode`` server. Defaults to
     #: opencode's own default ("opencode") when a password is configured.
     username: str | None = None
+    #: Per-request timeout in seconds for HTTP backends (openai/opencode).
+    timeout: float | None = None
     caps: list[str] | None = None
+
+    def secret(self) -> str | None:
+        """The resolved secret: an inline value, else the named env var."""
+        import os
+
+        direct = self.api_key or self.password
+        if direct:
+            return direct
+        return os.environ.get(self.api_key_env) if self.api_key_env else None
 
 
 class Settings(BaseSettings):

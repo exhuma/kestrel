@@ -5,7 +5,23 @@ from pathlib import Path
 
 import pytest
 
-from app.config import Settings
+from app.config import BackendConfig, Settings
+
+
+def test_backend_secret_prefers_inline_then_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure secret() reads an inline value, else the named env var."""
+    assert BackendConfig(id="x", password="pw").secret() == "pw"
+    assert BackendConfig(id="x", api_key="key").secret() == "key"
+    assert BackendConfig(id="x").secret() is None
+    monkeypatch.setenv("MY_SECRET", "from-env")
+    assert BackendConfig(id="x", api_key_env="MY_SECRET").secret() == "from-env"
+    # An inline value wins over the env var.
+    assert (
+        BackendConfig(id="x", password="pw", api_key_env="MY_SECRET").secret()
+        == "pw"
+    )
 
 
 def test_settings_read_kestrel_env(
