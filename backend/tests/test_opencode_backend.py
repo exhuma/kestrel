@@ -1,4 +1,11 @@
-"""Tests for the opencode backend (HTTP server mode)."""
+"""Tests for the opencode backend (HTTP server mode).
+
+The request/response shapes here mirror a real ``opencode serve`` (1.15.x):
+``POST /session`` returns ``{id}``; a turn is sent with the synchronous
+``POST /session/:id/message`` and the full transcript (including tool
+messages, which the POST response omits) is read from
+``GET /session/:id/message``.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +23,7 @@ from app.storage.registry import SessionRegistry
 
 
 def _settings() -> Settings:
-    return Settings(workspace_root="/tmp/ws", permission_mode="acceptEdits")
+    return Settings(_env_file=None, workspace_root="/tmp/ws")
 
 
 def _backend(
@@ -37,21 +44,41 @@ def _backend(
     return OpenCodeBackend(_settings(), registry, cfg, client=client), registry, seen
 
 
-def _ok_handler(request: httpx.Request) -> httpx.Response:
-    """Create a session, then return a text + tool transcript."""
-    if request.url.path == "/session":
-        return httpx.Response(200, json={"id": "oc-1"})
-    if request.url.path == "/session/oc-1/message":
-        return httpx.Response(200, json={
-            "info": {"id": "msg-1"},
-            "parts": [
-                {"type": "text", "text": "all done"},
-                {"type": "tool", "tool": "read",
-                 "state": {"status": "completed",
-                           "input": {"path": "x.py"}, "output": "file body"}},
-            ],
-        })
-    return httpx.Response(404)
+# A transcript with a tool message then a final text message — the shape a
+# real turn produces. GET /message is empty until the prompt is POSTed.
+_TRANSCRIPT = [
+    {"info": {"id": "u1", "role": "user"},
+     "parts": [{"type": "text", "text": "do it"}]},
+    {"info": {"id": "a1", "role": "assistant"},
+     "parts": [{"type": "tool", "tool": "read",
+                "state": {"status": "completed",
+                          "input": {"path": "x.py"}, "output": "file body"}}]},
+    {"info": {"id": "a2", "role": "assistant"},
+     "parts": [{"type": "text", "text": "all done"}]},
+]
+
+
+def _transcript_handler():
+    state = {"sent": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "oc-1"})
+        if path == "/session/oc-1/message":
+            if request.method == "GET":
+                return httpx.Response(
+                    200, json=_TRANSCRIPT if state["sent"] else []
+                )
+            if request.method == "POST":
+                state["sent"] = True
+                return httpx.Response(
+                    200, json={"info": {"id": "a2"},
+                               "parts": [{"type": "text", "text": "all done"}]}
+                )
+        return httpx.Response(404)
+
+    return handler
 
 
 def test_split_model_parses_provider_and_model() -> None:
@@ -65,14 +92,14 @@ def test_split_model_parses_provider_and_model() -> None:
 
 def test_backend_can_edit_files() -> None:
     """Ensure opencode advertises file editing (a full agent)."""
-    backend, _, _ = _backend(_ok_handler)
+    backend, _, _ = _backend(_transcript_handler())
     assert backend.caps == frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
 
 @pytest.mark.asyncio
-async def test_run_turn_creates_session_and_maps_parts() -> None:
-    """Ensure a turn creates a session and maps text + tool parts."""
-    backend, reg, seen = _backend(_ok_handler)
+async def test_run_turn_maps_tool_and_text_messages() -> None:
+    """Ensure a turn maps the tool message and the final text message."""
+    backend, reg, seen = _backend(_transcript_handler())
 
     result = await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
@@ -82,18 +109,19 @@ async def test_run_turn_creates_session_and_maps_parts() -> None:
     assert result.final_text == "all done"
     rec = reg.get("oc-1")
     assert [e.kind for e in rec.events] == [
-        EventKind.USER_TEXT, EventKind.ASSISTANT_TEXT,
-        EventKind.TOOL_USE, EventKind.TOOL_RESULT, EventKind.RESULT,
+        EventKind.USER_TEXT, EventKind.TOOL_USE,
+        EventKind.TOOL_RESULT, EventKind.ASSISTANT_TEXT, EventKind.RESULT,
     ]
-    tool_use = rec.events[2]
-    assert tool_use.tool_name == "read"
-    assert tool_use.tool_summary == "x.py"
-    assert rec.events[3].text == "file body"
+    assert rec.events[1].tool_name == "read"
+    assert rec.events[1].tool_summary == "x.py"
+    assert rec.events[2].text == "file body"
     assert rec.status == "idle"
 
-    # The message request carried the parsed model object.
-    msg = next(r for r in seen if r.url.path == "/session/oc-1/message")
-    body = json.loads(msg.content)
+    post = next(
+        r for r in seen
+        if r.url.path == "/session/oc-1/message" and r.method == "POST"
+    )
+    body = json.loads(post.content)
     assert body["model"] == {"providerID": "anthropic", "modelID": "claude-sonnet-4"}
     assert body["parts"] == [{"type": "text", "text": "do it"}]
 
@@ -101,7 +129,7 @@ async def test_run_turn_creates_session_and_maps_parts() -> None:
 @pytest.mark.asyncio
 async def test_start_streams_a_turn_in_the_background() -> None:
     """Ensure start returns immediately then completes the turn."""
-    backend, reg, _ = _backend(_ok_handler)
+    backend, reg, _ = _backend(_transcript_handler())
     sid = await backend.start("do it")
 
     for _ in range(100):
@@ -118,8 +146,10 @@ async def test_start_streams_a_turn_in_the_background() -> None:
 async def test_server_error_surfaces_as_a_failed_result() -> None:
     """Ensure an opencode error never leaves the session stuck running."""
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/session":
+        if request.url.path == "/session" and request.method == "POST":
             return httpx.Response(200, json={"id": "oc-1"})
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
         return httpx.Response(500, json={"error": "boom"})
 
     backend, reg, _ = _backend(handler)
@@ -139,11 +169,9 @@ async def test_server_error_surfaces_as_a_failed_result() -> None:
 def test_registry_builds_an_opencode_backend() -> None:
     """Ensure a configured opencode backend is resolvable."""
     settings = Settings(
-        workspace_root="/tmp/ws",
+        _env_file=None, workspace_root="/tmp/ws",
         backends=[
-            BackendConfig(
-                id="oc", type="opencode", base_url="http://oc:4096"
-            )
+            BackendConfig(id="oc", type="opencode", base_url="http://oc:4096")
         ],
         default_session_backend="oc",
     )

@@ -134,7 +134,18 @@ class OpenCodeBackend(Backend):
             )
 
     async def _turn(self, session_id: str, prompt: str) -> str:
-        """Send the prompt, map the returned parts, append a RESULT."""
+        """Send the prompt, map this turn's new messages, append a RESULT.
+
+        A turn produces several assistant messages (tool calls then a final
+        text message); the synchronous ``POST /message`` returns only the
+        last one, so the full transcript is read from ``GET /message`` and
+        the messages that are new since before the prompt are mapped.
+        Snapshotting before the prompt keeps this correct across resumes
+        and process restarts (existing history is not re-emitted).
+        """
+        seen = {
+            self._msg_id(m) for m in await self._messages(session_id)
+        }
         self.registry.append_event(
             session_id,
             CanonicalEvent(
@@ -144,12 +155,17 @@ class OpenCodeBackend(Backend):
         body: dict[str, object] = {"parts": [{"type": "text", "text": prompt}]}
         if self._model is not None:
             body["model"] = self._model
-        data = await self._request(
+        await self._request(
             "POST", f"/session/{session_id}/message", json=body
         )
-        parts = data.get("parts") if isinstance(data, dict) else None
-        texts = self._emit_parts(session_id, parts or [])
-        final = "\n".join(texts)
+        texts: list[str] = []
+        for message in await self._messages(session_id):
+            if self._msg_role(message) != "assistant":
+                continue  # user echo — we already emitted USER_TEXT
+            if self._msg_id(message) in seen:
+                continue  # from an earlier turn
+            texts += self._emit_parts(session_id, self._msg_parts(message))
+        final = "\n".join(t for t in texts if t)
         self.registry.append_event(
             session_id,
             CanonicalEvent(
@@ -157,6 +173,26 @@ class OpenCodeBackend(Backend):
             ),
         )
         return final
+
+    async def _messages(self, session_id: str) -> list[dict]:
+        """Fetch the full message transcript for a session."""
+        data = await self._request("GET", f"/session/{session_id}/message")
+        return [m for m in data if isinstance(m, dict)] if isinstance(data, list) else []
+
+    @staticmethod
+    def _msg_id(message: dict) -> str | None:
+        info = message.get("info")
+        return info.get("id") if isinstance(info, dict) else None
+
+    @staticmethod
+    def _msg_role(message: dict) -> str | None:
+        info = message.get("info")
+        return info.get("role") if isinstance(info, dict) else None
+
+    @staticmethod
+    def _msg_parts(message: dict) -> list[object]:
+        parts = message.get("parts")
+        return parts if isinstance(parts, list) else []
 
     def _emit_parts(
         self, session_id: str, parts: list[object]
