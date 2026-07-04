@@ -81,65 +81,81 @@ above.
 ### Backends (experimental)
 
 Kestrel dispatches to a pluggable **backend**. By default the only backend is
-the bundled `claude` CLI, so no configuration is needed. To make ad-hoc
-sessions (the **Sessions** panel / `POST /api/sessions`) run on a different
-system, declare backends as JSON and pick the default:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `KESTREL_BACKENDS` | `[{"id":"claude","type":"claude_cli"}]` | Available backends |
-| `KESTREL_DEFAULT_SESSION_BACKEND` | `claude` | Backend for ad-hoc sessions |
-| `KESTREL_STEP_BACKENDS` | `{}` | Per-workflow-step backend, e.g. `{"implement":"claude"}` |
-
-Config is read once at startup — **restart the backend after editing `.env`**.
-On boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
-to: …`), and `GET /api/backends` reports it live.
-
-**Where backends apply.** Ad-hoc sessions use `KESTREL_DEFAULT_SESSION_BACKEND`.
-Each GitHub-workflow step (`refine`, `plan`, `implement`) uses
-`KESTREL_STEP_BACKENDS[step]` if set, else the same default. A step only
-accepts a backend that can satisfy it: `implement` needs file-editing
-(`claude`/`opencode`), while `refine`/`plan` need only text — so a plain LLM
-may serve them (it just won't read the repo). A bad mapping (e.g. a text-only
-LLM on `implement`) fails that run with a clear capability error.
-
-A backend entry has `id`, `type` (`claude_cli` \| `openai_compat` \|
-`opencode`), and per-type fields (`base_url`, `model`, `api_key_env`). Example —
-route ad-hoc sessions to a self-hosted, OpenAI-compatible model (Ollama, vLLM,
-LocalAI, …):
+the bundled `claude` CLI, so no configuration is needed. To add backends
+(self-hosted LLMs, opencode), write a **TOML file** and point kestrel at it:
 
 ```bash
-KESTREL_BACKENDS='[{"id":"claude","type":"claude_cli"},
-  {"id":"local","type":"openai_compat",
-   "base_url":"http://localhost:11434/v1","model":"llama3"}]'
-KESTREL_DEFAULT_SESSION_BACKEND=local
+KESTREL_BACKENDS_FILE=backends.toml   # relative to the working dir, or absolute
 ```
+
+Copy [`backends.toml.example`](backends.toml.example) to `backends.toml` and
+edit. It declares the available backends, the ad-hoc-session default, and the
+per-workflow-step assignments:
+
+```toml
+default_session_backend = "local"
+
+[step_backends]           # step -> backend id; omitted steps use the default
+implement = "claude"      # keep implement on claude (see the opencode note)
+
+[[backends]]
+id = "claude"
+type = "claude_cli"
+
+[[backends]]
+id = "local"
+type = "openai_compat"    # a self-hosted OpenAI-compatible LLM
+base_url = "http://localhost:11434/v1"
+model = "llama3.1:8b"
+```
+
+Config is read once at startup — **restart the backend after editing it**. On
+boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
+to: …`), and `GET /api/backends` reports it live. In Docker, mount the file and
+set the env var (see the commented lines in `docker-compose.yml`).
+
+> Without `KESTREL_BACKENDS_FILE` you can instead set `KESTREL_BACKENDS` (JSON),
+> `KESTREL_DEFAULT_SESSION_BACKEND`, and `KESTREL_STEP_BACKENDS` (JSON) directly
+> — but the file is easier to get right. The file supersedes these when set.
+
+**Where backends apply.** Ad-hoc sessions (the **Sessions** panel /
+`POST /api/sessions`) use `default_session_backend`. Each GitHub-workflow step
+(`refine`, `plan`, `implement`) uses its `step_backends` entry if set, else the
+same default. A step only accepts a backend that can satisfy it: `implement`
+needs file-editing (`claude`/`opencode`), while `refine`/`plan` need only text
+— so a plain LLM may serve them (it just won't read the repo). A bad mapping
+(e.g. a text-only LLM on `implement`) fails that run with a clear capability
+error.
 
 The `openai_compat` backend is **text-only** (no file edits or tools); kestrel
 owns the conversation history and replays it each turn.
 
 The `opencode` backend is a full file-editing agent reached over
 [`opencode serve`](https://opencode.ai/docs/server/). Start the server
-separately (`opencode serve --port 4096`) and point `base_url` at it; set
+separately (`opencode serve --port 4096`), point `base_url` at it, and set
 `model` as `provider/model`:
 
-```bash
-KESTREL_BACKENDS='[{"id":"claude","type":"claude_cli"},
-  {"id":"oc","type":"opencode","base_url":"http://localhost:4096",
-   "model":"anthropic/claude-sonnet-4"}]'
-KESTREL_DEFAULT_SESSION_BACKEND=oc
+```toml
+[[backends]]
+id = "oc"
+type = "opencode"
+base_url = "http://localhost:4096"
+model = "anthropic/claude-sonnet-4"
 ```
 
-For a **secured** server (one started with `OPENCODE_SERVER_PASSWORD`), set
-`api_key_env` to the name of the env var holding that password — kestrel sends
-it as HTTP Basic auth (username defaults to `opencode`; override with
-`username`). Make sure that env var is exported in kestrel's own process:
+For a **secured** server (one started with `OPENCODE_SERVER_PASSWORD`), add
+`api_key_env` naming the env var that holds that password — kestrel sends it as
+HTTP Basic auth (username defaults to `opencode`; override with `username`).
+That env var must be **exported** in kestrel's own process (a `.env` line is
+not enough — it isn't exported to the environment the adapter reads):
 
-```bash
-export OPENCODE_SERVER_PASSWORD=…            # same secret the server uses
-KESTREL_BACKENDS='[{"id":"oc","type":"opencode","base_url":"http://localhost:4096",
-   "model":"opencode/deepseek-v4-flash-free","api_key_env":"OPENCODE_SERVER_PASSWORD"}]'
-KESTREL_DEFAULT_SESSION_BACKEND=oc
+```toml
+[[backends]]
+id = "oc"
+type = "opencode"
+base_url = "http://localhost:4096"
+model = "opencode/deepseek-v4-flash-free"
+api_key_env = "OPENCODE_SERVER_PASSWORD"   # export this in the shell
 ```
 
 Its sessions run in the directory where `opencode serve` was started —

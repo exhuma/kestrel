@@ -1,0 +1,41 @@
+# kestrel backend configuration.
+#
+# Point kestrel at this file with KESTREL_BACKENDS_FILE (see README). When
+# set, it supersedes the KESTREL_BACKENDS / KESTREL_STEP_BACKENDS /
+# KESTREL_DEFAULT_SESSION_BACKEND env vars. Copy to `backends.toml` and edit.
+
+# Backend used for ad-hoc /api/sessions dispatch.
+default_session_backend = "claude"
+
+# Per-workflow-step backend (step -> backend id); steps omitted use the
+# default above. `implement` edits a per-run workspace, so keep it on an
+# agent that honours the working directory (claude).
+[step_backends]
+refine    = "claude"
+plan      = "claude"
+implement = "claude"
+
+# --- backends ---------------------------------------------------------------
+# Each [[backends]] entry: id, type (claude_cli | openai_compat | opencode),
+# and per-type fields (base_url, model, api_key_env, username).
+
+[[backends]]
+id = "claude"
+type = "claude_cli"
+
+# A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). Text-only.
+[[backends]]
+id = "local"
+type = "openai_compat"
+base_url = "http://localhost:11434/v1"
+model = "llama3.1:8b"
+
+# opencode via `opencode serve`. `model` is "provider/model". For a secured
+# server, set api_key_env to the env var holding OPENCODE_SERVER_PASSWORD
+# (and `username` if you overrode OPENCODE_SERVER_USERNAME).
+[[backends]]
+id = "oc"
+type = "opencode"
+base_url = "http://localhost:4096"
+model = "anthropic/claude-sonnet-4"
+# api_key_env = "OPENCODE_SERVER_PASSWORD"

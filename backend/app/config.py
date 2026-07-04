@@ -1,10 +1,12 @@
 """Application configuration via pydantic-settings."""
 from __future__ import annotations
 
+import tomllib
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,8 +55,15 @@ class Settings(BaseSettings):
     git_base: str = "https://github.com"
     database_url: str = "sqlite:///./kestrel.db"
     model_overrides: dict[str, str] = {}
+    #: Path to a TOML file holding the backend config (``backends``,
+    #: ``step_backends``, ``default_session_backend``). When set, it
+    #: supersedes those three env vars — the recommended way to configure
+    #: backends (mount it as a volume in Docker). Relative paths resolve
+    #: against the working directory.
+    backends_file: str = ""
     #: Dispatchable agent backends. Defaults to claude-only, preserving
-    #: today's behavior. Supply as JSON via ``KESTREL_BACKENDS``.
+    #: today's behavior. Prefer ``KESTREL_BACKENDS_FILE``; otherwise supply
+    #: as JSON via ``KESTREL_BACKENDS``.
     backends: list[BackendConfig] = Field(
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
@@ -63,6 +72,33 @@ class Settings(BaseSettings):
     step_backends: dict[str, str] = {}
     #: Backend used for ad-hoc ``/api/sessions`` dispatch.
     default_session_backend: str = "claude"
+
+    @model_validator(mode="after")
+    def _apply_backends_file(self) -> Settings:
+        """Overlay backend config from ``backends_file`` when set.
+
+        The file owns ``backends`` / ``step_backends`` /
+        ``default_session_backend``; any it omits keeps its env/default
+        value. A missing or malformed file fails fast at startup.
+        """
+        if not self.backends_file:
+            return self
+        path = Path(self.backends_file)
+        if not path.is_file():
+            raise ValueError(f"backends_file not found: {path}")
+        try:
+            data = tomllib.loads(path.read_text())
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"invalid TOML in {path}: {exc}") from exc
+        if "backends" in data:
+            self.backends = [
+                BackendConfig(**entry) for entry in data["backends"]
+            ]
+        if "step_backends" in data:
+            self.step_backends = dict(data["step_backends"])
+        if "default_session_backend" in data:
+            self.default_session_backend = data["default_session_backend"]
+        return self
 
 
 @lru_cache
