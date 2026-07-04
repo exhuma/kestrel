@@ -35,6 +35,12 @@ def _result_claude(tmp_path: Path, payload: str) -> Path:
 
 
 def _settings(**kw: object) -> Settings:
+    # Pin backends explicitly so the suite never depends on a developer's
+    # local backend/.env (which pydantic-settings would otherwise read).
+    kw.setdefault(
+        "backends", [BackendConfig(id="claude", type="claude_cli")]
+    )
+    kw.setdefault("default_session_backend", "claude")
     return Settings(
         claude_bin=kw.pop("claude_bin", "claude"),
         workspace_root=str(kw.pop("workspace_root", "/tmp/ws")),
