@@ -251,6 +251,10 @@ function stepTone(status: string): string {
             >
               <span class="chip__dot" aria-hidden="true" />
               <span class="chip__label mono">{{ s.label }}</span>
+              <!-- live flourish: swap the element + .chip__fx CSS block to
+                   try a different effect (see CSS). -->
+              <span v-if="s.status === 'running'" class="chip__fx"
+                aria-hidden="true">✦</span>
             </button>
           </div>
           <div v-else class="working">
@@ -485,6 +489,30 @@ function stepTone(status: string): string {
   70% { box-shadow: 0 0 0 6px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
+
+/* ---- live-chip flourish — SWAPPABLE (currently: sparkle) -------------
+   A subtle "AI is working" twinkle on the trailing ✦. To try a different
+   effect (e.g. a rainbow gradient sweep), replace this block and the
+   `.chip__fx` element in the template above; nothing else references it. */
+.chip__fx {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--c);
+  transform-origin: center;
+  animation: chip-sparkle 1.6s ease-in-out infinite;
+}
+@keyframes chip-sparkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.75) rotate(0deg); }
+  50% {
+    opacity: 1;
+    transform: scale(1.15) rotate(90deg);
+    filter: drop-shadow(0 0 3px var(--c));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip__fx { animation: none; opacity: 0.8; }
+}
+/* --------------------------------------------------------------------- */
 
 /* Telemetry drawer — opened on demand from a chip, capped in height so
    the raw event stream can never push the panel around. */
