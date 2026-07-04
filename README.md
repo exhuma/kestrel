@@ -103,8 +103,23 @@ KESTREL_DEFAULT_SESSION_BACKEND=local
 ```
 
 The `openai_compat` backend is **text-only** (no file edits or tools); kestrel
-owns the conversation history and replays it each turn. `opencode` and
-per-workflow-step backend selection are in progress.
+owns the conversation history and replays it each turn.
+
+The `opencode` backend is a full file-editing agent reached over
+[`opencode serve`](https://opencode.ai/docs/server/). Start the server
+separately (`opencode serve --port 4096`) and point `base_url` at it; set
+`model` as `provider/model`:
+
+```bash
+KESTREL_BACKENDS='[{"id":"claude","type":"claude_cli"},
+  {"id":"oc","type":"opencode","base_url":"http://localhost:4096",
+   "model":"anthropic/claude-sonnet-4"}]'
+KESTREL_DEFAULT_SESSION_BACKEND=oc
+```
+
+Its sessions run in the directory where `opencode serve` was started. Live
+token-streaming (via opencode's `/event` SSE), an auto-started `serve`
+supervisor, and per-workflow-step backend selection are still in progress.
 
 ## Running from source (development)
 
