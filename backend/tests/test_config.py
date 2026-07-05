@@ -103,6 +103,27 @@ def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
     assert s.backends[1].base_url == "http://localhost:4096"
 
 
+def test_backend_env_vars_are_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure backends are file-only: the env vars have no effect.
+
+    ``KESTREL_BACKENDS`` / ``KESTREL_STEP_BACKENDS`` /
+    ``KESTREL_DEFAULT_SESSION_BACKEND`` were dropped in favour of
+    ``KESTREL_BACKENDS_FILE``; setting them must not change config.
+    """
+    monkeypatch.setenv(
+        "KESTREL_BACKENDS",
+        '[{"id": "ghost", "type": "claude_cli"}]',
+    )
+    monkeypatch.setenv("KESTREL_DEFAULT_SESSION_BACKEND", "ghost")
+    monkeypatch.setenv("KESTREL_STEP_BACKENDS", '{"plan": "ghost"}')
+    s = Settings(_env_file=None)
+    assert [b.id for b in s.backends] == ["claude"]
+    assert s.default_session_backend == "claude"
+    assert s.step_backends == {}
+
+
 def test_backends_file_missing_fails_fast(tmp_path: Path) -> None:
     """Ensure a bad backends_file path raises at settings load."""
     with pytest.raises(Exception) as exc:

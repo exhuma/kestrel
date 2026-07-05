@@ -113,8 +113,8 @@ def get_backend_policy() -> BackendPolicy:
     """
     Return the process-wide BackendPolicy singleton.
 
-    Steps not listed in ``KESTREL_STEP_BACKENDS`` fall back to
-    ``KESTREL_DEFAULT_SESSION_BACKEND``.
+    Steps not listed in the backends file's ``step_backends`` fall back
+    to its ``default_session_backend``.
 
     :returns: The cached backend policy instance.
     """
