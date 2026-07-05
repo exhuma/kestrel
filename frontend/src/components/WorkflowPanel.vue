@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
 import QuestionnaireForm from './QuestionnaireForm.vue'
-import { createPendingInterviewParser } from '../lib/questionnaire'
+import { createPendingInterviewParser, parseQuestionnaire } from '../lib/questionnaire'
+import { renderMarkdown } from '../lib/markdown'
 import EventCard from './EventCard.vue'
 import { toViewModel } from '../lib/eventView'
 
@@ -47,6 +48,16 @@ const pendingInterview = computed(() =>
 const issueUrl = computed(() =>
   current.value ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}` : '',
 )
+
+// Prose deliverables (refined issue, plan) are markdown — render them as
+// HTML. A structured deliverable (a questionnaire envelope) parses as JSON,
+// so we never feed it to the markdown renderer; those fall back to the raw
+// <pre> view (and, while awaiting input, to the questionnaire form).
+const deliverableHtml = computed(() => {
+  const text = activeStep.value?.deliverable
+  if (!text || parseQuestionnaire(text)) return null
+  return renderMarkdown(text)
+})
 
 // Named specialist sessions active right now, shown as activity chips.
 const activeSessions = computed(() => current.value?.active_sessions ?? [])
@@ -299,7 +310,9 @@ function stepTone(status: string): string {
           <div class="eyebrow">
             {{ awaitingInput ? `${activeStep.name} — agent asks` : `${activeStep.name} deliverable` }}
           </div>
-          <pre class="deliverable__text mono">{{ activeStep.deliverable }}</pre>
+          <div v-if="deliverableHtml" class="markdown deliverable__prose"
+            v-html="deliverableHtml" />
+          <pre v-else class="deliverable__text mono">{{ activeStep.deliverable }}</pre>
         </div>
 
         <div class="gate" v-if="awaitingApproval">
@@ -432,6 +445,11 @@ function stepTone(status: string): string {
   border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px;
   font-size: 12.5px; color: var(--text-hi); margin: 6px 0 0;
 }
+/* Cap rendered prose to a comfortable reading measure (~66ch) instead of the
+   full stage width — matches the .qform convention. The .markdown element
+   styling itself lives globally in theme.css (scoped rules can't reach
+   v-html children). */
+.deliverable__prose { max-width: 44rem; margin: 6px 0 0; }
 .working {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;
   border: 1px solid var(--line); border-radius: var(--r-md);

@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@mdi/font": "^7.4.47",
+    "markdown-it": "^14.3.0",
     "vue": "^3.5.39",
     "vuetify": "^4.1.2"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/test-utils": "^2.4.6",
