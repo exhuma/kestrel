@@ -1191,6 +1191,30 @@ async def test_delete_removes_workspace_dir(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_backend_error_result_fails_run_loudly() -> None:
+    """Ensure an errored agent turn fails the run with the message.
+
+    A claude auth failure surfaces as a BackendTurnError; the run must go
+    to "failed" carrying the message rather than parking a bogus
+    deliverable at an approval gate.
+    """
+    from app.backends.base import BackendTurnError
+
+    class _ErroringRunner(_FakeRunner):
+        async def run_turn(self, req, on_session_id=None):
+            raise BackendTurnError(
+                "agent backend error: Not logged in · Please run /login"
+            )
+
+    runner = _ErroringRunner(SessionRegistry(), outputs=[])
+    svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+
+    await _wait(lambda: svc.get(wid).status == "failed")
+    assert "Not logged in" in (svc.get(wid).error or "")
+
+
+@pytest.mark.asyncio
 async def test_watch_activity_reflects_live_events_on_chip() -> None:
     """Ensure the activity monitor maps a session's events onto its chip."""
     runner = _FakeRunner(SessionRegistry(), outputs=[])

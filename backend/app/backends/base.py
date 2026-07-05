@@ -11,6 +11,16 @@ from enum import Enum
 from typing import Callable, Protocol, runtime_checkable
 
 
+class BackendTurnError(Exception):
+    """Raised when a backend turn ends in an error result.
+
+    The agent reported a failure (an auth error like "Not logged in", an
+    execution error, …) instead of a usable deliverable. Raising lets the
+    workflow driver fail the run loudly with the message, rather than
+    passing the error text off as the step's deliverable.
+    """
+
+
 class Capability(str, Enum):
     """What a backend can do, used to match backends to step requirements.
 

@@ -10,9 +10,15 @@ from __future__ import annotations
 
 from typing import Callable
 
-from app.backends.base import Backend, Capability, TurnRequest, TurnResult
+from app.backends.base import (
+    Backend,
+    BackendTurnError,
+    Capability,
+    TurnRequest,
+    TurnResult,
+)
 from app.config import Settings
-from app.models import EventKind
+from app.models import CanonicalEvent, EventKind
 from app.services.runner import SessionRunner
 from app.storage.registry import SessionRegistry
 
@@ -54,14 +60,24 @@ class ClaudeCliBackend(Backend):
             on_session_id=on_session_id,
             model=req.model,
         )
-        return TurnResult(session_id=sid, final_text=self._final_text(sid))
+        result = self._terminal_result(sid)
+        text = result.text if result and isinstance(result.text, str) else ""
+        if result is not None and result.is_error:
+            # The agent errored (e.g. "Not logged in · Please run /login")
+            # rather than producing a deliverable; fail loudly so the run
+            # goes to `failed` with the message instead of parking the
+            # error text at an approval gate as a bogus deliverable.
+            raise BackendTurnError(
+                f"agent backend error: {text or 'the agent reported an error'}"
+            )
+        return TurnResult(session_id=sid, final_text=text)
 
-    def _final_text(self, session_id: str) -> str:
-        """Read the deliverable from the session's terminal RESULT event."""
+    def _terminal_result(self, session_id: str) -> CanonicalEvent | None:
+        """Return the session's terminal RESULT event, or None."""
         record = self.registry.get(session_id)
         if record is None:
-            return ""
+            return None
         for event in reversed(record.events):
             if event.kind == EventKind.RESULT:
-                return event.text if isinstance(event.text, str) else ""
-        return ""
+                return event
+        return None
