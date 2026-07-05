@@ -16,12 +16,33 @@ function titleCase(id: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+/**
+ * Coerce a select question with no options into free text (in place).
+ *
+ * Mirrors the backend `coerce_answerable`: a weak model sometimes emits a
+ * single/multi-select with an empty `options` list, which renders no inputs
+ * and can never register as answered. Rendering it as free text (the form's
+ * `<textarea>` fallback) keeps stale or edge-case questionnaires answerable.
+ */
+function coerceAnswerable(questions: Question[]): void {
+  for (const q of questions) {
+    if (
+      (q.type === 'single_select' || q.type === 'multi_select') &&
+      !(Array.isArray(q.options) && q.options.length > 0)
+    ) {
+      q.type = 'free_text'
+    }
+  }
+}
+
 function normaliseQuestionnaire(obj: unknown): Questionnaire | null {
   if (typeof obj !== 'object' || obj === null) return null
   const o = obj as Record<string, unknown>
   if (!Array.isArray(o.questions)) return null
+  const questions = o.questions as Question[]
+  coerceAnswerable(questions)
   return {
-    questions: o.questions as Question[],
+    questions,
     profiles: Array.isArray(o.profiles) ? (o.profiles as ProfileMeta[]) : [],
     issues: Array.isArray(o.issues) ? (o.issues as GenerationIssue[]) : [],
   }

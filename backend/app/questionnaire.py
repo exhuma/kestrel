@@ -156,9 +156,11 @@ def parse_questionnaire_json(text: str) -> Questionnaire | None:
         JSON matching the schema.
     """
     try:
-        return Questionnaire.model_validate_json(text)
+        questionnaire = Questionnaire.model_validate_json(text)
     except (ValueError, ValidationError):
         return None
+    coerce_answerable(questionnaire.questions)
+    return questionnaire
 
 
 def build_envelope(envelope: InterviewEnvelope) -> str:
@@ -174,9 +176,11 @@ def parse_envelope(text: str) -> InterviewEnvelope | None:
     :returns: The envelope, or None if the text is not a valid one.
     """
     try:
-        return InterviewEnvelope.model_validate_json(text)
+        envelope = InterviewEnvelope.model_validate_json(text)
     except (ValueError, ValidationError):
         return None
+    coerce_answerable(envelope.questionnaire.questions)
+    return envelope
 
 
 class AnswerValidationError(Exception):

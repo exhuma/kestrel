@@ -289,6 +289,50 @@ def test_coerce_answerable_converts_optionless_selects() -> None:
     ]
 
 
+def test_parse_envelope_coerces_optionless_selects() -> None:
+    """Ensure a stored envelope's option-less selects load as answerable.
+
+    A questionnaire persisted before the generation-time fix keeps its
+    option-less selects; on load they must become free text so a plain
+    string answer validates and counts as complete.
+    """
+    q = Questionnaire(
+        questions=[
+            Question(id="s1", prompt="Scope?", type="single_select",
+                     options=[], required=True),
+            Question(id="s2", prompt="Which?", type="multi_select",
+                     options=[], required=True),
+        ]
+    )
+    env = InterviewEnvelope(questionnaire=q, issue="x")
+    restored = parse_envelope(build_envelope(env))
+    assert restored is not None
+    assert [q.type for q in restored.questionnaire.questions] == [
+        "free_text", "free_text",
+    ]
+    # A plain-string answer to a formerly option-less select is now valid
+    # and complete — previously it was rejected as "must be one of []".
+    answers = {"s1": "core API", "s2": "auth"}
+    validate_answers(restored.questionnaire, answers)
+    assert all_required_answered(restored.questionnaire, answers) is True
+
+
+def test_parse_questionnaire_json_coerces_optionless_selects() -> None:
+    """Ensure the bare-questionnaire path (implement blocker) coerces too."""
+    from app.questionnaire import parse_questionnaire_json
+
+    text = Questionnaire(
+        questions=[
+            Question(id="s1", prompt="?", type="single_select", options=[]),
+            Question(id="s2", prompt="?", type="single_select",
+                     options=[QuestionOption(value="x", label="X")]),
+        ]
+    ).model_dump_json()
+    parsed = parse_questionnaire_json(text)
+    assert parsed is not None
+    assert [q.type for q in parsed.questions] == ["free_text", "single_select"]
+
+
 def test_parse_envelope_rejects_non_envelope() -> None:
     """Ensure a bare questionnaire is not mistaken for an envelope."""
     assert parse_envelope('{"questions": []}') is None

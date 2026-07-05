@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import QuestionnaireForm from '../../src/components/QuestionnaireForm.vue'
+import { parseQuestionnaire } from '../../src/lib/questionnaire'
 import type { Question, Questionnaire } from '../../src/types/questionnaire'
 
 function q(partial: Partial<Question> & { id: string }): Question {
@@ -103,6 +104,37 @@ describe('QuestionnaireForm', () => {
     await wrapper.find('form').trigger('submit')
     submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<string, unknown>
     expect(submitted.q1).toBe('oidc')
+  })
+
+  it('renders an option-less select as a text box that enables submit once filled', async () => {
+    // A stale/edge questionnaire whose select carries no options: parsed
+    // through the same path the parent uses, it must reach the form as an
+    // answerable free-text input rather than a dead, un-answerable select.
+    const parsed = parseQuestionnaire(JSON.stringify({
+      questions: [q({
+        id: 'q1', prompt: 'Scope?', type: 'single_select', options: [],
+      })],
+      profiles: [],
+    }))!
+    const wrapper = mount(QuestionnaireForm, {
+      props: { questionnaire: parsed, draftAnswers: {}, round: 1 },
+    })
+    // Required and unanswered → submit disabled, and a textarea is present.
+    expect(
+      wrapper.find('button[type="submit"]').attributes('disabled'),
+    ).toBeDefined()
+    const field = textareaFor(wrapper, 'q1')
+    expect(field.exists()).toBe(true)
+
+    await field.setValue('the core API')
+    expect(
+      wrapper.find('button[type="submit"]').attributes('disabled'),
+    ).toBeUndefined()
+    await wrapper.find('form').trigger('submit')
+    const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
+      string, unknown
+    >
+    expect(submitted.q1).toBe('the core API')
   })
 
   it('on a genuine round change, keeps answers for surviving question ids and drops the rest', async () => {

@@ -63,6 +63,23 @@ describe('parseInterview / parseQuestionnaire', () => {
     const text = JSON.stringify({ questions: [single], profiles: [] })
     expect(parseInterview(text)?.questionnaire.issues).toEqual([])
   })
+
+  it('coerces an option-less select to free text, leaving others untouched', () => {
+    const text = JSON.stringify({
+      questions: [
+        q({ id: 's1', type: 'single_select', options: [] }),
+        q({ id: 's2', type: 'multi_select', options: [] }),
+        single,
+      ],
+      profiles: [],
+    })
+    const qs = parseInterview(text)!.questionnaire.questions
+    expect(qs.map((x) => x.type)).toEqual([
+      'free_text', 'free_text', 'single_select',
+    ])
+    // The bare-questionnaire path coerces identically.
+    expect(parseQuestionnaire(text)!.questions[0].type).toBe('free_text')
+  })
 })
 
 describe('createPendingInterviewParser', () => {
