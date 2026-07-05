@@ -45,6 +45,10 @@ class WorkflowStepOut(BaseModel):
     session_id: str | None
     status: str
     deliverable: str | None
+    #: Monotonic counter, bumped only on a genuine refine-questionnaire
+    #: change; lets the frontend ignore no-op SSE updates instead of
+    #: resetting in-progress form answers.
+    refine_round: int
 
 
 class WorkflowSummary(BaseModel):

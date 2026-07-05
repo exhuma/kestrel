@@ -179,13 +179,11 @@ def test_envelope_round_trips() -> None:
     env = InterviewEnvelope(
         questionnaire=_questionnaire(),
         draft_answers={"q1": "oidc"},
-        round=2,
         issue="Original issue text",
     )
     restored = parse_envelope(build_envelope(env))
     assert restored is not None
     assert restored.draft_answers == {"q1": "oidc"}
-    assert restored.round == 2
     assert restored.issue == "Original issue text"
 
 

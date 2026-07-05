@@ -659,7 +659,7 @@ class WorkflowService:
                 raise InvalidWorkflowStateError("interview state lost")
             issue = envelope.issue
             accumulated = list(envelope.accumulated)
-            round_no = envelope.round
+            round_no = step.refine_round
             answers = await self._control[run.id].replies.get()
             accumulated += to_entries(envelope.questionnaire, answers)
             round_no += 1
@@ -686,12 +686,12 @@ class WorkflowService:
             )
             if not questionnaire.questions:
                 break
+            step.refine_round = round_no
             step.deliverable = build_envelope(
                 InterviewEnvelope(
                     questionnaire=questionnaire,
                     draft_answers={},
                     accumulated=accumulated,
-                    round=round_no,
                     issue=issue,
                 )
             )

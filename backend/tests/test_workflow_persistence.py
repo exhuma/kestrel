@@ -96,6 +96,30 @@ def test_migrations_create_workflow_tables(
     assert {"workflow_run", "workflow_step"} <= names
 
 
+def test_migrations_add_refine_round_column(
+    tmp_path: Path,
+) -> None:
+    """Ensure the refine_round marker column exists after migrating."""
+    url = _migrate(tmp_path / "t2.db")
+    columns = {
+        c["name"]
+        for c in sa.inspect(sa.create_engine(url)).get_columns(
+            "workflow_step"
+        )
+    }
+    assert "refine_round" in columns
+
+
+def test_refine_round_round_trips(tmp_path: Path) -> None:
+    """Ensure the refine round counter survives a save/load cycle."""
+    store = _store(tmp_path)
+    run = _run()
+    run.steps[0].refine_round = 2
+    store.save(run)
+    loaded = store.load_all()
+    assert loaded[0].steps[0].refine_round == 2
+
+
 def test_save_and_load_round_trip(tmp_path: Path) -> None:
     """Ensure a run and its steps survive a save/load cycle."""
     store = _store(tmp_path)

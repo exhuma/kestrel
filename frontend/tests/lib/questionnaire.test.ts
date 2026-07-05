@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   allRequiredAnswered,
+  createPendingInterviewParser,
   groupByProfile,
   parseInterview,
   parseQuestionnaire,
@@ -41,6 +42,42 @@ describe('parseInterview / parseQuestionnaire', () => {
   it('returns null for prose and null input', () => {
     expect(parseInterview('just prose')).toBeNull()
     expect(parseInterview(null)).toBeNull()
+  })
+})
+
+describe('createPendingInterviewParser', () => {
+  const text = JSON.stringify({ questions: [single], profiles: [] })
+
+  it('returns the same reference for repeated calls at the same round', () => {
+    const parse = createPendingInterviewParser()
+    const first = parse('wf-1', { deliverable: text, refine_round: 1 })
+    // A structurally-equal but distinct `step` object, as a fresh SSE
+    // frame would produce — the round hasn't changed, so this must not
+    // be treated as new data.
+    const second = parse('wf-1', { deliverable: text, refine_round: 1 })
+    expect(first).not.toBeNull()
+    expect(second).toBe(first)
+  })
+
+  it('returns a new reference once the round advances', () => {
+    const parse = createPendingInterviewParser()
+    const first = parse('wf-1', { deliverable: text, refine_round: 1 })
+    const second = parse('wf-1', { deliverable: text, refine_round: 2 })
+    expect(second).not.toBe(first)
+    expect(second?.round).toBe(2)
+  })
+
+  it('does not confuse the same round across different workflows', () => {
+    const parse = createPendingInterviewParser()
+    const first = parse('wf-1', { deliverable: text, refine_round: 1 })
+    const second = parse('wf-2', { deliverable: text, refine_round: 1 })
+    expect(second).not.toBe(first)
+  })
+
+  it('returns null once the step disappears', () => {
+    const parse = createPendingInterviewParser()
+    parse('wf-1', { deliverable: text, refine_round: 1 })
+    expect(parse('wf-1', null)).toBeNull()
   })
 })
 
