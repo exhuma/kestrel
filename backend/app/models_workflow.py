@@ -38,6 +38,11 @@ class WorkflowStep:
     status: str = "pending"
     deliverable: str | None = None
     model: str | None = None
+    #: Monotonic counter bumped only when the refine step's interview
+    #: genuinely advances to a new round; the single source of truth
+    #: for round-change detection (distinguishes a genuine
+    #: questionnaire change from a no-op SSE update).
+    refine_round: int = 0
     #: Live sessions backing this step right now (ephemeral chip state;
     #: never persisted — see :class:`StepSession`).
     active_sessions: list[StepSession] = field(default_factory=list)

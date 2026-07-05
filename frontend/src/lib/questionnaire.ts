@@ -1,5 +1,6 @@
 import type {
   InterviewEnvelope,
+  PendingInterview,
   ProfileMeta,
   Question,
   Questionnaire,
@@ -66,6 +67,34 @@ export function parseInterview(
   const questionnaire = normaliseQuestionnaire(obj)
   if (!questionnaire) return null
   return { questionnaire, draft_answers: {} }
+}
+
+/**
+ * Build a memoized parser from a step's (deliverable, refine_round) to a
+ * PendingInterview, returning the *same* object reference when the round
+ * hasn't changed. This stops an SSE tick that carries no real
+ * questionnaire change from looking like "new data" to a downstream
+ * reference-identity watcher.
+ */
+export function createPendingInterviewParser() {
+  let lastKey: string | null = null
+  let lastValue: PendingInterview | null = null
+  return function parsePendingInterview(
+    workflowId: string,
+    step: { deliverable: string | null; refine_round: number } | null,
+  ): PendingInterview | null {
+    if (!step) {
+      lastKey = null
+      lastValue = null
+      return null
+    }
+    const key = `${workflowId}:${step.refine_round}`
+    if (key === lastKey) return lastValue
+    const envelope = parseInterview(step.deliverable)
+    lastValue = envelope ? { ...envelope, round: step.refine_round } : null
+    lastKey = key
+    return lastValue
+  }
 }
 
 /** Type guard: a "cannot answer — recorded reason" answer. */

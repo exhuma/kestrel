@@ -51,6 +51,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
             WorkflowStepOut(
                 name=s.name, session_id=s.session_id,
                 status=s.status, deliverable=s.deliverable,
+                refine_round=s.refine_round,
             )
             for s in run.steps
         ],

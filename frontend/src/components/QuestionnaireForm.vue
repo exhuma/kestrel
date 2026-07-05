@@ -5,10 +5,12 @@ import type { ProfileGroup } from '../lib/questionnaire'
 import {
   allRequiredAnswered, groupByProfile, isAnswered, isWaiver,
 } from '../lib/questionnaire'
+import { debounce } from '../lib/debounce'
 
 const props = defineProps<{
   questionnaire: Questionnaire
   draftAnswers?: Record<string, unknown>
+  round: number
 }>()
 const emit = defineEmits<{
   submit: [answers: Record<string, unknown>]
@@ -16,15 +18,56 @@ const emit = defineEmits<{
 }>()
 
 const answers = reactive<Record<string, unknown>>({ ...(props.draftAnswers ?? {}) })
+const saveStatus = ref<'idle' | 'dirty' | 'saving' | 'saved'>('idle')
+const justAdvanced = ref(false)
 
-// A new round replaces the questionnaire in place; reseed the draft.
+// The round counter only advances on a genuine questionnaire change
+// (bumped server-side, never on a draft save) — unlike the previous
+// reference-identity watch on `questionnaire`, this never fires on an
+// SSE tick that carries no real change, so in-progress answers are
+// never spuriously cleared. On a genuine change, keep local answers
+// for any question id that still exists and drop only the rest.
 watch(
-  () => props.questionnaire,
+  () => props.round,
   () => {
+    const validIds = new Set(props.questionnaire.questions.map((q) => q.id))
+    const merged: Record<string, unknown> = {}
+    for (const [id, value] of Object.entries(answers)) {
+      if (validIds.has(id)) merged[id] = value
+    }
+    for (const [id, value] of Object.entries(props.draftAnswers ?? {})) {
+      if (validIds.has(id) && !(id in merged)) merged[id] = value
+    }
     for (const key of Object.keys(answers)) delete answers[key]
-    Object.assign(answers, props.draftAnswers ?? {})
+    Object.assign(answers, merged)
+    justAdvanced.value = true
+    setTimeout(() => { justAdvanced.value = false }, 4000)
   },
 )
+
+async function flushSave(): Promise<void> {
+  saveStatus.value = 'saving'
+  emit('saveDraft', { ...answers })
+  saveStatus.value = 'saved'
+}
+const debouncedSave = debounce(flushSave, 1200)
+
+// Auto-save on any answer change, debounced so rapid keystrokes
+// coalesce into one draft write rather than one per keystroke.
+watch(
+  answers,
+  () => {
+    saveStatus.value = 'dirty'
+    debouncedSave()
+  },
+  { deep: true },
+)
+
+const SAVE_STATUS_LABEL: Record<typeof saveStatus.value, string> = {
+  idle: '', dirty: 'Unsaved changes…', saving: 'Saving…',
+  saved: 'Answers saved',
+}
+const saveStatusLabel = computed(() => SAVE_STATUS_LABEL[saveStatus.value])
 
 const groups = computed(() => groupByProfile(props.questionnaire, answers))
 const canSubmit = computed(() =>
@@ -86,12 +129,17 @@ function onSubmit(): void {
   if (canSubmit.value) emit('submit', { ...answers })
 }
 function onSaveDraft(): void {
-  emit('saveDraft', { ...answers })
+  void flushSave()
 }
 </script>
 
 <template>
   <form class="qform" @submit.prevent="onSubmit">
+    <div class="qform__notice" role="status" v-if="justAdvanced">
+      <span class="qform__notice-pulse" aria-hidden="true" />
+      New questions arrived — your answers were kept.
+    </div>
+
     <div class="qtabs" role="tablist" v-if="groups.length > 1">
       <button
         v-for="g in groups"
@@ -201,6 +249,9 @@ function onSaveDraft(): void {
       <button type="button" class="btn btn--ghost" @click="onSaveDraft">
         Save progress
       </button>
+      <span class="qform__savestatus mono" v-if="saveStatusLabel">
+        {{ saveStatusLabel }}
+      </span>
     </div>
   </form>
 </template>
@@ -268,6 +319,25 @@ function onSaveDraft(): void {
   font-size: 12.5px; color: var(--text-mid); }
 .qform__waivetoggle { display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: var(--warn); margin-top: 2px; }
-.qform__actions { display: flex; gap: 10px; }
+.qform__actions { display: flex; align-items: center; gap: 10px; }
 .qform__actions .btn { width: auto; padding-left: 22px; padding-right: 22px; }
+.qform__savestatus { font-size: 11px; color: var(--text-dim); }
+
+/* Transient banner shown when the round genuinely advances, matching
+   the working--attention pulse used elsewhere for "needs your eyes". */
+.qform__notice {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border: 1px solid var(--warn); border-radius: var(--r-md);
+  background: var(--ink-700); color: var(--text-hi); font-size: 12.5px;
+}
+.qform__notice-pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--warn);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 45%, transparent);
+  animation: qform-notice-pulse 1.4s ease-out infinite;
+}
+@keyframes qform-notice-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 45%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
 </style>

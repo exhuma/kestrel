@@ -106,6 +106,31 @@ async def test_detail_exposes_steps_and_current_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_exposes_refine_round() -> None:
+    """Ensure the refine_round marker reaches the API/SSE payload."""
+    class _RoundedService(_FakeService):
+        def get(self, workflow_id: str) -> WorkflowRun:
+            return WorkflowRun(
+                id="wf-1", repo="o/r", issue_number=3, issue_title="T",
+                status="awaiting_refine_input",
+                steps=[
+                    WorkflowStep(
+                        "refine", "s0", "awaiting_input", "questions",
+                        refine_round=2,
+                    ),
+                    WorkflowStep("plan"),
+                    WorkflowStep("implement"),
+                ],
+            )
+
+    async with _client(_RoundedService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    assert body["steps"][0]["refine_round"] == 2
+
+
+@pytest.mark.asyncio
 async def test_detail_exposes_active_session_chips() -> None:
     """Ensure the active step's live sessions surface as chips."""
     from app.models_workflow import StepSession

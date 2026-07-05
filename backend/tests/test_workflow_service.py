@@ -518,12 +518,49 @@ async def test_draft_save_persists_without_resuming() -> None:
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
+    round_before = svc.get(wid).steps[0].refine_round
     svc.save_draft(wid, {"developer:q1": "a"})
     # Still parked at the interview; no further agent call fired.
     assert svc.get(wid).status == "awaiting_refine_input"
     assert len(runner.calls) == 2
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     assert envelope.draft_answers == {"developer:q1": "a"}
+    # A draft save must never look like a genuine questionnaire change.
+    assert svc.get(wid).steps[0].refine_round == round_before
+
+
+@pytest.mark.asyncio
+async def test_refine_round_increments_across_interview_rounds() -> None:
+    """Ensure refine_round bumps only when a new questionnaire is
+    genuinely produced, not on a draft save or an unrelated update."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(prompt="Which?",
+               options=[{"value": "a", "label": "A"}])),
+        _coord(["developer"]),
+        _qs(_q(prompt="Which again?",
+               options=[{"value": "b", "label": "B"}])),
+        _coord([]),
+        _refined("Use A then B"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_input"
+    )
+    assert svc.get(wid).steps[0].refine_round == 1
+
+    svc.submit_answers(wid, {"developer:q1": "a"})
+    await _wait(
+        lambda: svc.get(wid).steps[0].refine_round == 2
+    )
+    assert svc.get(wid).status == "awaiting_refine_input"
+
+    svc.submit_answers(wid, {"developer:q1": "b"})
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_approval"
+    )
 
 
 @pytest.mark.asyncio
