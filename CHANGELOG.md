@@ -12,8 +12,19 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
   readiness (HTTP 503 when the database is unreachable).
 - Compose-level healthcheck and `host.docker.internal` mapping so host-run
   backends (Ollama, `opencode serve`) are reachable from the container.
+- Unified logging: uvicorn and application logs share one stdout stream, with
+  `KESTREL_LOG_FORMAT` (`text` default, or `json` for one document per line)
+  and `KESTREL_LOG_LEVEL`. Launch via `python -m app`.
 - Audience-split documentation under `docs/` (getting started, configuration,
-  backends, troubleshooting, development, architecture, releasing).
+  backends, troubleshooting, development, observability, architecture,
+  releasing).
+
+### Changed
+
+- Backends are configured **only** via `KESTREL_BACKENDS_FILE` (or the
+  `backends.toml` it names). The `KESTREL_BACKENDS`,
+  `KESTREL_STEP_BACKENDS`, and `KESTREL_DEFAULT_SESSION_BACKEND` environment
+  variables are no longer read.
 
 ## [2026.7.3-alpha.1] - 2026-07-03
 

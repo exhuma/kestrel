@@ -57,6 +57,9 @@ services:
       KESTREL_PERMISSION_MODE: ${KESTREL_PERMISSION_MODE:-acceptEdits}
       # JSON map of model overrides, e.g. '{"sonnet":"claude-sonnet-5"}'.
       KESTREL_MODEL_OVERRIDES: ${KESTREL_MODEL_OVERRIDES:-{}}
+      # Console logs: 'text' (default) or 'json' (one JSON per line) for a
+      # log pipeline (OTEL, Logstash). See docs/observability.md.
+      KESTREL_LOG_FORMAT: ${KESTREL_LOG_FORMAT:-text}
       # Optional: point at the mounted backends config (uncomment the volume).
       # KESTREL_BACKENDS_FILE: /config/backends.toml
 

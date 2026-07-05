@@ -28,6 +28,16 @@ In development the backend is API-only (`KESTREL_STATIC_DIR` empty) and the
 Vite dev server serves the UI; CORS already allows loopback origins. In the
 packaged image the backend serves the built SPA itself.
 
+`uvicorn app.main:app --reload` is fine for hot-reload, but its logs use
+uvicorn's own format. To get the same **unified** logging the container uses
+(uvicorn + app logs on one stream, `KESTREL_LOG_FORMAT`-aware), run the
+package launcher instead — it supports reload too:
+
+```bash
+KESTREL_RELOAD=1 uv run python -m app        # unified logs + hot-reload
+KESTREL_LOG_FORMAT=json uv run python -m app # structured logs
+```
+
 ## Configuration
 
 Copy `backend/.env.example` to `backend/.env` and edit. It is gitignored.

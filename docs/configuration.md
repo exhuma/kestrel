@@ -19,15 +19,12 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
 | `KESTREL_DATABASE_URL` | `sqlite:///./kestrel.db` | SQLAlchemy database URL (image: `sqlite:////data/kestrel.db`) |
-| `KESTREL_STATIC_DIR` | _(empty)_ | Directory of the built SPA to serve. Empty = API-only (dev); the image sets it to the baked-in bundle |
-| `KESTREL_BACKENDS_FILE` | _(empty)_ | Path to a TOML backend config. Recommended way to configure backends — see [Backends](backends.md) |
-| `KESTREL_BACKENDS` | claude-only | JSON array of backends (alternative to the TOML file) |
-| `KESTREL_DEFAULT_SESSION_BACKEND` | `claude` | Backend id used for ad-hoc `/api/sessions` dispatch |
-| `KESTREL_STEP_BACKENDS` | `{}` | JSON map of workflow step → backend id |
-| `KESTREL_VERSION` | `0.0.0-dev` | The running image's version. Baked in at build time; reported by `GET /healthz` |
+| `KESTREL_BACKENDS_FILE` | _(empty)_ | Path to a TOML backend config — the way to add backends. See [Backends](backends.md) |
+| `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
+| `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
 
-`KESTREL_BACKENDS_FILE`, when set, supersedes `KESTREL_BACKENDS`,
-`KESTREL_STEP_BACKENDS`, and `KESTREL_DEFAULT_SESSION_BACKEND`.
+Backends are configured **only** through `KESTREL_BACKENDS_FILE` (or the
+`backends.toml` it points at) — see [Backends](backends.md).
 
 Unknown or stale `KESTREL_*` keys are ignored rather than causing a startup
 failure, so a leftover key from a rename never crashes the service.
@@ -58,12 +55,21 @@ The image sets these so they normally need no changes:
 See [Getting started → Volumes](getting-started.md#volumes) for the full
 mount table and how the host Claude config is seeded into the container.
 
+## Logging
+
+Logs go to stdout. `KESTREL_LOG_FORMAT` selects human-readable `text`
+(default) or `json` (one JSON document per line) for a log pipeline, and
+`KESTREL_LOG_LEVEL` sets verbosity. See [Observability](observability.md).
+
 ## Health and version
 
 `GET /healthz` returns `{"status":"ok","version":"…"}` when the service is
 ready, and HTTP 503 if the database is unreachable. The container and compose
 healthchecks use this endpoint. Use the `version` field to confirm which
 image build is running.
+
+The version is baked into the image at build time (`KESTREL_VERSION`), so it
+is not a setting you configure — it simply reports the running build.
 
 ## Secrets
 

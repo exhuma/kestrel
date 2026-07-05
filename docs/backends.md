@@ -34,10 +34,8 @@ boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
 to: …`), and `GET /api/backends` reports it live. In Docker, mount the file
 and set the env var (see the commented lines in `docker-compose.yml`).
 
-> Without `KESTREL_BACKENDS_FILE` you can instead set `KESTREL_BACKENDS`
-> (JSON), `KESTREL_DEFAULT_SESSION_BACKEND`, and `KESTREL_STEP_BACKENDS`
-> (JSON) directly — but the file is easier to get right. The file supersedes
-> these when set.
+> The TOML file is the **only** way to configure backends. Without
+> `KESTREL_BACKENDS_FILE` set, kestrel runs claude-only.
 
 ## Reaching a backend from the Docker container
 
