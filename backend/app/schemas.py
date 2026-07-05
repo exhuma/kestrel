@@ -36,6 +36,9 @@ class StepSessionOut(BaseModel):
     badge: str
     session_id: str | None
     status: str
+    #: A 1-2 word hint of the agent's current activity ("thinking",
+    #: "reading", …), derived live from its event stream; None if idle.
+    activity: str | None = None
 
 
 class WorkflowStepOut(BaseModel):
@@ -49,6 +52,9 @@ class WorkflowStepOut(BaseModel):
     #: change; lets the frontend ignore no-op SSE updates instead of
     #: resetting in-progress form answers.
     refine_round: int
+    #: The backend id serving this step (e.g. "claude", "oc", "llm"), so
+    #: the UI can show which agent runs each step.
+    backend: str = ""
 
 
 class WorkflowSummary(BaseModel):
@@ -73,6 +79,9 @@ class WorkflowDetail(BaseModel):
     current_session_id: str | None
     #: Live session chips for the step currently working/awaiting.
     active_sessions: list[StepSessionOut]
+    #: Upper bound on refine interview rounds, so the UI can show the
+    #: current round as "round N / M".
+    refine_max_rounds: int
     pr_url: str | None
     error: str | None
 

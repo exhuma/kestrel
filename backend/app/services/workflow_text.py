@@ -4,9 +4,47 @@ from __future__ import annotations
 import json
 import re
 
+from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
 
 SENTINEL = "<!-- kestrel:refined -->"
+
+#: Map a tool (its bare name, MCP prefixes stripped) to a 1-2 word verb
+#: for the chip activity subtext. Unlisted tools fall back to their own
+#: name, so a new tool still reads sensibly.
+_TOOL_ACTIVITY = {
+    "read": "reading", "grep": "reading", "glob": "reading", "ls": "reading",
+    "edit": "editing", "multiedit": "editing", "write": "editing",
+    "notebookedit": "editing",
+    "bash": "running",
+    "webfetch": "searching", "websearch": "searching",
+    "task": "delegating", "todowrite": "planning",
+}
+
+
+def activity_for(event: CanonicalEvent) -> str | None:
+    """
+    Derive a 1-2 word "what is it doing now" hint from one event.
+
+    Maps the canonical event kind (and, for a tool call, the tool name)
+    to a short verb shown under a session's chip. Returns None for
+    events that carry no useful activity signal (tool results, user
+    text, system, terminal result), so the caller keeps the last hint.
+
+    :param event: The canonical event to interpret.
+    :returns: A short activity word, or None.
+    """
+    if event.kind == EventKind.THINKING:
+        return "thinking"
+    if event.kind == EventKind.ASSISTANT_TEXT:
+        return "writing"
+    if event.kind == EventKind.RATE_LIMIT:
+        return "waiting"
+    if event.kind == EventKind.TOOL_USE:
+        name = (event.tool_name or "").strip().lower()
+        base = name.split("__")[-1] if name else ""
+        return _TOOL_ACTIVITY.get(base, base or "working")
+    return None
 
 
 def has_sentinel(body: str) -> bool:

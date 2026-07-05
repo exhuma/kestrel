@@ -84,6 +84,22 @@ class BackendPolicy:
             raise BackendCapabilityError(step, backend_id, missing)
         return backend
 
+    def backend_id_for(self, step: str) -> str:
+        """
+        Return the backend id assigned to a step, without validating it.
+
+        The non-raising counterpart to :meth:`backend_for`: it resolves
+        the same dotted-key fallback (own key -> parent step -> default)
+        but performs no capability check and never touches the registry,
+        so a read-only view (the workflow detail API) can label each
+        step's backend even if that backend is misconfigured.
+
+        :param step: Workflow step name or dotted sub-step key.
+        :returns: The resolved backend id.
+        """
+        parent = step.split(".", 1)[0]
+        return self._map.get(step) or self._map.get(parent, self._default)
+
     def backends(self) -> list[Backend]:
         """Every configured backend (used to stop a run's sessions)."""
         return self._registry.all()

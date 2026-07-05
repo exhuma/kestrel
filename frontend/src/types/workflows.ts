@@ -5,6 +5,8 @@ export interface WorkflowStep {
   deliverable: string | null
   /** Monotonic counter bumped only on a genuine refine questionnaire change. */
   refine_round: number
+  /** Backend id serving this step (e.g. "claude", "oc", "llm"). */
+  backend: string
 }
 
 /** A live session backing the active step, rendered as an activity chip. */
@@ -14,6 +16,8 @@ export interface StepSession {
   badge: string
   session_id: string | null
   status: string
+  /** 1-2 word hint of the agent's current activity, live; null if idle. */
+  activity: string | null
 }
 
 export interface WorkflowSummary {
@@ -33,6 +37,8 @@ export interface WorkflowDetail {
   steps: WorkflowStep[]
   current_session_id: string | null
   active_sessions: StepSession[]
+  /** Upper bound on refine rounds, for showing "round N / M". */
+  refine_max_rounds: number
   pr_url: string | null
   error: string | null
 }

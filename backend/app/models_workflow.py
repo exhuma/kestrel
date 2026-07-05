@@ -20,6 +20,9 @@ class StepSession:
     :param badge: Theme tone token (see ``styles/theme.css``).
     :param session_id: The claude session id once known, else None.
     :param status: "running" while live, "idle" once finished.
+    :param activity: A 1-2 word hint of what the agent is doing right
+        now (e.g. "thinking", "reading", "editing"), derived live from
+        its event stream; None when unknown or idle.
     """
 
     profile_id: str
@@ -27,6 +30,7 @@ class StepSession:
     badge: str = "sys"
     session_id: str | None = None
     status: str = "running"
+    activity: str | None = None
 
 
 @dataclass

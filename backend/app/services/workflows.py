@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable
 
-from app.backends.base import TurnRequest
+from app.backends.base import Backend, TurnRequest, TurnResult
 from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import InAppNotifier, Notifier
@@ -41,6 +42,7 @@ from app.services.exceptions import (
 from app.services.git import GitService
 from app.services.github import GitHubClient
 from app.services.workflow_text import (
+    activity_for,
     append_sentinel,
     extract_coverage,
     extract_plan,
@@ -68,7 +70,7 @@ _TRANSIENT = (
 
 #: Guard on the coordinator loop so a misbehaving agent can't spin
 #: the interview forever.
-_MAX_REFINE_ROUNDS = 3
+MAX_REFINE_ROUNDS = 3
 
 COORDINATOR_PROMPT = (
     "You are the refinement coordinator for a GitHub issue. Read the "
@@ -713,7 +715,7 @@ class WorkflowService:
             accumulated = []
             round_no = 1
 
-        while round_no <= _MAX_REFINE_ROUNDS:
+        while round_no <= MAX_REFINE_ROUNDS:
             run.status = "refining"
             step.status = "running"
             self._save(run)
@@ -757,6 +759,66 @@ class WorkflowService:
         run.steps[0].active_sessions = slots
         self._save(run)
 
+    def _watch_activity(
+        self, run: WorkflowRun, session_id: str, slot: StepSession
+    ) -> asyncio.Task:
+        """Track a session's live activity onto its chip.
+
+        Subscribes to the session's canonical event stream and maps each
+        event to a 1-2 word activity (:func:`activity_for`), updating the
+        chip and re-publishing the run **only when the word changes** — so
+        a chatty stream costs a handful of SSE ticks, not one per event.
+        Returns the monitor task; the caller cancels it when the turn ends.
+        """
+        # Subscribe synchronously (before the task is scheduled) so no
+        # event slips through between session-id resolution and the
+        # monitor first running.
+        queue = self.sessions.subscribe(session_id)
+
+        async def _watch() -> None:
+            try:
+                while True:
+                    event = await queue.get()
+                    word = activity_for(event)
+                    if word is not None and word != slot.activity:
+                        slot.activity = word
+                        self._save(run)
+            finally:
+                self.sessions.unsubscribe(session_id, queue)
+
+        return asyncio.create_task(_watch())
+
+    async def _run_turn_tracked(
+        self,
+        run: WorkflowRun,
+        backend: Backend,
+        req: TurnRequest,
+        slot: StepSession,
+        bind: Callable[[str], None],
+    ) -> TurnResult:
+        """Run one turn while streaming its live activity onto the chip.
+
+        Wraps *bind* (the existing ``on_session_id`` that records the
+        session id) so that, once the id is known, a :meth:`_watch_activity`
+        monitor starts; it is always cancelled and the activity cleared
+        when the turn finishes, however it finishes.
+        """
+        monitor: asyncio.Task | None = None
+
+        def _on_sid(session_id: str) -> None:
+            nonlocal monitor
+            bind(session_id)
+            monitor = self._watch_activity(run, session_id, slot)
+
+        try:
+            return await backend.run_turn(req, on_session_id=_on_sid)
+        finally:
+            if monitor is not None:
+                monitor.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor
+            slot.activity = None
+
     async def _run_refine_agent(
         self,
         run: WorkflowRun,
@@ -778,18 +840,21 @@ class WorkflowService:
         """
         step = run.steps[0]
 
-        def _on_sid(s: str) -> None:
+        def _bind(s: str) -> None:
             slot.session_id = s
             step.session_id = s
 
         backend = self.backends.backend_for(substep)
-        result = await backend.run_turn(
+        result = await self._run_turn_tracked(
+            run,
+            backend,
             TurnRequest(
                 prompt=prompt, cwd=run.workspace,
                 permission_mode="plan",
                 model=get_policy().model_for(substep),
             ),
-            on_session_id=_on_sid,
+            slot,
+            _bind,
         )
         slot.status = "idle"
         return result.final_text
@@ -1231,13 +1296,16 @@ class WorkflowService:
                 )
                 step.active_sessions = [slot]
                 self._save(run)
-                result = await self.backends.backend_for("plan").run_turn(
+                result = await self._run_turn_tracked(
+                    run,
+                    self.backends.backend_for("plan"),
                     TurnRequest(
                         prompt=prompt, cwd=run.workspace,
                         permission_mode="plan",
                         model=model, resume_id=step.session_id,
                     ),
-                    on_session_id=_bind(step, slot),
+                    slot,
+                    _bind(step, slot),
                 )
                 text = result.final_text
                 # Prefer the tagged block; fall back to the raw
@@ -1285,7 +1353,9 @@ class WorkflowService:
                 )
                 step.active_sessions = [slot]
                 self._save(run)
-                result = await self.backends.backend_for("implement").run_turn(
+                result = await self._run_turn_tracked(
+                    run,
+                    self.backends.backend_for("implement"),
                     TurnRequest(
                         prompt=prompt, cwd=run.workspace,
                         permission_mode="acceptEdits",
@@ -1295,7 +1365,8 @@ class WorkflowService:
                             or run.steps[1].session_id
                         ),
                     ),
-                    on_session_id=_bind(step, slot),
+                    slot,
+                    _bind(step, slot),
                 )
                 text = result.final_text
                 diff = await self.git.diff(run.workspace)

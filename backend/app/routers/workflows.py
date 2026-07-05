@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from app import sse
 from app.models_workflow import WorkflowRun
+from app.policy import get_backend_policy
 from app.schemas import (
     AnswersIn,
     ApproveIn,
@@ -19,7 +20,11 @@ from app.schemas import (
     WorkflowStepOut,
     WorkflowSummary,
 )
-from app.services.workflows import WorkflowService, get_workflow_service
+from app.services.workflows import (
+    MAX_REFINE_ROUNDS,
+    WorkflowService,
+    get_workflow_service,
+)
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
 router = APIRouter(prefix="/api/workflows")
@@ -36,10 +41,11 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
     active_sessions = [
         StepSessionOut(
             profile_id=ss.profile_id, label=ss.label, badge=ss.badge,
-            session_id=ss.session_id, status=ss.status,
+            session_id=ss.session_id, status=ss.status, activity=ss.activity,
         )
         for ss in (active.active_sessions if active else [])
     ]
+    policy = get_backend_policy()
     return WorkflowDetail(
         id=run.id,
         repo=run.repo,
@@ -52,11 +58,13 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
                 name=s.name, session_id=s.session_id,
                 status=s.status, deliverable=s.deliverable,
                 refine_round=s.refine_round,
+                backend=policy.backend_id_for(s.name),
             )
             for s in run.steps
         ],
         current_session_id=service.current_session_id(run),
         active_sessions=active_sessions,
+        refine_max_rounds=MAX_REFINE_ROUNDS,
         pr_url=run.pr_url,
         error=run.error,
     )

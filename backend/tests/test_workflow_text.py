@@ -1,8 +1,10 @@
 """Tests for workflow text helpers."""
 from __future__ import annotations
 
+from app.models import CanonicalEvent, EventKind
 from app.services.workflow_text import (
     SENTINEL,
+    activity_for,
     append_sentinel,
     extract_plan,
     extract_profiles,
@@ -10,6 +12,32 @@ from app.services.workflow_text import (
     extract_refined_issue,
     has_sentinel,
 )
+
+
+def _ev(kind: EventKind, tool_name: str | None = None) -> CanonicalEvent:
+    return CanonicalEvent(kind=kind, session_id="s", tool_name=tool_name)
+
+
+def test_activity_for_maps_kinds_and_tools() -> None:
+    """Ensure event kinds and tools map to short activity verbs."""
+    assert activity_for(_ev(EventKind.THINKING)) == "thinking"
+    assert activity_for(_ev(EventKind.ASSISTANT_TEXT)) == "writing"
+    assert activity_for(_ev(EventKind.RATE_LIMIT)) == "waiting"
+    assert activity_for(_ev(EventKind.TOOL_USE, "Read")) == "reading"
+    assert activity_for(_ev(EventKind.TOOL_USE, "Edit")) == "editing"
+    assert activity_for(_ev(EventKind.TOOL_USE, "Bash")) == "running"
+    # An MCP tool name is stripped to its bare verb-less tail.
+    assert activity_for(_ev(EventKind.TOOL_USE, "mcp__x__frobnicate")) == (
+        "frobnicate"
+    )
+
+
+def test_activity_for_silent_on_uninformative_events() -> None:
+    """Ensure events with no activity signal return None (keep last)."""
+    assert activity_for(_ev(EventKind.TOOL_RESULT)) is None
+    assert activity_for(_ev(EventKind.RESULT)) is None
+    assert activity_for(_ev(EventKind.USER_TEXT)) is None
+    assert activity_for(_ev(EventKind.SYSTEM)) is None
 
 
 def test_has_sentinel_detects_marker() -> None:

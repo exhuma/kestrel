@@ -173,6 +173,55 @@ async def test_detail_exposes_active_session_chips() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_exposes_step_backend_and_max_rounds() -> None:
+    """Ensure each step names its backend and the round bound is sent."""
+    from app.services.workflows import MAX_REFINE_ROUNDS
+
+    async with _client(_FakeService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    # Default config routes every step to the sole "claude" backend.
+    assert [s["backend"] for s in body["steps"]] == ["claude", "claude", "claude"]
+    assert body["refine_max_rounds"] == MAX_REFINE_ROUNDS
+
+
+@pytest.mark.asyncio
+async def test_detail_exposes_chip_activity() -> None:
+    """Ensure a chip's live activity hint reaches the API payload."""
+    from app.models_workflow import StepSession
+
+    class _ActiveService(_FakeService):
+        def get(self, workflow_id: str) -> WorkflowRun:
+            return WorkflowRun(
+                id="wf-1", repo="o/r", issue_number=3, issue_title="T",
+                status="refining",
+                steps=[
+                    WorkflowStep(
+                        "refine", "s2", "running", None,
+                        active_sessions=[
+                            StepSession(
+                                "writer", "Writer", "agent", "s2",
+                                "running", activity="editing",
+                            ),
+                        ],
+                    ),
+                    WorkflowStep("plan"),
+                    WorkflowStep("implement"),
+                ],
+            )
+
+        def current_session_id(self, run) -> str:
+            return "s2"
+
+    async with _client(_ActiveService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    assert body["active_sessions"][0]["activity"] == "editing"
+
+
+@pytest.mark.asyncio
 async def test_workflow_events_unknown_returns_404() -> None:
     """Ensure streaming an unknown workflow is a clean 404."""
     async with _client(_FakeService()) as c:

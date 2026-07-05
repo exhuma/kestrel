@@ -242,7 +242,13 @@ function stepTone(status: string): string {
 
       <div class="stage__body scroll" v-if="current">
         <div v-if="stepRunning" class="crew">
-          <span class="eyebrow">{{ activeStep?.name }} · live</span>
+          <span class="eyebrow">
+            {{ activeStep?.name }}<template
+              v-if="activeStep?.backend"> · {{ activeStep.backend }}</template><template
+              v-if="activeStep?.name === 'refine' && activeStep.refine_round">
+              · round {{ activeStep.refine_round }}/{{ current.refine_max_rounds }}</template>
+            · live
+          </span>
           <div v-if="activeSessions.length" class="chips">
             <button
               v-for="s in activeSessions"
@@ -259,7 +265,10 @@ function stepTone(status: string): string {
               <span v-if="s.status === 'running'" class="chip__fx"
                 aria-hidden="true">✦</span>
               <span v-else class="chip__dot" aria-hidden="true" />
-              <span class="chip__label mono">{{ s.label }}</span>
+              <span class="chip__text">
+                <span class="chip__label mono">{{ s.label }}</span>
+                <span v-if="s.activity" class="chip__activity mono">{{ s.activity }}</span>
+              </span>
             </button>
           </div>
           <div v-else class="working">
@@ -471,7 +480,17 @@ function stepTone(status: string): string {
 .chip:hover:not(:disabled) { border-color: var(--c); color: var(--text-hi); }
 .chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--signal-glow); }
 .chip:disabled { cursor: default; opacity: 0.6; }
+/* Label stacked over its live activity hint, so a chip reads
+   "Writer / editing" without widening into a second pill. */
+.chip__text {
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  line-height: 1.15;
+}
 .chip__label { font-size: 12.5px; }
+.chip__activity {
+  font-size: 9.5px; color: var(--text-dim); text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
 .chip__dot {
   width: 8px; height: 8px; border-radius: 50%; background: var(--c);
   flex: none;
