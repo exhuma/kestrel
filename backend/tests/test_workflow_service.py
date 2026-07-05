@@ -528,6 +528,43 @@ async def test_submit_answers_validates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_incomplete_submission_rejected_by_default() -> None:
+    """Ensure a required question left blank is rejected without the flag."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(qid="q1", prompt="Which?",
+               options=[{"value": "oidc", "label": "OIDC"}])),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    with pytest.raises(AnswerValidationError):
+        svc.submit_answers(wid, {})  # required question unanswered
+
+
+@pytest.mark.asyncio
+async def test_allow_incomplete_answers_accepts_partial_submission() -> None:
+    """Ensure the safety-net flag lets a required question go through blank."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(qid="q1", prompt="Which?",
+               options=[{"value": "oidc", "label": "OIDC"}])),
+        _coord([]),            # next round: nothing more to ask
+        _refined("done"),
+    ])
+    svc = _service(
+        gh, runner, _FakeGit(),
+        settings=_settings(allow_incomplete_answers=True),
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    svc.submit_answers(wid, {})  # tolerated: the interview advances
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+
+@pytest.mark.asyncio
 async def test_draft_save_persists_without_resuming() -> None:
     """Ensure a partial draft is stored and the agent is not resumed."""
     from app.questionnaire import parse_envelope

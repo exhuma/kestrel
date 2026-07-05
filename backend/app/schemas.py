@@ -87,6 +87,9 @@ class WorkflowDetail(BaseModel):
     #: Absolute ceiling on refine rounds (retries included); shown as
     #: "(max M)".
     refine_max_rounds: int
+    #: When true, the UI lets a questionnaire be submitted incomplete
+    #: (a configured safety net); unanswered questions go through blank.
+    allow_incomplete_answers: bool
     pr_url: str | None
     error: str | None
 

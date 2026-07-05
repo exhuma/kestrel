@@ -476,17 +476,20 @@ class WorkflowService:
         """
         run = self.get(workflow_id)
         step = self._awaiting_input_step(run)
+        # Safety net: with the flag on, tolerate missing required answers
+        # (they go through blank) while still rejecting malformed ones.
+        partial = self.settings.allow_incomplete_answers
         if step.name == "refine":
             envelope = parse_envelope(step.deliverable or "")
             if envelope is None:
                 raise InvalidWorkflowStateError("no pending questionnaire")
-            validate_answers(envelope.questionnaire, answers)
+            validate_answers(envelope.questionnaire, answers, partial=partial)
             self._control[workflow_id].replies.put_nowait(answers)
             return
         questionnaire = parse_questionnaire_json(step.deliverable or "")
         if questionnaire is None:
             raise InvalidWorkflowStateError("no pending questionnaire")
-        validate_answers(questionnaire, answers)
+        validate_answers(questionnaire, answers, partial=partial)
         prompt = format_answers(questionnaire, answers)
         self._control[workflow_id].replies.put_nowait(prompt)
 

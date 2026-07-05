@@ -43,6 +43,9 @@ export interface WorkflowDetail {
   refine_round_cap: number
   /** Absolute ceiling on refine rounds (retries included), for "(max M)". */
   refine_max_rounds: number
+  /** Safety net: allow submitting a questionnaire with required questions
+   *  left unanswered (configured server-side). */
+  allow_incomplete_answers: boolean
   pr_url: string | null
   error: string | null
 }

@@ -157,6 +157,39 @@ describe('QuestionnaireForm', () => {
     expect(hard.text()).toContain('Perf')
   })
 
+  it('allows submitting an incomplete questionnaire when allowIncomplete is set', async () => {
+    const wrapper = mount(QuestionnaireForm, {
+      props: {
+        questionnaire: questionnaire(
+          q({ id: 'q1', prompt: 'Which auth?', required: true }),
+        ),
+        draftAnswers: {},
+        round: 1,
+        allowIncomplete: true,
+      },
+    })
+    const submit = wrapper.find('button[type="submit"]')
+    expect(submit.attributes('disabled')).toBeUndefined()
+    expect(submit.text()).toContain('Submit incomplete')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.emitted('submit')).toBeTruthy()
+  })
+
+  it('keeps submit disabled when incomplete without allowIncomplete', () => {
+    const wrapper = mount(QuestionnaireForm, {
+      props: {
+        questionnaire: questionnaire(
+          q({ id: 'q1', prompt: 'Which auth?', required: true }),
+        ),
+        draftAnswers: {},
+        round: 1,
+      },
+    })
+    expect(
+      wrapper.find('button[type="submit"]').attributes('disabled'),
+    ).toBeDefined()
+  })
+
   it('renders no failure notice when there are no issues', () => {
     const wrapper = mount(QuestionnaireForm, {
       props: {

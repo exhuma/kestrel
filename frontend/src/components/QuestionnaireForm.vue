@@ -14,6 +14,8 @@ const props = defineProps<{
   questionnaire: Questionnaire
   draftAnswers?: Record<string, unknown>
   round: number
+  /** Safety net: allow submitting with required questions unanswered. */
+  allowIncomplete?: boolean
 }>()
 const emit = defineEmits<{
   submit: [answers: Record<string, unknown>]
@@ -84,8 +86,14 @@ const softIssues = computed(
 const hardIssues = computed(
   () => issues.value.filter((i) => i.severity === 'hard'),
 )
-const canSubmit = computed(() =>
+const complete = computed(() =>
   allRequiredAnswered(props.questionnaire, answers),
+)
+// The safety net lets an incomplete questionnaire go through (unanswered
+// questions are sent blank); it never blocks a complete one.
+const canSubmit = computed(() => complete.value || !!props.allowIncomplete)
+const submittingIncomplete = computed(
+  () => canSubmit.value && !complete.value,
 )
 
 // One tab per specialist; the tab reuses the same mnemonic + badge as
@@ -346,12 +354,15 @@ function onSaveDraft(): void {
 
     <div class="qform__actions">
       <button type="submit" class="btn btn--primary" :disabled="!canSubmit">
-        Submit answers
+        {{ submittingIncomplete ? 'Submit incomplete' : 'Submit answers' }}
       </button>
       <button type="button" class="btn btn--ghost" @click="onSaveDraft">
         Save progress
       </button>
-      <span class="qform__savestatus mono" v-if="saveStatusLabel">
+      <span v-if="submittingIncomplete" class="qform__incomplete mono">
+        Unanswered questions will be sent blank.
+      </span>
+      <span class="qform__savestatus mono" v-else-if="saveStatusLabel">
         {{ saveStatusLabel }}
       </span>
     </div>
@@ -432,6 +443,7 @@ function onSaveDraft(): void {
 .qform__actions { display: flex; align-items: center; gap: 10px; }
 .qform__actions .btn { width: auto; padding-left: 22px; padding-right: 22px; }
 .qform__savestatus { font-size: 11px; color: var(--text-dim); }
+.qform__incomplete { font-size: 11px; color: var(--warn); }
 
 /* Transient banner shown when the round genuinely advances, matching
    the working--attention pulse used elsewhere for "needs your eyes". */

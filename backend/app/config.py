@@ -161,6 +161,11 @@ class Settings(BaseSettings):
     refine_samples: int = 1
     refine_critic: bool = False
     reconcile_mode: Literal["rewrite", "dedup", "off"] = "rewrite"
+    #: Safety net (``KESTREL_ALLOW_INCOMPLETE_ANSWERS``): when true, a
+    #: questionnaire may be submitted with required questions left
+    #: unanswered (sent blank). Provided answers are still validated for
+    #: well-formedness. Off by default.
+    allow_incomplete_answers: bool = False
 
     @model_validator(mode="after")
     def _apply_backends_file(self) -> Settings:

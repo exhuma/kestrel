@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app import sse
+from app.config import get_settings
 from app.models_workflow import WorkflowRun
 from app.policy import get_backend_policy
 from app.schemas import (
@@ -74,6 +75,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         active_sessions=active_sessions,
         refine_round_cap=round_cap,
         refine_max_rounds=MAX_REFINE_ROUNDS_HARD,
+        allow_incomplete_answers=get_settings().allow_incomplete_answers,
         pr_url=run.pr_url,
         error=run.error,
     )

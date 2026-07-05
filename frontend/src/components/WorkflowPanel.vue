@@ -326,6 +326,7 @@ function stepTone(status: string): string {
             :questionnaire="pendingInterview.questionnaire"
             :draft-answers="pendingInterview.draft_answers"
             :round="pendingInterview.round"
+            :allow-incomplete="current?.allow_incomplete_answers ?? false"
             @submit="onSubmitAnswers" @save-draft="onSaveDraft" />
           <template v-else>
             <textarea v-model="answer" class="field" rows="3"
