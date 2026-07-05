@@ -6,6 +6,8 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
 
 ## [Unreleased]
 
+## [2026.7.5-alpha.1] - 2026-07-05
+
 ### Added
 
 - `GET /healthz` now reports the running image version and verifies database
@@ -47,5 +49,6 @@ sessions.
 - **CalVer release pipeline** — tag-driven GHCR publish with cascading
   channel tags (`alpha`/`beta`/`rc`/`stable`) and no `latest`.
 
-[Unreleased]: https://github.com/exhuma/kestrel/compare/v2026.7.3-alpha.1...HEAD
+[Unreleased]: https://github.com/exhuma/kestrel/compare/v2026.7.5-alpha.1...HEAD
+[2026.7.5-alpha.1]: https://github.com/exhuma/kestrel/compare/v2026.7.3-alpha.1...v2026.7.5-alpha.1
 [2026.7.3-alpha.1]: https://github.com/exhuma/kestrel/releases/tag/v2026.7.3-alpha.1
