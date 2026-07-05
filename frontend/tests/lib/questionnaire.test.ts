@@ -3,8 +3,11 @@ import {
   allRequiredAnswered,
   createPendingInterviewParser,
   groupByProfile,
+  isCustom,
+  noteOf,
   parseInterview,
   parseQuestionnaire,
+  primaryValue,
 } from '../../src/lib/questionnaire'
 import type { Question, Questionnaire } from '../../src/types/questionnaire'
 
@@ -100,6 +103,39 @@ describe('allRequiredAnswered with waivers', () => {
   it('rejects a waiver without a reason', () => {
     expect(
       allRequiredAnswered(questionnaire, { q1: { waived: true, reason: '' } }),
+    ).toBe(false)
+  })
+})
+
+describe('custom corrections and noted answers', () => {
+  const questionnaire: Questionnaire = { questions: [single], profiles: [] }
+
+  it('isCustom guards a {custom} marker', () => {
+    expect(isCustom({ custom: 'nope' })).toBe(true)
+    expect(isCustom({ waived: true, reason: 'x' })).toBe(false)
+    expect(isCustom('oidc')).toBe(false)
+  })
+
+  it('counts a custom correction with text as answered', () => {
+    expect(
+      allRequiredAnswered(questionnaire, { q1: { custom: 'It is a CLI' } }),
+    ).toBe(true)
+    expect(allRequiredAnswered(questionnaire, { q1: { custom: '  ' } })).toBe(
+      false,
+    )
+  })
+
+  it('unwraps a noted answer for its primary value and note', () => {
+    const answers = { q1: { value: 'oidc', note: 'SSO only' } }
+    expect(primaryValue('q1', answers)).toBe('oidc')
+    expect(noteOf('q1', answers)).toBe('SSO only')
+    // A noted answer still satisfies the completeness gate by its value.
+    expect(allRequiredAnswered(questionnaire, answers)).toBe(true)
+  })
+
+  it('does not count a bare note (no value) as answered', () => {
+    expect(
+      allRequiredAnswered(questionnaire, { q1: { value: null, note: 'hmm' } }),
     ).toBe(false)
   })
 })

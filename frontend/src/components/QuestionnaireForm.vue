@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { reactive, computed, ref, watch } from 'vue'
-import type { Questionnaire, WaiverAnswer } from '../types/questionnaire'
+import type {
+  CustomAnswer, Questionnaire, WaiverAnswer,
+} from '../types/questionnaire'
 import type { ProfileGroup } from '../lib/questionnaire'
 import {
-  allRequiredAnswered, groupByProfile, isAnswered, isWaiver,
+  allRequiredAnswered, groupByProfile, isAnswered, isCustom, isWaiver,
+  noteOf, primaryValue,
 } from '../lib/questionnaire'
 import { debounce } from '../lib/debounce'
 
@@ -113,16 +116,50 @@ function toggleWaiver(id: string, on: boolean): void {
 function setReason(id: string, reason: string): void {
   answers[id] = { waived: true, reason } as WaiverAnswer
 }
+
+// "None of these fit" correction — mutually exclusive with the waiver
+// and any concrete answer, since each helper overwrites answers[id].
+function custom(id: string): boolean {
+  return isCustom(answers[id])
+}
+function customTextOf(id: string): string {
+  const v = answers[id]
+  return isCustom(v) ? v.custom : ''
+}
+function toggleCustom(id: string, on: boolean): void {
+  answers[id] = on ? ({ custom: '' } as CustomAnswer) : undefined
+}
+function setCustom(id: string, text: string): void {
+  answers[id] = { custom: text } as CustomAnswer
+}
+
+// A concrete answer may carry an optional "additional information" note.
+// Reads/writes go through these so a note and its answer stay paired.
+function primary(id: string): unknown {
+  return primaryValue(id, answers)
+}
+function noteFor(id: string): string {
+  return noteOf(id, answers)
+}
+function setPrimary(id: string, value: unknown): void {
+  const note = noteOf(id, answers)
+  answers[id] = note ? { value, note } : value
+}
+function setNote(id: string, text: string): void {
+  const value = primaryValue(id, answers)
+  if (!text) answers[id] = value
+  else answers[id] = { value: value ?? null, note: text }
+}
 function toggleMulti(id: string, value: string, checked: boolean): void {
-  const current = new Set(
-    Array.isArray(answers[id]) ? (answers[id] as string[]) : [],
-  )
+  const cur = primary(id)
+  const current = new Set(Array.isArray(cur) ? (cur as string[]) : [])
   if (checked) current.add(value)
   else current.delete(value)
-  answers[id] = Array.from(current)
+  setPrimary(id, Array.from(current))
 }
 function isChecked(id: string, value: string): boolean {
-  return Array.isArray(answers[id]) && (answers[id] as string[]).includes(value)
+  const cur = primary(id)
+  return Array.isArray(cur) && (cur as string[]).includes(value)
 }
 
 function onSubmit(): void {
@@ -181,7 +218,8 @@ function onSaveDraft(): void {
         v-for="q in g.questions"
         :key="q.id"
         class="qform__q"
-        :class="{ 'qform__q--waived': waived(q.id) }"
+        :class="{ 'qform__q--waived': waived(q.id),
+          'qform__q--custom': custom(q.id) }"
         role="group"
         :aria-labelledby="`qp-${q.id}`"
       >
@@ -190,12 +228,12 @@ function onSaveDraft(): void {
         </p>
         <p v-if="q.why" class="qform__why mono">{{ q.why }}</p>
 
-        <template v-if="!waived(q.id)">
+        <template v-if="!waived(q.id) && !custom(q.id)">
           <div v-if="q.type === 'single_select'" class="qform__options">
             <label v-for="o in q.options" :key="o.value" class="qform__option">
               <input type="radio" :name="q.id" :value="o.value"
-                :checked="answers[q.id] === o.value"
-                @change="answers[q.id] = o.value" />
+                :checked="primary(q.id) === o.value"
+                @change="setPrimary(q.id, o.value)" />
               {{ o.label }}
             </label>
           </div>
@@ -211,21 +249,33 @@ function onSaveDraft(): void {
 
           <div v-else-if="q.type === 'boolean'" class="qform__options">
             <label class="qform__option">
-              <input type="radio" :name="q.id" :checked="answers[q.id] === true"
-                @change="answers[q.id] = true" />
+              <input type="radio" :name="q.id" :checked="primary(q.id) === true"
+                @change="setPrimary(q.id, true)" />
               Yes
             </label>
             <label class="qform__option">
-              <input type="radio" :name="q.id" :checked="answers[q.id] === false"
-                @change="answers[q.id] = false" />
+              <input type="radio" :name="q.id" :checked="primary(q.id) === false"
+                @change="setPrimary(q.id, false)" />
               No
             </label>
           </div>
 
           <textarea v-else class="field" rows="2"
-            :value="typeof answers[q.id] === 'string' ? (answers[q.id] as string) : ''"
-            @input="answers[q.id] = ($event.target as HTMLTextAreaElement).value" />
+            :value="typeof primary(q.id) === 'string' ? (primary(q.id) as string) : ''"
+            @input="setPrimary(q.id, ($event.target as HTMLTextAreaElement).value)" />
+
+          <textarea class="field qform__note" rows="2"
+            :value="noteFor(q.id)"
+            placeholder="Additional information (optional)…"
+            @input="setNote(q.id, ($event.target as HTMLTextAreaElement).value)" />
         </template>
+
+        <div v-else-if="custom(q.id)" class="qform__custom">
+          <textarea class="field" rows="2"
+            :value="customTextOf(q.id)"
+            placeholder="Explain what the agent got wrong (required)…"
+            @input="setCustom(q.id, ($event.target as HTMLTextAreaElement).value)" />
+        </div>
 
         <div v-else class="qform__waiver">
           <textarea class="field" rows="2"
@@ -234,11 +284,18 @@ function onSaveDraft(): void {
             @input="setReason(q.id, ($event.target as HTMLTextAreaElement).value)" />
         </div>
 
-        <label class="qform__waivetoggle">
-          <input type="checkbox" :checked="waived(q.id)"
-            @change="toggleWaiver(q.id, ($event.target as HTMLInputElement).checked)" />
-          {{ q.waiver_label || 'Unknown / N/A' }} — give a reason
-        </label>
+        <div class="qform__toggles">
+          <label class="qform__toggle qform__toggle--custom">
+            <input type="checkbox" :checked="custom(q.id)"
+              @change="toggleCustom(q.id, ($event.target as HTMLInputElement).checked)" />
+            None of these fit — tell the agent
+          </label>
+          <label class="qform__toggle qform__toggle--waive">
+            <input type="checkbox" :checked="waived(q.id)"
+              @change="toggleWaiver(q.id, ($event.target as HTMLInputElement).checked)" />
+            {{ q.waiver_label || 'Unknown / N/A' }} — give a reason
+          </label>
+        </div>
       </div>
     </section>
 
@@ -308,6 +365,7 @@ function onSaveDraft(): void {
 .qform__q { border: 1px solid var(--line); border-radius: var(--r-md);
   padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .qform__q--waived { border-style: dashed; border-color: var(--warn); }
+.qform__q--custom { border-style: dashed; border-color: var(--signal); }
 .qform__prompt {
   margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.45;
   color: var(--text-hi);
@@ -317,8 +375,15 @@ function onSaveDraft(): void {
 .qform__options { display: flex; flex-direction: column; gap: 6px; }
 .qform__option { display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; color: var(--text-mid); }
-.qform__waivetoggle { display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: var(--warn); margin-top: 2px; }
+/* Optional "additional information" note, visually secondary to the
+   primary answer it annotates. */
+.qform__note { margin-top: 2px; opacity: 0.9; }
+.qform__toggles { display: flex; flex-wrap: wrap; gap: 6px 16px;
+  margin-top: 2px; }
+.qform__toggle { display: flex; align-items: center; gap: 8px;
+  font-size: 12px; }
+.qform__toggle--waive { color: var(--warn); }
+.qform__toggle--custom { color: var(--signal); }
 .qform__actions { display: flex; align-items: center; gap: 10px; }
 .qform__actions .btn { width: auto; padding-left: 22px; padding-right: 22px; }
 .qform__savestatus { font-size: 11px; color: var(--text-dim); }

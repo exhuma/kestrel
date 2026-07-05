@@ -156,6 +156,46 @@ def _waiver_reason(value: object) -> str:
     return ""
 
 
+def is_custom(value: object) -> bool:
+    """Return True if *value* is a custom-correction marker.
+
+    A ``{"custom": "..."}`` answer means "none of the options fit — here
+    is what the agent got wrong". Unlike a waiver it is fed back to the
+    agent as a correction, never filed as an accepted risk.
+    """
+    return isinstance(value, dict) and isinstance(value.get("custom"), str)
+
+
+def _custom_text(value: object) -> str:
+    """Return the trimmed text of a custom marker ("" if absent)."""
+    if isinstance(value, dict):
+        text = value.get("custom")
+        if isinstance(text, str):
+            return text.strip()
+    return ""
+
+
+def _split_note(value: object) -> tuple[object, str]:
+    """
+    Unwrap a noted answer into its core value and its note.
+
+    A ``{"value": <answer>, "note": "..."}`` answer carries a concrete
+    answer plus optional extra detail. Any other value is its own core
+    with no note.
+
+    :returns: ``(core_value, note)``; ``note`` is "" for a plain answer.
+    """
+    if (
+        isinstance(value, dict)
+        and "value" in value
+        and not is_waiver(value)
+        and not is_custom(value)
+    ):
+        note = value.get("note")
+        return value.get("value"), note.strip() if isinstance(note, str) else ""
+    return value, ""
+
+
 def validate_answers(
     questionnaire: Questionnaire,
     answers: dict[str, object],
@@ -165,14 +205,17 @@ def validate_answers(
     """
     Validate a submitted answer set against its questionnaire.
 
-    A question may be answered concretely (as before) or *waived* with
-    ``{"waived": true, "reason": "..."}``; a waiver always requires a
-    non-empty reason. When ``partial`` is true (a draft save) missing
-    required answers are tolerated; otherwise (finalize) every required
-    question must be answered or waived.
+    A question may be answered concretely (as before), *waived* with
+    ``{"waived": true, "reason": "..."}`` (always needs a non-empty
+    reason), corrected with ``{"custom": "..."}`` (none of the options
+    fit — needs a non-empty explanation), or annotated with
+    ``{"value": <answer>, "note": "..."}`` (a concrete answer plus extra
+    detail). When ``partial`` is true (a draft save) missing required
+    answers are tolerated; otherwise (finalize) every required question
+    must be answered, waived, or corrected.
 
     :param questionnaire: The questionnaire being answered.
-    :param answers: Question id -> submitted value or waiver.
+    :param answers: Question id -> submitted value or marker.
     :param partial: Tolerate missing required answers (draft save).
     :raises AnswerValidationError: If any answer is invalid, with one
         message per offending question id.
@@ -188,6 +231,18 @@ def validate_answers(
             if not _waiver_reason(value):
                 errors[question.id] = "a reason is required to waive"
             continue
+        if is_custom(value):
+            if not _custom_text(value):
+                errors[question.id] = "an explanation is required"
+            continue
+        if (
+            isinstance(value, dict)
+            and "value" in value
+            and not isinstance(value.get("note", ""), str)
+        ):
+            errors[question.id] = "note must be text"
+            continue
+        value, _ = _split_note(value)
         if _is_missing(value):
             if question.required and not partial:
                 errors[question.id] = "answer required"
@@ -228,15 +283,29 @@ def all_required_answered(
             if not _waiver_reason(value):
                 return False
             continue
+        if is_custom(value):
+            if not _custom_text(value):
+                return False
+            continue
+        value, _ = _split_note(value)
         if _is_missing(value):
             return False
     return True
 
 
 def render_answer(question: Question, value: object) -> str:
-    """Render one answer (or waiver) as human-readable text."""
+    """Render one answer (waiver, correction, or note) as text."""
     if is_waiver(value):
         return f"[WAIVED: {question.waiver_label}] {_waiver_reason(value)}"
+    if is_custom(value):
+        return f"[NONE OF THE ABOVE — user clarification] {_custom_text(value)}"
+    value, note = _split_note(value)
+    rendered = _render_core(question, value)
+    return f"{rendered} — additional info: {note}" if note else rendered
+
+
+def _render_core(question: Question, value: object) -> str:
+    """Render a concrete answer value (no marker) as text."""
     if _is_missing(value):
         return "(no answer)"
     if question.type == "boolean":

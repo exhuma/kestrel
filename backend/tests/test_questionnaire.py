@@ -13,6 +13,7 @@ from app.questionnaire import (
     build_envelope,
     format_answers,
     parse_envelope,
+    render_answer,
     render_assumptions_and_risks,
     to_entries,
     validate_answers,
@@ -172,6 +173,68 @@ def test_to_entries_carries_audience_and_waiver() -> None:
     assert entry.audience == "infosec"
     assert entry.waived is True
     assert entry.reason == "Risk accepted by owner"
+
+
+_CUSTOM = {"custom": "The question assumes a web app; this is a CLI."}
+
+
+def test_custom_requires_an_explanation() -> None:
+    """Ensure a 'none of the above' correction needs non-empty text."""
+    with pytest.raises(AnswerValidationError) as exc:
+        validate_answers(_questionnaire(), {"q1": {"custom": "  "}})
+    assert "q1" in exc.value.errors
+
+
+def test_custom_correction_counts_as_answered() -> None:
+    """Ensure a required question corrected with text is complete."""
+    validate_answers(_questionnaire(), {"q1": _CUSTOM})
+    assert all_required_answered(_questionnaire(), {"q1": _CUSTOM}) is True
+
+
+def test_custom_renders_as_clarification_not_a_risk() -> None:
+    """Ensure a correction reaches the agent but not the risk section."""
+    entries = to_entries(_questionnaire(), {"q1": _CUSTOM})
+    assert "NONE OF THE ABOVE" in entries[0].rendered
+    assert "this is a CLI" in entries[0].rendered
+    assert entries[0].waived is False
+    # A correction is fed back as context, never filed as an accepted risk.
+    assert render_assumptions_and_risks(entries) == ""
+
+
+def test_noted_answer_validates_by_its_core_value() -> None:
+    """Ensure a {value, note} answer is validated by its inner value."""
+    validate_answers(
+        _questionnaire(), {"q1": {"value": "oidc", "note": "SSO only"}}
+    )
+    with pytest.raises(AnswerValidationError):
+        validate_answers(
+            _questionnaire(), {"q1": {"value": "nope", "note": "x"}}
+        )
+
+
+def test_noted_answer_rejects_non_text_note() -> None:
+    """Ensure a malformed note type is rejected."""
+    with pytest.raises(AnswerValidationError) as exc:
+        validate_answers(
+            _questionnaire(), {"q1": {"value": "oidc", "note": 5}}
+        )
+    assert "q1" in exc.value.errors
+
+
+def test_noted_answer_appends_additional_info() -> None:
+    """Ensure the note is appended after the rendered answer."""
+    q = _questionnaire()
+    rendered = render_answer(
+        q.questions[0], {"value": "oidc", "note": "SSO only"}
+    )
+    assert rendered.startswith("OIDC")  # option label, not raw value
+    assert "additional info: SSO only" in rendered
+
+
+def test_empty_note_renders_as_plain_answer() -> None:
+    """Ensure an empty note collapses to the bare rendered answer."""
+    q = _questionnaire()
+    assert render_answer(q.questions[0], {"value": "oidc", "note": ""}) == "OIDC"
 
 
 def test_envelope_round_trips() -> None:

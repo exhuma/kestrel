@@ -40,6 +40,17 @@ export interface WaiverAnswer {
   reason: string
 }
 
+/** A "none of these fit — here's what the agent got wrong" correction. */
+export interface CustomAnswer {
+  custom: string
+}
+
+/** A concrete answer with optional extra detail attached. */
+export interface NotedAnswer {
+  value: unknown
+  note: string
+}
+
 /** Persisted working state of a refine interview. */
 export interface InterviewEnvelope {
   questionnaire: Questionnaire

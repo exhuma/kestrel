@@ -1,5 +1,7 @@
 import type {
+  CustomAnswer,
   InterviewEnvelope,
+  NotedAnswer,
   PendingInterview,
   ProfileMeta,
   Question,
@@ -110,6 +112,46 @@ function waiverReason(value: unknown): string {
   return isWaiver(value) ? String(value.reason ?? '').trim() : ''
 }
 
+/** Type guard: a "none of these fit — correct the agent" answer. */
+export function isCustom(value: unknown): value is CustomAnswer {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { custom?: unknown }).custom === 'string'
+  )
+}
+
+function customText(value: unknown): string {
+  return isCustom(value) ? value.custom.trim() : ''
+}
+
+/** Type guard: a concrete answer annotated with extra detail. */
+function isNoted(value: unknown): value is NotedAnswer {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'value' in value &&
+    !isWaiver(value) &&
+    !isCustom(value)
+  )
+}
+
+/** The concrete answer for a question, unwrapping any attached note. */
+export function primaryValue(
+  id: string,
+  answers: Record<string, unknown>,
+): unknown {
+  const value = answers[id]
+  if (isWaiver(value) || isCustom(value)) return undefined
+  return isNoted(value) ? value.value : value
+}
+
+/** The "additional information" note attached to an answer ('' if none). */
+export function noteOf(id: string, answers: Record<string, unknown>): string {
+  const value = answers[id]
+  return isNoted(value) && typeof value.note === 'string' ? value.note : ''
+}
+
 function isMissing(value: unknown): boolean {
   return (
     value === undefined || value === null || value === '' ||
@@ -117,14 +159,15 @@ function isMissing(value: unknown): boolean {
   )
 }
 
-/** True once a single question is answered or validly waived. */
+/** True once a single question is answered, corrected, or validly waived. */
 export function isAnswered(
   question: Question,
   answers: Record<string, unknown>,
 ): boolean {
   const value = answers[question.id]
   if (isWaiver(value)) return waiverReason(value).length > 0
-  return !isMissing(value)
+  if (isCustom(value)) return customText(value).length > 0
+  return !isMissing(primaryValue(question.id, answers))
 }
 
 /**

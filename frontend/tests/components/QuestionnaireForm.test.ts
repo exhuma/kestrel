@@ -46,6 +46,65 @@ describe('QuestionnaireForm', () => {
     expect(textareaFor(wrapper, 'q1').element.value).toBe('use OIDC')
   })
 
+  it('a custom correction satisfies submit and emits a {custom} answer', async () => {
+    const wrapper = mount(QuestionnaireForm, {
+      props: {
+        questionnaire: questionnaire(q({
+          id: 'q1', prompt: 'Which auth?', type: 'single_select',
+          options: [{ value: 'oidc', label: 'OIDC' }],
+        })),
+        draftAnswers: {},
+        round: 1,
+      },
+    })
+    // A required, unanswered question keeps submit disabled.
+    expect(
+      wrapper.find('button[type="submit"]').attributes('disabled'),
+    ).toBeDefined()
+
+    const block = blockFor(wrapper, 'q1')!
+    await block.find('.qform__toggle--custom input').setValue(true)
+    await block.find('.qform__custom textarea').setValue('It is a CLI, not web')
+
+    expect(
+      wrapper.find('button[type="submit"]').attributes('disabled'),
+    ).toBeUndefined()
+    await wrapper.find('form').trigger('submit')
+    const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
+      string, unknown
+    >
+    expect(submitted.q1).toEqual({ custom: 'It is a CLI, not web' })
+  })
+
+  it('wraps a selection plus additional info into {value, note}, and collapses when cleared', async () => {
+    const wrapper = mount(QuestionnaireForm, {
+      props: {
+        questionnaire: questionnaire(q({
+          id: 'q1', prompt: 'Which auth?', type: 'single_select',
+          options: [{ value: 'oidc', label: 'OIDC' }],
+        })),
+        draftAnswers: {},
+        round: 1,
+      },
+    })
+    const block = blockFor(wrapper, 'q1')!
+    await block.find('input[type="radio"]').setValue()
+    const note = block.find('.qform__note')
+    await note.setValue('SSO only')
+
+    await wrapper.find('form').trigger('submit')
+    let submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
+      string, unknown
+    >
+    expect(submitted.q1).toEqual({ value: 'oidc', note: 'SSO only' })
+
+    // Clearing the note collapses back to the plain selected value.
+    await note.setValue('')
+    await wrapper.find('form').trigger('submit')
+    submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<string, unknown>
+    expect(submitted.q1).toBe('oidc')
+  })
+
   it('on a genuine round change, keeps answers for surviving question ids and drops the rest', async () => {
     const wrapper = mount(QuestionnaireForm, {
       props: {
