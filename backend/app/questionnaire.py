@@ -130,6 +130,23 @@ class InterviewEnvelope(BaseModel):
     round_cap: int = 3
 
 
+def coerce_answerable(questions: list[Question]) -> None:
+    """Coerce a select question with no options into free text (in place).
+
+    Weak models sometimes emit a single/multi-select with an empty
+    ``options`` list. The UI can render no choices for it, so the only
+    input left is the optional note field and the answer would never
+    register as given. Rendering it as free text keeps it answerable and
+    keeps validation/rendering consistent (a plain string).
+    """
+    for question in questions:
+        if (
+            question.type in ("single_select", "multi_select")
+            and not question.options
+        ):
+            question.type = "free_text"
+
+
 def parse_questionnaire_json(text: str) -> Questionnaire | None:
     """
     Parse bare questionnaire JSON (no surrounding tag).

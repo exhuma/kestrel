@@ -1359,6 +1359,26 @@ async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
 
 
 @pytest.mark.asyncio
+async def test_optionless_select_is_coerced_to_free_text() -> None:
+    """Ensure a select question with no options (weak model) becomes
+    answerable free text — otherwise the UI renders no choices and the
+    answer can only go to the optional note field, never registering."""
+    from app.questionnaire import parse_envelope
+
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(qid="q1", qtype="single_select", options=[])),  # no options
+    ])
+    svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    env = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    assert env is not None
+    assert env.questionnaire.questions[0].type == "free_text"
+
+
+@pytest.mark.asyncio
 async def test_duplicate_question_ids_are_made_unique() -> None:
     """Ensure a weak model reusing a question id within one profile still
     yields unique namespaced ids, so the frontend answer map and v-for

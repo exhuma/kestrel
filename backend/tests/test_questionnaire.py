@@ -271,6 +271,24 @@ def test_envelope_round_trips_retry_state() -> None:
     assert restored.questionnaire.issues[0].severity == "hard"
 
 
+def test_coerce_answerable_converts_optionless_selects() -> None:
+    """Ensure a select with no options becomes free text, others untouched."""
+    from app.questionnaire import coerce_answerable
+
+    qs = [
+        Question(id="a", prompt="?", type="single_select", options=[]),
+        Question(id="b", prompt="?", type="multi_select", options=[]),
+        Question(id="c", prompt="?", type="single_select",
+                 options=[QuestionOption(value="x", label="X")]),
+        Question(id="d", prompt="?", type="free_text"),
+        Question(id="e", prompt="?", type="boolean"),
+    ]
+    coerce_answerable(qs)
+    assert [q.type for q in qs] == [
+        "free_text", "free_text", "single_select", "free_text", "boolean",
+    ]
+
+
 def test_parse_envelope_rejects_non_envelope() -> None:
     """Ensure a bare questionnaire is not mistaken for an envelope."""
     assert parse_envelope('{"questions": []}') is None

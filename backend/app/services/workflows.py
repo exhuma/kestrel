@@ -28,6 +28,7 @@ from app.questionnaire import (
     Question,
     Questionnaire,
     build_envelope,
+    coerce_answerable,
     format_answers,
     parse_envelope,
     parse_questionnaire_json,
@@ -1119,6 +1120,11 @@ class WorkflowService:
                 questions = await self._reconcile_questions(
                     run, issue, questions
                 )
+
+        # A weak model can emit a select with no options — unanswerable in
+        # the UI (no choices render). Coerce those to free text so every
+        # question stays answerable.
+        coerce_answerable(questions)
 
         # Rebuild the profile metadata from the *kept* questions, so a
         # profile whose only question the reconciler dropped no longer
