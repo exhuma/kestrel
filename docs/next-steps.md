@@ -15,6 +15,10 @@ full spec yet (except M-C, which has a draft plan); each deserves its own
 design pass (`superpowers:brainstorming` → `superpowers:writing-plans`)
 before implementation, per this repo's convention.
 
+A separate **Quartermaster kit-alignment backlog** (WP1–WP8) lives in
+[`docs/qm-alignment.md`](qm-alignment.md); those work-packages are independent
+of the roadmap milestones below and can be picked up in isolation.
+
 ## Next milestones (roadmap)
 
 - **M-C · GitHub ingestion & repo ops** —
