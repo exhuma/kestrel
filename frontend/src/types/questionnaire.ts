@@ -29,9 +29,19 @@ export interface ProfileMeta {
   badge: string
 }
 
+/** A stakeholder profile that failed to contribute a questionnaire this
+ *  round (crash, timeout, or empty response) — server-stamped. */
+export interface GenerationIssue {
+  profile: string
+  label: string
+  reason: string
+}
+
 export interface Questionnaire {
   questions: Question[]
   profiles: ProfileMeta[]
+  /** Profiles that failed to respond this round; shown in the gate. */
+  issues?: GenerationIssue[]
 }
 
 /** A "cannot answer — recorded reason" answer (e.g. accepted risk). */

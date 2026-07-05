@@ -257,17 +257,23 @@ function stepTone(status: string): string {
               class="chip"
               :class="[`chip--${s.badge}`,
                 { 'chip--live': s.status === 'running',
+                  'chip--error': s.status === 'error',
                   'chip--open': expandedSession === s.session_id }]"
               :disabled="!s.session_id"
+              :title="s.status === 'error' ? (s.error ?? undefined) : undefined"
               @click="toggleSession(s.session_id)"
             >
-              <!-- live chips get a sparkle in place of the pulsing dot -->
+              <!-- live chips sparkle; errored chips show a warning glyph -->
               <span v-if="s.status === 'running'" class="chip__fx"
                 aria-hidden="true">✦</span>
+              <span v-else-if="s.status === 'error'" class="chip__err-glyph"
+                aria-hidden="true">!</span>
               <span v-else class="chip__dot" aria-hidden="true" />
               <span class="chip__text">
                 <span class="chip__label mono">{{ s.label }}</span>
-                <span v-if="s.activity" class="chip__activity mono">{{ s.activity }}</span>
+                <span v-if="s.status === 'error' && s.error"
+                  class="chip__activity chip__activity--err mono">{{ s.error }}</span>
+                <span v-else-if="s.activity" class="chip__activity mono">{{ s.activity }}</span>
               </span>
             </button>
           </div>
@@ -490,7 +496,11 @@ function stepTone(status: string): string {
 .chip__activity {
   font-size: 9.5px; color: var(--text-dim); text-transform: lowercase;
   letter-spacing: 0.02em;
+  /* An error reason can be long: keep the chip compact, full text in title. */
+  max-width: 22ch; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.chip__activity--err { color: var(--err); text-transform: none; }
 .chip__dot {
   width: 8px; height: 8px; border-radius: 50%; background: var(--c);
   flex: none;
@@ -505,6 +515,20 @@ function stepTone(status: string): string {
 .chip--ok { --c: var(--ok); }
 .chip--err { --c: var(--err); }
 .chip--sys { --c: var(--idle); }
+
+/* A failed sub-agent (crash/timeout/no-response). Status-driven, distinct
+   from the badge tone .chip--err; mirrors the red .banner treatment. */
+.chip--error {
+  --c: var(--err);
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, var(--ink-700));
+}
+.chip__err-glyph {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; border-radius: 50%; flex: none;
+  font-size: 9px; font-weight: 700; line-height: 1;
+  color: var(--ink-900); background: var(--err);
+}
 
 /* ---- live-chip flourish — SWAPPABLE (rainbow border + sparkle) -------
    A running chip gets two combined effects: an animated rainbow gradient

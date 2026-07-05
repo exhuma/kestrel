@@ -39,6 +39,8 @@ class StepSessionOut(BaseModel):
     #: A 1-2 word hint of the agent's current activity ("thinking",
     #: "reading", …), derived live from its event stream; None if idle.
     activity: str | None = None
+    #: When status is "error", a short failure reason for the chip.
+    error: str | None = None
 
 
 class WorkflowStepOut(BaseModel):

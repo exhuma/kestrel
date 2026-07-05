@@ -61,12 +61,29 @@ class ProfileMeta(BaseModel):
     badge: str
 
 
+class GenerationIssue(BaseModel):
+    """One stakeholder profile that failed to contribute this round.
+
+    Server-stamped (never produced by the model), so a specialist that
+    crashed, timed out, or returned nothing is recorded alongside the
+    questionnaire and survives into the review gate after the live chips
+    clear.
+    """
+
+    profile: str
+    label: str
+    reason: str
+
+
 class Questionnaire(BaseModel):
     """A set of clarifying questions asked in one interview round."""
 
     questions: list[Question]
     #: Metadata for the profiles referenced by ``questions.audience``.
     profiles: list[ProfileMeta] = Field(default_factory=list)
+    #: Profiles that failed to contribute this round (stamped by the
+    #: backend, not the model), surfaced in the review gate.
+    issues: list[GenerationIssue] = Field(default_factory=list)
 
 
 class QAEntry(BaseModel):

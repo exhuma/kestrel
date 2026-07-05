@@ -23,6 +23,8 @@ class StepSession:
     :param activity: A 1-2 word hint of what the agent is doing right
         now (e.g. "thinking", "reading", "editing"), derived live from
         its event stream; None when unknown or idle.
+    :param error: When ``status == "error"``, a short reason (timeout,
+        crash, or "no response") shown on the chip; None otherwise.
     """
 
     profile_id: str
@@ -31,6 +33,7 @@ class StepSession:
     session_id: str | None = None
     status: str = "running"
     activity: str | None = None
+    error: str | None = None
 
 
 @dataclass

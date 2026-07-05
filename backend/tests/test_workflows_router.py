@@ -222,6 +222,42 @@ async def test_detail_exposes_chip_activity() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_exposes_chip_error() -> None:
+    """Ensure a failed chip's error message reaches the API payload."""
+    from app.models_workflow import StepSession
+
+    class _ErroredService(_FakeService):
+        def get(self, workflow_id: str) -> WorkflowRun:
+            return WorkflowRun(
+                id="wf-1", repo="o/r", issue_number=3, issue_title="T",
+                status="refining",
+                steps=[
+                    WorkflowStep(
+                        "refine", "s2", "running", None,
+                        active_sessions=[
+                            StepSession(
+                                "infosec", "InfoSec", "warn", "s3",
+                                "error", error="timed out after 120s",
+                            ),
+                        ],
+                    ),
+                    WorkflowStep("plan"),
+                    WorkflowStep("implement"),
+                ],
+            )
+
+        def current_session_id(self, run) -> str:
+            return "s2"
+
+    async with _client(_ErroredService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    assert body["active_sessions"][0]["status"] == "error"
+    assert body["active_sessions"][0]["error"] == "timed out after 120s"
+
+
+@pytest.mark.asyncio
 async def test_workflow_events_unknown_returns_404() -> None:
     """Ensure streaming an unknown workflow is a clean 404."""
     async with _client(_FakeService()) as c:

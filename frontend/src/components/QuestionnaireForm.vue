@@ -73,6 +73,10 @@ const SAVE_STATUS_LABEL: Record<typeof saveStatus.value, string> = {
 const saveStatusLabel = computed(() => SAVE_STATUS_LABEL[saveStatus.value])
 
 const groups = computed(() => groupByProfile(props.questionnaire, answers))
+// Specialists that failed to respond this round (crash/timeout/empty),
+// stamped by the backend; surfaced here so the failure survives after the
+// live chips clear at this gate.
+const issues = computed(() => props.questionnaire.issues ?? [])
 const canSubmit = computed(() =>
   allRequiredAnswered(props.questionnaire, answers),
 )
@@ -175,6 +179,22 @@ function onSaveDraft(): void {
     <div class="qform__notice" role="status" v-if="justAdvanced">
       <span class="qform__notice-pulse" aria-hidden="true" />
       New questions arrived — your answers were kept.
+    </div>
+
+    <div v-if="issues.length" class="qform__issues" role="alert">
+      <span class="qform__issues-glyph" aria-hidden="true">!</span>
+      <div>
+        <p class="qform__issues-head">
+          {{ issues.length }}
+          specialist{{ issues.length > 1 ? 's' : '' }} didn't respond and
+          {{ issues.length > 1 ? 'were' : 'was' }} skipped:
+        </p>
+        <ul class="qform__issues-list">
+          <li v-for="i in issues" :key="i.profile">
+            <span class="qform__issues-label">{{ i.label }}</span> — {{ i.reason }}
+          </li>
+        </ul>
+      </div>
     </div>
 
     <div class="qtabs" role="tablist" v-if="groups.length > 1">
@@ -405,4 +425,23 @@ function onSaveDraft(): void {
   70% { box-shadow: 0 0 0 7px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
+
+/* Persistent record of specialists that failed to respond this round,
+   shown with the questionnaire after the live chips have cleared. */
+.qform__issues {
+  display: flex; gap: 10px; padding: 10px 14px;
+  border: 1px solid var(--err);
+  border-left: 3px solid var(--err); border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--err) 12%, var(--ink-800));
+  color: var(--text-hi); font-size: 12.5px;
+}
+.qform__issues-glyph {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%; flex: none;
+  font-size: 11px; font-weight: 700; color: var(--ink-900);
+  background: var(--err);
+}
+.qform__issues-head { margin: 0 0 4px; font-weight: 600; }
+.qform__issues-list { margin: 0; padding-left: 16px; color: var(--text-mid); }
+.qform__issues-label { color: var(--text-hi); font-weight: 600; }
 </style>

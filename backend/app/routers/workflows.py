@@ -42,6 +42,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         StepSessionOut(
             profile_id=ss.profile_id, label=ss.label, badge=ss.badge,
             session_id=ss.session_id, status=ss.status, activity=ss.activity,
+            error=ss.error,
         )
         for ss in (active.active_sessions if active else [])
     ]

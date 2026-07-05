@@ -46,6 +46,24 @@ describe('parseInterview / parseQuestionnaire', () => {
     expect(parseInterview('just prose')).toBeNull()
     expect(parseInterview(null)).toBeNull()
   })
+
+  it('carries generation issues through the envelope', () => {
+    const text = JSON.stringify({
+      questionnaire: {
+        questions: [single], profiles: [],
+        issues: [{ profile: 'infosec', label: 'InfoSec', reason: 'no response' }],
+      },
+      draft_answers: {},
+    })
+    expect(parseInterview(text)?.questionnaire.issues).toEqual([
+      { profile: 'infosec', label: 'InfoSec', reason: 'no response' },
+    ])
+  })
+
+  it('defaults issues to an empty array when absent', () => {
+    const text = JSON.stringify({ questions: [single], profiles: [] })
+    expect(parseInterview(text)?.questionnaire.issues).toEqual([])
+  })
 })
 
 describe('createPendingInterviewParser', () => {

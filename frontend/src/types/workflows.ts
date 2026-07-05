@@ -18,6 +18,8 @@ export interface StepSession {
   status: string
   /** 1-2 word hint of the agent's current activity, live; null if idle. */
   activity: string | null
+  /** When status is 'error', a short failure reason; null otherwise. */
+  error: string | null
 }
 
 export interface WorkflowSummary {

@@ -1337,3 +1337,65 @@ async def test_all_specialists_failing_fails_with_a_clear_error() -> None:
     wid = await svc.create("o/r", 5)
     await _wait(lambda: svc.get(wid).status == "failed")
     assert "all specialist interviews failed" in (svc.get(wid).error or "")
+
+
+@pytest.mark.asyncio
+async def test_failed_specialist_recorded_in_questionnaire_issues() -> None:
+    """Ensure a failed generator is recorded in the questionnaire's issues,
+    surviving into the review gate after the live chips clear."""
+    from app.questionnaire import parse_envelope
+
+    class _FlakyRunner(_FakeRunner):
+        def __init__(self, sessions, outputs) -> None:
+            super().__init__(sessions, outputs)
+            self._failed_one = False
+
+        async def run_turn(self, req, on_session_id=None):
+            if ("interviewing one stakeholder profile" in req.prompt
+                    and not self._failed_one):
+                self._failed_one = True
+                raise RuntimeError("simulated backend timeout")
+            return await super().run_turn(req, on_session_id)
+
+    runner = _FlakyRunner(SessionRegistry(), outputs=[
+        _coord(["requester", "infosec"]),
+        _qs(_q(qid="q1")),   # the surviving profile's questions
+    ])
+    svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    assert envelope is not None
+    issues = envelope.questionnaire.issues
+    assert len(issues) == 1
+    assert "timeout" in issues[0].reason
+    # The surviving profile still contributed; the failed one asked nothing.
+    assert envelope.questionnaire.questions
+    assert all(
+        q.audience != issues[0].profile
+        for q in envelope.questionnaire.questions
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_generator_response_recorded_as_issue() -> None:
+    """Ensure a profile that parses to no questionnaire is flagged, not
+    silently dropped as a zero-question success."""
+    from app.questionnaire import parse_envelope
+
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["requester", "infosec"]),
+        "I have no questions.",   # no <QUESTIONS> block -> unparseable
+        _qs(_q(qid="q1")),        # the other profile answers
+    ])
+    svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    assert envelope is not None
+    issues = envelope.questionnaire.issues
+    assert len(issues) == 1
+    assert "no response" in issues[0].reason
+    assert envelope.questionnaire.questions

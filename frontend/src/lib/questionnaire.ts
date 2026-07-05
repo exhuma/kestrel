@@ -1,5 +1,6 @@
 import type {
   CustomAnswer,
+  GenerationIssue,
   InterviewEnvelope,
   NotedAnswer,
   PendingInterview,
@@ -22,6 +23,7 @@ function normaliseQuestionnaire(obj: unknown): Questionnaire | null {
   return {
     questions: o.questions as Question[],
     profiles: Array.isArray(o.profiles) ? (o.profiles as ProfileMeta[]) : [],
+    issues: Array.isArray(o.issues) ? (o.issues as GenerationIssue[]) : [],
   }
 }
 

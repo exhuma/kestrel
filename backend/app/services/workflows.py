@@ -21,6 +21,7 @@ from app.storage.notification_bus import get_notification_bus
 from app.policy import BackendPolicy, get_backend_policy, get_policy
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
+    GenerationIssue,
     InterviewEnvelope,
     ProfileMeta,
     QAEntry,
@@ -260,6 +261,17 @@ class _Decision:
     approved: bool
     deliverable: str | None = None
     refinement: str | None = None
+
+
+def _failure_reason(exc: BaseException) -> str:
+    """A concise reason from a failed generator turn, for chip + gate.
+
+    The backend's own errors already read well ("LLM request … timed out
+    after 120s (model 'llama3')"); fall back to the type name and cap the
+    length so it fits a chip.
+    """
+    message = str(exc).strip() or type(exc).__name__
+    return message if len(message) <= 200 else message[:197] + "…"
 
 
 def _bind(step: WorkflowStep, slot: StepSession) -> Callable[[str], None]:
@@ -983,16 +995,36 @@ class WorkflowService:
         )
         results: list[tuple[str, list[Questionnaire | None]]] = []
         failures: list[tuple[str, BaseException]] = []
+        issues: list[GenerationIssue] = []
         for pid, outcome in zip(ordered, raw):
             if isinstance(outcome, Exception):
+                reason = _failure_reason(outcome)
                 slots[pid].status = "error"
+                slots[pid].error = reason
                 failures.append((pid, outcome))
-                _logger.warning(
-                    "refine profile %s failed: %r", pid, outcome
-                )
+                issues.append(GenerationIssue(
+                    profile=pid, label=slots[pid].label, reason=reason
+                ))
+                _logger.warning("refine profile %s failed: %s", pid, reason)
             else:
                 results.append(outcome)
-        if failures:
+        # A profile that returned but parsed to no questionnaire (empty or
+        # garbled output) is a silent failure: it contributes nothing yet
+        # its chip would otherwise read "idle". Flag it too. A valid but
+        # empty questionnaire (nothing to ask) is not a failure.
+        for pid, questionnaires in results:
+            if any(q is not None for q in questionnaires):
+                continue
+            reason = "no response (empty or unparseable output)"
+            slots[pid].status = "error"
+            slots[pid].error = reason
+            issues.append(GenerationIssue(
+                profile=pid, label=slots[pid].label, reason=reason
+            ))
+            _logger.warning(
+                "refine profile %s produced no questionnaire", pid
+            )
+        if issues:
             self._show_sessions(run, list(slots.values()))
         if failures and not results:
             detail = ", ".join(
@@ -1048,7 +1080,8 @@ class WorkflowService:
                 id=profile.id, label=profile.label, badge=profile.badge
             )
         return Questionnaire(
-            questions=questions, profiles=list(profiles.values())
+            questions=questions, profiles=list(profiles.values()),
+            issues=issues,
         )
 
     def _dedup_questions(self, questions: list[Question]) -> list[Question]:

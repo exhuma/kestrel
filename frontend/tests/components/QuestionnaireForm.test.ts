@@ -129,4 +129,37 @@ describe('QuestionnaireForm', () => {
     expect(textareaFor(wrapper, 'q1').element.value).toBe('use OIDC')
     expect(blockFor(wrapper, 'q2')).toBeUndefined()
   })
+
+  it('shows a persistent notice for specialists that failed to respond', () => {
+    const wrapper = mount(QuestionnaireForm, {
+      props: {
+        questionnaire: {
+          questions: [q({ id: 'q1', prompt: 'Which auth?' })],
+          profiles: [],
+          issues: [
+            { profile: 'infosec', label: 'InfoSec',
+              reason: 'timed out after 120s' },
+          ],
+        },
+        draftAnswers: {},
+        round: 1,
+      },
+    })
+    const alert = wrapper.find('.qform__issues')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain("1 specialist didn't respond")
+    expect(alert.text()).toContain('InfoSec')
+    expect(alert.text()).toContain('timed out after 120s')
+  })
+
+  it('renders no failure notice when there are no issues', () => {
+    const wrapper = mount(QuestionnaireForm, {
+      props: {
+        questionnaire: questionnaire(q({ id: 'q1', prompt: 'Which auth?' })),
+        draftAnswers: {},
+        round: 1,
+      },
+    })
+    expect(wrapper.find('.qform__issues').exists()).toBe(false)
+  })
 })
