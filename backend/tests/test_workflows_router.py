@@ -173,9 +173,12 @@ async def test_detail_exposes_active_session_chips() -> None:
 
 
 @pytest.mark.asyncio
-async def test_detail_exposes_step_backend_and_max_rounds() -> None:
-    """Ensure each step names its backend and the round bound is sent."""
-    from app.services.workflows import MAX_REFINE_ROUNDS
+async def test_detail_exposes_step_backend_and_round_caps() -> None:
+    """Ensure each step names its backend and both round bounds are sent."""
+    from app.services.workflows import (
+        MAX_REFINE_ROUNDS,
+        MAX_REFINE_ROUNDS_HARD,
+    )
 
     async with _client(_FakeService()) as c:
         r = await c.get("/api/workflows/wf-1")
@@ -183,7 +186,9 @@ async def test_detail_exposes_step_backend_and_max_rounds() -> None:
     assert r.status_code == 200
     # Default config routes every step to the sole "claude" backend.
     assert [s["backend"] for s in body["steps"]] == ["claude", "claude", "claude"]
-    assert body["refine_max_rounds"] == MAX_REFINE_ROUNDS
+    assert body["refine_max_rounds"] == MAX_REFINE_ROUNDS_HARD
+    # No interview envelope in the deliverable -> base cap.
+    assert body["refine_round_cap"] == MAX_REFINE_ROUNDS
 
 
 @pytest.mark.asyncio

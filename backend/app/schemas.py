@@ -81,8 +81,11 @@ class WorkflowDetail(BaseModel):
     current_session_id: str | None
     #: Live session chips for the step currently working/awaiting.
     active_sessions: list[StepSessionOut]
-    #: Upper bound on refine interview rounds, so the UI can show the
-    #: current round as "round N / M".
+    #: The refine interview's current dynamic round cap (grows by one per
+    #: retry round); shown as "Round N / cap".
+    refine_round_cap: int
+    #: Absolute ceiling on refine rounds (retries included); shown as
+    #: "(max M)".
     refine_max_rounds: int
     pr_url: str | None
     error: str | None

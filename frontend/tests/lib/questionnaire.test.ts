@@ -47,17 +47,16 @@ describe('parseInterview / parseQuestionnaire', () => {
     expect(parseInterview(null)).toBeNull()
   })
 
-  it('carries generation issues through the envelope', () => {
+  it('carries generation issues (with severity) through the envelope', () => {
+    const issue = {
+      profile: 'infosec', label: 'InfoSec', reason: 'no response',
+      severity: 'soft',
+    }
     const text = JSON.stringify({
-      questionnaire: {
-        questions: [single], profiles: [],
-        issues: [{ profile: 'infosec', label: 'InfoSec', reason: 'no response' }],
-      },
+      questionnaire: { questions: [single], profiles: [], issues: [issue] },
       draft_answers: {},
     })
-    expect(parseInterview(text)?.questionnaire.issues).toEqual([
-      { profile: 'infosec', label: 'InfoSec', reason: 'no response' },
-    ])
+    expect(parseInterview(text)?.questionnaire.issues).toEqual([issue])
   })
 
   it('defaults issues to an empty array when absent', () => {

@@ -130,7 +130,7 @@ describe('QuestionnaireForm', () => {
     expect(blockFor(wrapper, 'q2')).toBeUndefined()
   })
 
-  it('shows a persistent notice for specialists that failed to respond', () => {
+  it('shows a soft (retrying) notice distinct from a hard one', () => {
     const wrapper = mount(QuestionnaireForm, {
       props: {
         questionnaire: {
@@ -138,18 +138,23 @@ describe('QuestionnaireForm', () => {
           profiles: [],
           issues: [
             { profile: 'infosec', label: 'InfoSec',
-              reason: 'timed out after 120s' },
+              reason: 'timed out after 120s', severity: 'soft' },
+            { profile: 'perf', label: 'Perf',
+              reason: 'crashed', severity: 'hard' },
           ],
         },
         draftAnswers: {},
         round: 1,
       },
     })
-    const alert = wrapper.find('.qform__issues')
-    expect(alert.exists()).toBe(true)
-    expect(alert.text()).toContain("1 specialist didn't respond")
-    expect(alert.text()).toContain('InfoSec')
-    expect(alert.text()).toContain('timed out after 120s')
+    const soft = wrapper.find('.qform__issues--soft')
+    const hard = wrapper.find('.qform__issues--hard')
+    expect(soft.exists()).toBe(true)
+    expect(soft.text()).toContain('will be retried when you submit')
+    expect(soft.text()).toContain('InfoSec')
+    expect(hard.exists()).toBe(true)
+    expect(hard.text()).toContain('failed after 3 retries')
+    expect(hard.text()).toContain('Perf')
   })
 
   it('renders no failure notice when there are no issues', () => {

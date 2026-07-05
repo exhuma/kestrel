@@ -20,8 +20,10 @@ from app.schemas import (
     WorkflowStepOut,
     WorkflowSummary,
 )
+from app.questionnaire import parse_envelope
 from app.services.workflows import (
     MAX_REFINE_ROUNDS,
+    MAX_REFINE_ROUNDS_HARD,
     WorkflowService,
     get_workflow_service,
 )
@@ -47,6 +49,11 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         for ss in (active.active_sessions if active else [])
     ]
     policy = get_backend_policy()
+    # The dynamic round cap lives in the refine step's interview envelope
+    # (loop state), not a column; read it for the UI's "Round N / cap".
+    refine = next((s for s in run.steps if s.name == "refine"), None)
+    envelope = parse_envelope(refine.deliverable or "") if refine else None
+    round_cap = envelope.round_cap if envelope is not None else MAX_REFINE_ROUNDS
     return WorkflowDetail(
         id=run.id,
         repo=run.repo,
@@ -65,7 +72,8 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         ],
         current_session_id=service.current_session_id(run),
         active_sessions=active_sessions,
-        refine_max_rounds=MAX_REFINE_ROUNDS,
+        refine_round_cap=round_cap,
+        refine_max_rounds=MAX_REFINE_ROUNDS_HARD,
         pr_url=run.pr_url,
         error=run.error,
     )

@@ -30,11 +30,14 @@ export interface ProfileMeta {
 }
 
 /** A stakeholder profile that failed to contribute a questionnaire this
- *  round (crash, timeout, or empty response) — server-stamped. */
+ *  round (crash, timeout, or empty response) — server-stamped.
+ *  'soft' = still within its retry budget (retried on submit);
+ *  'hard' = retries exhausted. */
 export interface GenerationIssue {
   profile: string
   label: string
   reason: string
+  severity: 'soft' | 'hard'
 }
 
 export interface Questionnaire {

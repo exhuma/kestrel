@@ -246,7 +246,8 @@ function stepTone(status: string): string {
             {{ activeStep?.name }}<template
               v-if="activeStep?.backend"> · {{ activeStep.backend }}</template><template
               v-if="activeStep?.name === 'refine' && activeStep.refine_round">
-              · round {{ activeStep.refine_round }}/{{ current.refine_max_rounds }}</template>
+              · round {{ activeStep.refine_round }}/{{ current.refine_round_cap }}
+              (max {{ current.refine_max_rounds }})</template>
             · live
           </span>
           <div v-if="activeSessions.length" class="chips">

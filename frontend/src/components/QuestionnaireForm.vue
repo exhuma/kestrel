@@ -75,8 +75,15 @@ const saveStatusLabel = computed(() => SAVE_STATUS_LABEL[saveStatus.value])
 const groups = computed(() => groupByProfile(props.questionnaire, answers))
 // Specialists that failed to respond this round (crash/timeout/empty),
 // stamped by the backend; surfaced here so the failure survives after the
-// live chips clear at this gate.
+// live chips clear at this gate. Soft failures are retried when the user
+// submits; hard failures have exhausted their retry budget.
 const issues = computed(() => props.questionnaire.issues ?? [])
+const softIssues = computed(
+  () => issues.value.filter((i) => i.severity === 'soft'),
+)
+const hardIssues = computed(
+  () => issues.value.filter((i) => i.severity === 'hard'),
+)
 const canSubmit = computed(() =>
   allRequiredAnswered(props.questionnaire, answers),
 )
@@ -181,16 +188,34 @@ function onSaveDraft(): void {
       New questions arrived — your answers were kept.
     </div>
 
-    <div v-if="issues.length" class="qform__issues" role="alert">
+    <div v-if="softIssues.length" class="qform__issues qform__issues--soft"
+      role="status">
+      <span class="qform__issues-glyph" aria-hidden="true">↻</span>
+      <div>
+        <p class="qform__issues-head">
+          {{ softIssues.length }}
+          specialist{{ softIssues.length > 1 ? 's' : '' }} didn't respond and
+          will be retried when you submit your answers:
+        </p>
+        <ul class="qform__issues-list">
+          <li v-for="i in softIssues" :key="i.profile">
+            <span class="qform__issues-label">{{ i.label }}</span> — {{ i.reason }}
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div v-if="hardIssues.length" class="qform__issues qform__issues--hard"
+      role="alert">
       <span class="qform__issues-glyph" aria-hidden="true">!</span>
       <div>
         <p class="qform__issues-head">
-          {{ issues.length }}
-          specialist{{ issues.length > 1 ? 's' : '' }} didn't respond and
-          {{ issues.length > 1 ? 'were' : 'was' }} skipped:
+          {{ hardIssues.length }}
+          specialist{{ hardIssues.length > 1 ? 's' : '' }} failed after 3
+          retries and {{ hardIssues.length > 1 ? 'were' : 'was' }} skipped:
         </p>
         <ul class="qform__issues-list">
-          <li v-for="i in issues" :key="i.profile">
+          <li v-for="i in hardIssues" :key="i.profile">
             <span class="qform__issues-label">{{ i.label }}</span> — {{ i.reason }}
           </li>
         </ul>
@@ -427,19 +452,23 @@ function onSaveDraft(): void {
 }
 
 /* Persistent record of specialists that failed to respond this round,
-   shown with the questionnaire after the live chips have cleared. */
+   shown with the questionnaire after the live chips have cleared. Soft
+   (retrying) uses the warn tone; hard (given up) uses the error tone. */
 .qform__issues {
+  --tone: var(--err);
   display: flex; gap: 10px; padding: 10px 14px;
-  border: 1px solid var(--err);
-  border-left: 3px solid var(--err); border-radius: var(--r-md);
-  background: color-mix(in srgb, var(--err) 12%, var(--ink-800));
+  border: 1px solid var(--tone);
+  border-left: 3px solid var(--tone); border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--tone) 12%, var(--ink-800));
   color: var(--text-hi); font-size: 12.5px;
 }
+.qform__issues--soft { --tone: var(--warn); }
+.qform__issues--hard { --tone: var(--err); }
 .qform__issues-glyph {
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: 50%; flex: none;
   font-size: 11px; font-weight: 700; color: var(--ink-900);
-  background: var(--err);
+  background: var(--tone);
 }
 .qform__issues-head { margin: 0 0 4px; font-weight: 600; }
 .qform__issues-list { margin: 0; padding-left: 16px; color: var(--text-mid); }

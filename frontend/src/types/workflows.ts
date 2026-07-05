@@ -39,7 +39,9 @@ export interface WorkflowDetail {
   steps: WorkflowStep[]
   current_session_id: string | null
   active_sessions: StepSession[]
-  /** Upper bound on refine rounds, for showing "round N / M". */
+  /** Current dynamic refine round cap (grows per retry), for "Round N / cap". */
+  refine_round_cap: number
+  /** Absolute ceiling on refine rounds (retries included), for "(max M)". */
   refine_max_rounds: number
   pr_url: string | null
   error: string | null

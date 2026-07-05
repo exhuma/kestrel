@@ -487,22 +487,25 @@ async def test_questionnaire_deliverable_is_structured() -> None:
 
 
 @pytest.mark.asyncio
-async def test_malformed_questions_block_is_skipped() -> None:
-    """Ensure a profile whose generator output is malformed simply
-    contributes no questions rather than blocking the run."""
+async def test_malformed_questions_block_surfaces_as_soft_issue() -> None:
+    """Ensure a profile whose generator output is malformed is recorded as
+    a (retryable) soft issue rather than silently finalizing the run."""
+    from app.questionnaire import parse_envelope
+
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
         _coord(["developer"]),
-        "<QUESTIONS>{not json}</QUESTIONS>",  # skipped
-        _refined("ok"),
+        "<QUESTIONS>{not json}</QUESTIONS>",  # unparseable
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
     await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_refine_approval"
+        lambda: svc.get(wid).status == "awaiting_refine_input"
     )
-    assert svc.get(wid).steps[0].deliverable == "ok"
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    assert envelope is not None
+    assert [i.severity for i in envelope.questionnaire.issues] == ["soft"]
+    assert envelope.questionnaire.issues[0].profile == "developer"
 
 
 @pytest.mark.asyncio
@@ -1319,9 +1322,68 @@ async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_specialists_failing_fails_with_a_clear_error() -> None:
-    """Ensure a run where every specialist fails reports a real error,
-    not the empty message an httpx timeout would otherwise leave."""
+async def test_failed_specialist_is_retried_then_hard_capped() -> None:
+    """Ensure a persistently-failing specialist is retried on each submit,
+    the round cap grows per retry, and it flips to hard after 3 retries."""
+    from app.questionnaire import parse_envelope
+
+    class _RetryRunner(_FakeRunner):
+        def __init__(self, sessions) -> None:
+            super().__init__(sessions, outputs=[])
+            self._coord_calls = 0
+
+        async def run_turn(self, req, on_session_id=None):
+            prompt = req.prompt
+            if "refinement coordinator" in prompt:
+                self._coord_calls += 1
+                ids = ["infosec"] if self._coord_calls == 1 else []
+                return TurnResult(session_id="c", final_text=_coord(ids))
+            if "interviewing one stakeholder profile" in prompt:
+                raise RuntimeError("simulated backend timeout")
+            return TurnResult(session_id="w", final_text=_refined("done"))
+
+    runner = _RetryRunner(SessionRegistry())
+    svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+
+    async def _round(n: int):
+        await _wait(
+            lambda: svc.get(wid).status == "awaiting_refine_input"
+            and svc.get(wid).steps[0].refine_round == n
+        )
+        return parse_envelope(svc.get(wid).steps[0].deliverable or "")
+
+    # Round 1: initial failure -> soft, base cap.
+    env = await _round(1)
+    assert env.attempts["infosec"] == 1
+    assert env.round_cap == 3
+    assert env.questionnaire.issues[0].severity == "soft"
+
+    # Rounds 2-3: retried, still soft, cap grows one per retry round.
+    for round_no, cap in ((2, 4), (3, 5)):
+        svc.submit_answers(wid, {})
+        env = await _round(round_no)
+        assert env.attempts["infosec"] == round_no
+        assert env.round_cap == cap
+        assert env.questionnaire.issues[0].severity == "soft"
+
+    # Round 4: the 3rd retry fails -> hard, cap at the ceiling.
+    svc.submit_answers(wid, {})
+    env = await _round(4)
+    assert env.attempts["infosec"] == 4
+    assert env.round_cap == 6
+    assert env.questionnaire.issues[0].severity == "hard"
+
+    # No longer retried: the run finalizes rather than looping.
+    svc.submit_answers(wid, {})
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+
+@pytest.mark.asyncio
+async def test_all_specialists_failing_is_retryable_not_fatal() -> None:
+    """Ensure a round where every specialist fails is presented as soft
+    issues (retryable on submit) rather than failing the whole run."""
+    from app.questionnaire import parse_envelope
 
     class _AllFlaky(_FakeRunner):
         async def run_turn(self, req, on_session_id=None):
@@ -1335,8 +1397,16 @@ async def test_all_specialists_failing_fails_with_a_clear_error() -> None:
     svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
 
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "failed")
-    assert "all specialist interviews failed" in (svc.get(wid).error or "")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    assert svc.get(wid).status != "failed"
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    assert envelope is not None
+    assert sorted(i.profile for i in envelope.questionnaire.issues) == [
+        "infosec", "requester",
+    ]
+    assert all(
+        i.severity == "soft" for i in envelope.questionnaire.issues
+    )
 
 
 @pytest.mark.asyncio

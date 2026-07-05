@@ -69,9 +69,15 @@ _TRANSIENT = (
     "planning", "implementing", "opening_pr",
 )
 
-#: Guard on the coordinator loop so a misbehaving agent can't spin
-#: the interview forever.
+#: Base guard on the coordinator loop so a misbehaving agent can't spin
+#: the interview forever. Retrying a failed specialist extends the cap
+#: (one round per retry) up to ``MAX_REFINE_ROUNDS_HARD``.
 MAX_REFINE_ROUNDS = 3
+#: Absolute ceiling on interview rounds, retries included.
+MAX_REFINE_ROUNDS_HARD = 6
+#: How many times a failed specialist is retried before it becomes a
+#: hard failure (a soft failure is retried on each answer submission).
+MAX_SPECIALIST_RETRIES = 3
 
 COORDINATOR_PROMPT = (
     "You are the refinement coordinator for a GitHub issue. Read the "
@@ -706,6 +712,12 @@ class WorkflowService:
         :returns: The issue text and the accumulated Q&A entries.
         """
         step = run.steps[0]
+        # Loop state carried across rounds (and rebuilt on restart from the
+        # persisted envelope): per-profile failure counts, the dynamic round
+        # cap, and the profiles awaiting a retry (last round's soft failures).
+        attempts: dict[str, int] = {}
+        round_cap = MAX_REFINE_ROUNDS
+        retry_targets: list[str] = []
         if step.status == "awaiting_input":
             # Recovered mid-interview: rebuild loop state from the
             # persisted envelope and consume the pending finalize.
@@ -715,6 +727,13 @@ class WorkflowService:
             issue = envelope.issue
             accumulated = list(envelope.accumulated)
             round_no = step.refine_round
+            attempts = dict(envelope.attempts)
+            round_cap = envelope.round_cap
+            retry_targets = [
+                i.profile
+                for i in envelope.questionnaire.issues
+                if i.severity == "soft"
+            ]
             answers = await self._control[run.id].replies.get()
             accumulated += to_entries(envelope.questionnaire, answers)
             round_no += 1
@@ -727,19 +746,42 @@ class WorkflowService:
             accumulated = []
             round_no = 1
 
-        while round_no <= MAX_REFINE_ROUNDS:
+        while round_no <= round_cap:
             run.status = "refining"
             step.status = "running"
             self._save(run)
-            profiles = await self._coordinator_profiles(
-                run, issue, accumulated
+            # Coordinator clarification is bounded by the base cap; the extra
+            # rounds a retry unlocks are for retries only.
+            coord = (
+                await self._coordinator_profiles(run, issue, accumulated)
+                if round_no <= MAX_REFINE_ROUNDS
+                else []
             )
+            retries = [
+                pid for pid in retry_targets
+                if attempts.get(pid, 0) <= MAX_SPECIALIST_RETRIES
+            ]
+            # Union, coordinator first, order preserved, de-duplicated.
+            profiles: list[str] = []
+            for pid in [*coord, *retries]:
+                if pid not in profiles:
+                    profiles.append(pid)
             if not profiles:
                 break
+            if retries:
+                # Attempting a retry extends the interview by one round.
+                round_cap = min(round_cap + 1, MAX_REFINE_ROUNDS_HARD)
             questionnaire = await self._generate_questions(
-                run, issue, accumulated, profiles
+                run, issue, accumulated, profiles, attempts
             )
-            if not questionnaire.questions:
+            retry_targets = [
+                i.profile
+                for i in questionnaire.issues
+                if i.severity == "soft"
+            ]
+            # Present when there is anything to show — questions to answer or
+            # a failure status (so a retry can be re-triggered on submit).
+            if not questionnaire.questions and not questionnaire.issues:
                 break
             step.refine_round = round_no
             step.deliverable = build_envelope(
@@ -748,6 +790,8 @@ class WorkflowService:
                     draft_answers={},
                     accumulated=accumulated,
                     issue=issue,
+                    attempts=attempts,
+                    round_cap=round_cap,
                 )
             )
             step.active_sessions = []  # human's turn: chips off
@@ -923,6 +967,7 @@ class WorkflowService:
         issue: str,
         accumulated: list[QAEntry],
         profile_ids: list[str],
+        attempts: dict[str, int],
     ) -> Questionnaire:
         """Fan out to one generator per profile, concurrently, and
         aggregate their questions.
@@ -994,17 +1039,27 @@ class WorkflowService:
             *(_one(pid) for pid in ordered), return_exceptions=True
         )
         results: list[tuple[str, list[Questionnaire | None]]] = []
-        failures: list[tuple[str, BaseException]] = []
         issues: list[GenerationIssue] = []
+
+        def _fail(pid: str, reason: str) -> None:
+            # Count the attempt and classify: a specialist stays "soft"
+            # (retried on the next submission) until its retry budget is
+            # spent, then becomes a "hard" failure.
+            attempts[pid] = attempts.get(pid, 0) + 1
+            severity = (
+                "hard" if attempts[pid] > MAX_SPECIALIST_RETRIES else "soft"
+            )
+            slots[pid].status = "error"
+            slots[pid].error = reason
+            issues.append(GenerationIssue(
+                profile=pid, label=slots[pid].label, reason=reason,
+                severity=severity,
+            ))
+
         for pid, outcome in zip(ordered, raw):
             if isinstance(outcome, Exception):
                 reason = _failure_reason(outcome)
-                slots[pid].status = "error"
-                slots[pid].error = reason
-                failures.append((pid, outcome))
-                issues.append(GenerationIssue(
-                    profile=pid, label=slots[pid].label, reason=reason
-                ))
+                _fail(pid, reason)
                 _logger.warning("refine profile %s failed: %s", pid, reason)
             else:
                 results.append(outcome)
@@ -1015,23 +1070,15 @@ class WorkflowService:
         for pid, questionnaires in results:
             if any(q is not None for q in questionnaires):
                 continue
-            reason = "no response (empty or unparseable output)"
-            slots[pid].status = "error"
-            slots[pid].error = reason
-            issues.append(GenerationIssue(
-                profile=pid, label=slots[pid].label, reason=reason
-            ))
+            _fail(pid, "no response (empty or unparseable output)")
             _logger.warning(
                 "refine profile %s produced no questionnaire", pid
             )
         if issues:
             self._show_sessions(run, list(slots.values()))
-        if failures and not results:
-            detail = ", ".join(
-                f"{pid} ({type(exc).__name__}: {exc})" or pid
-                for pid, exc in failures
-            )
-            raise RuntimeError(f"all specialist interviews failed: {detail}")
+        # A round where every specialist failed is no longer fatal: the
+        # failures are recorded as (soft) issues and retried on the next
+        # answer submission, up to each specialist's retry cap.
 
         questions: list[Question] = []
         for pid, questionnaires in results:

@@ -250,6 +250,27 @@ def test_envelope_round_trips() -> None:
     assert restored.issue == "Original issue text"
 
 
+def test_envelope_round_trips_retry_state() -> None:
+    """Ensure the retry loop state (attempts, cap, issue severity) persists."""
+    from app.questionnaire import GenerationIssue
+
+    q = _questionnaire()
+    q.issues = [
+        GenerationIssue(
+            profile="infosec", label="InfoSec", reason="timed out",
+            severity="hard",
+        ),
+    ]
+    env = InterviewEnvelope(
+        questionnaire=q, issue="x", attempts={"infosec": 4}, round_cap=6,
+    )
+    restored = parse_envelope(build_envelope(env))
+    assert restored is not None
+    assert restored.attempts == {"infosec": 4}
+    assert restored.round_cap == 6
+    assert restored.questionnaire.issues[0].severity == "hard"
+
+
 def test_parse_envelope_rejects_non_envelope() -> None:
     """Ensure a bare questionnaire is not mistaken for an envelope."""
     assert parse_envelope('{"questions": []}') is None

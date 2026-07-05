@@ -68,11 +68,16 @@ class GenerationIssue(BaseModel):
     crashed, timed out, or returned nothing is recorded alongside the
     questionnaire and survives into the review gate after the live chips
     clear.
+
+    ``severity`` is ``"soft"`` while the specialist is still within its
+    retry budget (it will be retried on the next answer submission) and
+    ``"hard"`` once the budget is exhausted (given up).
     """
 
     profile: str
     label: str
     reason: str
+    severity: Literal["soft", "hard"] = "soft"
 
 
 class Questionnaire(BaseModel):
@@ -118,6 +123,11 @@ class InterviewEnvelope(BaseModel):
     #: The issue text, so the whole interview can be re-driven from the
     #: envelope alone after a restart.
     issue: str = ""
+    #: Per-profile failure count, so the retry cap survives a restart.
+    attempts: dict[str, int] = Field(default_factory=dict)
+    #: Current dynamic round cap (grows by one per retry round, ceiling
+    #: applied by the loop); surfaced to the UI as "Round N / cap".
+    round_cap: int = 3
 
 
 def parse_questionnaire_json(text: str) -> Questionnaire | None:
