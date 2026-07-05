@@ -84,13 +84,15 @@ class InterviewEnvelope(BaseModel):
     deliverable so a partial interview survives a reload/restart.
 
     Only ``questionnaire`` and ``draft_answers`` are consumed by the
-    frontend; ``accumulated`` and ``round`` are backend loop state.
+    frontend; ``accumulated`` is backend loop state. The round counter
+    is *not* carried here — it lives on the persisted step itself
+    (``WorkflowStep.refine_round``), the single source of truth used to
+    distinguish a genuine questionnaire change from a no-op update.
     """
 
     questionnaire: Questionnaire
     draft_answers: dict[str, object] = Field(default_factory=dict)
     accumulated: list[QAEntry] = Field(default_factory=list)
-    round: int = 1
     #: The issue text, so the whole interview can be re-driven from the
     #: envelope alone after a restart.
     issue: str = ""

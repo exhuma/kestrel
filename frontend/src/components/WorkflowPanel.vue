@@ -2,9 +2,15 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
 import QuestionnaireForm from './QuestionnaireForm.vue'
-import { parseInterview } from '../lib/questionnaire'
+import { createPendingInterviewParser } from '../lib/questionnaire'
 import EventCard from './EventCard.vue'
 import { toViewModel } from '../lib/eventView'
+
+// One parser instance for the whole panel: it memoizes on
+// (workflow id, refine_round) so an SSE tick that doesn't actually
+// change the questionnaire returns the same object reference instead
+// of churning a fresh one on every update.
+const parsePendingInterview = createPendingInterviewParser()
 
 const { workflows, current, events, error, refresh, select, ensureLive,
   streamSession, closeSession, createWorkflow, reply, submitAnswers,
@@ -34,8 +40,8 @@ const awaitingInput = computed(() => activeStep.value?.status === 'awaiting_inpu
 const awaitingApproval = computed(() => activeStep.value?.status === 'awaiting_approval')
 const stepRunning = computed(() => activeStep.value?.status === 'running')
 const pendingInterview = computed(() =>
-  awaitingInput.value
-    ? parseInterview(activeStep.value?.deliverable ?? null)
+  awaitingInput.value && current.value
+    ? parsePendingInterview(current.value.id, activeStep.value ?? null)
     : null,
 )
 const issueUrl = computed(() =>
@@ -300,6 +306,7 @@ function stepTone(status: string): string {
           <QuestionnaireForm v-if="pendingInterview"
             :questionnaire="pendingInterview.questionnaire"
             :draft-answers="pendingInterview.draft_answers"
+            :round="pendingInterview.round"
             @submit="onSubmitAnswers" @save-draft="onSaveDraft" />
           <template v-else>
             <textarea v-model="answer" class="field" rows="3"

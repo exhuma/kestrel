@@ -3,6 +3,8 @@ export interface WorkflowStep {
   session_id: string | null
   status: string
   deliverable: string | null
+  /** Monotonic counter bumped only on a genuine refine questionnaire change. */
+  refine_round: number
 }
 
 /** A live session backing the active step, rendered as an activity chip. */

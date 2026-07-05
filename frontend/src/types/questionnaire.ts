@@ -45,3 +45,8 @@ export interface InterviewEnvelope {
   questionnaire: Questionnaire
   draft_answers: Record<string, unknown>
 }
+
+/** An interview envelope tagged with its step's durable round counter. */
+export interface PendingInterview extends InterviewEnvelope {
+  round: number
+}

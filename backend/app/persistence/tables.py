@@ -80,6 +80,9 @@ class WorkflowStepRow(Base):
         Text, nullable=True
     )
     model: Mapped[str | None] = mapped_column(nullable=True)
+    #: Monotonic counter bumped only when the refine step's interview
+    #: genuinely advances to a new round (see WorkflowStep.refine_round).
+    refine_round: Mapped[int] = mapped_column(default=0)
 
 
 class NotificationRow(Base):
