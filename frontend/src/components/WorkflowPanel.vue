@@ -146,8 +146,8 @@ async function onSaveDraft(
   }
 }
 async function onDelete(id: string): Promise<void> {
-  if (!confirm('Abandon this workflow? This drops the local work only — '
-    + 'nothing on GitHub is changed.')) return
+  if (!confirm('Abandon this workflow? This permanently deletes its local '
+    + 'clone and all associated sessions. Nothing on GitHub is changed.')) return
   await remove(id)
 }
 function stepStatus(name: string): string {

@@ -474,12 +474,14 @@ class WorkflowService:
         """
         Abandon a run: cancel it and drop every trace of its local work.
 
-        Cancels the driver task, kills any in-flight step subprocess,
-        forgets the control state, removes the registry record and its
+        Cancels the driver task, then terminates and deletes every session
+        that ran in the run's workspace (the coordinator, each specialist,
+        plan, implement) — killing any in-flight subprocess and dropping
+        the session's records, not just the latest one a step still points
+        at. Forgets the control state, removes the registry record and its
         persisted rows, and deletes the cloned workspace. Deliberately
         never touches GitHub — abandoning drops work only, it does not
-        close issues, comment, or open/close PRs. Underlying sessions are
-        left intact.
+        close issues, comment, or open/close PRs.
 
         :param workflow_id: Id of the run to abandon.
         :raises WorkflowNotFoundError: If the run is unknown.
@@ -492,12 +494,25 @@ class WorkflowService:
                 await task
             except BaseException:  # cancellation or a late step error
                 pass
-        for step in run.steps:
-            if step.session_id:
-                # A step may have run on any backend; each ignores ids it
-                # doesn't own, so ask them all to stop it.
-                for backend in self.backends.backends():
-                    backend.terminate(step.session_id)
+        # Every session a run spawned records cwd == run.workspace (the same
+        # attribution SessionService.list_summaries uses), so match on that
+        # to catch them all — not just the latest id each step points at.
+        # Union in the step pointers defensively.
+        session_ids = {
+            record.session_id
+            for record in self.sessions.list()
+            if run.workspace and record.cwd == run.workspace
+        }
+        session_ids.update(
+            step.session_id for step in run.steps if step.session_id
+        )
+        for session_id in session_ids:
+            # A session may have run on any backend; each ignores ids it
+            # doesn't own, so ask them all to stop it.
+            for backend in self.backends.backends():
+                backend.terminate(session_id)
+            if self.sessions.get(session_id) is not None:
+                self.sessions.remove(session_id)
         self._control.pop(workflow_id, None)
         self.workflows.remove(workflow_id)
         if run.workspace:

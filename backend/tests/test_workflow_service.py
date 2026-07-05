@@ -1044,6 +1044,37 @@ async def test_delete_removes_workspace_dir(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_removes_all_workspace_sessions() -> None:
+    """Ensure abandoning a run terminates and deletes every session it
+    spawned in its workspace, not just the ids a step still points at."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("v1"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_refine_approval"
+    )
+    workspace = svc.get(wid).workspace
+    workspace_sids = [
+        record.session_id
+        for record in runner.sessions.list()
+        if record.cwd == workspace
+    ]
+    step_sids = {s.session_id for s in svc.get(wid).steps if s.session_id}
+    # The refine leg spawns more sessions (coordinator + writer) than any
+    # single step still points at — that gap is what we must clean up.
+    assert any(sid not in step_sids for sid in workspace_sids)
+
+    await svc.delete(wid)
+
+    for sid in workspace_sids:
+        assert runner.sessions.get(sid) is None  # record + rows dropped
+        assert sid in runner.terminated          # subprocess terminated
+
+
+@pytest.mark.asyncio
 async def test_delete_unknown_raises_not_found() -> None:
     """Ensure abandoning an unknown run raises the domain error."""
     svc = _service(
