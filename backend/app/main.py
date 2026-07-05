@@ -28,9 +28,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Report the backend configuration, then recover persisted runs."""
     from app.backends.registry import get_backend_registry
     from app.config import get_settings
+    from app.logging_config import configure_logging
     from app.services.workflows import get_workflow_service
 
     settings = get_settings()
+    # Apply unified logging here, at startup, so it survives however the app
+    # was launched. Uvicorn configures its own logging before the lifespan
+    # runs (leaving the root logger handler-less on the `uvicorn app.main:app`
+    # path); reconfiguring now routes app + uvicorn logs through one handler
+    # and makes KESTREL_LOG_LEVEL/KESTREL_LOG_FORMAT authoritative.
+    configure_logging(settings.log_level, settings.log_format)
     # Building the registry now fails fast on a misconfigured default and
     # makes the effective config visible in the logs — the first thing to
     # check when a session runs on the wrong backend.

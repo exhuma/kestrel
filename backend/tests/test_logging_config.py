@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
-from app.logging_config import JsonFormatter, build_log_config
+from app.logging_config import JsonFormatter, build_log_config, configure_logging
 
 
 def _record(**kw: object) -> logging.LogRecord:
@@ -60,3 +60,23 @@ def test_build_log_config_text_is_default_format() -> None:
     cfg = build_log_config("debug", "text")
     assert cfg["handlers"]["default"]["formatter"] == "text"
     assert cfg["root"]["level"] == "DEBUG"
+
+
+def test_configure_logging_installs_root_handler(capsys) -> None:
+    """Ensure configure_logging routes a plain app logger to stdout.
+
+    This is the fix for `uvicorn app.main:app` showing no app logs: the
+    lifespan calls configure_logging so the root logger gains a handler at
+    the requested level and app records surface.
+    """
+    root = logging.getLogger()
+    saved_handlers, saved_level = root.handlers[:], root.level
+    try:
+        configure_logging("debug", "text")
+        assert root.level == logging.DEBUG
+        assert root.handlers  # a handler now exists on the root logger
+        logging.getLogger("app.some.module").debug("hello-from-app")
+        assert "hello-from-app" in capsys.readouterr().out
+    finally:
+        root.handlers[:] = saved_handlers
+        root.setLevel(saved_level)
