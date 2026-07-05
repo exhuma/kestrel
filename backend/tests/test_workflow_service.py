@@ -122,9 +122,11 @@ class _FakeRunner:
         return [self]
 
 
-def _service(github, runner, git) -> WorkflowService:
+def _service(github, runner, git, settings=None) -> WorkflowService:
     return WorkflowService(
-        settings=Settings(git_base="https://github.com", github_token="t"),
+        settings=settings or Settings(
+            git_base="https://github.com", github_token="t"
+        ),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
         backends=runner,
@@ -134,6 +136,21 @@ def _service(github, runner, git) -> WorkflowService:
     )
 
 
+def _settings(**overrides) -> Settings:
+    """Test settings with the refinement knobs open to overrides."""
+    return Settings(
+        git_base="https://github.com", github_token="t", **overrides
+    )
+
+
+def _coverage(**flags: bool) -> str:
+    """A completeness-critic COVERAGE block, one flag per audience."""
+    audiences = [
+        {"audience": a, "covered": c} for a, c in flags.items()
+    ]
+    return f"<COVERAGE>{json.dumps({'audiences': audiences})}</COVERAGE>"
+
+
 def _coord(ids: list[str]) -> str:
     """A coordinator PROFILES block naming the profiles to interview."""
     return f"<PROFILES>{json.dumps(ids)}</PROFILES>"
@@ -141,11 +158,12 @@ def _coord(ids: list[str]) -> str:
 
 def _q(qid="q1", prompt="Which auth?", qtype="single_select",
        required=True, options=None, waiver_label=None,
-       audience=None) -> dict:
+       audience=None, folded_from=None) -> dict:
     """One question dict for a QUESTIONS block.
 
-    ``audience`` is set only on reconciler output, where each
-    consolidated question names the profile that owns it.
+    ``audience`` and ``folded_from`` are set only on reconciler output,
+    where each consolidated question names the profile that owns it and
+    the pool ids it absorbed.
     """
     q: dict = {"id": qid, "prompt": prompt, "type": qtype,
                "required": required}
@@ -155,6 +173,8 @@ def _q(qid="q1", prompt="Which auth?", qtype="single_select",
         q["waiver_label"] = waiver_label
     if audience is not None:
         q["audience"] = audience
+    if folded_from is not None:
+        q["folded_from"] = folded_from
     return q
 
 
@@ -730,9 +750,12 @@ async def test_reconciler_folds_overlap_into_one_simple_question() -> None:
     gh = _FakeGitHub(body="let users sign in")
     runner = _FakeRunner(SessionRegistry(), outputs=[
         *_overlapping_accounts_round(),
-        # Reconciler folds both into ONE plain requester-owned question.
+        # Reconciler folds both into ONE plain requester-owned question,
+        # declaring the pool ids it absorbed so the coverage invariant
+        # sees the developer question was folded, not silently dropped.
         _qs(_q(qid="x", audience="requester",
                prompt="How are accounts created?",
+               folded_from=["requester:q1", "developer:q1"],
                options=[{"value": "signup", "label": "Self-service signup"},
                         {"value": "seeded", "label": "Fixed / seeded set"}])),
         _coord([]),
@@ -799,6 +822,128 @@ async def test_reconciler_unknown_audience_keeps_all() -> None:
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
     assert ids == {"requester:q1", "developer:q1"}
+
+
+@pytest.mark.asyncio
+async def test_reconciler_silent_audience_drop_keeps_all() -> None:
+    """Ensure a rewrite that drops a whole audience WITHOUT declaring the
+    fold is rejected — the coverage invariant keeps the full pool so no
+    domain is silently lost (the cheap-model failure this guards)."""
+    from app.questionnaire import parse_envelope
+
+    gh = _FakeGitHub(body="let users sign in")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_overlapping_accounts_round(),
+        # Folds to one requester question but declares NO folded_from:
+        # developer vanishes silently → invariant falls back to the pool.
+        _qs(_q(qid="x", audience="requester",
+               prompt="How are accounts created?",
+               options=[{"value": "signup", "label": "Self-service"},
+                        {"value": "seeded", "label": "Seeded set"}])),
+        _coord([]),
+        _refined("Accounts are seeded"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    ids = {q.id for q in envelope.questionnaire.questions}
+    assert ids == {"requester:q1", "developer:q1"}
+    assert {p.id for p in envelope.questionnaire.profiles} == {
+        "requester", "developer",
+    }
+
+
+@pytest.mark.asyncio
+async def test_critic_reinjects_dropped_audience() -> None:
+    """Ensure the completeness critic recovers a concern that a declared
+    fold quietly softened away: the reconciler passes the invariant, the
+    critic flags the audience, its pool question is re-injected."""
+    from app.questionnaire import parse_envelope
+
+    gh = _FakeGitHub(body="let users sign in")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_overlapping_accounts_round(),
+        # A declared fold: passes the coverage invariant (developer's id
+        # is accounted for) — but the developer's concern is really gone.
+        _qs(_q(qid="x", audience="requester",
+               prompt="How are accounts created?",
+               folded_from=["requester:q1", "developer:q1"],
+               options=[{"value": "signup", "label": "Self-service"},
+                        {"value": "seeded", "label": "Seeded set"}])),
+        _coverage(requester=True, developer=False),  # critic: dev lost
+        _coord([]),
+        _refined("Accounts are seeded"),
+    ])
+    svc = _service(gh, runner, _FakeGit(),
+                   settings=_settings(refine_critic=True))
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    audiences = {q.audience for q in envelope.questionnaire.questions}
+    assert audiences == {"requester", "developer"}  # developer recovered
+
+
+@pytest.mark.asyncio
+async def test_reconcile_mode_off_keeps_the_pool() -> None:
+    """Ensure reconcile_mode='off' skips consolidation entirely and never
+    calls a reconciler agent."""
+    from app.questionnaire import parse_envelope
+
+    gh = _FakeGitHub(body="let users sign in")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_overlapping_accounts_round(),
+        # No reconciler output supplied: if the pass ran, the fake would
+        # pop the coordinator/writer blocks out of order and the run
+        # would not reach the gate with both questions intact.
+        _coord([]),
+        _refined("Accounts are seeded"),
+    ])
+    svc = _service(gh, runner, _FakeGit(),
+                   settings=_settings(reconcile_mode="off"))
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    ids = {q.id for q in envelope.questionnaire.questions}
+    assert ids == {"requester:q1", "developer:q1"}
+    # No reconciler agent ran (its prompt's signature never appears).
+    assert not any("interviewed in parallel" in c["prompt"].lower()
+                   for c in runner.calls)
+
+
+@pytest.mark.asyncio
+async def test_coordinator_samples_union_across_runs() -> None:
+    """Ensure refine_samples>1 UNIONs the coordinator's picks: a
+    specialist named by only one sample is still summoned."""
+    from app.questionnaire import parse_envelope
+
+    def _gen() -> str:
+        return _qs(_q(prompt="Q?", options=[{"value": "a", "label": "A"}]))
+
+    gh = _FakeGitHub(body="ship a user-facing, sensitive feature")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["uiux"]),               # coordinator sample 1
+        _coord(["uiux", "infosec"]),    # coordinator sample 2 adds infosec
+        _gen(), _gen(), _gen(), _gen(),  # 2 profiles x 2 samples
+        # Reconciler re-emits one question per surviving audience.
+        _qs(
+            _q(qid="u", audience="uiux", prompt="Flow?",
+               options=[{"value": "a", "label": "A"}]),
+            _q(qid="s", audience="infosec", prompt="Threats?",
+               options=[{"value": "b", "label": "B"}]),
+        ),
+    ])
+    svc = _service(gh, runner, _FakeGit(),
+                   settings=_settings(refine_samples=2))
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    audiences = {q.audience for q in envelope.questionnaire.questions}
+    assert audiences == {"uiux", "infosec"}
 
 
 @pytest.mark.asyncio

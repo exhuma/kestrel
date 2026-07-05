@@ -36,3 +36,24 @@ def test_refine_step_has_a_default_model() -> None:
     assert ModelPolicy(overrides={}).model_for("refine") == (
         "sonnet"
     )
+
+
+def test_substep_falls_back_to_parent_model() -> None:
+    """Ensure a dotted sub-step inherits the parent step's model."""
+    assert ModelPolicy(overrides={}).model_for("refine.reconcile") == (
+        "sonnet"
+    )
+
+
+def test_substep_override_beats_parent() -> None:
+    """Ensure a sub-step override applies only to that sub-step."""
+    policy = ModelPolicy(overrides={"refine.reconcile": "opus"})
+    assert policy.model_for("refine.reconcile") == "opus"
+    assert policy.model_for("refine.generate") == "sonnet"  # parent
+    assert policy.model_for("refine") == "sonnet"
+
+
+def test_substep_of_unknown_parent_raises() -> None:
+    """Ensure a sub-step of an unknown step still fails loudly."""
+    with pytest.raises(KeyError):
+        ModelPolicy(overrides={}).model_for("nonsense.sub")

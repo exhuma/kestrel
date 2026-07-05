@@ -63,15 +63,23 @@ class BackendPolicy:
         """
         Return the backend assigned to a step, verifying its capabilities.
 
-        :param step: Workflow step name, e.g. ``"implement"``.
+        A dotted sub-step key (e.g. ``"refine.reconcile"``) resolves to
+        its own backend when configured, otherwise falls back to the
+        parent step (``"refine"``), then the default. Its capability
+        requirement is inherited from the parent step.
+
+        :param step: Workflow step name, e.g. ``"implement"`` or a
+            dotted sub-step like ``"refine.reconcile"``.
         :returns: A backend whose capabilities satisfy the step.
         :raises BackendCapabilityError: If the chosen backend can't serve it.
         """
-        backend_id = self._map.get(step, self._default)
+        parent = step.split(".", 1)[0]
+        backend_id = self._map.get(step) or self._map.get(parent, self._default)
         backend = self._registry.get(backend_id)
-        missing = STEP_REQUIREMENTS.get(
-            step, frozenset({Capability.TEXT})
-        ) - backend.caps
+        requirement = STEP_REQUIREMENTS.get(step) or STEP_REQUIREMENTS.get(
+            parent, frozenset({Capability.TEXT})
+        )
+        missing = requirement - backend.caps
         if missing:
             raise BackendCapabilityError(step, backend_id, missing)
         return backend
@@ -91,11 +99,18 @@ class ModelPolicy:
         """
         Return the model alias for a workflow step.
 
-        :param step: Workflow step name, e.g. ``"plan"``.
+        A dotted sub-step key (e.g. ``"refine.reconcile"``) uses its own
+        override when set, otherwise falls back to the parent step's
+        model (``"refine"``).
+
+        :param step: Workflow step name, e.g. ``"plan"`` or a dotted
+            sub-step like ``"refine.reconcile"``.
         :returns: Alias to pass to ``claude --model``.
-        :raises KeyError: If the step is unknown.
+        :raises KeyError: If the (parent) step is unknown.
         """
-        return self._map[step]
+        if step in self._map:
+            return self._map[step]
+        return self._map[step.split(".", 1)[0]]
 
 
 @lru_cache

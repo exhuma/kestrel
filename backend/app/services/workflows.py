@@ -42,6 +42,7 @@ from app.services.git import GitService
 from app.services.github import GitHubClient
 from app.services.workflow_text import (
     append_sentinel,
+    extract_coverage,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
@@ -120,15 +121,47 @@ RECONCILE_PROMPT = (
     "all.\n"
     "- Preserve a sensible \"type\" and, for select types, real "
     "\"options\"; carry over each kept question's waiver intent.\n"
+    "- ACCOUNT FOR EVERY input question. In each consolidated "
+    "question's \"folded_from\" list, put the \"id\" of every pooled "
+    "question it represents — both the one you based it on and any you "
+    "merged into it. Every input id MUST appear in exactly one "
+    "\"folded_from\". This is how a real fold is told apart from an "
+    "accidental drop; if an input's concern no longer matters, still "
+    "fold its id into the closest surviving question rather than "
+    "leaving it out.\n"
     "Output ONLY the consolidated questionnaire as a single JSON "
     "object wrapped EXACTLY in <QUESTIONS> and </QUESTIONS> tags and "
     "nothing else, matching this shape:\n"
     '{{"questions": [{{"id": "q1", "audience": "requester", '
     '"prompt": "...", "why": "...", "type": "single_select", '
     '"required": true, "waiver_label": "Unknown / N/A", '
+    '"folded_from": ["requester:q1", "developer:q2"], '
     '"options": [{{"value": "a", "label": "Option A"}}]}}]}}\n'
     "Do not edit any files.\n\nISSUE:\n{issue}\n\n"
     "QUESTIONS:\n{questions}\n\nROSTER:\n{roster}"
+)
+CRITIC_PROMPT = (
+    "You are a completeness critic reviewing a consolidated "
+    "questionnaire for a GitHub issue. Several stakeholder profiles "
+    "were interviewed, then a reconciler folded their questions into a "
+    "smaller set. Your ONLY job is to catch a whole stakeholder's "
+    "concern being LOST in that folding — not to judge wording or "
+    "suggest new questions.\n"
+    "For EACH audience in the list below, decide whether the decisions "
+    "that audience needed to raise are still answerable from the FINAL "
+    "questions — either asked directly or genuinely covered by a "
+    "question now owned by another profile. Mark it covered=true when "
+    "its concern survives (even if folded elsewhere), and covered=false "
+    "ONLY when a real, decision-changing concern it raised is now "
+    "missing.\n"
+    "Return ONLY a JSON object wrapped EXACTLY in <COVERAGE> and "
+    "</COVERAGE> tags and nothing else, matching this shape:\n"
+    '{{"audiences": [{{"audience": "infosec", "covered": false, '
+    '"missing": "no question about auth for the new endpoint"}}]}}\n'
+    "Do not edit any files.\n\nISSUE:\n{issue}\n\n"
+    "AUDIENCES:\n{audiences}\n\n"
+    "ORIGINAL POOLED QUESTIONS:\n{pool}\n\n"
+    "FINAL CONSOLIDATED QUESTIONS:\n{final}"
 )
 GENERATION_PROMPT = (
     "You are helping refine a GitHub issue before implementation by "
@@ -725,7 +758,11 @@ class WorkflowService:
         self._save(run)
 
     async def _run_refine_agent(
-        self, run: WorkflowRun, prompt: str, slot: StepSession
+        self,
+        run: WorkflowRun,
+        prompt: str,
+        slot: StepSession,
+        substep: str = "refine",
     ) -> str:
         """Run one stateless refine sub-agent, tracking its own session.
 
@@ -733,6 +770,11 @@ class WorkflowService:
         its own *slot* — so concurrent generators never race on a single
         shared field — and marks it idle when done; ``step.session_id``
         still tracks the latest for back-compat.
+
+        *substep* is a dotted policy key (e.g. ``"refine.reconcile"``) so
+        a deployment can route just one sub-agent — most usefully the
+        reconciler — to a stronger backend/model; it falls back to the
+        ``refine`` step's backend and model when unconfigured.
         """
         step = run.steps[0]
 
@@ -740,11 +782,12 @@ class WorkflowService:
             slot.session_id = s
             step.session_id = s
 
-        backend = self.backends.backend_for("refine")
+        backend = self.backends.backend_for(substep)
         result = await backend.run_turn(
             TurnRequest(
                 prompt=prompt, cwd=run.workspace,
-                permission_mode="plan", model=step.model,
+                permission_mode="plan",
+                model=get_policy().model_for(substep),
             ),
             on_session_id=_on_sid,
         )
@@ -754,21 +797,48 @@ class WorkflowService:
     async def _coordinator_profiles(
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]
     ) -> list[str]:
-        """Ask the coordinator which profiles to interview next."""
-        slot = StepSession(
-            profile_id="coordinator", label="Coordinator", badge="sys"
+        """Ask the coordinator which profiles to interview next.
+
+        With ``refine_samples > 1`` the coordinator is polled several
+        times and the picks are UNIONed (first-seen order preserved):
+        a weak model that intermittently forgets a specialist still
+        summons it if any sample does. A failed sample is skipped, not
+        fatal. K=1 is exactly one call, as before.
+        """
+        samples = max(1, self.settings.refine_samples)
+        slots = [
+            StepSession(
+                profile_id="coordinator", label="Coordinator", badge="sys"
+            )
+            for _ in range(samples)
+        ]
+        self._show_sessions(run, slots)
+
+        async def _one(slot: StepSession) -> list[str]:
+            text = await self._run_refine_agent(
+                run,
+                COORDINATOR_PROMPT.format(
+                    roster=roster_summary(),
+                    issue=issue,
+                    answers=render_qa(accumulated),
+                ),
+                slot,
+                substep="refine.coordinator",
+            )
+            return [pid for pid in (extract_profiles(text) or []) if pid]
+
+        picks = await asyncio.gather(
+            *(_one(slot) for slot in slots), return_exceptions=True
         )
-        self._show_sessions(run, [slot])
-        text = await self._run_refine_agent(
-            run,
-            COORDINATOR_PROMPT.format(
-                roster=roster_summary(),
-                issue=issue,
-                answers=render_qa(accumulated),
-            ),
-            slot,
-        )
-        return [pid for pid in (extract_profiles(text) or []) if pid]
+        ordered: list[str] = []
+        for result in picks:
+            if isinstance(result, BaseException):
+                _logger.warning("coordinator sample failed: %r", result)
+                continue
+            for pid in result:
+                if pid not in ordered:
+                    ordered.append(pid)
+        return ordered
 
     async def _generate_questions(
         self,
@@ -801,18 +871,43 @@ class WorkflowService:
         }
         self._show_sessions(run, list(slots.values()))
 
-        async def _one(pid: str) -> tuple[str, Questionnaire | None]:
+        samples = max(1, self.settings.refine_samples)
+
+        async def _one(
+            pid: str,
+        ) -> tuple[str, list[Questionnaire | None]]:
             profile = profiles_by_id[pid]
-            text = await self._run_refine_agent(
-                run,
-                GENERATION_PROMPT.format(
-                    persona=profile.system_prompt,
-                    issue=issue,
-                    answers=render_qa(accumulated),
-                ),
-                slots[pid],
+
+            async def _sample() -> Questionnaire | None:
+                text = await self._run_refine_agent(
+                    run,
+                    GENERATION_PROMPT.format(
+                        persona=profile.system_prompt,
+                        issue=issue,
+                        answers=render_qa(accumulated),
+                    ),
+                    slots[pid],
+                    substep="refine.generate",
+                )
+                return extract_questionnaire(text)
+
+            # Draw ``samples`` questionnaires from this profile (K=1 is
+            # one draw, as before). A flaky sample is dropped; the
+            # profile only fails when every draw failed.
+            drawn = await asyncio.gather(
+                *(_sample() for _ in range(samples)),
+                return_exceptions=True,
             )
-            return pid, extract_questionnaire(text)
+            kept: list[Questionnaire | None] = []
+            errors: list[BaseException] = []
+            for outcome in drawn:
+                if isinstance(outcome, BaseException):
+                    errors.append(outcome)
+                else:
+                    kept.append(outcome)
+            if errors and not kept:
+                raise errors[0]
+            return pid, kept
 
         # One specialist failing (e.g. a flaky/slow local LLM timing out)
         # must not sink the whole panel: collect per-profile results, mark
@@ -821,7 +916,7 @@ class WorkflowService:
         raw = await asyncio.gather(
             *(_one(pid) for pid in ordered), return_exceptions=True
         )
-        results: list[tuple[str, Questionnaire | None]] = []
+        results: list[tuple[str, list[Questionnaire | None]]] = []
         failures: list[tuple[str, BaseException]] = []
         for pid, outcome in zip(ordered, raw):
             if isinstance(outcome, Exception):
@@ -842,25 +937,39 @@ class WorkflowService:
             raise RuntimeError(f"all specialist interviews failed: {detail}")
 
         questions: list[Question] = []
-        for pid, questionnaire in results:
-            if questionnaire is None:
-                continue
+        for pid, questionnaires in results:
             profile = profiles_by_id[pid]
-            for question in questionnaire.questions:
-                question.audience = profile.id
-                question.id = f"{profile.id}:{question.id}"
-                questions.append(question)
+            for sample_index, questionnaire in enumerate(questionnaires):
+                if questionnaire is None:
+                    continue
+                for question in questionnaire.questions:
+                    question.audience = profile.id
+                    # Namespace by profile so ids stay unique; add a
+                    # sample tag only when ensembling, so K=1 keeps the
+                    # historical ``profile:qid`` form.
+                    tag = f"s{sample_index}:" if samples > 1 else ""
+                    question.id = f"{profile.id}:{tag}{question.id}"
+                    questions.append(question)
 
-        # Within-round, cross-profile dedup: the generators ran blind
-        # to one another, so two profiles can independently ask
-        # essentially the same thing. Reconcile only when overlap is
-        # even possible — more than one audience and more than one
-        # question; a single-profile round has nothing to reconcile.
-        audiences = {q.audience for q in questions}
-        if len(audiences) > 1 and len(questions) > 1:
-            questions = await self._reconcile_questions(
-                run, issue, questions
-            )
+        # Within-round consolidation. The generators (and, under
+        # ensembling, repeated draws) run blind to one another, so the
+        # pool can hold the same decision several times over.
+        # ``reconcile_mode`` chooses how hard to consolidate:
+        #   - ``rewrite``: the LLM reconciler authors a fresh minimal set
+        #     (only worthwhile when >1 audience and >1 question);
+        #   - ``dedup``: deterministic within-audience duplicate removal,
+        #     coverage-safe on weak models that over-prune;
+        #   - ``off``: keep the pool untouched.
+        mode = self.settings.reconcile_mode
+        if mode == "dedup":
+            if len(questions) > 1:
+                questions = self._dedup_questions(questions)
+        elif mode == "rewrite":
+            audiences = {q.audience for q in questions}
+            if len(audiences) > 1 and len(questions) > 1:
+                questions = await self._reconcile_questions(
+                    run, issue, questions
+                )
 
         # Rebuild the profile metadata from the *kept* questions, so a
         # profile whose only question the reconciler dropped no longer
@@ -876,6 +985,30 @@ class WorkflowService:
         return Questionnaire(
             questions=questions, profiles=list(profiles.values())
         )
+
+    def _dedup_questions(self, questions: list[Question]) -> list[Question]:
+        """Coverage-safe, LLM-free consolidation for ``reconcile_mode`` =
+        ``dedup``.
+
+        Drops only exact within-audience prompt duplicates (as ensembling
+        the same profile tends to produce), never folding across
+        audiences — so unlike the rewriter it cannot lose a domain. Ids
+        are re-namespaced to stay unique and stable.
+        """
+        seen: set[tuple[str, str]] = set()
+        kept: list[Question] = []
+        for question in questions:
+            key = (
+                question.audience,
+                " ".join(question.prompt.lower().split()),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            kept.append(question)
+        for index, question in enumerate(kept):
+            question.id = f"{question.audience}:d{index}"
+        return kept
 
     async def _reconcile_questions(
         self, run: WorkflowRun, issue: str, questions: list[Question]
@@ -893,8 +1026,12 @@ class WorkflowService:
         Reconciliation may only ever *improve* the pool, never blank or
         corrupt it: the rewritten set is accepted only when it parses,
         is non-empty, and every question has a pool audience and (for
-        select types) real options. Any anomaly falls back to the
-        untouched pool.
+        select types) real options. On top of that, a **coverage
+        invariant** refuses any rewrite that drops a whole summoned
+        audience without explicitly folding its questions elsewhere
+        (weak models over-prune) — so no domain is silently lost. Any
+        anomaly falls back to the untouched pool. When ``refine_critic``
+        is on, a completeness critic then re-checks the survivors.
 
         :param run: The run whose interview is being reconciled.
         :param issue: The issue text, for the reconciler's context.
@@ -929,12 +1066,14 @@ class WorkflowService:
                 issue=issue, questions=payload, roster=roster_summary()
             ),
             slot,
+            substep="refine.reconcile",
         )
         reconciled = extract_questionnaire(text)
         if reconciled is None or not reconciled.questions:
             return questions
         pool_audiences = {q.audience for q in questions}
         rebuilt: list[Question] = []
+        declared_folded: set[str] = set()
         for index, question in enumerate(reconciled.questions):
             if question.audience not in pool_audiences:
                 return questions  # unknown owner: unsafe, keep the pool
@@ -942,9 +1081,98 @@ class WorkflowService:
                 not question.options
             ):
                 return questions  # unanswerable select: keep the pool
+            declared_folded.update(question.folded_from)
             question.id = f"{question.audience}:r{index}"
             rebuilt.append(question)
-        return rebuilt or questions
+        if not rebuilt:
+            return questions
+        # Coverage invariant: a summoned audience may vanish from the
+        # rewrite ONLY if every one of its pooled questions was declared
+        # folded into a surviving question. An audience that disappears
+        # with its folds undeclared is the weak-model failure this guards
+        # against — keep the full pool so no domain is silently dropped.
+        surviving = {q.audience for q in rebuilt}
+        pooled_ids: dict[str, list[str]] = {}
+        for pooled in questions:
+            pooled_ids.setdefault(pooled.audience, []).append(pooled.id)
+        for audience, ids in pooled_ids.items():
+            if audience in surviving:
+                continue
+            if not all(qid in declared_folded for qid in ids):
+                return questions  # silent domain drop: keep the pool
+        # A declared fold can still hide a softened-away concern; the
+        # completeness critic (when enabled) re-injects any it catches.
+        if self.settings.refine_critic:
+            rebuilt = await self._critique_coverage(
+                run, issue, questions, rebuilt
+            )
+        return rebuilt
+
+    async def _critique_coverage(
+        self,
+        run: WorkflowRun,
+        issue: str,
+        pool: list[Question],
+        reconciled: list[Question],
+    ) -> list[Question]:
+        """Adversarial completeness pass over a reconciled set.
+
+        Asks a critic, per summoned audience, whether that audience's
+        concern still survives the fold. Any audience it marks uncovered
+        has its original pooled questions deterministically re-injected —
+        cheaper and safer than a second generative round, which on a weak
+        model risks dropping something else. Best-effort: an absent or
+        garbled verdict leaves the set unchanged (M1 already guarantees
+        no *silent* drop reached this point).
+        """
+        slot = StepSession(
+            profile_id="critic", label="Critic", badge="sys"
+        )
+        self._show_sessions(run, [slot])
+        pool_audiences = {q.audience for q in pool}
+
+        def _payload(items: list[Question]) -> str:
+            return json.dumps(
+                [
+                    {"id": q.id, "audience": q.audience,
+                     "prompt": q.prompt, "why": q.why}
+                    for q in items
+                ]
+            )
+
+        text = await self._run_refine_agent(
+            run,
+            CRITIC_PROMPT.format(
+                issue=issue,
+                audiences=json.dumps(sorted(pool_audiences)),
+                pool=_payload(pool),
+                final=_payload(reconciled),
+            ),
+            slot,
+            substep="refine.critic",
+        )
+        verdict = extract_coverage(text)
+        if not verdict:
+            return reconciled
+        uncovered = {
+            audience
+            for audience, covered in verdict.items()
+            if not covered and audience in pool_audiences
+        }
+        if not uncovered:
+            return reconciled
+        # Re-inject the flagged audiences' original questions,
+        # renamespaced so ids stay unique against the reconciled set.
+        result = list(reconciled)
+        dropped = [q for q in pool if q.audience in uncovered]
+        for offset, question in enumerate(dropped):
+            question.id = f"{question.audience}:c{offset}"
+            result.append(question)
+        _logger.info(
+            "critic re-injected dropped audiences: %s",
+            ", ".join(sorted(uncovered)),
+        )
+        return result
 
     async def _write_refined(
         self, run: WorkflowRun, issue: str, accumulated: list[QAEntry]

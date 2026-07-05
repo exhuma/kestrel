@@ -144,10 +144,23 @@ class Settings(BaseSettings):
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
     #: Per-workflow-step backend assignment (step name -> backend id).
-    #: File-only; steps not listed use the step's default backend.
+    #: File-only; steps not listed use the step's default backend. Sub-step
+    #: keys (e.g. ``refine.reconcile``) route a single refine sub-agent to
+    #: its own backend, falling back to the ``refine`` step's backend.
     step_backends: dict[str, str] = {}
     #: Backend used for ad-hoc ``/api/sessions`` dispatch. File-only.
     default_session_backend: str = "claude"
+    #: Refinement robustness knobs (help on cheaper/local models; all
+    #: default to today's behaviour). ``refine_samples`` runs the
+    #: coordinator and generators N times and unions the result to reduce
+    #: variance; ``refine_critic`` adds an adversarial completeness pass
+    #: after reconciliation; ``reconcile_mode`` selects how aggressively
+    #: questions are consolidated: ``rewrite`` (LLM consolidating
+    #: rewriter), ``dedup`` (coverage-safe within-audience duplicate
+    #: removal, no LLM), or ``off`` (keep the pooled questions as-is).
+    refine_samples: int = 1
+    refine_critic: bool = False
+    reconcile_mode: Literal["rewrite", "dedup", "off"] = "rewrite"
 
     @model_validator(mode="after")
     def _apply_backends_file(self) -> Settings:

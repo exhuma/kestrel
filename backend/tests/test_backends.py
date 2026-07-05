@@ -154,3 +154,30 @@ def test_policy_backends_lists_all() -> None:
     """Ensure the policy can enumerate every backend (for termination)."""
     policy = BackendPolicy(_mixed_registry(), {}, "claude")
     assert {b.id for b in policy.backends()} == {"claude", "local"}
+
+
+def test_policy_substep_falls_back_to_parent_backend() -> None:
+    """Ensure a dotted sub-step inherits the parent step's backend."""
+    policy = BackendPolicy(_mixed_registry(), {"refine": "local"}, "claude")
+    assert policy.backend_for("refine.reconcile").id == "local"
+
+
+def test_policy_substep_override_wins() -> None:
+    """Ensure a sub-step can be routed to its own backend."""
+    policy = BackendPolicy(
+        _mixed_registry(),
+        {"refine": "local", "refine.reconcile": "claude"},
+        "claude",
+    )
+    assert policy.backend_for("refine.reconcile").id == "claude"
+    assert policy.backend_for("refine.generate").id == "local"  # parent
+
+
+def test_policy_substep_inherits_parent_capability() -> None:
+    """Ensure a sub-step is capability-checked against its parent step,
+    so a text-only backend can't sneak into an implement sub-step."""
+    policy = BackendPolicy(
+        _mixed_registry(), {"implement.fix": "local"}, "claude"
+    )
+    with pytest.raises(BackendCapabilityError):
+        policy.backend_for("implement.fix")

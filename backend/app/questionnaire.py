@@ -45,6 +45,11 @@ class Question(BaseModel):
     #: Label for the "cannot answer — give a reason" control; the
     #: agent tailors it per question (e.g. "Accept this risk").
     waiver_label: str = DEFAULT_WAIVER_LABEL
+    #: On a reconciled question, the pool question ids this one absorbed
+    #: (its own basis plus any folded in). The reconciler declares these
+    #: so a silent domain drop can be told apart from a real fold; empty
+    #: on generator output. Provenance only — ignored by the frontend.
+    folded_from: list[str] = Field(default_factory=list)
 
 
 class ProfileMeta(BaseModel):

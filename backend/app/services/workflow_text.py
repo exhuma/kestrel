@@ -68,6 +68,46 @@ def extract_profiles(text: str) -> list[str] | None:
     return data
 
 
+def extract_coverage(text: str) -> dict[str, bool] | None:
+    """
+    Return the completeness critic's per-audience verdict.
+
+    The critic wraps a JSON object in ``<COVERAGE>`` tags, either
+    ``{"audiences": [{"audience": "infosec", "covered": false}, ...]}``
+    or a bare ``{"infosec": false, ...}`` map. Returns a mapping of
+    audience id -> covered flag, or None if the tag is absent or its
+    content is not valid JSON of a recognised shape.
+
+    :param text: The agent's full response text.
+    :returns: ``{audience: covered}``, or None.
+    """
+    raw = _extract_tag(text, "COVERAGE")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if isinstance(data, dict) and "audiences" in data:
+        data = data["audiences"]
+    verdict: dict[str, bool] = {}
+    if isinstance(data, list):
+        for item in data:
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("audience"), str)
+                and isinstance(item.get("covered"), bool)
+            ):
+                verdict[item["audience"]] = item["covered"]
+        return verdict or None
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(key, str) and isinstance(value, bool):
+                verdict[key] = value
+        return verdict or None
+    return None
+
+
 def extract_questionnaire(text: str) -> Questionnaire | None:
     """
     Return the questionnaire if the agent emitted the block.
