@@ -61,6 +61,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    #: The running image's version, baked in at build time via
+    #: ``KESTREL_VERSION`` (see the Dockerfile). The dev default makes a
+    #: from-source run recognisable. Reported by ``GET /healthz``.
+    version: str = "0.0.0-dev"
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
     permission_mode: str = "acceptEdits"

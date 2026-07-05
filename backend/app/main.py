@@ -47,7 +47,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
-    app = FastAPI(title="kestrel", lifespan=_lifespan)
+    from app.config import get_settings
+
+    app = FastAPI(
+        title="kestrel", version=get_settings().version, lifespan=_lifespan
+    )
 
     @app.exception_handler(SessionNotFoundError)
     async def _session_not_found(
@@ -108,9 +112,28 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, str]:
-        """Report basic service liveness (used by the container healthcheck)."""
-        return {"status": "ok"}
+    async def healthz() -> JSONResponse:
+        """Readiness probe used by the container/compose healthcheck.
+
+        Reports the running image version and verifies the database is
+        reachable (a cheap ``SELECT 1``). Returns HTTP 503 if the DB is
+        unreachable so an unready container is flagged rather than served.
+        """
+        from sqlalchemy import text
+
+        from app.persistence.db import get_engine
+
+        version = get_settings().version
+        try:
+            with get_engine().connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception:  # pragma: no cover - defensive: DB down at runtime
+            _logger.exception("healthz: database check failed")
+            return JSONResponse(
+                status_code=503,
+                content={"status": "unavailable", "version": version},
+            )
+        return JSONResponse(content={"status": "ok", "version": version})
 
     from app.routers import notifications, sessions, workflows
 
@@ -121,8 +144,6 @@ def create_app() -> FastAPI:
     # When packaged as a single image the backend also serves the built SPA.
     # Mounted last so the API routers above keep priority; html=True serves
     # index.html for unknown paths, giving the SPA its client-side routing.
-    from app.config import get_settings
-
     static_dir = get_settings().static_dir
     if static_dir and os.path.isdir(static_dir):
         from fastapi.staticfiles import StaticFiles

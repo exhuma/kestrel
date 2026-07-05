@@ -8,8 +8,8 @@ from app.main import create_app
 
 
 @pytest.mark.asyncio
-async def test_healthz_returns_ok() -> None:
-    """Ensure the health route reports service status ok."""
+async def test_healthz_reports_ok_and_version() -> None:
+    """The readiness probe reports ok (DB reachable) and the version."""
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -17,7 +17,10 @@ async def test_healthz_returns_ok() -> None:
     ) as client:
         resp = await client.get("/healthz")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    body = resp.json()
+    assert body["status"] == "ok"
+    # Baked in via KESTREL_VERSION; defaults to the from-source sentinel.
+    assert body["version"] == "0.0.0-dev"
 
 
 @pytest.mark.asyncio
