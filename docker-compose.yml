@@ -10,6 +10,7 @@ services:
     #   context: .
     #   args:
     #     VITE_API_BASE: ""
+    #     VITE_GITHUB_REPO_URL: ""
     #     KESTREL_VERSION: dev
     ports:
       - "8000:8000"

@@ -10,6 +10,10 @@ WORKDIR /frontend
 # API calls must be relative. Left empty on purpose (see frontend/src/api).
 ARG VITE_API_BASE=
 
+# Optional: full URL of the GitHub repository. When set, the header shows a
+# "Source code" link; empty (default) hides it.
+ARG VITE_GITHUB_REPO_URL=
+
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 

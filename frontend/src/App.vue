@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import SessionPanel from './components/SessionPanel.vue'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
+import GithubLink from './components/GithubLink.vue'
 import { useSessions } from './composables/useSessions'
 
 // Shared composable state: the header reflects fleet-wide status.
@@ -39,6 +40,7 @@ const view = ref<'sessions' | 'workflows'>('workflows')
         <span class="status__label mono">{{ running ? 'live' : 'idle' }}</span>
       </div>
       <NotificationCenter @navigate="view = 'workflows'" />
+      <GithubLink />
     </header>
     <main class="stageroot">
       <SessionPanel v-if="view === 'sessions'" />

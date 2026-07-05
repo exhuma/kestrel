@@ -56,6 +56,7 @@ jobs:
           docker buildx build --push \
             "${tag_args[@]}" \
             --build-arg VITE_API_BASE= \
+            --build-arg VITE_GITHUB_REPO_URL="https://github.com/${{ github.repository }}" \
             --build-arg KESTREL_VERSION="${{ steps.meta.outputs.version }}" \
             .
 
