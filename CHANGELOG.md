@@ -6,7 +6,7 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
 
 ## [Unreleased]
 
-## [2026.7.5-alpha.2] - 2026-07-05
+## [2026.7.5-alpha.3] - 2026-07-05
 
 ### Added
 
@@ -47,6 +47,9 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
   `uvicorn app.main:app`, not only via `python -m app`.
 - An agent turn that errors now fails loudly instead of silently surfacing the
   error text as a deliverable.
+- The workflow-detail API no longer loads the session store to label each
+  step's backend, so a read never depends on the session subsystem (and cannot
+  fail on a freshly-migrated database).
 
 ## [2026.7.5-alpha.1] - 2026-07-05
 
