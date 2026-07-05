@@ -14,14 +14,18 @@ from app.services.workflow_text import (
 )
 
 
-def _ev(kind: EventKind, tool_name: str | None = None) -> CanonicalEvent:
-    return CanonicalEvent(kind=kind, session_id="s", tool_name=tool_name)
+def _ev(
+    kind: EventKind, tool_name: str | None = None, subtype: str | None = None
+) -> CanonicalEvent:
+    return CanonicalEvent(
+        kind=kind, session_id="s", tool_name=tool_name, subtype=subtype
+    )
 
 
 def test_activity_for_maps_kinds_and_tools() -> None:
     """Ensure event kinds and tools map to short activity verbs."""
     assert activity_for(_ev(EventKind.THINKING)) == "thinking"
-    assert activity_for(_ev(EventKind.ASSISTANT_TEXT)) == "writing"
+    assert activity_for(_ev(EventKind.ASSISTANT_TEXT)) == "responding"
     assert activity_for(_ev(EventKind.RATE_LIMIT)) == "waiting"
     assert activity_for(_ev(EventKind.TOOL_USE, "Read")) == "reading"
     assert activity_for(_ev(EventKind.TOOL_USE, "Edit")) == "editing"
@@ -29,6 +33,10 @@ def test_activity_for_maps_kinds_and_tools() -> None:
     # An MCP tool name is stripped to its bare verb-less tail.
     assert activity_for(_ev(EventKind.TOOL_USE, "mcp__x__frobnicate")) == (
         "frobnicate"
+    )
+    # A plain LLM's "answer generation started" marker.
+    assert activity_for(_ev(EventKind.SYSTEM, subtype="generating")) == (
+        "responding"
     )
 
 
@@ -38,6 +46,7 @@ def test_activity_for_silent_on_uninformative_events() -> None:
     assert activity_for(_ev(EventKind.RESULT)) is None
     assert activity_for(_ev(EventKind.USER_TEXT)) is None
     assert activity_for(_ev(EventKind.SYSTEM)) is None
+    assert activity_for(_ev(EventKind.SYSTEM, subtype="init")) is None
 
 
 def test_has_sentinel_detects_marker() -> None:

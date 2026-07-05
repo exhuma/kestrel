@@ -29,7 +29,7 @@ def activity_for(event: CanonicalEvent) -> str | None:
     Maps the canonical event kind (and, for a tool call, the tool name)
     to a short verb shown under a session's chip. Returns None for
     events that carry no useful activity signal (tool results, user
-    text, system, terminal result), so the caller keeps the last hint.
+    text, terminal result), so the caller keeps the last hint.
 
     :param event: The canonical event to interpret.
     :returns: A short activity word, or None.
@@ -37,13 +37,18 @@ def activity_for(event: CanonicalEvent) -> str | None:
     if event.kind == EventKind.THINKING:
         return "thinking"
     if event.kind == EventKind.ASSISTANT_TEXT:
-        return "writing"
+        return "responding"
     if event.kind == EventKind.RATE_LIMIT:
         return "waiting"
     if event.kind == EventKind.TOOL_USE:
         name = (event.tool_name or "").strip().lower()
         base = name.split("__")[-1] if name else ""
         return _TOOL_ACTIVITY.get(base, base or "working")
+    # A backend with no incremental text events (a plain LLM) marks the
+    # start of answer generation with a SYSTEM "generating" event so the
+    # chip shows life during a long local-model turn.
+    if event.kind == EventKind.SYSTEM and event.subtype == "generating":
+        return "responding"
     return None
 
 

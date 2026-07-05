@@ -45,6 +45,28 @@ def _echo(captured: list[dict]) -> Callable[[httpx.Request], httpx.Response]:
     return handler
 
 
+def _sse(*chunks: dict) -> bytes:
+    """Build an OpenAI-style SSE completion body from delta chunks."""
+    lines = ["data: " + json.dumps(c) for c in chunks]
+    lines.append("data: [DONE]")
+    return ("\n\n".join(lines) + "\n\n").encode()
+
+
+def _stream(*chunks: dict) -> Callable[[httpx.Request], httpx.Response]:
+    """A handler that returns the chunks as a streaming SSE response."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(*chunks),
+        )
+    return handler
+
+
+def _delta(**delta: object) -> dict:
+    return {"choices": [{"delta": delta}]}
+
+
 def test_backend_is_text_only() -> None:
     """Ensure the LLM backend cannot serve file-editing steps."""
     backend, _ = _backend(_echo([]))
@@ -130,6 +152,64 @@ async def test_endpoint_failure_surfaces_as_a_failed_result() -> None:
     last = rec.events[-1]
     assert last.kind is EventKind.RESULT
     assert last.is_error is True
+
+
+@pytest.mark.asyncio
+async def test_streaming_emits_thinking_generating_and_final_text() -> None:
+    """Ensure a reasoning stream surfaces thinking + generating phases."""
+    backend, reg = _backend(_stream(
+        _delta(reasoning="let me think"),
+        _delta(content="Hel"),
+        _delta(content="lo"),
+    ))
+    result = await backend.run_turn(
+        TurnRequest(prompt="hi", cwd="/tmp/s", permission_mode="n/a")
+    )
+    rec = reg.get(result.session_id)
+    kinds = [e.kind for e in rec.events]
+    assert kinds == [
+        EventKind.USER_TEXT,
+        EventKind.THINKING,            # reasoning phase (live)
+        EventKind.SYSTEM,              # "generating" marker (live)
+        EventKind.ASSISTANT_TEXT,      # authoritative full reply
+        EventKind.RESULT,
+    ]
+    assert rec.events[2].subtype == "generating"
+    assert result.final_text == "Hello"
+    assert rec.events[3].text == "Hello"  # history-bearing event is complete
+
+
+@pytest.mark.asyncio
+async def test_streaming_without_reasoning_still_works() -> None:
+    """Ensure a model that emits no reasoning yields no THINKING, no error."""
+    backend, reg = _backend(_stream(
+        _delta(content="just "),
+        _delta(content="text"),
+    ))
+    result = await backend.run_turn(
+        TurnRequest(prompt="hi", cwd="/tmp/s", permission_mode="n/a")
+    )
+    rec = reg.get(result.session_id)
+    kinds = [e.kind for e in rec.events]
+    assert EventKind.THINKING not in kinds
+    assert EventKind.SYSTEM in kinds  # generating marker present
+    assert result.final_text == "just text"
+
+
+@pytest.mark.asyncio
+async def test_streaming_surfaces_tool_calls() -> None:
+    """Ensure a streamed tool call becomes a TOOL_USE activity event."""
+    backend, reg = _backend(_stream(
+        _delta(tool_calls=[{"index": 0, "function": {"name": "web_search"}}]),
+        _delta(content="done"),
+    ))
+    result = await backend.run_turn(
+        TurnRequest(prompt="hi", cwd="/tmp/s", permission_mode="n/a")
+    )
+    rec = reg.get(result.session_id)
+    tool_events = [e for e in rec.events if e.kind is EventKind.TOOL_USE]
+    assert [e.tool_name for e in tool_events] == ["web_search"]
+    assert result.final_text == "done"
 
 
 def test_registry_builds_an_openai_backend() -> None:

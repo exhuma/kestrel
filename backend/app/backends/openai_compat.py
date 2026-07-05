@@ -10,6 +10,7 @@ means history survives a restart with no extra storage.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from typing import Callable
@@ -124,7 +125,7 @@ class OpenAICompatBackend(Backend):
                 kind=EventKind.USER_TEXT, session_id=session_id, text=prompt
             ),
         )
-        content = await self._complete(self._history(session_id))
+        content = await self._complete(session_id, self._history(session_id))
         self.registry.append_event(
             session_id,
             CanonicalEvent(
@@ -157,30 +158,52 @@ class OpenAICompatBackend(Backend):
                 )
         return messages
 
-    async def _complete(self, messages: list[dict[str, str]]) -> str:
-        """POST the chat history and return the assistant's reply text."""
+    async def _complete(
+        self, session_id: str, messages: list[dict[str, str]]
+    ) -> str:
+        """
+        Stream the chat completion, emitting live activity as it goes.
+
+        Requests a streaming response so a long local-model turn surfaces
+        progress: a ``THINKING`` event once reasoning tokens appear (for
+        reasoning-capable models — absent ones are simply skipped), a
+        ``TOOL_USE`` event per tool the model calls, and a single
+        ``SYSTEM`` "generating" marker when the answer text starts. These
+        drive the chip's activity hint via ``activity_for``. An endpoint
+        that ignores ``stream`` and returns a normal JSON body still works
+        — it just yields no intermediate events.
+
+        :returns: The assistant's full reply text.
+        """
         headers = {}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        payload = {"model": self._model, "messages": messages, "stream": False}
+        payload = {"model": self._model, "messages": messages, "stream": True}
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
-            resp = await client.post(
+            async with client.stream(
+                "POST",
                 f"{self._base_url}/chat/completions",
                 json=payload,
                 headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            ) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    raise RuntimeError(
+                        f"LLM endpoint {self._base_url} returned "
+                        f"{resp.status_code} for model {self._model!r}"
+                    )
+                ctype = resp.headers.get("content-type", "")
+                if "event-stream" in ctype:
+                    return await self._consume_stream(session_id, resp)
+                # Endpoint ignored `stream`: read the whole body and parse
+                # it as a single (non-streaming) completion.
+                body = await resp.aread()
+                return self._content_of(json.loads(body))
         except httpx.TimeoutException as exc:
             raise RuntimeError(
                 f"LLM request to {self._base_url} timed out after "
                 f"{self._timeout:.0f}s (model {self._model!r})"
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"LLM endpoint {self._base_url} returned "
-                f"{exc.response.status_code} for model {self._model!r}"
             ) from exc
         except httpx.HTTPError as exc:
             raise RuntimeError(
@@ -189,8 +212,79 @@ class OpenAICompatBackend(Backend):
         finally:
             if self._client is None:
                 await client.aclose()
+
+    async def _consume_stream(
+        self, session_id: str, resp: httpx.Response
+    ) -> str:
+        """Consume an SSE completion stream, emitting phase events.
+
+        Emits at most one event per phase transition (not per token), so
+        the event log and SSE stay coarse while the chip still updates.
+        """
+        reasoning_seen = False
+        content_seen = False
+        tools_seen: set[str] = set()
+        parts: list[str] = []
+        async for line in resp.aiter_lines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except ValueError:
+                continue
+            choices = chunk.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            delta = choices[0].get("delta")
+            if not isinstance(delta, dict):
+                continue
+            reasoning = (
+                delta.get("reasoning_content")
+                or delta.get("reasoning")
+                or delta.get("thinking")
+            )
+            if reasoning and not reasoning_seen:
+                reasoning_seen = True
+                self.registry.append_event(
+                    session_id,
+                    CanonicalEvent(
+                        kind=EventKind.THINKING, session_id=session_id
+                    ),
+                )
+            for call in delta.get("tool_calls") or []:
+                fn = call.get("function") if isinstance(call, dict) else None
+                name = fn.get("name") if isinstance(fn, dict) else None
+                if isinstance(name, str) and name and name not in tools_seen:
+                    tools_seen.add(name)
+                    self.registry.append_event(
+                        session_id,
+                        CanonicalEvent(
+                            kind=EventKind.TOOL_USE, session_id=session_id,
+                            tool_name=name,
+                        ),
+                    )
+            piece = delta.get("content")
+            if isinstance(piece, str) and piece:
+                if not content_seen:
+                    content_seen = True
+                    self.registry.append_event(
+                        session_id,
+                        CanonicalEvent(
+                            kind=EventKind.SYSTEM, session_id=session_id,
+                            subtype="generating", summary="generating response",
+                        ),
+                    )
+                parts.append(piece)
+        return "".join(parts)
+
+    def _content_of(self, data: object) -> str:
+        """Extract the assistant text from a non-streaming JSON body."""
         try:
-            return data["choices"][0]["message"]["content"]
+            return data["choices"][0]["message"]["content"]  # type: ignore[index]
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(
                 f"unexpected response from {self._base_url}: "
