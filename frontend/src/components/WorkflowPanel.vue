@@ -305,14 +305,16 @@ function stepTone(status: string): string {
           </span>
         </div>
 
-        <div class="deliverable"
-          v-if="activeStep?.deliverable && !(awaitingInput && pendingInterview)">
+        <!-- Only prose deliverables (refined issue, plan, a plain agent
+             question) are shown here. A structured deliverable — the
+             questionnaire envelope — is JSON, so deliverableHtml is null and
+             the block is hidden: the form renders it while awaiting input, and
+             nothing dumps the raw JSON during the coordinator's next run. -->
+        <div class="deliverable" v-if="deliverableHtml">
           <div class="eyebrow">
-            {{ awaitingInput ? `${activeStep.name} — agent asks` : `${activeStep.name} deliverable` }}
+            {{ awaitingInput ? `${activeStep?.name} — agent asks` : `${activeStep?.name} deliverable` }}
           </div>
-          <div v-if="deliverableHtml" class="markdown deliverable__prose"
-            v-html="deliverableHtml" />
-          <pre v-else class="deliverable__text mono">{{ activeStep.deliverable }}</pre>
+          <div class="markdown deliverable__prose" v-html="deliverableHtml" />
         </div>
 
         <div class="gate" v-if="awaitingApproval">
@@ -440,11 +442,6 @@ function stepTone(status: string): string {
 .t-sys { --c: var(--idle); } .t-agent { --c: var(--signal); }
 .t-warn { --c: var(--warn); } .t-ok { --c: var(--ok); } .t-err { --c: var(--err); }
 .stage__body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 18px; }
-.deliverable__text {
-  white-space: pre-wrap; word-break: break-word; background: var(--ink-750);
-  border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px;
-  font-size: 12.5px; color: var(--text-hi); margin: 6px 0 0;
-}
 /* Cap rendered prose to a comfortable reading measure (~66ch) instead of the
    full stage width — matches the .qform convention. The .markdown element
    styling itself lives globally in theme.css (scoped rules can't reach
