@@ -192,6 +192,30 @@ async def test_detail_exposes_step_backend_and_round_caps() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_does_not_build_the_backend_registry(monkeypatch) -> None:
+    """Ensure the read-only detail path never builds the backend registry.
+
+    Regression: ``_detail`` once called ``get_backend_policy()``, which builds
+    the backend registry and eagerly loads *every* session from the database.
+    On a schema-less DB (a clean CI checkout) that raised ``no such table:
+    session``; it also needlessly coupled a read to the session subsystem. The
+    step-backend label must come from settings alone (``label_policy``).
+    """
+    import app.policy as policy_mod
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("detail must not build the backend registry")
+
+    monkeypatch.setattr(policy_mod, "get_backend_registry", _boom)
+    async with _client(_FakeService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    assert r.status_code == 200
+    assert [s["backend"] for s in r.json()["steps"]] == [
+        "claude", "claude", "claude",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_detail_exposes_chip_activity() -> None:
     """Ensure a chip's live activity hint reaches the API payload."""
     from app.models_workflow import StepSession

@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from app import sse
 from app.config import get_settings
 from app.models_workflow import WorkflowRun
-from app.policy import get_backend_policy
+from app.policy import label_policy
 from app.schemas import (
     AnswersIn,
     ApproveIn,
@@ -49,7 +49,9 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         )
         for ss in (active.active_sessions if active else [])
     ]
-    policy = get_backend_policy()
+    # Registry-free: labelling steps must not build the backend registry (which
+    # would eagerly load the session store from the DB) — see label_policy().
+    policy = label_policy()
     # The dynamic round cap lives in the refine step's interview envelope
     # (loop state), not a column; read it for the UI's "Round N / cap".
     refine = next((s for s in run.steps if s.name == "refine"), None)

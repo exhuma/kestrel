@@ -51,10 +51,13 @@ class BackendPolicy:
 
     def __init__(
         self,
-        registry: BackendRegistry,
+        registry: BackendRegistry | None,
         step_backends: dict[str, str],
         default_backend: str,
     ) -> None:
+        #: ``None`` for a label-only policy (see :func:`label_policy`), which
+        #: exposes just :meth:`backend_id_for`; :meth:`backend_for` and
+        #: :meth:`backends` require a real registry.
         self._registry = registry
         self._map = step_backends
         self._default = default_backend
@@ -154,4 +157,21 @@ def get_backend_policy() -> BackendPolicy:
         get_backend_registry(),
         settings.step_backends,
         settings.default_session_backend,
+    )
+
+
+def label_policy() -> BackendPolicy:
+    """
+    Return a registry-free policy for read-only step→backend labels.
+
+    Only :meth:`BackendPolicy.backend_id_for` is valid on it. Because it never
+    builds the backend registry, it never eagerly loads the session store from
+    the database — so the read-only workflow detail API can label each step's
+    backend without that side effect (and even if a backend is misconfigured).
+
+    :returns: A settings-only policy (rebuilt each call; construction is cheap).
+    """
+    settings = get_settings()
+    return BackendPolicy(
+        None, settings.step_backends, settings.default_session_backend
     )
