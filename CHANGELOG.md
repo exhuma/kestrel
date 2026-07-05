@@ -6,6 +6,48 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
 
 ## [Unreleased]
 
+## [2026.7.5-alpha.2] - 2026-07-05
+
+### Added
+
+- GitHub repository link in the header, shown when `VITE_GITHUB_REPO_URL` is
+  set at build time (hidden otherwise).
+- Refined-issue and implementation-plan deliverables now render as HTML
+  (Markdown) at a readable prose width instead of raw monospace text.
+- Per-question questionnaire controls: a "none of these fit" correction that
+  instructs the agent, and an optional "additional information" note on every
+  question.
+- Live workflow feedback: per-specialist activity words on the session chips
+  (thinking / reading / responding …), the current refine round and cap, and
+  the backend handling each step. OpenAI-compatible backends now stream turns
+  to drive this.
+- Refine robustness for weak/local models: multi-sample ensembling, reconcile
+  modes, and an optional critic pass.
+- Failed refine specialists (timeout, crash, empty response) are surfaced at
+  the review gate and automatically retried on submit — capped per specialist
+  (soft → hard) with a round cap that grows per retry.
+- `KESTREL_ALLOW_INCOMPLETE_ANSWERS` safety net to submit a questionnaire with
+  required questions still unanswered.
+
+### Changed
+
+- Abandoning a workflow now cleans up all of its attributed sessions and local
+  repository clones, with a warning in the confirm dialog.
+
+### Fixed
+
+- Option-less select questions are coerced to free text — both at generation
+  and on load — so they are always answerable; previously such answers never
+  registered and the submit button stayed disabled.
+- The raw questionnaire JSON no longer flashes on screen after answers are
+  submitted while the coordinator re-runs.
+- Aggregated questions are given unique ids, so answers no longer collide
+  across specialists.
+- Application logs now appear under unified logging when launched via
+  `uvicorn app.main:app`, not only via `python -m app`.
+- An agent turn that errors now fails loudly instead of silently surfacing the
+  error text as a deliverable.
+
 ## [2026.7.5-alpha.1] - 2026-07-05
 
 ### Added
