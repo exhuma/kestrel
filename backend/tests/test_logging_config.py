@@ -4,7 +4,13 @@ from __future__ import annotations
 import json
 import logging
 
-from app.logging_config import JsonFormatter, build_log_config, configure_logging
+from app.logging_config import (
+    JsonFormatter,
+    build_log_config,
+    clear_correlation_id,
+    configure_logging,
+    set_correlation_id,
+)
 
 
 def _record(**kw: object) -> logging.LogRecord:
@@ -42,6 +48,37 @@ def test_json_formatter_includes_exception() -> None:
         rec = _record(exc_info=sys.exc_info())
     doc = json.loads(JsonFormatter().format(rec))
     assert "boom" in doc["exception"]
+
+
+def test_json_formatter_includes_bound_correlation_id() -> None:
+    """Ensure a bound correlation ID surfaces in the JSON payload."""
+    from app.logging_config import CorrelationIDFilter
+
+    rec = _record()
+    set_correlation_id("trace-xyz")
+    try:
+        CorrelationIDFilter().filter(rec)
+        doc = json.loads(JsonFormatter().format(rec))
+    finally:
+        clear_correlation_id()
+    assert doc["correlation_id"] == "trace-xyz"
+
+
+def test_json_formatter_omits_correlation_id_when_unset() -> None:
+    """Ensure the sentinel '-' is not emitted as a correlation ID."""
+    rec = _record()
+    from app.logging_config import CorrelationIDFilter
+
+    CorrelationIDFilter().filter(rec)  # no ID bound -> stamps "-"
+    doc = json.loads(JsonFormatter().format(rec))
+    assert "correlation_id" not in doc
+
+
+def test_build_log_config_wires_correlation_filter() -> None:
+    """Ensure the stream handler carries the correlation-ID filter."""
+    cfg = build_log_config("info", "json")
+    assert "correlation_id" in cfg["filters"]
+    assert cfg["handlers"]["default"]["filters"] == ["correlation_id"]
 
 
 def test_build_log_config_unifies_uvicorn_with_root() -> None:

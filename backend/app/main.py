@@ -10,6 +10,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.middleware import (
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    VersionHeaderMiddleware,
+)
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
@@ -107,6 +112,16 @@ def create_app() -> FastAPI:
             },
         )
 
+    # Cross-cutting HTTP middleware (see module-http-middleware-hardening).
+    # ORDER MATTERS: Starlette applies middleware LIFO, so the LAST
+    # add_middleware call sits OUTERMOST and runs first on the way in. Keep
+    # CORS last so it answers preflight OPTIONS before any inner layer; keep
+    # request logging inside it so the log line reflects the real handler.
+    # Do not reorder. (Rate limiting is intentionally omitted: single-user
+    # localhost tool — add a limiter here if ever exposed beyond loopback.)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(VersionHeaderMiddleware, version=get_settings().version)
+    app.add_middleware(RequestLoggingMiddleware)
     # Personal single-user dev tool: allow the SPA from any local port
     # (Vite may pick 5173, 5174, ... depending on what is free) served
     # from any loopback host (localhost, 127.0.0.1, or IPv6 ::1) — the
