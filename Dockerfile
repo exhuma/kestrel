@@ -52,6 +52,11 @@ COPY --from=frontend-build /frontend/dist ./static
 ARG KESTREL_VERSION=0.0.0-dev
 ENV KESTREL_VERSION=${KESTREL_VERSION}
 
+# Use the dependencies baked into the image at build time; never re-sync at
+# container start. Without this, `uv run` would install dev deps into the venv
+# on every start — slow, and it pollutes the (optionally JSON) log stream.
+ENV UV_NO_SYNC=1
+
 # Runtime defaults. /data (persisted): SQLite DB + the writable Claude HOME
 # seeded from the host at startup. /workspaces (host bind mount): the git repos
 # claude clones and edits, kept browsable on the host. /seed (read-only): where

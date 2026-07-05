@@ -18,9 +18,9 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 
-# Log through uvicorn's own logger so the line actually surfaces — uvicorn
-# only attaches handlers to its loggers, not to arbitrary app loggers.
-_logger = logging.getLogger("uvicorn.error")
+# Unified logging (see app.logging_config) configures the root logger, so a
+# plain module logger surfaces on the same stream as uvicorn's own output.
+_logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

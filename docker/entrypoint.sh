@@ -43,4 +43,6 @@ cd /app
 # Migrations are idempotent; safe to run on every start.
 uv run alembic upgrade head
 
-exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+# `python -m app` launches uvicorn with unified logging (uvicorn + app logs
+# on one stdout stream; KESTREL_LOG_FORMAT selects text or JSON).
+exec uv run python -m app
