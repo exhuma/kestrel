@@ -13,6 +13,27 @@ services:
     #     KESTREL_VERSION: dev
     ports:
       - "8000:8000"
+    # Reach backends running on the Docker host (Ollama, `opencode serve`,
+    # ...): use http://host.docker.internal:PORT in backends.toml, NOT
+    # localhost — inside the container localhost is the container itself.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Surface readiness to `docker compose ps` and enable
+    # `depends_on: condition: service_healthy`. Mirrors the image's own
+    # HEALTHCHECK (GET /healthz, which also checks the database).
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:8000/healthz').status==200 else 1)
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     volumes:
       # Persist the SQLite DB and the container's Claude HOME across restarts.
       - kestrel-data:/data

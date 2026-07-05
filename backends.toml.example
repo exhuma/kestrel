@@ -3,6 +3,12 @@
 # Point kestrel at this file with KESTREL_BACKENDS_FILE (see README). When
 # set, it supersedes the KESTREL_BACKENDS / KESTREL_STEP_BACKENDS /
 # KESTREL_DEFAULT_SESSION_BACKEND env vars. Copy to `backends.toml` and edit.
+#
+# NOTE ON base_url IN DOCKER: inside the container `localhost` is the
+# container, not the host. To reach a backend running on the Docker host,
+# use http://host.docker.internal:PORT instead of http://localhost:PORT
+# (the published docker-compose.yml already maps host.docker.internal).
+# The localhost examples below are correct when running kestrel from source.
 
 # Backend used for ad-hoc /api/sessions dispatch.
 default_session_backend = "claude"
