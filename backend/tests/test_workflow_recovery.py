@@ -66,7 +66,7 @@ async def test_recover_resumes_awaiting_input(
     run = svc2.get(wid)
     assert run.status == "awaiting_refine_input"
 
-    svc2.submit_answers(wid, {"developer:q1": "Blue, please"})
+    svc2.submit_answers(wid, {"developer:q0": "Blue, please"})
     await _wait(
         lambda: svc2.get(wid).status
         == "awaiting_refine_approval"

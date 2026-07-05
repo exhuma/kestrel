@@ -274,9 +274,9 @@ async def test_refine_question_visible_while_awaiting_input() -> None:
     question = envelope.questionnaire.questions[0]
     assert question.prompt == "What should the widget look like?"
     assert question.audience == "developer"
-    assert question.id == "developer:q1"  # namespaced across profiles
+    assert question.id == "developer:q0"  # namespaced across profiles
 
-    svc.submit_answers(wid, {"developer:q1": "A blue one"})
+    svc.submit_answers(wid, {"developer:q0": "A blue one"})
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     assert svc.get(wid).steps[0].deliverable == "Build a blue widget"
 
@@ -474,10 +474,10 @@ async def test_questionnaire_deliverable_is_structured() -> None:
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
-    assert envelope.questionnaire.questions[0].id == "developer:q1"
+    assert envelope.questionnaire.questions[0].id == "developer:q0"
     assert envelope.questionnaire.profiles[0].id == "developer"
 
-    svc.submit_answers(wid, {"developer:q1": "oidc"})
+    svc.submit_answers(wid, {"developer:q0": "oidc"})
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_approval"
@@ -523,7 +523,7 @@ async def test_submit_answers_validates() -> None:
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
     with pytest.raises(AnswerValidationError):
-        svc.submit_answers(wid, {"developer:q1": "saml"})
+        svc.submit_answers(wid, {"developer:q0": "saml"})
     assert len(runner.calls) == 2  # coordinator + one generator only
 
 
@@ -544,12 +544,12 @@ async def test_draft_save_persists_without_resuming() -> None:
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
     round_before = svc.get(wid).steps[0].refine_round
-    svc.save_draft(wid, {"developer:q1": "a"})
+    svc.save_draft(wid, {"developer:q0": "a"})
     # Still parked at the interview; no further agent call fired.
     assert svc.get(wid).status == "awaiting_refine_input"
     assert len(runner.calls) == 2
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
-    assert envelope.draft_answers == {"developer:q1": "a"}
+    assert envelope.draft_answers == {"developer:q0": "a"}
     # A draft save must never look like a genuine questionnaire change.
     assert svc.get(wid).steps[0].refine_round == round_before
 
@@ -576,13 +576,13 @@ async def test_refine_round_increments_across_interview_rounds() -> None:
     )
     assert svc.get(wid).steps[0].refine_round == 1
 
-    svc.submit_answers(wid, {"developer:q1": "a"})
+    svc.submit_answers(wid, {"developer:q0": "a"})
     await _wait(
         lambda: svc.get(wid).steps[0].refine_round == 2
     )
     assert svc.get(wid).status == "awaiting_refine_input"
 
-    svc.submit_answers(wid, {"developer:q1": "b"})
+    svc.submit_answers(wid, {"developer:q0": "b"})
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
@@ -625,7 +625,7 @@ async def test_waiver_reason_lands_in_refined_issue() -> None:
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
     svc.submit_answers(wid, {
-        "infosec:q1": {
+        "infosec:q0": {
             "waived": True,
             "reason": "Low sensitivity; risk accepted by owner",
         },
@@ -760,7 +760,7 @@ async def test_reconciler_folds_overlap_into_one_simple_question() -> None:
         # sees the developer question was folded, not silently dropped.
         _qs(_q(qid="x", audience="requester",
                prompt="How are accounts created?",
-               folded_from=["requester:q1", "developer:q1"],
+               folded_from=["requester:q0", "developer:q0"],
                options=[{"value": "signup", "label": "Self-service signup"},
                         {"value": "seeded", "label": "Fixed / seeded set"}])),
         _coord([]),
@@ -798,7 +798,7 @@ async def test_reconciler_malformed_output_keeps_all() -> None:
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
-    assert ids == {"requester:q1", "developer:q1"}
+    assert ids == {"requester:q0", "developer:q0"}
     assert {p.id for p in envelope.questionnaire.profiles} == {
         "requester", "developer",
     }
@@ -826,7 +826,7 @@ async def test_reconciler_unknown_audience_keeps_all() -> None:
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
-    assert ids == {"requester:q1", "developer:q1"}
+    assert ids == {"requester:q0", "developer:q0"}
 
 
 @pytest.mark.asyncio
@@ -854,7 +854,7 @@ async def test_reconciler_silent_audience_drop_keeps_all() -> None:
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
-    assert ids == {"requester:q1", "developer:q1"}
+    assert ids == {"requester:q0", "developer:q0"}
     assert {p.id for p in envelope.questionnaire.profiles} == {
         "requester", "developer",
     }
@@ -874,7 +874,7 @@ async def test_critic_reinjects_dropped_audience() -> None:
         # is accounted for) — but the developer's concern is really gone.
         _qs(_q(qid="x", audience="requester",
                prompt="How are accounts created?",
-               folded_from=["requester:q1", "developer:q1"],
+               folded_from=["requester:q0", "developer:q0"],
                options=[{"value": "signup", "label": "Self-service"},
                         {"value": "seeded", "label": "Seeded set"}])),
         _coverage(requester=True, developer=False),  # critic: dev lost
@@ -913,7 +913,7 @@ async def test_reconcile_mode_off_keeps_the_pool() -> None:
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
-    assert ids == {"requester:q1", "developer:q1"}
+    assert ids == {"requester:q0", "developer:q0"}
     # No reconciler agent ran (its prompt's signature never appears).
     assert not any("interviewed in parallel" in c["prompt"].lower()
                    for c in runner.calls)
@@ -1319,6 +1319,28 @@ async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
     wid = await svc.create("o/r", 5)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     assert svc.get(wid).status != "failed"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_question_ids_are_made_unique() -> None:
+    """Ensure a weak model reusing a question id within one profile still
+    yields unique namespaced ids, so the frontend answer map and v-for
+    keys don't collide (some answers never registering)."""
+    from app.questionnaire import parse_envelope
+
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(qid="q1", prompt="A?"), _q(qid="q1", prompt="B?")),
+    ])
+    svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+
+    env = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    assert env is not None
+    ids = [q.id for q in env.questionnaire.questions]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2  # unique despite the model reusing "q1"
 
 
 @pytest.mark.asyncio

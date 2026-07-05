@@ -1086,13 +1086,15 @@ class WorkflowService:
             for sample_index, questionnaire in enumerate(questionnaires):
                 if questionnaire is None:
                     continue
-                for question in questionnaire.questions:
+                for q_index, question in enumerate(questionnaire.questions):
                     question.audience = profile.id
-                    # Namespace by profile so ids stay unique; add a
-                    # sample tag only when ensembling, so K=1 keeps the
-                    # historical ``profile:qid`` form.
+                    # Namespace by profile (and sample, when ensembling)
+                    # and re-key by position rather than the model's own
+                    # id: a weak model that reuses an id would otherwise
+                    # produce colliding ids that break the frontend's
+                    # per-id answer map and v-for keys.
                     tag = f"s{sample_index}:" if samples > 1 else ""
-                    question.id = f"{profile.id}:{tag}{question.id}"
+                    question.id = f"{profile.id}:{tag}q{q_index}"
                     questions.append(question)
 
         # Within-round consolidation. The generators (and, under
