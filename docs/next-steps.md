@@ -50,9 +50,6 @@ of the roadmap milestones below and can be picked up in isolation.
   crash, since fixed — see `backend/app/services/runner.py`'s
   `_STREAM_LIMIT`) — the old run (`wf-1086a757`) is permanently stuck in
   `failed` with no in-place way to resume it.
-- **No `/health` endpoint.** Now that kestrel ships as a Docker image, a
-  liveness/readiness route would let `docker-compose`/orchestrators actually
-  monitor it. Currently returns a bare 404.
 
 ## Small, contained fixes (deferred from earlier reviews, still open)
 

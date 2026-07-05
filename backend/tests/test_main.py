@@ -8,8 +8,12 @@ from app.main import create_app
 
 
 @pytest.mark.asyncio
-async def test_healthz_reports_ok_and_version() -> None:
-    """The readiness probe reports ok (DB reachable) and the version."""
+async def test_healthz_reports_ok_with_database_component() -> None:
+    """The summary probe reports ok and lists the database component.
+
+    The running version rides the X-Kestrel-Version header, not the body
+    (module-observability-healthz forbids version fingerprints in payloads).
+    """
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -18,9 +22,11 @@ async def test_healthz_reports_ok_and_version() -> None:
         resp = await client.get("/healthz")
     assert resp.status_code == 200
     body = resp.json()
+    assert body["probe"] == "healthz"
     assert body["status"] == "ok"
-    # Baked in via KESTREL_VERSION; defaults to the from-source sentinel.
-    assert body["version"] == "0.0.0-dev"
+    assert "version" not in body
+    assert body["components"][0]["name"] == "database"
+    assert body["components"][0]["status"] == "ok"
 
 
 @pytest.mark.asyncio

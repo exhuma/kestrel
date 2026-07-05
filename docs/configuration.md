@@ -63,13 +63,21 @@ Logs go to stdout. `KESTREL_LOG_FORMAT` selects human-readable `text`
 
 ## Health and version
 
-`GET /healthz` returns `{"status":"ok","version":"…"}` when the service is
-ready, and HTTP 503 if the database is unreachable. The container and compose
-healthchecks use this endpoint. Use the `version` field to confirm which
-image build is running.
+Kestrel exposes `GET /livez`, `GET /readyz`, and `GET /healthz`. Each returns
+a compact JSON body (`probe`, `status`, `checked_at`, `components`) with HTTP
+200 when healthy and 503 when a required dependency fails. The container and
+compose healthchecks call `/readyz`. See
+[Observability → Health](observability.md#health) for the full contract.
 
-The version is baked into the image at build time (`KESTREL_VERSION`), so it
-is not a setting you configure — it simply reports the running build.
+The running build is reported in the `X-Kestrel-Version` response header (not
+the body — health payloads must not leak version fingerprints):
+
+```bash
+curl -sD - -o /dev/null http://localhost:8000/livez | grep -i x-kestrel-version
+```
+
+The version is baked into the image at build time (`KESTREL_VERSION`); it is
+read-only and simply reports the running build.
 
 ## Secrets
 

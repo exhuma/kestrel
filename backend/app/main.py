@@ -133,29 +133,48 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get("/healthz")
-    async def healthz() -> JSONResponse:
-        """Readiness probe used by the container/compose healthcheck.
+    # Health probes (see module-observability-healthz). The running version
+    # rides the X-Kestrel-Version response header (VersionHeaderMiddleware),
+    # not the body — health payloads must not leak version fingerprints.
+    from app.health import (
+        build_response,
+        check_database,
+        overall_status,
+        status_code,
+    )
 
-        Reports the running image version and verifies the database is
-        reachable (a cheap ``SELECT 1``). Returns HTTP 503 if the DB is
-        unreachable so an unready container is flagged rather than served.
+    @app.get("/livez")
+    async def livez() -> JSONResponse:
+        """Liveness: the process is up. Touches no external dependency."""
+        return JSONResponse(build_response("livez", [], "ok"))
+
+    @app.get("/readyz")
+    async def readyz() -> JSONResponse:
+        """Readiness: required dependencies (the database) are usable.
+
+        Returns HTTP 503 when the database is unreachable so an unready
+        container is gated out of traffic rather than served.
         """
-        from sqlalchemy import text
-
         from app.persistence.db import get_engine
 
-        version = get_settings().version
-        try:
-            with get_engine().connect() as conn:
-                conn.execute(text("SELECT 1"))
-        except Exception:  # pragma: no cover - defensive: DB down at runtime
-            _logger.exception("healthz: database check failed")
-            return JSONResponse(
-                status_code=503,
-                content={"status": "unavailable", "version": version},
-            )
-        return JSONResponse(content={"status": "ok", "version": version})
+        components = [check_database(get_engine())]
+        status = overall_status(components, include_optional=False)
+        return JSONResponse(
+            build_response("readyz", components, status),
+            status_code=status_code(status),
+        )
+
+    @app.get("/healthz")
+    async def healthz() -> JSONResponse:
+        """Operational summary over required and optional dependencies."""
+        from app.persistence.db import get_engine
+
+        components = [check_database(get_engine())]
+        status = overall_status(components, include_optional=True)
+        return JSONResponse(
+            build_response("healthz", components, status),
+            status_code=status_code(status),
+        )
 
     from app.routers import notifications, sessions, workflows
 

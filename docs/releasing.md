@@ -42,9 +42,10 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 
 ## Verifying the running version
 
-The baked-in `KESTREL_VERSION` is reported by `GET /healthz`:
+The baked-in `KESTREL_VERSION` is reported in the `X-Kestrel-Version` header
+on every response:
 
 ```bash
-curl -s http://localhost:8000/healthz
-# {"status":"ok","version":"2026.7.3-alpha.1"}
+curl -sD - -o /dev/null http://localhost:8000/livez | grep -i x-kestrel-version
+# x-kestrel-version: 2026.7.3-alpha.1
 ```

@@ -43,8 +43,8 @@ API on port 8000. First start pulls the image and may take a minute.
 To confirm the service is healthy at any time:
 
 ```bash
-curl -s http://localhost:8000/healthz
-# {"status":"ok","version":"2026.7.3-alpha.1"}
+curl -s http://localhost:8000/readyz
+# {"probe":"readyz","status":"ok","checked_at":"…","components":[…]}
 ```
 
 ## Volumes
