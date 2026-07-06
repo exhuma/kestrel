@@ -81,17 +81,20 @@ class OpenCodeBackend(Backend):
 
     # ---- Backend protocol ---------------------------------------------
     async def start(self, prompt: str) -> str:
-        sid = await self._create_session()
         cwd = os.path.join(
             self.settings.workspace_root, "session-" + uuid.uuid4().hex[:8]
         )
+        # opencode resolves file tools against this directory; make sure it
+        # exists (an ad-hoc session has no repo cloned into it yet).
+        os.makedirs(cwd, exist_ok=True)
+        sid = await self._create_session(cwd)
         self.registry.create(sid, cwd)
-        self._schedule(sid, prompt)
+        self._schedule(sid, prompt, cwd)
         return sid
 
     async def resume(self, session_id: str, prompt: str) -> str:
         # opencode keeps the session server-side; another message resumes it.
-        self._schedule(session_id, prompt)
+        self._schedule(session_id, prompt, self._session_dir(session_id))
         return session_id
 
     async def run_turn(
@@ -99,12 +102,12 @@ class OpenCodeBackend(Backend):
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
     ) -> TurnResult:
-        sid = req.resume_id or await self._create_session()
+        sid = req.resume_id or await self._create_session(req.cwd)
         if self.registry.get(sid) is None:
             self.registry.create(sid, req.cwd)
         if on_session_id is not None:
             on_session_id(sid)
-        content = await self._turn(sid, req.prompt)
+        content = await self._turn(sid, req.prompt, req.cwd)
         return TurnResult(session_id=sid, final_text=content)
 
     def terminate(self, session_id: str) -> bool:
@@ -115,8 +118,17 @@ class OpenCodeBackend(Backend):
         return False
 
     # ---- internals ----------------------------------------------------
-    def _schedule(self, session_id: str, prompt: str) -> None:
-        task = asyncio.create_task(self._safe_turn(session_id, prompt))
+    def _session_dir(self, session_id: str) -> str | None:
+        """Return the working directory recorded for a session, if any."""
+        record = self.registry.get(session_id)
+        return record.cwd if record is not None else None
+
+    def _schedule(
+        self, session_id: str, prompt: str, directory: str | None
+    ) -> None:
+        task = asyncio.create_task(
+            self._safe_turn(session_id, prompt, directory)
+        )
         self._live[session_id] = task
         _TASKS.add(task)
 
@@ -127,9 +139,11 @@ class OpenCodeBackend(Backend):
 
         task.add_done_callback(_done)
 
-    async def _safe_turn(self, session_id: str, prompt: str) -> None:
+    async def _safe_turn(
+        self, session_id: str, prompt: str, directory: str | None
+    ) -> None:
         try:
-            await self._turn(session_id, prompt)
+            await self._turn(session_id, prompt, directory)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"
@@ -143,7 +157,9 @@ class OpenCodeBackend(Backend):
                 ),
             )
 
-    async def _turn(self, session_id: str, prompt: str) -> str:
+    async def _turn(
+        self, session_id: str, prompt: str, directory: str | None
+    ) -> str:
         """Send the prompt, map this turn's new messages, append a RESULT.
 
         A turn produces several assistant messages (tool calls then a final
@@ -152,9 +168,14 @@ class OpenCodeBackend(Backend):
         the messages that are new since before the prompt are mapped.
         Snapshotting before the prompt keeps this correct across resumes
         and process restarts (existing history is not re-emitted).
+
+        ``directory`` scopes every request to the session's working folder
+        (the checked-out repo) so opencode's file tools act there rather than
+        in the ``opencode serve`` process's own cwd.
         """
         seen = {
-            self._msg_id(m) for m in await self._messages(session_id)
+            self._msg_id(m)
+            for m in await self._messages(session_id, directory)
         }
         self.registry.append_event(
             session_id,
@@ -166,10 +187,13 @@ class OpenCodeBackend(Backend):
         if self._model is not None:
             body["model"] = self._model
         await self._request(
-            "POST", f"/session/{session_id}/message", json=body
+            "POST",
+            f"/session/{session_id}/message",
+            json=body,
+            directory=directory,
         )
         texts: list[str] = []
-        for message in await self._messages(session_id):
+        for message in await self._messages(session_id, directory):
             if self._msg_role(message) != "assistant":
                 continue  # user echo — we already emitted USER_TEXT
             if self._msg_id(message) in seen:
@@ -184,9 +208,13 @@ class OpenCodeBackend(Backend):
         )
         return final
 
-    async def _messages(self, session_id: str) -> list[dict]:
+    async def _messages(
+        self, session_id: str, directory: str | None = None
+    ) -> list[dict]:
         """Fetch the full message transcript for a session."""
-        data = await self._request("GET", f"/session/{session_id}/message")
+        data = await self._request(
+            "GET", f"/session/{session_id}/message", directory=directory
+        )
         if not isinstance(data, list):
             return []
         return [m for m in data if isinstance(m, dict)]
@@ -272,22 +300,39 @@ class OpenCodeBackend(Backend):
             # step-start / step-finish / snapshot / … are structural — skip.
         return texts
 
-    async def _create_session(self) -> str:
+    async def _create_session(self, directory: str | None = None) -> str:
         """Create an opencode session and return its id."""
-        data = await self._request("POST", "/session", json={})
+        data = await self._request(
+            "POST", "/session", json={}, directory=directory
+        )
         sid = data.get("id") if isinstance(data, dict) else None
         if not isinstance(sid, str):
             raise RuntimeError("opencode did not return a session id")
         return sid
 
     async def _request(
-        self, method: str, path: str, json: object | None = None
+        self,
+        method: str,
+        path: str,
+        json: object | None = None,
+        directory: str | None = None,
     ) -> object:
-        """Issue one HTTP request against the opencode server."""
+        """Issue one HTTP request against the opencode server.
+
+        When ``directory`` is set it is sent as the ``directory`` query
+        parameter, which opencode resolves the request's project directory
+        from (query > ``x-opencode-directory`` header > the server's own
+        cwd). Without it opencode would act in the ``opencode serve`` cwd.
+        """
+        params = {"directory": directory} if directory else None
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.request(
-                method, f"{self._base_url}{path}", json=json, auth=self._auth
+                method,
+                f"{self._base_url}{path}",
+                json=json,
+                params=params,
+                auth=self._auth,
             )
             resp.raise_for_status()
             return resp.json()

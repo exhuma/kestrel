@@ -23,12 +23,12 @@ from app.models import EventKind
 from app.storage.registry import SessionRegistry
 
 
-def _settings() -> Settings:
-    return Settings(_env_file=None, workspace_root="/tmp/ws")
+def _settings(ws: str = "/tmp/ws") -> Settings:
+    return Settings(_env_file=None, workspace_root=ws)
 
 
 def _backend(
-    handler, cfg: BackendConfig | None = None
+    handler, cfg: BackendConfig | None = None, ws: str = "/tmp/ws"
 ) -> tuple[OpenCodeBackend, SessionRegistry, list[httpx.Request]]:
     registry = SessionRegistry()
     cfg = cfg or BackendConfig(
@@ -42,7 +42,7 @@ def _backend(
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(wrapped))
-    backend = OpenCodeBackend(_settings(), registry, cfg, client=client)
+    backend = OpenCodeBackend(_settings(ws), registry, cfg, client=client)
     return backend, registry, seen
 
 
@@ -132,9 +132,31 @@ async def test_run_turn_maps_tool_and_text_messages() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_streams_a_turn_in_the_background() -> None:
+async def test_run_turn_scopes_requests_to_the_working_directory() -> None:
+    """Ensure opencode requests carry the checked-out repo as the directory.
+
+    Without a directory, opencode falls back to the ``opencode serve``
+    process's own cwd and edits the wrong folder (resolution order:
+    ``?directory=`` query > ``x-opencode-directory`` header > process.cwd()).
+    """
+    backend, _, seen = _backend(_transcript_handler())
+
+    await backend.run_turn(
+        TurnRequest(
+            prompt="do it", cwd="/repo/checkout", permission_mode="n/a"
+        )
+    )
+
+    assert seen  # requests were made
+    assert all(
+        r.url.params.get("directory") == "/repo/checkout" for r in seen
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_streams_a_turn_in_the_background(tmp_path) -> None:
     """Ensure start returns immediately then completes the turn."""
-    backend, reg, _ = _backend(_transcript_handler())
+    backend, reg, _ = _backend(_transcript_handler(), ws=str(tmp_path))
     sid = await backend.start("do it")
 
     for _ in range(100):
@@ -148,7 +170,7 @@ async def test_start_streams_a_turn_in_the_background() -> None:
 
 
 @pytest.mark.asyncio
-async def test_server_error_surfaces_as_a_failed_result() -> None:
+async def test_server_error_surfaces_as_a_failed_result(tmp_path) -> None:
     """Ensure an opencode error never leaves the session stuck running."""
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/session" and request.method == "POST":
@@ -157,7 +179,7 @@ async def test_server_error_surfaces_as_a_failed_result() -> None:
             return httpx.Response(200, json=[])
         return httpx.Response(500, json={"error": "boom"})
 
-    backend, reg, _ = _backend(handler)
+    backend, reg, _ = _backend(handler, ws=str(tmp_path))
     sid = await backend.start("do it")
 
     for _ in range(100):

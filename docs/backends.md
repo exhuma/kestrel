@@ -121,10 +121,12 @@ password = "changeme"                      # inline (gitignored file), or:
 # api_key_env = "OPENCODE_SERVER_PASSWORD"  # name of an exported env var
 ```
 
-> **opencode and the `implement` step.** opencode sessions run in the
-> directory where `opencode serve` was started — opencode has no per-session
-> working directory. That is fine for ad-hoc sessions, but means opencode is
-> **not yet suitable for the workflow `implement` step**, which needs the
-> agent to edit a per-run cloned workspace. Keep `implement` on `claude`
-> (which honours the workspace). Live token-streaming (via opencode's
-> `/event` SSE) and an auto-started `serve` supervisor are still in progress.
+> **opencode working directory.** Each request kestrel sends is scoped to the
+> session's working directory (the per-run cloned workspace, or an ad-hoc
+> session's own folder) via opencode's `directory` parameter, so opencode's
+> file tools act there rather than in the directory where `opencode serve` was
+> started. This lets opencode serve the workflow `implement` step. The
+> `opencode serve` process must be able to reach that path — run it on the
+> same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`. Live token-streaming
+> (via opencode's `/event` SSE) and an auto-started `serve` supervisor are
+> still in progress.
