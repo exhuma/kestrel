@@ -16,6 +16,14 @@ export function setTokenProvider(p: TokenProvider): void {
   tokenProvider = p
 }
 
+let unauthorizedHandler: (() => void) | null = null
+
+// Global 401 seam: bootstrap code registers a handler (e.g. redirect to
+// login) that fires on any 401. Present even before auth exists.
+export function setUnauthorizedHandler(fn: () => void): void {
+  unauthorizedHandler = fn
+}
+
 export class ApiError extends Error {
   status: number
   data: unknown
@@ -43,6 +51,7 @@ async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (!resp.ok) {
+    if (resp.status === 401) unauthorizedHandler?.()
     throw new ApiError(resp.status, await resp.text())
   }
   return (await resp.json()) as T
@@ -52,5 +61,7 @@ export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) =>
     request<T>('POST', path, body),
-  del: <T>(path: string) => request<T>('DELETE', path),
+  put: <T>(path: string, body?: unknown) =>
+    request<T>('PUT', path, body),
+  delete: <T>(path: string) => request<T>('DELETE', path),
 }

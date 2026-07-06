@@ -82,7 +82,7 @@ export function useSessions() {
   async function remove(id: string): Promise<void> {
     error.value = null
     try {
-      await api.del(`/api/sessions/${id}`)
+      await api.delete(`/api/sessions/${id}`)
       await refresh()
     } catch (e) {
       error.value = describe(e)
