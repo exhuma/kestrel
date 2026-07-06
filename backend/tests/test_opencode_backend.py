@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 
 import httpx
 import pytest
@@ -151,6 +152,31 @@ async def test_run_turn_scopes_requests_to_the_working_directory() -> None:
     assert all(
         r.url.params.get("directory") == "/repo/checkout" for r in seen
     )
+
+
+@pytest.mark.asyncio
+async def test_relative_cwd_is_sent_as_an_absolute_directory() -> None:
+    """Ensure a relative working dir is resolved before opencode sees it.
+
+    opencode runs as a separate process with its own cwd (the default
+    workspace root is relative, ``./.kestrel-workspaces``), so a relative
+    ``directory`` would resolve against the wrong base. kestrel must send an
+    absolute path.
+    """
+    backend, _, seen = _backend(_transcript_handler())
+
+    await backend.run_turn(
+        TurnRequest(
+            prompt="do it",
+            cwd="./.kestrel-workspaces/session-abc",
+            permission_mode="n/a",
+        )
+    )
+
+    expected = os.path.abspath("./.kestrel-workspaces/session-abc")
+    assert expected.startswith("/")  # absolute
+    assert seen
+    assert all(r.url.params.get("directory") == expected for r in seen)
 
 
 @pytest.mark.asyncio

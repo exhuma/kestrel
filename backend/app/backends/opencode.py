@@ -323,8 +323,15 @@ class OpenCodeBackend(Backend):
         parameter, which opencode resolves the request's project directory
         from (query > ``x-opencode-directory`` header > the server's own
         cwd). Without it opencode would act in the ``opencode serve`` cwd.
+
+        The directory is resolved to an **absolute** path first: opencode is
+        a separate process with its own cwd (kestrel's workspace root is
+        relative by default), so a relative path would resolve against the
+        wrong base.
         """
-        params = {"directory": directory} if directory else None
+        params = (
+            {"directory": os.path.abspath(directory)} if directory else None
+        )
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.request(
