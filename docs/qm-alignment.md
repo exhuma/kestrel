@@ -203,7 +203,8 @@ has no ruff/black; TS/Vue has no ESLint/Prettier; several lines exceed 80 cols
 **Files:** `backend/pyproject.toml`, new `frontend/.eslintrc*` + `.prettierrc`,
 `cspell.json`, `.pre-commit-config.yaml`, `.github/workflows/testing.yml`.
 
-**Verify:** `ruff check`, `npm run lint`, `pre-commit run --all-files`, CI green.
+**Verify:** `ruff check`, `npm run format:check`, `pre-commit run
+--all-files`, CI green.
 
 ### WP5 — Frontend Vuetify decision: adopt vs. drop (P1, decision-gated)
 

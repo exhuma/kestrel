@@ -6,8 +6,9 @@ is no separate "API key" concept — it's one setting: `KESTREL_GITHUB_TOKEN`.
 
 ## 1. Create a token
 
-Fine-grained PAT (recommended), scoped to just the test repo:
-**github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens**
+Fine-grained PAT (recommended), scoped to just the test repo. On
+**github.com**, open **Settings → Developer settings → Personal access
+tokens → Fine-grained tokens**.
 
 Required repository permissions:
 - **Contents**: Read and write (push the branch)

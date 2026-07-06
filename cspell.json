@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  "language": "en,en-GB",
+  "files": [
+    "README.md",
+    "contract.md",
+    "docs/*.md",
+    "backend/app/**/*.py",
+    "frontend/src/**/*.{ts,vue}"
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.venv/**",
+    "docs/superpowers/**"
+  ],
+  "words": [
+    "aclose", "aread", "changeme", "codegen", "conftest", "contextvar",
+    "coro", "creds", "dedup", "deepseek", "dispatchable", "Dockerisation",
+    "dotenv", "ecard", "ensembling", "exhuma", "extraheader", "fastapi",
+    "formedness", "ghlink", "glanceable", "gpgsign", "grayscale",
+    "HEALTHCHECK", "healthchecks", "healthz", "HMAC", "hrefs", "httpx",
+    "infosec", "KEEPALIVE", "keepalives", "kwargs", "livez", "multiedit",
+    "nosniff", "notebookedit", "notif", "ntfy", "Okabe", "ollama",
+    "opencode", "pinentry", "Planka", "PROCS", "pydantic", "pyproject",
+    "pytest", "qbadge", "qform", "qgroup", "qtab", "qtabs", "readyz",
+    "renamespaced", "rgba", "runbook", "runbooks", "savestatus", "scard",
+    "sessionmaker", "sqlalchemy", "stageroot", "substep", "taskfile",
+    "todowrite", "topbar", "uiux", "unconfigured", "unparseable",
+    "uvicorn", "viewnav", "Vite", "Vuetify", "webfetch", "worktree",
+    "Zammad"
+  ]
+}
