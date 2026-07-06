@@ -138,8 +138,7 @@ async function onCreate(): Promise<void> {
 async function onApprove(): Promise<void> {
   busy.value = 'approve'
   try {
-    await approve(edited.value || undefined)
-    edited.value = ''
+    if (await approve(edited.value || undefined)) edited.value = ''
   } finally {
     busy.value = null
   }
@@ -155,8 +154,7 @@ async function onReject(): Promise<void> {
 async function onRequestChanges(): Promise<void> {
   busy.value = 'changes'
   try {
-    await reject(feedback.value)
-    feedback.value = ''
+    if (await reject(feedback.value)) feedback.value = ''
   } finally {
     busy.value = null
   }
@@ -164,8 +162,7 @@ async function onRequestChanges(): Promise<void> {
 async function onReply(): Promise<void> {
   busy.value = 'reply'
   try {
-    await reply(answer.value)
-    answer.value = ''
+    if (await reply(answer.value)) answer.value = ''
   } finally {
     busy.value = null
   }

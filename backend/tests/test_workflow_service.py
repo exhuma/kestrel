@@ -375,6 +375,20 @@ async def test_steps_use_policy_models() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reject_refine_without_prompt_ends_run() -> None:
+    """Ensure terminal reject at the refine gate ends the run as rejected."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("v1")]
+    )
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.reject(wid)
+    await _wait(lambda: svc.get(wid).status == "rejected")
+
+
+@pytest.mark.asyncio
 async def test_reject_with_refinement_regenerates() -> None:
     """Ensure gate feedback regenerates the refined issue via the writer."""
     gh = _FakeGitHub(body="vague issue")

@@ -173,4 +173,28 @@ describe('useWorkflows', () => {
       refinement_prompt: null,
     })
   })
+
+  it('surfaces a gate-action failure instead of doing nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('no gate awaiting', { status: 409 })),
+    )
+    const wf = useWorkflows()
+    wf.current.value = {
+      id: 'wf-1',
+      repo: 'o/r',
+      issue_number: 1,
+      issue_title: 't',
+      status: 'awaiting_refine_approval',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      pr_url: null,
+      error: null,
+    }
+    const ok = await wf.reject()
+    expect(ok).toBe(false)
+    expect(wf.error.value).toBeTruthy()
+  })
 })

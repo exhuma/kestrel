@@ -106,20 +106,40 @@ export function useWorkflows() {
     }
   }
 
-  async function reply(text: string): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/reply`, { text })
+  // Gate actions (reply/approve/reject/submit) surface failures on the
+  // `error` banner and report success, so a rejected/expired gate never just
+  // "does nothing" — the user sees why (e.g. a 409 "no gate awaiting a
+  // decision" when the run already moved on) instead of a silent no-op.
+  async function gate(
+    id: string | undefined,
+    action: (id: string) => Promise<unknown>,
+  ): Promise<boolean> {
+    if (!id) return false
+    error.value = null
+    try {
+      await action(id)
+      return true
+    } catch (e) {
+      error.value = describe(e)
+      return false
+    }
+  }
+
+  async function reply(text: string): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/reply`, { text }),
+    )
   }
 
   async function submitAnswers(
     answers: Record<string, unknown>,
-  ): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/answers`, {
-        answers,
-      })
+  ): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/answers`, { answers }),
+    )
   }
 
+  // Draft saves stay best-effort: no error banner for a transient failure.
   async function saveDraft(answers: Record<string, unknown>): Promise<void> {
     if (current.value)
       await api.post(`/api/workflows/${current.value.id}/answers/draft`, {
@@ -127,18 +147,20 @@ export function useWorkflows() {
       })
   }
 
-  async function approve(deliverable?: string): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/approve`, {
+  async function approve(deliverable?: string): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/approve`, {
         deliverable: deliverable ?? null,
-      })
+      }),
+    )
   }
 
-  async function reject(refinementPrompt?: string): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/reject`, {
+  async function reject(refinementPrompt?: string): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/reject`, {
         refinement_prompt: refinementPrompt ?? null,
-      })
+      }),
+    )
   }
 
   function stopDetail(): void {
