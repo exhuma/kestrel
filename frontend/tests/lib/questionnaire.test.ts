@@ -13,14 +13,23 @@ import type { Question, Questionnaire } from '../../src/types/questionnaire'
 
 function q(partial: Partial<Question> & { id: string }): Question {
   return {
-    prompt: '', why: '', type: 'free_text', required: true, options: [],
-    audience: '', waiver_label: 'Unknown / N/A', ...partial,
+    prompt: '',
+    why: '',
+    type: 'free_text',
+    required: true,
+    options: [],
+    audience: '',
+    waiver_label: 'Unknown / N/A',
+    ...partial,
   }
 }
 
 const single = q({
-  id: 'q1', prompt: 'Which auth?', type: 'single_select',
-  options: [{ value: 'oidc', label: 'OIDC' }], audience: 'developer',
+  id: 'q1',
+  prompt: 'Which auth?',
+  type: 'single_select',
+  options: [{ value: 'oidc', label: 'OIDC' }],
+  audience: 'developer',
 })
 
 describe('parseInterview / parseQuestionnaire', () => {
@@ -49,7 +58,9 @@ describe('parseInterview / parseQuestionnaire', () => {
 
   it('carries generation issues (with severity) through the envelope', () => {
     const issue = {
-      profile: 'infosec', label: 'InfoSec', reason: 'no response',
+      profile: 'infosec',
+      label: 'InfoSec',
+      reason: 'no response',
       severity: 'soft',
     }
     const text = JSON.stringify({
@@ -75,7 +86,9 @@ describe('parseInterview / parseQuestionnaire', () => {
     })
     const qs = parseInterview(text)!.questionnaire.questions
     expect(qs.map((x) => x.type)).toEqual([
-      'free_text', 'free_text', 'single_select',
+      'free_text',
+      'free_text',
+      'single_select',
     ])
     // The bare-questionnaire path coerces identically.
     expect(parseQuestionnaire(text)!.questions[0].type).toBe('free_text')

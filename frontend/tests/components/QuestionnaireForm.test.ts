@@ -6,8 +6,14 @@ import type { Question, Questionnaire } from '../../src/types/questionnaire'
 
 function q(partial: Partial<Question> & { id: string }): Question {
   return {
-    prompt: '', why: '', type: 'free_text', required: true, options: [],
-    audience: '', waiver_label: 'Unknown / N/A', ...partial,
+    prompt: '',
+    why: '',
+    type: 'free_text',
+    required: true,
+    options: [],
+    audience: '',
+    waiver_label: 'Unknown / N/A',
+    ...partial,
   }
 }
 
@@ -50,10 +56,14 @@ describe('QuestionnaireForm', () => {
   it('a custom correction satisfies submit and emits a {custom} answer', async () => {
     const wrapper = mount(QuestionnaireForm, {
       props: {
-        questionnaire: questionnaire(q({
-          id: 'q1', prompt: 'Which auth?', type: 'single_select',
-          options: [{ value: 'oidc', label: 'OIDC' }],
-        })),
+        questionnaire: questionnaire(
+          q({
+            id: 'q1',
+            prompt: 'Which auth?',
+            type: 'single_select',
+            options: [{ value: 'oidc', label: 'OIDC' }],
+          }),
+        ),
         draftAnswers: {},
         round: 1,
       },
@@ -72,7 +82,8 @@ describe('QuestionnaireForm', () => {
     ).toBeUndefined()
     await wrapper.find('form').trigger('submit')
     const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
-      string, unknown
+      string,
+      unknown
     >
     expect(submitted.q1).toEqual({ custom: 'It is a CLI, not web' })
   })
@@ -80,10 +91,14 @@ describe('QuestionnaireForm', () => {
   it('wraps a selection plus additional info into {value, note}, and collapses when cleared', async () => {
     const wrapper = mount(QuestionnaireForm, {
       props: {
-        questionnaire: questionnaire(q({
-          id: 'q1', prompt: 'Which auth?', type: 'single_select',
-          options: [{ value: 'oidc', label: 'OIDC' }],
-        })),
+        questionnaire: questionnaire(
+          q({
+            id: 'q1',
+            prompt: 'Which auth?',
+            type: 'single_select',
+            options: [{ value: 'oidc', label: 'OIDC' }],
+          }),
+        ),
         draftAnswers: {},
         round: 1,
       },
@@ -95,7 +110,8 @@ describe('QuestionnaireForm', () => {
 
     await wrapper.find('form').trigger('submit')
     let submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
-      string, unknown
+      string,
+      unknown
     >
     expect(submitted.q1).toEqual({ value: 'oidc', note: 'SSO only' })
 
@@ -110,12 +126,19 @@ describe('QuestionnaireForm', () => {
     // A stale/edge questionnaire whose select carries no options: parsed
     // through the same path the parent uses, it must reach the form as an
     // answerable free-text input rather than a dead, un-answerable select.
-    const parsed = parseQuestionnaire(JSON.stringify({
-      questions: [q({
-        id: 'q1', prompt: 'Scope?', type: 'single_select', options: [],
-      })],
-      profiles: [],
-    }))!
+    const parsed = parseQuestionnaire(
+      JSON.stringify({
+        questions: [
+          q({
+            id: 'q1',
+            prompt: 'Scope?',
+            type: 'single_select',
+            options: [],
+          }),
+        ],
+        profiles: [],
+      }),
+    )!
     const wrapper = mount(QuestionnaireForm, {
       props: { questionnaire: parsed, draftAnswers: {}, round: 1 },
     })
@@ -132,7 +155,8 @@ describe('QuestionnaireForm', () => {
     ).toBeUndefined()
     await wrapper.find('form').trigger('submit')
     const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
-      string, unknown
+      string,
+      unknown
     >
     expect(submitted.q1).toBe('the core API')
   })
@@ -169,10 +193,18 @@ describe('QuestionnaireForm', () => {
           questions: [q({ id: 'q1', prompt: 'Which auth?' })],
           profiles: [],
           issues: [
-            { profile: 'infosec', label: 'InfoSec',
-              reason: 'timed out after 120s', severity: 'soft' },
-            { profile: 'perf', label: 'Perf',
-              reason: 'crashed', severity: 'hard' },
+            {
+              profile: 'infosec',
+              label: 'InfoSec',
+              reason: 'timed out after 120s',
+              severity: 'soft',
+            },
+            {
+              profile: 'perf',
+              label: 'Perf',
+              reason: 'crashed',
+              severity: 'hard',
+            },
           ],
         },
         draftAnswers: {},

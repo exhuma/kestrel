@@ -47,9 +47,7 @@ describe('abandon (delete) wiring', () => {
       ),
     ).toBe(true)
     expect(
-      calls.some(
-        (c) => c.method === 'GET' && c.url.endsWith('/api/workflows'),
-      ),
+      calls.some((c) => c.method === 'GET' && c.url.endsWith('/api/workflows')),
     ).toBe(true)
   })
 })

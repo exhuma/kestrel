@@ -23,7 +23,9 @@ describe('renderMarkdown', () => {
   })
 
   it('escapes raw HTML in the source instead of emitting live tags', () => {
-    const html = renderMarkdown('<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>')
+    const html = renderMarkdown(
+      '<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>',
+    )
     // The dangerous tags are escaped as text, never emitted live.
     expect(html).not.toContain('<script>')
     expect(html).not.toContain('<img')

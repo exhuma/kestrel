@@ -69,9 +69,13 @@ export function useWorkflows() {
       // The browser auto-reconnects on a transient drop; if it gives up
       // (connection permanently closed — e.g. a network path dropped the
       // idle stream), re-open so the view self-heals instead of freezing.
-      if (detailSource?.readyState === EventSource.CLOSED &&
-          current.value?.id === id) {
-        setTimeout(() => { if (current.value?.id === id) select(id) }, 2000)
+      if (
+        detailSource?.readyState === EventSource.CLOSED &&
+        current.value?.id === id
+      ) {
+        setTimeout(() => {
+          if (current.value?.id === id) select(id)
+        }, 2000)
       }
     }
   }
@@ -83,7 +87,10 @@ export function useWorkflows() {
     if (current.value && !detailSource) select(current.value.id)
   }
 
-  async function createWorkflow(repo: string, issueNumber: number): Promise<string | null> {
+  async function createWorkflow(
+    repo: string,
+    issueNumber: number,
+  ): Promise<string | null> {
     error.value = null
     try {
       const out = await api.post<{ workflow_id: string }>('/api/workflows', {
@@ -100,7 +107,8 @@ export function useWorkflows() {
   }
 
   async function reply(text: string): Promise<void> {
-    if (current.value) await api.post(`/api/workflows/${current.value.id}/reply`, { text })
+    if (current.value)
+      await api.post(`/api/workflows/${current.value.id}/reply`, { text })
   }
 
   async function submitAnswers(
@@ -112,9 +120,7 @@ export function useWorkflows() {
       })
   }
 
-  async function saveDraft(
-    answers: Record<string, unknown>,
-  ): Promise<void> {
+  async function saveDraft(answers: Record<string, unknown>): Promise<void> {
     if (current.value)
       await api.post(`/api/workflows/${current.value.id}/answers/draft`, {
         answers,
@@ -123,7 +129,9 @@ export function useWorkflows() {
 
   async function approve(deliverable?: string): Promise<void> {
     if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/approve`, { deliverable: deliverable ?? null })
+      await api.post(`/api/workflows/${current.value.id}/approve`, {
+        deliverable: deliverable ?? null,
+      })
   }
 
   async function reject(refinementPrompt?: string): Promise<void> {
@@ -162,5 +170,23 @@ export function useWorkflows() {
     }
   }
 
-  return { workflows, current, events, error, refresh, select, ensureLive, streamSession, closeSession, createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop, remove }
+  return {
+    workflows,
+    current,
+    events,
+    error,
+    refresh,
+    select,
+    ensureLive,
+    streamSession,
+    closeSession,
+    createWorkflow,
+    reply,
+    submitAnswers,
+    saveDraft,
+    approve,
+    reject,
+    stop,
+    remove,
+  }
 }

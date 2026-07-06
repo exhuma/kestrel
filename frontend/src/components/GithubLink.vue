@@ -48,7 +48,9 @@ const repoUrl = computed(
   justify-content: center;
   color: var(--text-mid);
   opacity: 0.6;
-  transition: color 0.15s ease, opacity 0.15s ease;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease;
 }
 .ghlink:hover {
   color: var(--signal);

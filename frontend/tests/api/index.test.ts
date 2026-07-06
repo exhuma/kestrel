@@ -10,8 +10,8 @@ describe('api', () => {
   it('returns parsed json on success', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
       ),
     )
     const data = await api.get<{ ok: boolean }>('/x')

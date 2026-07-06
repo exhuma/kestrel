@@ -1,5 +1,4 @@
-export const API_BASE =
-  import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
 export interface TokenProvider {
   getToken(): string | null
@@ -7,9 +6,7 @@ export interface TokenProvider {
 
 let tokenProvider: TokenProvider = {
   getToken: () =>
-    typeof localStorage !== 'undefined'
-      ? localStorage.getItem('token')
-      : null,
+    typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null,
 }
 
 export function setTokenProvider(p: TokenProvider): void {
@@ -59,9 +56,7 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>('POST', path, body),
-  put: <T>(path: string, body?: unknown) =>
-    request<T>('PUT', path, body),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 }

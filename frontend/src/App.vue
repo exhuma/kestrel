@@ -26,12 +26,20 @@ const view = ref<'sessions' | 'workflows'>('workflows')
         <span class="brand__tag mono">mission control</span>
       </div>
       <nav class="viewnav">
-        <button class="viewnav__btn" :class="{ 'viewnav__btn--on': view === 'workflows' }"
-          @click="view = 'workflows'">Workflows</button>
-        <button class="viewnav__debug" :class="{ 'viewnav__debug--on': view === 'sessions' }"
+        <button
+          class="viewnav__btn"
+          :class="{ 'viewnav__btn--on': view === 'workflows' }"
+          @click="view = 'workflows'"
+        >
+          Workflows
+        </button>
+        <button
+          class="viewnav__debug"
+          :class="{ 'viewnav__debug--on': view === 'sessions' }"
           :aria-pressed="view === 'sessions'"
           title="Raw agent sessions (debugging)"
-          @click="view = view === 'sessions' ? 'workflows' : 'sessions'">
+          @click="view = view === 'sessions' ? 'workflows' : 'sessions'"
+        >
           <span aria-hidden="true">‹/›</span> sessions
         </button>
       </nav>
@@ -54,8 +62,7 @@ const view = ref<'sessions' | 'workflows'>('workflows')
   display: flex;
   flex-direction: column;
   height: 100%;
-  background:
-    radial-gradient(
+  background: radial-gradient(
       1100px 420px at 78% -8%,
       rgba(53, 230, 201, 0.06),
       transparent 60%
@@ -115,23 +122,50 @@ const view = ref<'sessions' | 'workflows'>('workflows')
   color: var(--text-dim);
 }
 
-.viewnav { display: flex; gap: 4px; margin-left: 22px; }
+.viewnav {
+  display: flex;
+  gap: 4px;
+  margin-left: 22px;
+}
 .viewnav__btn {
-  background: transparent; border: 1px solid var(--line); color: var(--text-mid);
-  border-radius: 999px; padding: 5px 14px; font-size: 12.5px; cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-mid);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
   font-family: var(--font-sans);
 }
-.viewnav__btn--on { color: var(--signal-ink); background: var(--signal); border-color: var(--signal); }
-.viewnav__debug {
-  align-self: center; display: inline-flex; align-items: center; gap: 5px;
-  background: transparent; border: none; color: var(--text-dim);
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
-  padding: 5px 8px; border-radius: 999px; cursor: pointer;
+.viewnav__btn--on {
+  color: var(--signal-ink);
+  background: var(--signal);
+  border-color: var(--signal);
 }
-.viewnav__debug:hover { color: var(--text-mid); }
-.viewnav__debug--on { color: var(--signal); }
+.viewnav__debug {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 5px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.viewnav__debug:hover {
+  color: var(--text-mid);
+}
+.viewnav__debug--on {
+  color: var(--signal);
+}
 .viewnav__debug:focus-visible {
-  outline: none; box-shadow: 0 0 0 3px var(--signal-glow);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--signal-glow);
 }
 
 .status {

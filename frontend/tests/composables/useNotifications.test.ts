@@ -9,16 +9,26 @@ afterEach(() => {
 
 const sample = [
   {
-    id: 2, workflow_id: 'wf-1', repo: 'o/r', issue_number: 5,
-    status: 'done', signal_class: 'summary',
+    id: 2,
+    workflow_id: 'wf-1',
+    repo: 'o/r',
+    issue_number: 5,
+    status: 'done',
+    signal_class: 'summary',
     message: 'PR opened for o/r#5.',
-    created_at: '2026-07-03T00:00:00Z', read: false,
+    created_at: '2026-07-03T00:00:00Z',
+    read: false,
   },
   {
-    id: 1, workflow_id: 'wf-1', repo: 'o/r', issue_number: 5,
-    status: 'awaiting_plan_approval', signal_class: 'action_required',
+    id: 1,
+    workflow_id: 'wf-1',
+    repo: 'o/r',
+    issue_number: 5,
+    status: 'awaiting_plan_approval',
+    signal_class: 'action_required',
     message: 'Implementation plan ready for review: o/r#5.',
-    created_at: '2026-07-02T00:00:00Z', read: true,
+    created_at: '2026-07-02T00:00:00Z',
+    read: true,
   },
 ]
 

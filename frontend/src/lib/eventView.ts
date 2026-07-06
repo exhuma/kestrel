@@ -46,7 +46,8 @@ export function mcpSummary(e: SessionEvent): string {
  */
 export function toViewModel(e: SessionEvent): EventVM {
   const raw = e.native ?? {}
-  const nativeType = typeof raw.type === 'string' ? (raw.type as string) : e.kind
+  const nativeType =
+    typeof raw.type === 'string' ? (raw.type as string) : e.kind
   let view: EventViewKind
   switch (e.kind) {
     case 'assistant_text':
@@ -64,7 +65,11 @@ export function toViewModel(e: SessionEvent): EventVM {
       }
       break
     case 'tool_result':
-      view = { kind: 'tool_result', content: e.text ?? '', isError: !!e.is_error }
+      view = {
+        kind: 'tool_result',
+        content: e.text ?? '',
+        isError: !!e.is_error,
+      }
       break
     case 'thinking':
       view = { kind: 'thinking', tokens: e.tokens ?? 0 }
@@ -73,7 +78,7 @@ export function toViewModel(e: SessionEvent): EventVM {
       const subtype = e.subtype ?? 'unknown'
       // The init frame is where MCP availability is knowable.
       const summary =
-        subtype === 'init' ? `MCP: ${mcpSummary(e)}` : e.summary ?? subtype
+        subtype === 'init' ? `MCP: ${mcpSummary(e)}` : (e.summary ?? subtype)
       view = { kind: 'system', subtype, summary }
       break
     }

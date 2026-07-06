@@ -97,8 +97,10 @@ function absTime(iso: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   const p = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
     `${p(d.getHours())}:${p(d.getMinutes())}`
+  )
 }
 
 // Map a canonical event to a semantic tone + glyph. Tone drives the --c
@@ -172,7 +174,7 @@ function preview(e: SessionEvent): string {
           : servers && `MCP: ${servers}`
       const tools = e.tools?.length ? `tools: ${e.tools.join(', ')}` : ''
       const bits = [e.model, mcp, tools].filter(Boolean)
-      return bits.length ? bits.join('   ·   ') : e.summary ?? '—'
+      return bits.length ? bits.join('   ·   ') : (e.summary ?? '—')
     }
     case 'rate_limit':
       return e.status ?? '—'
@@ -235,11 +237,7 @@ function preview(e: SessionEvent): string {
           <span class="pill mono">{{ sessions.length }}</span>
         </div>
         <div class="sessions scroll">
-          <div
-            v-for="s in sessions"
-            :key="s.session_id"
-            class="scard-wrap"
-          >
+          <div v-for="s in sessions" :key="s.session_id" class="scard-wrap">
             <button
               class="scard"
               :class="{ 'scard--active': s.session_id === current }"
@@ -264,7 +262,9 @@ function preview(e: SessionEvent): string {
               title="Abandon session"
               aria-label="Abandon session"
               @click.stop="onDelete(s.session_id)"
-            >✕</button>
+            >
+              ✕
+            </button>
           </div>
           <p v-if="!sessions.length" class="sessions__empty mono">
             No sessions dispatched yet
@@ -278,7 +278,11 @@ function preview(e: SessionEvent): string {
         <div v-if="error" class="banner" role="alert">
           <span class="banner__glyph" aria-hidden="true">!</span>
           <span class="banner__text">{{ error }}</span>
-          <button class="banner__close" aria-label="Dismiss" @click="error = null">
+          <button
+            class="banner__close"
+            aria-label="Dismiss"
+            @click="error = null"
+          >
             ✕
           </button>
         </div>
