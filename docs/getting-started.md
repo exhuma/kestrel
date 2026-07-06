@@ -80,6 +80,28 @@ sessions pick up **your** user-level MCP servers and plugins with no extra
 setup. There are caveats for MCP runtimes and plugin enablement inside a
 container — see [Troubleshooting](troubleshooting.md#mcp-servers-and-plugins).
 
+## Upgrading
+
+Kestrel is published under immutable version tags and moving channel tags
+(`stable`, `beta`, `alpha`). For a stable deployment, **pin a specific version
+tag** in `docker-compose.yml` rather than tracking a moving channel, so an
+upgrade is a deliberate change of that tag.
+
+A new release may change the database schema, and the schema is migrated
+automatically on start. **Back up the `kestrel-data` volume before upgrading**
+so you can roll back if needed:
+
+```bash
+docker compose down
+docker run --rm -v kestrel-data:/data -v "$PWD":/backup busybox \
+  tar czf /backup/kestrel-data-backup.tar.gz -C /data .
+# then change the image tag in docker-compose.yml and:
+docker compose up -d
+```
+
+Schema migrations are one-way; there is no automatic downgrade. If an upgrade
+misbehaves, restore the backup and pin the previous version tag.
+
 ## Next steps
 
 - [Configuration](configuration.md) — every setting, config file, and mount.

@@ -16,51 +16,22 @@ Required repository permissions:
 
 A classic PAT with the `repo` scope also works for a quick throwaway test.
 
-## 2. Configure the backend
+## 2. Configure the token
 
-Settings live in `backend/app/config.py`, env-prefixed `KESTREL_`. From
-`backend/.env.example`:
+Set these environment variables on the kestrel service (for the Docker
+deployment, the `environment:` block of `docker-compose.yml`):
 
-```
-KESTREL_GITHUB_TOKEN=
-KESTREL_GITHUB_API_BASE=https://api.github.com
-KESTREL_GIT_BASE=https://github.com
-```
+| Variable | Required | Purpose | Default |
+| --- | --- | --- | --- |
+| `KESTREL_GITHUB_TOKEN` | Yes | The token from step 1 | _(empty — feature disabled)_ |
+| `KESTREL_GITHUB_API_BASE` | No | GitHub REST API base URL; change only for GitHub Enterprise | `https://api.github.com` |
+| `KESTREL_GIT_BASE` | No | Base URL for git clones; change only for GitHub Enterprise | `https://github.com` |
 
-**Option A — `.env` file** (persists across restarts):
-
-```bash
-cd backend
-cp .env.example .env
-# edit .env, set:
-KESTREL_GITHUB_TOKEN=ghp_your_token_here
-```
-
-**Option B — inline env var** for a one-off run:
-
-```bash
-KESTREL_GITHUB_TOKEN=ghp_your_token_here \
-KESTREL_WORKSPACE_ROOT=/tmp/kestrel-ws \
-uv run uvicorn app.main:app --port 8001
-```
-
-`KESTREL_GITHUB_API_BASE` and `KESTREL_GIT_BASE` default to github.com
-and rarely need changing (only for GitHub Enterprise). `GIT_BASE` is used to
-build the clone URL as `{git_base}/{owner}/{repo}.git`.
+These appear in the full settings reference in
+[Configuration](configuration.md#environment-variables). Running from source
+instead? See [Development](development.md) for the `backend/.env` route.
 
 ## 3. Run it
 
-Start the frontend against the backend port, e.g.:
-
-```bash
-VITE_API_BASE=http://localhost:8001 npm run dev
-```
-
-Open the **Workflows** tab, enter `owner/repo` and an issue number, click
+Open the **Workflows** tab, enter `owner/repo` and an issue number, and click
 **Start workflow**.
-
-Note: this was the first workflow run against a *real* GitHub repo — every
-prior test used a mocked `httpx` transport or a local bare git repo (see
-`docs/superpowers/specs/2026-07-01-github-issue-workflow-design.md`). Watch
-the backend logs for the first live run in case anything about the real
-API's response shape differs from what the mocked tests assumed.
