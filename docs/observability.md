@@ -52,14 +52,16 @@ environment:
 ## Health
 
 Kestrel exposes three probes. Each returns a compact JSON body — `probe`,
-`status` (`ok` / `degraded` / `fail`), `checked_at`, and a `components` list —
-and never leaks the running version, connection strings, or error text. The
-version is reported separately in the `X-Kestrel-Version` response header.
+`status` (`ok` / `degraded` / `fail` / `unknown`), `checked_at`, and a
+`components` list — and never leaks the running version, connection strings, or
+error text. The version is reported separately in the `X-Kestrel-Version`
+response header. Each dependency check is bounded by a timeout; a check that
+overruns reports `unknown` (unconfirmed, not proven dead) rather than `fail`.
 
 | Probe | Checks | 200 when | 503 when |
 | --- | --- | --- | --- |
 | `GET /livez` | Process is up; no dependencies | always | never |
-| `GET /readyz` | Required dependencies (the database) | ready | database unreachable |
+| `GET /readyz` | Required dependencies (the database) | ready | a required dependency fails or is unknown |
 | `GET /healthz` | Summary of required + optional dependencies | ok / degraded | a required dependency fails |
 
 ```json

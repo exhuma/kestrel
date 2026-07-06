@@ -98,7 +98,7 @@ async def test_readyz_returns_503_when_database_unreachable(
     """Ensure /readyz fails with 503 when the DB probe reports fail."""
     from app import health
 
-    def _broken(_engine) -> dict:
+    async def _broken(_engine) -> dict:
         return {
             "name": "database",
             "kind": "database",
@@ -115,3 +115,33 @@ async def test_readyz_returns_503_when_database_unreachable(
     body = resp.json()
     assert body["status"] == "fail"
     assert body["components"][0]["reason_code"] == "db_unreachable"
+
+
+@pytest.mark.asyncio
+async def test_check_database_reports_unknown_on_timeout(monkeypatch) -> None:
+    """Ensure a probe slower than the bound reports unknown, not fail."""
+    import time
+
+    from app import health
+
+    class _SlowConn:
+        def __enter__(self) -> "_SlowConn":
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+        def execute(self, *args: object) -> None:
+            pass
+
+    class _SlowEngine:
+        def connect(self) -> "_SlowConn":
+            time.sleep(0.5)  # exceeds the (patched) bound
+            return _SlowConn()
+
+    monkeypatch.setattr(health, "DB_CHECK_TIMEOUT_SECONDS", 0.05)
+    component = await health.check_database(_SlowEngine())
+    assert component["status"] == "unknown"
+    assert component["reason_code"] == "timeout"
+    # A required dependency that is unknown gates readiness out.
+    assert health.overall_status([component], include_optional=False) == "fail"

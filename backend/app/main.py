@@ -157,7 +157,7 @@ def create_app() -> FastAPI:
         """
         from app.persistence.db import get_engine
 
-        components = [check_database(get_engine())]
+        components = [await check_database(get_engine())]
         status = overall_status(components, include_optional=False)
         return JSONResponse(
             build_response("readyz", components, status),
@@ -169,7 +169,7 @@ def create_app() -> FastAPI:
         """Operational summary over required and optional dependencies."""
         from app.persistence.db import get_engine
 
-        components = [check_database(get_engine())]
+        components = [await check_database(get_engine())]
         status = overall_status(components, include_optional=True)
         return JSONResponse(
             build_response("healthz", components, status),
