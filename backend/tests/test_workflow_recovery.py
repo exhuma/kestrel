@@ -14,10 +14,10 @@ from tests.test_workflow_persistence import (
     _persistent_service,
 )
 from tests.test_workflow_service import (
+    _coord,
     _FakeGit,
     _FakeGitHub,
     _FakeRunner,
-    _coord,
     _q,
     _qs,
     _refined,

@@ -42,7 +42,8 @@ def _backend(
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(wrapped))
-    return OpenCodeBackend(_settings(), registry, cfg, client=client), registry, seen
+    backend = OpenCodeBackend(_settings(), registry, cfg, client=client)
+    return backend, registry, seen
 
 
 # A transcript with a tool message then a final text message — the shape a
@@ -123,7 +124,10 @@ async def test_run_turn_maps_tool_and_text_messages() -> None:
         if r.url.path == "/session/oc-1/message" and r.method == "POST"
     )
     body = json.loads(post.content)
-    assert body["model"] == {"providerID": "anthropic", "modelID": "claude-sonnet-4"}
+    assert body["model"] == {
+        "providerID": "anthropic",
+        "modelID": "claude-sonnet-4",
+    }
     assert body["parts"] == [{"type": "text", "text": "do it"}]
 
 

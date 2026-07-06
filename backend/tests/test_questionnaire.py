@@ -7,8 +7,8 @@ from app.questionnaire import (
     AnswerValidationError,
     InterviewEnvelope,
     Question,
-    QuestionOption,
     Questionnaire,
+    QuestionOption,
     all_required_answered,
     build_envelope,
     format_answers,
@@ -234,7 +234,8 @@ def test_noted_answer_appends_additional_info() -> None:
 def test_empty_note_renders_as_plain_answer() -> None:
     """Ensure an empty note collapses to the bare rendered answer."""
     q = _questionnaire()
-    assert render_answer(q.questions[0], {"value": "oidc", "note": ""}) == "OIDC"
+    answer = render_answer(q.questions[0], {"value": "oidc", "note": ""})
+    assert answer == "OIDC"
 
 
 def test_envelope_round_trips() -> None:

@@ -14,7 +14,9 @@ def _backend(registry: SessionRegistry) -> ClaudeCliBackend:
     return ClaudeCliBackend(Settings(), registry, backend_id="claude")
 
 
-def _fake_run_blocking(registry: SessionRegistry, sid: str, event: CanonicalEvent):
+def _fake_run_blocking(
+    registry: SessionRegistry, sid: str, event: CanonicalEvent
+):
     """Return a run_blocking stub that records *event* under *sid*."""
     async def _run(prompt, cwd, permission_mode, *, resume_id=None,
                    on_session_id=None, model=None):

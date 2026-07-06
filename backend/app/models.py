@@ -131,7 +131,9 @@ def map_claude_dict(data: dict[str, object]) -> CanonicalEvent | None:
                 native=data,
                 tool_name=tool["name"],
                 tool_input=(
-                    tool["input"] if isinstance(tool.get("input"), dict) else None
+                    tool["input"]
+                    if isinstance(tool.get("input"), dict)
+                    else None
                 ),
                 tool_summary=_tool_summary(tool.get("input")),
                 text=" ".join(texts) if texts else None,

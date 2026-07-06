@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
+from alembic import command
 from app.config import Settings
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.persistence.notification_store import NotificationStore

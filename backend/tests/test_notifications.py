@@ -4,10 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
+from alembic import command
 from app.models_workflow import WorkflowRun
 from app.notifications import InAppNotifier, render_message
 from app.persistence.notification_store import NotificationStore

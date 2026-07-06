@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from app.config import Settings
 from app.backends.base import Capability, TurnResult
+from app.config import Settings
 from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.questionnaire import AnswerValidationError
@@ -1016,7 +1016,9 @@ async def test_reply_targets_whichever_step_is_awaiting_input() -> None:
 
 
 @pytest.mark.asyncio
-async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> None:
+async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> (
+    None
+):
     """Ensure submit_answers validates against the active step."""
     from app.models_workflow import WorkflowRun, WorkflowStep
 
@@ -1471,7 +1473,8 @@ async def test_all_specialists_failing_is_retryable_not_fatal() -> None:
             return await super().run_turn(req, on_session_id)
 
     runner = _AllFlaky(SessionRegistry(), outputs=[
-        _coord(["requester", "infosec"]),   # coordinator ok; all generators fail
+        # coordinator ok; all generators fail
+        _coord(["requester", "infosec"]),
     ])
     svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
 

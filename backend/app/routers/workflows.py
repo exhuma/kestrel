@@ -10,6 +10,7 @@ from app import sse
 from app.config import get_settings
 from app.models_workflow import WorkflowRun
 from app.policy import label_policy
+from app.questionnaire import parse_envelope
 from app.schemas import (
     AnswersIn,
     ApproveIn,
@@ -21,7 +22,6 @@ from app.schemas import (
     WorkflowStepOut,
     WorkflowSummary,
 )
-from app.questionnaire import parse_envelope
 from app.services.workflows import (
     MAX_REFINE_ROUNDS,
     MAX_REFINE_ROUNDS_HARD,
@@ -56,7 +56,9 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
     # (loop state), not a column; read it for the UI's "Round N / cap".
     refine = next((s for s in run.steps if s.name == "refine"), None)
     envelope = parse_envelope(refine.deliverable or "") if refine else None
-    round_cap = envelope.round_cap if envelope is not None else MAX_REFINE_ROUNDS
+    round_cap = (
+        envelope.round_cap if envelope is not None else MAX_REFINE_ROUNDS
+    )
     return WorkflowDetail(
         id=run.id,
         repo=run.repo,

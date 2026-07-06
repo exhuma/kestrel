@@ -17,7 +17,6 @@ from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import InAppNotifier, Notifier
 from app.persistence.notification_store import get_notification_store
-from app.storage.notification_bus import get_notification_bus
 from app.policy import BackendPolicy, get_backend_policy, get_policy
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
@@ -53,6 +52,7 @@ from app.services.workflow_text import (
     extract_refined_issue,
     has_sentinel,
 )
+from app.storage.notification_bus import get_notification_bus
 from app.storage.registry import SessionRegistry, get_registry
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 from app.storage.workflow_registry import (
@@ -367,7 +367,11 @@ class WorkflowService:
 
     def current_session_id(self, run: WorkflowRun) -> str | None:
         for step in run.steps:
-            if step.status in ("running", "awaiting_input", "awaiting_approval"):
+            if step.status in (
+                "running",
+                "awaiting_input",
+                "awaiting_approval",
+            ):
                 return step.session_id
         return None
 

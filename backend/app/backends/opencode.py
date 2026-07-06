@@ -187,7 +187,9 @@ class OpenCodeBackend(Backend):
     async def _messages(self, session_id: str) -> list[dict]:
         """Fetch the full message transcript for a session."""
         data = await self._request("GET", f"/session/{session_id}/message")
-        return [m for m in data if isinstance(m, dict)] if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
+        return [m for m in data if isinstance(m, dict)]
 
     @staticmethod
     def _msg_id(message: dict) -> str | None:
@@ -225,15 +227,21 @@ class OpenCodeBackend(Backend):
                     ),
                 )
             elif ptype == "tool":
-                state = part.get("state") if isinstance(part.get("state"), dict) else {}
+                raw_state = part.get("state")
+                state = raw_state if isinstance(raw_state, dict) else {}
                 tool_input = state.get("input")
+                raw_tool = part.get("tool")
                 self.registry.append_event(
                     session_id,
                     CanonicalEvent(
                         kind=EventKind.TOOL_USE,
                         session_id=session_id,
-                        tool_name=part.get("tool") if isinstance(part.get("tool"), str) else None,
-                        tool_input=tool_input if isinstance(tool_input, dict) else None,
+                        tool_name=(
+                            raw_tool if isinstance(raw_tool, str) else None
+                        ),
+                        tool_input=(
+                            tool_input if isinstance(tool_input, dict) else None
+                        ),
                         tool_summary=_tool_summary(tool_input),
                         native=part,
                     ),
