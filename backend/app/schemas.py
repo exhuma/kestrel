@@ -137,6 +137,8 @@ class NotificationOut(BaseModel):
     repo: str
     issue_number: int
     status: str
+    #: Derived from status: "action_required" gate vs terminal "summary".
+    signal_class: str
     message: str
     created_at: datetime
     read: bool

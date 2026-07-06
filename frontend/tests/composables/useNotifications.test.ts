@@ -10,12 +10,13 @@ afterEach(() => {
 const sample = [
   {
     id: 2, workflow_id: 'wf-1', repo: 'o/r', issue_number: 5,
-    status: 'done', message: 'PR opened for o/r#5.',
+    status: 'done', signal_class: 'summary',
+    message: 'PR opened for o/r#5.',
     created_at: '2026-07-03T00:00:00Z', read: false,
   },
   {
     id: 1, workflow_id: 'wf-1', repo: 'o/r', issue_number: 5,
-    status: 'awaiting_plan_approval',
+    status: 'awaiting_plan_approval', signal_class: 'action_required',
     message: 'Implementation plan ready for review: o/r#5.',
     created_at: '2026-07-02T00:00:00Z', read: true,
   },
@@ -31,6 +32,20 @@ describe('useNotifications', () => {
     await refresh()
     expect(items.value.map((n) => n.id)).toEqual([2, 1])
     expect(unreadCount.value).toBe(1)
+  })
+
+  it('splits items by signal class; badge counts unread action items', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(sample), { status: 200 })),
+    )
+    const { actionRequired, summaries, actionRequiredCount, refresh } =
+      useNotifications()
+    await refresh()
+    expect(actionRequired.value.map((n) => n.id)).toEqual([1])
+    expect(summaries.value.map((n) => n.id)).toEqual([2])
+    // The one action item (id 1) is already read -> nothing needs action.
+    expect(actionRequiredCount.value).toBe(0)
   })
 
   it('markRead posts then refreshes', async () => {

@@ -4,7 +4,15 @@ import { useNotifications } from '../composables/useNotifications'
 import { useWorkflows } from '../composables/useWorkflows'
 
 const emit = defineEmits<{ navigate: [] }>()
-const { items, unreadCount, markRead, start, stop } = useNotifications()
+const {
+  items,
+  actionRequired,
+  summaries,
+  actionRequiredCount,
+  markRead,
+  start,
+  stop,
+} = useNotifications()
 const { select } = useWorkflows()
 const open = ref(false)
 
@@ -21,20 +29,39 @@ async function onClick(id: number, workflowId: string): Promise<void> {
 
 <template>
   <div class="notif">
-    <button class="notif__bell" @click="open = !open" aria-label="Notifications">
+    <button class="notif__bell" @click="open = !open"
+      :aria-label="actionRequiredCount
+        ? `Notifications, ${actionRequiredCount} needing action`
+        : 'Notifications'">
       <span aria-hidden="true">🔔</span>
-      <span v-if="unreadCount" class="notif__badge mono">{{ unreadCount }}</span>
+      <span v-if="actionRequiredCount" class="notif__badge mono">
+        {{ actionRequiredCount }}
+      </span>
     </button>
     <div v-if="open" class="notif__panel">
       <p v-if="!items.length" class="notif__empty mono">No notifications yet</p>
-      <button v-for="n in items" :key="n.id" class="notif__item"
-        :class="{ 'notif__item--unread': !n.read }"
-        @click="onClick(n.id, n.workflow_id)">
-        <span class="notif__msg">{{ n.message }}</span>
-        <span class="notif__time mono">
-          {{ new Date(n.created_at).toLocaleString() }}
-        </span>
-      </button>
+      <template v-if="actionRequired.length">
+        <p class="notif__section mono">Needs your action</p>
+        <button v-for="n in actionRequired" :key="n.id" class="notif__item"
+          :class="{ 'notif__item--unread': !n.read }"
+          @click="onClick(n.id, n.workflow_id)">
+          <span class="notif__msg">{{ n.message }}</span>
+          <span class="notif__time mono">
+            {{ new Date(n.created_at).toLocaleString() }}
+          </span>
+        </button>
+      </template>
+      <template v-if="summaries.length">
+        <p class="notif__section mono">Recent activity</p>
+        <button v-for="n in summaries" :key="n.id" class="notif__item"
+          :class="{ 'notif__item--unread': !n.read }"
+          @click="onClick(n.id, n.workflow_id)">
+          <span class="notif__msg">{{ n.message }}</span>
+          <span class="notif__time mono">
+            {{ new Date(n.created_at).toLocaleString() }}
+          </span>
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -58,6 +85,11 @@ async function onClick(id: number, workflowId: string): Promise<void> {
   border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); z-index: 20;
 }
 .notif__empty { padding: 14px; color: var(--text-dim); font-size: 12px; }
+.notif__section {
+  padding: 8px 14px 4px; margin: 0; font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-dim);
+  border-bottom: 1px solid var(--line-soft); background: var(--ink-900);
+}
 .notif__item {
   display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
   background: none; border: none; border-bottom: 1px solid var(--line-soft);

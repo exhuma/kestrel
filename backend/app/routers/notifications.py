@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app import sse
+from app.notifications import Notification, signal_class
 from app.persistence.notification_store import (
     NotificationStore,
     get_notification_store,
@@ -20,16 +21,21 @@ from app.storage.notification_bus import (
 router = APIRouter(prefix="/api/notifications")
 
 
+def _to_out(n: Notification) -> NotificationOut:
+    """Serialise a notification, deriving its signal class from status."""
+    return NotificationOut(
+        id=n.id, workflow_id=n.workflow_id, repo=n.repo,
+        issue_number=n.issue_number, status=n.status,
+        signal_class=signal_class(n.status),
+        message=n.message, created_at=n.created_at, read=n.read,
+    )
+
+
 def _payload(store: NotificationStore) -> dict[str, object]:
     """Serialise the current notification list for an SSE frame."""
     return {
         "notifications": [
-            NotificationOut(
-                id=n.id, workflow_id=n.workflow_id, repo=n.repo,
-                issue_number=n.issue_number, status=n.status,
-                message=n.message, created_at=n.created_at, read=n.read,
-            ).model_dump(mode="json")
-            for n in store.list_all()
+            _to_out(n).model_dump(mode="json") for n in store.list_all()
         ]
     }
 
@@ -39,14 +45,7 @@ async def list_notifications(
     store: NotificationStore = Depends(get_notification_store),
 ) -> list[NotificationOut]:
     """List all notifications, most recent first."""
-    return [
-        NotificationOut(
-            id=n.id, workflow_id=n.workflow_id, repo=n.repo,
-            issue_number=n.issue_number, status=n.status,
-            message=n.message, created_at=n.created_at, read=n.read,
-        )
-        for n in store.list_all()
-    ]
+    return [_to_out(n) for n in store.list_all()]
 
 
 @router.get("/events")
