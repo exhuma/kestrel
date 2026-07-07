@@ -51,7 +51,7 @@ from app.services.workflow_text import (
     extract_profiles,
     extract_questionnaire,
     extract_refined_issue,
-    has_sentinel,
+    verify_sentinel,
 )
 from app.storage.registry import SessionRegistry, get_registry
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
@@ -631,7 +631,7 @@ class WorkflowService:
             await self.git.clone(remote, run.workspace)
             await self.git.checkout_branch(run.workspace, run.branch)
 
-            if has_sentinel(issue.body):
+            if verify_sentinel(issue.body, self.settings.sentinel_secret):
                 run.steps[0].status = "done"
                 run.steps[0].deliverable = issue.body
                 self._save(run)
@@ -692,7 +692,9 @@ class WorkflowService:
             if decision.approved:
                 final = decision.deliverable or (step.deliverable or "")
                 await self.github.update_issue(
-                    run.repo, run.issue_number, append_sentinel(final),
+                    run.repo,
+                    run.issue_number,
+                    append_sentinel(final, self.settings.sentinel_secret),
                 )
                 step.deliverable = final
                 step.status = "done"

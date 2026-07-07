@@ -28,8 +28,9 @@ before implementation, per this repo's convention.
 - **M-H · Deferred / optional backlog** —
   `docs/superpowers/plans/2026-07-01-kestrel-m-h-deferred.md`. Unordered,
   pick on demand:
-  - **H-1 Access gate** — single shared-secret bearer auth on `/api/*`
-    (frontend `TokenProvider` seam already exists).
+  - **H-1 Access gate** — ✅ done: single shared-secret bearer auth on
+    `/api/*` (`KESTREL_API_TOKEN`), with a fail-closed non-loopback bind.
+    Part of the security hardening — see [`security.md`](./security.md).
   - **H-2 More Notifier back-ends** — ntfy/webhook push, email (SMTP or the
     claude.ai Gmail connector once authorized). Zero orchestrator changes
     needed; drop-in against the existing `Notifier` protocol.

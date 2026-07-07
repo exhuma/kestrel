@@ -47,11 +47,17 @@ the image small and lets a deploy attach or swap backends purely by config.
 - **Agent auth** is inherited from the host `claude` login (seeded read-only
   into the container), never re-implemented by kestrel. The only secret
   kestrel itself consumes is an optional `KESTREL_GITHUB_TOKEN`.
+- **Untrusted input.** Kestrel runs an agent over untrusted GitHub-issue text,
+  so prompt injection is a first-class threat. The threat model, the controls
+  that mitigate it, and the operator responsibilities that back them are in
+  [`security.md`](./security.md). Read it before deploying.
 
 ## Design trade-offs
 
-- **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool bound to loopback. Multi-user/authn is out of scope.
+- **Single shared-secret auth, single user.** `KESTREL_API_TOKEN` gates the
+  `/api` surface; when unset the server binds loopback only. This is not
+  multi-user authn (out of scope for the alpha) — see
+  [`security.md`](./security.md).
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

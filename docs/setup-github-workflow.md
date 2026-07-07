@@ -16,6 +16,12 @@ Required repository permissions:
 
 A classic PAT with the `repo` scope also works for a quick throwaway test.
 
+> **Least privilege.** This token can push and mutate issues/PRs on every repo
+> it can reach, and kestrel runs an agent over untrusted issue text. Scope the
+> PAT to exactly the target repo, grant only the three permissions above, and
+> enable branch protection requiring review before merge. See
+> [`security.md`](./security.md).
+
 ## 2. Configure the backend
 
 Settings live in `backend/app/config.py`, env-prefixed `KESTREL_`. From

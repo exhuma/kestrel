@@ -7,6 +7,20 @@ import httpx
 
 from app.services.exceptions import GitHubError
 
+#: Cap on how much of an error response body is quoted into a GitHubError.
+#: The body reaches ``run.error`` and the logs; a full GitHub/proxy error
+#: page can be large and carry verbose or sensitive detail, so quote only
+#: enough to diagnose the failure.
+_MAX_ERROR_BODY = 500
+
+
+def _truncate_body(text: str) -> str:
+    """Trim an error response body to a bounded, log-safe length."""
+    text = text.strip()
+    if len(text) <= _MAX_ERROR_BODY:
+        return text
+    return text[:_MAX_ERROR_BODY] + "… (truncated)"
+
 
 @dataclass
 class Issue:
@@ -50,7 +64,8 @@ class GitHubClient:
         )
         if resp.status_code >= 300:
             raise GitHubError(
-                f"{method} {path} -> {resp.status_code}: {resp.text}"
+                f"{method} {path} -> {resp.status_code}: "
+                f"{_truncate_body(resp.text)}"
                 f"{self._auth_hint(resp.status_code)}"
             )
         return resp

@@ -11,6 +11,7 @@ from app.services.workflow_text import (
     extract_questionnaire,
     extract_refined_issue,
     has_sentinel,
+    verify_sentinel,
 )
 
 
@@ -61,6 +62,48 @@ def test_append_sentinel_is_idempotent() -> None:
     twice = append_sentinel(once)
     assert has_sentinel(once)
     assert once == twice
+
+
+def test_signed_sentinel_round_trips() -> None:
+    """Ensure a body signed with a secret verifies with that secret."""
+    signed = append_sentinel("refined body", secret="s3cret")
+    assert has_sentinel(signed)
+    assert verify_sentinel(signed, "s3cret") is True
+
+
+def test_signed_sentinel_is_idempotent() -> None:
+    """Ensure re-signing an already-signed body stays verifiable and stable."""
+    once = append_sentinel("refined body", secret="s3cret")
+    twice = append_sentinel(once, secret="s3cret")
+    assert once == twice
+    assert verify_sentinel(twice, "s3cret") is True
+
+
+def test_unsigned_marker_is_never_trusted() -> None:
+    """Ensure an attacker-typed unsigned marker does not verify."""
+    forged = "attacker text\n\n" + SENTINEL
+    assert has_sentinel(forged) is True  # detected...
+    assert verify_sentinel(forged, "s3cret") is False  # ...but not trusted
+
+
+def test_wrong_secret_rejected() -> None:
+    """Ensure a body signed with one secret fails under another."""
+    signed = append_sentinel("refined body", secret="right")
+    assert verify_sentinel(signed, "wrong") is False
+
+
+def test_tampered_body_rejected() -> None:
+    """Ensure editing the body after signing invalidates the marker."""
+    signed = append_sentinel("refined body", secret="s3cret")
+    tampered = signed.replace("refined body", "evil body")
+    assert verify_sentinel(tampered, "s3cret") is False
+
+
+def test_no_secret_never_trusts() -> None:
+    """Ensure verification always fails when no secret is configured."""
+    signed = append_sentinel("refined body", secret="s3cret")
+    assert verify_sentinel(signed, "") is False
+    assert verify_sentinel(signed, None) is False
 
 
 def test_extract_refined_issue_between_delimiters() -> None:

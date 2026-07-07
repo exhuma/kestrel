@@ -71,10 +71,29 @@ ENV KESTREL_STATIC_DIR=/app/static \
     CLAUDE_SEED_DIR=/seed \
     HOME=/data/home
 
+# A container binds all interfaces *within its own network namespace*; the
+# host is responsible for publishing the port to loopback only (see
+# docker-compose.yml). Keep bytecode off and uv/tmp scratch under /tmp so the
+# root filesystem can be mounted read-only at runtime.
+ENV KESTREL_HOST=0.0.0.0 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_CACHE_DIR=/tmp/uv-cache
+
+# Run as an unprivileged user. A prompt-injected agent runs as this user, so
+# it must not be root. The writable runtime dirs (/data, its seeded Claude
+# HOME, and /workspaces) are created and owned here so a named volume inherits
+# that ownership; a host bind mount for /workspaces must be chown-able to this
+# uid by the operator (documented in docs/security.md).
+RUN useradd --system --uid 10001 --shell /usr/sbin/nologin kestrel \
+    && mkdir -p /data /data/home /workspaces \
+    && chown -R kestrel:kestrel /data /workspaces
+
 VOLUME ["/data", "/workspaces"]
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER kestrel
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

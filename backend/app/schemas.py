@@ -5,9 +5,22 @@ keep them in sync when the API changes (see ``contract.md``).
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+# A GitHub "owner/repo" slug. Owner: 1-39 chars, alphanumerics or hyphens,
+# not starting with a hyphen. Repo: 1-100 chars of alphanumerics, dot,
+# underscore or hyphen, not starting with a dot or hyphen. Deliberately
+# strict: this string flows into a ``git clone`` remote URL and into REST
+# paths ``/repos/{repo}/...``, so a leading ``-`` (argument injection),
+# whitespace/control chars, ``..`` (path traversal), or a missing/extra
+# ``/`` must all be rejected. ``\Z`` (not ``$``) anchors the end so a
+# trailing newline cannot sneak through.
+_REPO_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}\Z"
+)
 
 
 class SessionSummary(BaseModel):
@@ -99,6 +112,23 @@ class CreateWorkflowIn(BaseModel):
 
     repo: str
     issue_number: int
+
+    @field_validator("repo")
+    @classmethod
+    def _validate_repo(cls, value: str) -> str:
+        """Reject any ``repo`` that is not a plain ``owner/repo`` slug.
+
+        The value reaches a ``git clone`` remote and REST path segments
+        untrusted from the request body, so anything that could inject a
+        git argument, traverse a path, or reshape a URL is refused here at
+        the boundary (HTTP 422) rather than deeper in the pipeline.
+        """
+        if ".." in value or not _REPO_RE.match(value):
+            raise ValueError(
+                "repo must be a plain 'owner/repo' slug "
+                "(letters, digits, '.', '_', '-')"
+            )
+        return value
 
 
 class ReplyIn(BaseModel):

@@ -53,7 +53,14 @@ class GitService:
 
     async def clone(self, remote_url: str, dest: str) -> None:
         """Clone a remote into dest."""
-        await self._git(*self._auth(), "clone", remote_url, dest)
+        # Defense-in-depth: the caller validates ``repo`` at the API
+        # boundary, but guard here too. A ``remote_url`` beginning with
+        # ``-`` would be read by git as an option rather than a URL; the
+        # ``--`` separator forces everything after it to be treated as a
+        # positional argument.
+        if remote_url.startswith("-") or dest.startswith("-"):
+            raise GitError("refusing clone: remote/dest may not start with '-'")
+        await self._git(*self._auth(), "clone", "--", remote_url, dest)
         # Identity for commits made in this workspace.
         await self._git("config", "user.email", "kestrel@local", cwd=dest)
         await self._git("config", "user.name", "kestrel", cwd=dest)

@@ -17,9 +17,19 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 from app.services.github import Issue
+from app.services.workflow_text import append_sentinel
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
+
+#: Secret the faked service signs/verifies refined-issue markers with, so
+#: tests can build a trusted "already refined" body via ``_refined_body``.
+_SENTINEL_SECRET = "test-sentinel-secret"
+
+
+def _refined_body(text: str) -> str:
+    """A body carrying a *valid signed* refined marker for the test secret."""
+    return append_sentinel(text, _SENTINEL_SECRET)
 
 
 class _FakeGit:
@@ -127,7 +137,8 @@ class _FakeRunner:
 def _service(github, runner, git, settings=None) -> WorkflowService:
     return WorkflowService(
         settings=settings or Settings(
-            git_base="https://github.com", github_token="t"
+            git_base="https://github.com", github_token="t",
+            sentinel_secret=_SENTINEL_SECRET,
         ),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
@@ -141,7 +152,8 @@ def _service(github, runner, git, settings=None) -> WorkflowService:
 def _settings(**overrides) -> Settings:
     """Test settings with the refinement knobs open to overrides."""
     return Settings(
-        git_base="https://github.com", github_token="t", **overrides
+        git_base="https://github.com", github_token="t",
+        sentinel_secret=_SENTINEL_SECRET, **overrides
     )
 
 
@@ -239,7 +251,7 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
 @pytest.mark.asyncio
 async def test_sentinel_skips_refine() -> None:
     """Ensure an already-refined issue jumps straight to plan."""
-    gh = _FakeGitHub(body="clear issue\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("clear issue"))
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "The plan", "Implemented",
     ])
@@ -284,7 +296,7 @@ async def test_refine_question_visible_while_awaiting_input() -> None:
 @pytest.mark.asyncio
 async def test_reject_ends_run() -> None:
     """Ensure rejecting a gate ends the run as rejected."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
@@ -402,7 +414,7 @@ async def test_reject_with_refinement_regenerates() -> None:
 @pytest.mark.asyncio
 async def test_reject_plan_with_refinement_regenerates() -> None:
     """Ensure plan feedback resumes the plan session."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "plan v1", "plan v2",
     ])
@@ -425,7 +437,7 @@ async def test_reject_plan_with_refinement_regenerates() -> None:
 @pytest.mark.asyncio
 async def test_reject_implement_with_refinement_reruns() -> None:
     """Ensure implement feedback resumes the implement session."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "plan", "impl v1", "impl v2",
     ])
@@ -693,10 +705,13 @@ async def test_save_publishes_to_bus() -> None:
             self.ticks.append(workflow_id)
 
     bus = _Bus()
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
     svc = WorkflowService(
-        settings=Settings(git_base="https://github.com", github_token="t"),
+        settings=Settings(
+            git_base="https://github.com", github_token="t",
+            sentinel_secret=_SENTINEL_SECRET,
+        ),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
         backends=runner,
@@ -1050,7 +1065,7 @@ async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> None
 @pytest.mark.asyncio
 async def test_implement_blocker_is_structured_and_resumable() -> None:
     """Ensure a mid-implementation blocker pauses and resumes."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     git = _FakeGit()
     # First implement call produces no diff (it's the blocker);
     # the second, post-answer call produces the real change.
@@ -1093,7 +1108,7 @@ async def test_implement_blocker_is_structured_and_resumable() -> None:
 @pytest.mark.asyncio
 async def test_implement_malformed_blocker_falls_back_to_text_reply() -> None:
     """Ensure a non-compliant blocker message still allows a reply."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     git = _FakeGit()
     git.diffs = ["", "diff --git a/x b/x"]
     runner = _FakeRunner(SessionRegistry(), outputs=[
@@ -1120,11 +1135,14 @@ async def test_implement_malformed_blocker_falls_back_to_text_reply() -> None:
 @pytest.mark.asyncio
 async def test_notifier_fires_on_awaiting_and_done() -> None:
     """Ensure attention-worthy statuses reach the notifier."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
     notifier = _FakeNotifier()
     svc = WorkflowService(
-        settings=Settings(git_base="https://github.com", github_token="t"),
+        settings=Settings(
+            git_base="https://github.com", github_token="t",
+            sentinel_secret=_SENTINEL_SECRET,
+        ),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
         backends=runner,
@@ -1148,11 +1166,14 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
 @pytest.mark.asyncio
 async def test_notifier_does_not_fire_on_reject() -> None:
     """Ensure a bare reject does not produce a notification."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
     notifier = _FakeNotifier()
     svc = WorkflowService(
-        settings=Settings(git_base="https://github.com", github_token="t"),
+        settings=Settings(
+            git_base="https://github.com", github_token="t",
+            sentinel_secret=_SENTINEL_SECRET,
+        ),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
         backends=runner,
@@ -1211,7 +1232,7 @@ async def test_delete_drops_run_without_touching_github() -> None:
 @pytest.mark.asyncio
 async def test_delete_removes_workspace_dir(tmp_path) -> None:
     """Ensure abandoning a run deletes its local workspace clone."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_refined_body("x"))
     runner = _FakeRunner(SessionRegistry(), outputs=["the plan"])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)

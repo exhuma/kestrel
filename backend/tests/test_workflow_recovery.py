@@ -21,6 +21,7 @@ from tests.test_workflow_service import (
     _q,
     _qs,
     _refined,
+    _refined_body,
     _wait,
 )
 
@@ -88,7 +89,7 @@ async def test_recover_resumes_awaiting_plan_approval(
     ])
     svc1 = _persistent_service(
         store,
-        _FakeGitHub(body="x\n\n<!-- kestrel:refined -->"),
+        _FakeGitHub(body=_refined_body("x")),
         runner1,
         _FakeGit(),
     )
@@ -104,7 +105,7 @@ async def test_recover_resumes_awaiting_plan_approval(
     git2 = _FakeGit()
     svc2 = _persistent_service(
         store,
-        _FakeGitHub(body="x\n\n<!-- kestrel:refined -->"),
+        _FakeGitHub(body=_refined_body("x")),
         runner2,
         git2,
     )
@@ -175,7 +176,7 @@ async def test_recover_resumes_implement_blocker(
     git1.diffs = [""]
     svc1 = _persistent_service(
         store,
-        _FakeGitHub(body="x\n\n<!-- kestrel:refined -->"),
+        _FakeGitHub(body=_refined_body("x")),
         runner1,
         git1,
     )
@@ -193,7 +194,7 @@ async def test_recover_resumes_implement_blocker(
     git2.diffs = ["diff --git a/x b/x"]
     svc2 = _persistent_service(
         store,
-        _FakeGitHub(body="x\n\n<!-- kestrel:refined -->"),
+        _FakeGitHub(body=_refined_body("x")),
         runner2,
         git2,
     )

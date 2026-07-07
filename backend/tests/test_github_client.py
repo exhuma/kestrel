@@ -150,3 +150,20 @@ async def test_404_without_token_hints_at_missing_config() -> None:
     with pytest.raises(GitHubError) as exc:
         await client.get_issue("o/r", 7)
     assert "KESTREL_GITHUB_TOKEN" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_error_body_is_truncated() -> None:
+    """Ensure a large error response body is truncated in the GitHubError."""
+    big = "A" * 5000
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text=big)
+
+    with pytest.raises(GitHubError) as exc:
+        await _client(handler).get_issue("o/r", 7)
+    message = str(exc.value)
+    assert "truncated" in message
+    # The full body must not survive into the error/log surface.
+    assert big not in message
+    assert message.count("A") <= 600

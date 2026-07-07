@@ -17,6 +17,7 @@ from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
 from tests.test_workflow_service import (
+    _SENTINEL_SECRET,
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
@@ -33,7 +34,8 @@ def _persistent_service(
     reg.preload(store.load_all())
     return WorkflowService(
         settings=Settings(
-            git_base="https://github.com", github_token="t"
+            git_base="https://github.com", github_token="t",
+            sentinel_secret=_SENTINEL_SECRET,
         ),
         sessions=runner.sessions,
         workflows=reg,

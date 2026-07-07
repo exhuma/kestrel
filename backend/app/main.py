@@ -47,6 +47,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         {c.id: c.type for c in settings.backends},
         settings.default_session_backend,
     )
+    # Surface the egress allowlist so an operator can confirm the proxy ACL
+    # matches what kestrel actually reaches. Informational: kestrel does not
+    # enforce egress itself (the network/proxy does) — see docs/security.md.
+    from app.services.egress import derive_egress_allowlist
+
+    _logger.info(
+        "egress allowlist (hosts kestrel needs): %s%s",
+        ", ".join(sorted(derive_egress_allowlist(settings))),
+        f" | proxy: {settings.egress_proxy_url}"
+        if settings.egress_proxy_url
+        else " | no egress proxy configured (KESTREL_EGRESS_PROXY_URL)",
+    )
 
     await get_workflow_service().recover()
     yield
@@ -142,11 +154,19 @@ def create_app() -> FastAPI:
             )
         return JSONResponse(content={"status": "ok", "version": version})
 
+    from fastapi import Depends
+
+    from app.deps.auth import require_token
     from app.routers import notifications, sessions, workflows
 
-    app.include_router(sessions.router)
-    app.include_router(workflows.router)
-    app.include_router(notifications.router)
+    # Gate every /api route behind the shared-secret bearer token. A no-op
+    # when KESTREL_API_TOKEN is unset (open dev mode); the server refuses a
+    # non-loopback bind in that case (see app.__main__) so an open API is
+    # never reachable off-host.
+    api_auth = [Depends(require_token)]
+    app.include_router(sessions.router, dependencies=api_auth)
+    app.include_router(workflows.router, dependencies=api_auth)
+    app.include_router(notifications.router, dependencies=api_auth)
 
     # When packaged as a single image the backend also serves the built SPA.
     # Mounted last so the API routers above keep priority; html=True serves

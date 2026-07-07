@@ -1,0 +1,74 @@
+# Default-deny egress overlay. Compose it on top of the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.egress.yml up
+#
+# It puts kestrel on an INTERNAL network with no route to the internet, and
+# forces all its outbound traffic through an allowlist proxy that only permits
+# the hosts kestrel actually needs (derived from its own config). This blocks
+# prompt-injection-driven exfiltration and SSRF at the network layer.
+#
+# See docs/security.md.
+
+services:
+  # Generates the proxy allowlist from kestrel's own configuration, so the
+  # ACL never drifts from what the app legitimately reaches. Runs to
+  # completion before the proxy starts.
+  egress-init:
+    image: ghcr.io/exhuma/kestrel:alpha
+    # build: { context: . }   # uncomment to build from source
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "uv run python -m app.services.egress /shared/allowlist && cat /shared/allowlist"
+    working_dir: /app
+    environment:
+      # Same knobs that shape the allowlist (keep in sync with the kestrel
+      # service): backends file, enterprise bases, operator extras.
+      KESTREL_BACKENDS_FILE: ${KESTREL_BACKENDS_FILE:-}
+      KESTREL_EGRESS_ALLOWLIST: ${KESTREL_EGRESS_ALLOWLIST:-[]}
+    volumes:
+      - egress-shared:/shared
+    networks:
+      - egress-external
+
+  egress-proxy:
+    image: ubuntu/squid:latest
+    depends_on:
+      egress-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./docker/egress/squid.conf:/etc/squid/squid.conf:ro
+      - egress-shared:/etc/squid-allowlist:ro
+    # squid.conf reads /etc/squid/allowlist; the generated file lives on the
+    # shared volume, so symlink it into place at start.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "cp /etc/squid-allowlist/allowlist /etc/squid/allowlist && exec entrypoint.sh -f /etc/squid/squid.conf -NYC"
+    networks:
+      - egress-internal
+      - egress-external
+
+  kestrel:
+    # Route all of kestrel's outbound HTTP(S) through the allowlist proxy.
+    # httpx honours these standard env vars (trust_env defaults on).
+    environment:
+      HTTP_PROXY: http://egress-proxy:3128
+      HTTPS_PROXY: http://egress-proxy:3128
+      NO_PROXY: localhost,127.0.0.1,::1
+      KESTREL_EGRESS_PROXY_URL: http://egress-proxy:3128
+    depends_on:
+      egress-proxy:
+        condition: service_started
+    # Internal only: no direct route to the internet — the proxy is the sole
+    # way out. Published ports for the API still work (host ingress).
+    networks:
+      - egress-internal
+
+networks:
+  # No gateway to the internet: containers here cannot reach outside hosts
+  # except via the proxy (which also sits on egress-external).
+  egress-internal:
+    internal: true
+  egress-external: {}
+
+volumes:
+  egress-shared:

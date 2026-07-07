@@ -121,8 +121,35 @@ class Settings(BaseSettings):
     # container image sets this to the baked-in static bundle.
     static_dir: str = ""
     github_token: str = ""
+    #: HMAC key (``KESTREL_SENTINEL_SECRET``) signing the "already refined"
+    #: marker written back onto an issue. A signed marker lets a re-run skip
+    #: refinement; when this is empty the marker is never trusted (kestrel
+    #: always re-refines), so an attacker cannot skip refinement by typing the
+    #: marker string into a raw issue. See ``app.services.workflow_text``.
+    sentinel_secret: str = ""
+    #: Shared-secret bearer token gating every ``/api/*`` route
+    #: (``KESTREL_API_TOKEN``). When set, requests must send
+    #: ``Authorization: Bearer <token>`` (or an ``access_token`` query
+    #: param, for SSE ``EventSource`` which cannot set headers). When empty
+    #: (dev default) the API is open but the server refuses to bind a
+    #: non-loopback interface — see ``app.__main__``. This is a single
+    #: shared secret, not multi-user auth.
+    api_token: str = ""
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
+    #: Base URL of the Anthropic API the bundled ``claude`` CLI talks to.
+    #: Only its host matters here: it seeds the egress allowlist so the agent
+    #: can reach Anthropic while everything else is denied.
+    anthropic_api_base: str = "https://api.anthropic.com"
+    #: Forward-proxy URL for the default-deny egress design (e.g.
+    #: ``http://egress-proxy:3128``). Documentation/wiring only — kestrel's
+    #: own httpx clients honour the standard ``HTTPS_PROXY`` env; this setting
+    #: records the proxy for the allowlist tooling and startup log.
+    egress_proxy_url: str = ""
+    #: Extra hostnames to add to the egress allowlist beyond those derived
+    #: from ``git_base`` / ``github_api_base`` / ``anthropic_api_base`` and the
+    #: configured backends (e.g. an MCP server or a self-hosted model host).
+    egress_allowlist: list[str] = []
     database_url: str = "sqlite:///./kestrel.db"
     model_overrides: dict[str, str] = {}
     #: Console log verbosity (``KESTREL_LOG_LEVEL``): debug/info/warning/…

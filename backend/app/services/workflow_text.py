@@ -1,13 +1,24 @@
 """Sentinel and tagged-block extraction helpers for the workflow."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import re
 
 from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
 
+#: Legacy unsigned marker. Still recognised for display, but never *trusted*:
+#: anyone can type it into a raw issue, so it cannot gate skipping refinement.
 SENTINEL = "<!-- kestrel:refined -->"
+
+#: Matches a trailing refined marker, optionally carrying a signed HMAC
+#: (``:v1:<64 hex>``). End-anchored: a marker must sit at the end of the body
+#: (modulo whitespace) to count, so it cannot be smuggled mid-text.
+_SENTINEL_RE = re.compile(
+    r"\s*<!-- kestrel:refined(?::v1:([0-9a-f]{64}))? -->\s*\Z"
+)
 
 #: Map a tool (its bare name, MCP prefixes stripped) to a 1-2 word verb
 #: for the chip activity subtext. Unlisted tools fall back to their own
@@ -53,15 +64,65 @@ def activity_for(event: CanonicalEvent) -> str | None:
 
 
 def has_sentinel(body: str) -> bool:
-    """Return True if the issue body was already refined."""
-    return SENTINEL in body
+    """Return True if the body carries a refined marker (signed or not).
+
+    Detection only — use :func:`verify_sentinel` to decide whether the
+    marker can be *trusted* to skip refinement.
+    """
+    return _SENTINEL_RE.search(body) is not None
 
 
-def append_sentinel(body: str) -> str:
-    """Append the sentinel to a body, at most once."""
-    if has_sentinel(body):
-        return body
-    return f"{body.rstrip()}\n\n{SENTINEL}\n"
+def _strip_sentinel(body: str) -> str:
+    """Return ``body`` with any trailing refined marker removed, rstripped."""
+    return _SENTINEL_RE.sub("", body).rstrip()
+
+
+def _sentinel_mac(base: str, secret: str) -> str:
+    """HMAC-SHA256 of the marker-free body under ``secret``."""
+    return hmac.new(
+        secret.encode(), base.encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def append_sentinel(body: str, secret: str | None = None) -> str:
+    """Append the refined marker to a body, at most once.
+
+    When ``secret`` is set the marker carries an HMAC over the marker-free
+    body, so :func:`verify_sentinel` can later confirm kestrel authored the
+    refined text. Without a secret it degrades to the legacy unsigned marker
+    that ``verify_sentinel`` never trusts.
+
+    :param body: The refined issue body to mark.
+    :param secret: The signing secret, or None/empty for an unsigned marker.
+    :returns: The body with exactly one trailing marker.
+    """
+    base = _strip_sentinel(body)
+    if secret:
+        mac = _sentinel_mac(base, secret)
+        return f"{base}\n\n<!-- kestrel:refined:v1:{mac} -->\n"
+    return f"{base}\n\n{SENTINEL}\n"
+
+
+def verify_sentinel(body: str, secret: str | None) -> bool:
+    """Return True only if the body carries a valid *signed* marker.
+
+    A valid signed marker proves kestrel produced the refined text, so the
+    refine step may be safely skipped. An unsigned marker, a forged one, or
+    body text altered after signing all fail the HMAC check and force a
+    normal refinement pass. Also False when no secret is configured — never
+    trust a marker by its literal string.
+
+    :param body: The issue body to check.
+    :param secret: The signing secret, or None/empty (always False).
+    :returns: True only for a body whose signed marker verifies.
+    """
+    if not secret:
+        return False
+    match = _SENTINEL_RE.search(body)
+    if match is None or match.group(1) is None:
+        return False
+    base = body[: match.start()].rstrip()
+    return hmac.compare_digest(match.group(1), _sentinel_mac(base, secret))
 
 
 def _extract_tag(text: str, tag: str) -> str | None:
