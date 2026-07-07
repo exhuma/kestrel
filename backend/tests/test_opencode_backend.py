@@ -84,6 +84,132 @@ def _transcript_handler():
     return handler
 
 
+def _sse(*events: dict) -> bytes:
+    """Encode events as an opencode /event SSE body (data: <json>\\n\\n)."""
+    frames = [f"data: {json.dumps(e)}\n\n" for e in events]
+    return "".join(frames).encode("utf-8")
+
+
+def _permission_event(session_id: str, tool: str, request_id: str) -> dict:
+    """A permission.asked frame as opencode's /event bus emits it."""
+    return {
+        "type": "permission.asked",
+        "properties": {
+            "id": request_id,
+            "sessionID": session_id,
+            "permission": tool,
+            "patterns": [],
+            "metadata": {},
+            "always": [],
+        },
+    }
+
+
+def _reply_for(seen: list[httpx.Request]) -> dict:
+    """Return the JSON body of the single /permission reply that was sent."""
+    replies = [
+        r for r in seen if "/permission/" in r.url.path and r.method == "POST"
+    ]
+    assert len(replies) == 1, f"expected one reply, got {len(replies)}"
+    return json.loads(replies[0].content)
+
+
+@pytest.mark.asyncio
+async def test_read_only_turn_disables_file_mutating_tools() -> None:
+    """Ensure a read-only (plan) turn tells opencode to disable edit tools."""
+    backend, _, seen = _backend(_transcript_handler())
+    await backend.run_turn(
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="plan")
+    )
+    post = next(
+        r
+        for r in seen
+        if r.url.path == "/session/oc-1/message" and r.method == "POST"
+    )
+    tools = json.loads(post.content)["tools"]
+    assert tools == {"edit": False, "write": False, "patch": False}
+
+
+@pytest.mark.asyncio
+async def test_edit_turn_does_not_restrict_tools() -> None:
+    """Ensure an edit-capable turn leaves all tools enabled."""
+    backend, _, seen = _backend(_transcript_handler())
+    await backend.run_turn(
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="acceptEdits")
+    )
+    post = next(
+        r
+        for r in seen
+        if r.url.path == "/session/oc-1/message" and r.method == "POST"
+    )
+    assert "tools" not in json.loads(post.content)
+
+
+@pytest.mark.asyncio
+async def test_permission_loop_approves_a_read() -> None:
+    """Ensure a read permission is auto-approved so headless never blocks."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/event":
+            return httpx.Response(
+                200, content=_sse(_permission_event("s1", "read", "per_1"))
+            )
+        return httpx.Response(200, json=True)
+
+    backend, _, seen = _backend(handler)
+    await backend._permission_loop("s1", "/tmp/s", read_only=True)
+    assert _reply_for(seen) == {"reply": "once"}
+
+
+@pytest.mark.asyncio
+async def test_permission_loop_rejects_edit_on_read_only_turn() -> None:
+    """Ensure a file-edit permission is rejected during a read-only turn."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/event":
+            return httpx.Response(
+                200, content=_sse(_permission_event("s1", "edit", "per_9"))
+            )
+        return httpx.Response(200, json=True)
+
+    backend, _, seen = _backend(handler)
+    await backend._permission_loop("s1", "/tmp/s", read_only=True)
+    assert _reply_for(seen) == {"reply": "reject"}
+    assert seen[-1].url.path == "/permission/per_9/reply"
+
+
+@pytest.mark.asyncio
+async def test_permission_loop_allows_edit_when_editable() -> None:
+    """Ensure edits are approved on an edit-capable (implement) turn."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/event":
+            return httpx.Response(
+                200, content=_sse(_permission_event("s1", "edit", "per_2"))
+            )
+        return httpx.Response(200, json=True)
+
+    backend, _, seen = _backend(handler)
+    await backend._permission_loop("s1", "/tmp/s", read_only=False)
+    assert _reply_for(seen) == {"reply": "once"}
+
+
+@pytest.mark.asyncio
+async def test_permission_loop_ignores_other_sessions() -> None:
+    """Ensure prompts for a different session are not answered."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/event":
+            return httpx.Response(
+                200, content=_sse(_permission_event("other", "read", "per_3"))
+            )
+        return httpx.Response(200, json=True)
+
+    backend, _, seen = _backend(handler)
+    await backend._permission_loop("s1", "/tmp/s", read_only=True)
+    assert not [r for r in seen if "/permission/" in r.url.path]
+
+
 def test_split_model_parses_provider_and_model() -> None:
     """Ensure provider/model strings become opencode's model object."""
     assert _split_model("anthropic/claude-sonnet-4") == {
