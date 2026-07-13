@@ -182,6 +182,13 @@ def create_app() -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(notifications.router)
 
+    # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op
+    # unless KESTREL_OTEL_ENABLED: instruments the app + logging so spans and
+    # trace-linked log fields flow when a collector is configured.
+    from app import telemetry
+
+    telemetry.init_tracing(app, get_settings())
+
     # When packaged as a single image the backend also serves the built SPA.
     # Mounted last so the API routers above keep priority; html=True serves
     # index.html for unknown paths, giving the SPA its client-side routing.

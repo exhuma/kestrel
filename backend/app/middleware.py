@@ -1,8 +1,12 @@
 """Cross-cutting HTTP middleware for kestrel.
 
-Implements the ``module-http-middleware-hardening`` contract: a correlation
-ID on every request, one structured log line per request, three security
-headers, and a version header.
+Implements the ``module-http-middleware-hardening`` (v2) contract: one
+structured log line per request, three security headers, and a version header.
+Cross-request correlation is **not** a custom header — it rides W3C trace
+context (``traceparent``) propagated by OpenTelemetry (see :mod:`app.telemetry`
+and ``module-opentelemetry``); this middleware neither generates, reads, nor
+echoes a correlation header. Log lines link to traces via the ``trace_id`` /
+``span_id`` fields owned by :mod:`app.logging_config`.
 
 These are written as **pure ASGI middleware** rather than Starlette's
 ``BaseHTTPMiddleware``. kestrel streams Server-Sent Events from long-lived
@@ -17,25 +21,20 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
 
-from starlette.datastructures import Headers, MutableHeaders
+from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-
-from app.logging_config import clear_correlation_id, set_correlation_id
 
 _logger = logging.getLogger(__name__)
 
-_CORRELATION_HEADER = "x-correlation-id"
-
 
 class RequestLoggingMiddleware:
-    """Assign a correlation ID and emit one structured line per request.
+    """Emit one structured log line per request.
 
-    Honours an inbound ``X-Correlation-ID`` header or generates a UUID,
-    binds it to the logging context for the duration of the request, echoes
-    it on the response, and clears it in every code path (success or error)
-    so it never leaks into the next request on the same worker.
+    Logs method, path, client, status, and duration on success, and logs the
+    same request context before re-raising on an unhandled exception. Trace
+    correlation is automatic via ``trace_id`` / ``span_id`` — this middleware
+    adds no correlation header.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -48,8 +47,6 @@ class RequestLoggingMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = Headers(scope=scope)
-        cid = headers.get(_CORRELATION_HEADER) or str(uuid.uuid4())
         client = scope["client"][0] if scope.get("client") else "unknown"
         method: str = scope["method"]
         path: str = scope["path"]
@@ -60,10 +57,8 @@ class RequestLoggingMiddleware:
             nonlocal status
             if message["type"] == "http.response.start":
                 status = message["status"]
-                MutableHeaders(scope=message)["X-Correlation-ID"] = cid
             await send(message)
 
-        set_correlation_id(cid)
         try:
             await self.app(scope, receive, send_wrapper)
         except Exception:
@@ -76,18 +71,15 @@ class RequestLoggingMiddleware:
                 elapsed,
             )
             raise
-        else:
-            elapsed = (time.monotonic() - start) * 1000
-            _logger.info(
-                "%s %s from %s -> %d (%.1f ms)",
-                method,
-                path,
-                client,
-                status,
-                elapsed,
-            )
-        finally:
-            clear_correlation_id()
+        elapsed = (time.monotonic() - start) * 1000
+        _logger.info(
+            "%s %s from %s -> %d (%.1f ms)",
+            method,
+            path,
+            client,
+            status,
+            elapsed,
+        )
 
 
 class SecurityHeadersMiddleware:

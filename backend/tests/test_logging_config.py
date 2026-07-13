@@ -6,10 +6,9 @@ import logging
 
 from app.logging_config import (
     JsonFormatter,
+    TraceContextFilter,
     build_log_config,
-    clear_correlation_id,
     configure_logging,
-    set_correlation_id,
 )
 
 
@@ -50,35 +49,40 @@ def test_json_formatter_includes_exception() -> None:
     assert "boom" in doc["exception"]
 
 
-def test_json_formatter_includes_bound_correlation_id() -> None:
-    """Ensure a bound correlation ID surfaces in the JSON payload."""
-    from app.logging_config import CorrelationIDFilter
-
+def test_json_formatter_includes_trace_context() -> None:
+    """Ensure OTel-enriched trace_id/span_id surface in the JSON payload."""
     rec = _record()
-    set_correlation_id("trace-xyz")
-    try:
-        CorrelationIDFilter().filter(rec)
-        doc = json.loads(JsonFormatter().format(rec))
-    finally:
-        clear_correlation_id()
-    assert doc["correlation_id"] == "trace-xyz"
-
-
-def test_json_formatter_omits_correlation_id_when_unset() -> None:
-    """Ensure the sentinel '-' is not emitted as a correlation ID."""
-    rec = _record()
-    from app.logging_config import CorrelationIDFilter
-
-    CorrelationIDFilter().filter(rec)  # no ID bound -> stamps "-"
+    # Simulate the attributes OpenTelemetry's LoggingInstrumentor injects.
+    rec.otelTraceID = "abc123"
+    rec.otelSpanID = "def456"
+    TraceContextFilter().filter(rec)
     doc = json.loads(JsonFormatter().format(rec))
-    assert "correlation_id" not in doc
+    assert doc["trace_id"] == "abc123"
+    assert doc["span_id"] == "def456"
 
 
-def test_build_log_config_wires_correlation_filter() -> None:
-    """Ensure the stream handler carries the correlation-ID filter."""
+def test_json_formatter_omits_trace_context_when_unset() -> None:
+    """Ensure the sentinel '-' is not emitted as a trace id."""
+    rec = _record()
+    TraceContextFilter().filter(rec)  # no span active -> stamps "-"
+    doc = json.loads(JsonFormatter().format(rec))
+    assert "trace_id" not in doc
+    assert "span_id" not in doc
+
+
+def test_trace_context_filter_stamps_records() -> None:
+    """Ensure the filter always provides trace_id/span_id attributes."""
+    rec = _record()
+    assert TraceContextFilter().filter(rec) is True
+    assert rec.trace_id == "-"
+    assert rec.span_id == "-"
+
+
+def test_build_log_config_wires_trace_context_filter() -> None:
+    """Ensure the stream handler carries the trace-context filter."""
     cfg = build_log_config("info", "json")
-    assert "correlation_id" in cfg["filters"]
-    assert cfg["handlers"]["default"]["filters"] == ["correlation_id"]
+    assert "trace_context" in cfg["filters"]
+    assert cfg["handlers"]["default"]["filters"] == ["trace_context"]
 
 
 def test_build_log_config_unifies_uvicorn_with_root() -> None:

@@ -22,6 +22,20 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BACKENDS_FILE` | _(empty)_ | Path to a TOML backend config — the way to add backends. See [Backends](backends.md) |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
+| `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
+| `KESTREL_OTEL_SERVICE_NAME` | `kestrel` | `service.name` reported on exported spans |
+
+### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
+
+Tracing reads the **standard** OpenTelemetry environment variables — kestrel
+does not rename them under `KESTREL_`:
+
+| Variable | Example | Purpose |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://collector:4318` | OTLP/HTTP collector endpoint for span export |
+| `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Head sampling ratio (parent-based); `1.0` = sample all |
+
+See [Observability → Tracing](observability.md#tracing) for the full model.
 
 Backends are configured **only** through `KESTREL_BACKENDS_FILE` (or the
 `backends.toml` it points at) — see [Backends](backends.md).

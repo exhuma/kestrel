@@ -1,7 +1,9 @@
 """Tests for the cross-cutting HTTP middleware stack.
 
-Covers the module-http-middleware-hardening contract: security headers,
-version header, and correlation-ID honour/generate/echo on every response.
+Covers the module-http-middleware-hardening (v2) contract: three security
+headers and a version header on every response, one structured log line per
+request, and — deliberately — **no** custom correlation header (correlation
+rides W3C trace context via OpenTelemetry).
 """
 from __future__ import annotations
 
@@ -10,7 +12,6 @@ import logging
 import httpx
 import pytest
 
-from app.logging_config import CorrelationIDFilter, get_correlation_id
 from app.main import create_app
 
 
@@ -36,41 +37,40 @@ async def test_every_response_carries_security_and_version_headers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_correlation_id_is_generated_when_absent() -> None:
-    """Ensure a response gets a fresh correlation ID when none is sent."""
+async def test_no_correlation_header_is_emitted() -> None:
+    """Ensure the v2 middleware adds no bespoke correlation header.
+
+    Cross-request correlation is W3C trace context (``traceparent``), owned by
+    module-opentelemetry — not a hand-rolled ``X-Correlation-ID``.
+    """
     app = create_app()
     async with _client(app) as client:
         resp = await client.get("/healthz")
-    assert resp.headers.get("x-correlation-id")
+    assert "x-correlation-id" not in resp.headers
 
 
 @pytest.mark.asyncio
-async def test_inbound_correlation_id_is_preserved() -> None:
-    """Ensure an inbound X-Correlation-ID is echoed unchanged."""
+async def test_inbound_correlation_header_is_not_echoed() -> None:
+    """Ensure an inbound X-Correlation-ID is ignored, not reflected."""
     app = create_app()
     async with _client(app) as client:
         resp = await client.get(
             "/healthz", headers={"X-Correlation-ID": "trace-abc-123"}
         )
-    assert resp.headers["x-correlation-id"] == "trace-abc-123"
+    assert "x-correlation-id" not in resp.headers
 
 
 @pytest.mark.asyncio
-async def test_correlation_id_does_not_leak_between_requests() -> None:
-    """Ensure the correlation context is cleared after each request."""
+async def test_request_emits_one_structured_log_line(caplog) -> None:
+    """Ensure each request logs exactly one method/path/status/duration line."""
     app = create_app()
-    async with _client(app) as client:
-        await client.get(
-            "/healthz", headers={"X-Correlation-ID": "trace-abc-123"}
-        )
-    # Back on the test's own context, nothing should remain bound.
-    assert get_correlation_id() is None
-
-
-def test_correlation_filter_stamps_records() -> None:
-    """Ensure the filter always provides a correlation_id attribute."""
-    record = logging.LogRecord(
-        "app.test", logging.INFO, __file__, 1, "hi", None, None
-    )
-    assert CorrelationIDFilter().filter(record) is True
-    assert record.correlation_id == "-"
+    with caplog.at_level(logging.INFO, logger="app.middleware"):
+        async with _client(app) as client:
+            await client.get("/livez")
+    lines = [
+        r for r in caplog.records if r.name == "app.middleware"
+    ]
+    assert len(lines) == 1
+    message = lines[0].getMessage()
+    assert "GET /livez" in message
+    assert "-> 200" in message

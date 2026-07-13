@@ -8,48 +8,41 @@ pipeline (OTEL, Logstash, …).
 The container launches via ``python -m app`` (see ``app.__main__``), which
 hands the config below to uvicorn so uvicorn's loggers propagate to the same
 root handler — closing the gap between uvicorn output and app output.
+
+Per the ``module-logging-structured`` (v2) and ``module-opentelemetry`` kits,
+cross-request correlation rides **W3C trace context**, not a custom
+correlation header: each record carries ``trace_id`` / ``span_id`` fields,
+enriched from the active span by OpenTelemetry's logging instrumentation
+(installed by :mod:`app.telemetry` when telemetry is enabled). ``"-"`` renders
+when no span is active — startup, shutdown, background work, or telemetry off.
 """
 from __future__ import annotations
 
-import contextvars
 import datetime as _dt
 import json
 import logging
 from typing import Any
 
-#: Per-request correlation ID, shared by every log record emitted while a
-#: request is in flight (see ``app.middleware.RequestLoggingMiddleware`` and
-#: the ``module-http-middleware-hardening`` kit). ``"-"`` renders for records
-#: emitted outside any request (startup, shutdown, background tasks).
-_correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "kestrel_correlation_id", default=None
-)
+#: Record attributes injected by OpenTelemetry's ``LoggingInstrumentor`` when
+#: a span is active. The filter below maps them onto the stable
+#: ``trace_id`` / ``span_id`` names both formatters read.
+_OTEL_TRACE_ATTR = "otelTraceID"
+_OTEL_SPAN_ATTR = "otelSpanID"
 
 
-def set_correlation_id(cid: str) -> None:
-    """Bind ``cid`` as the correlation ID for the current context."""
-    _correlation_id.set(cid)
-
-
-def clear_correlation_id() -> None:
-    """Drop the correlation ID so it never leaks into the next request."""
-    _correlation_id.set(None)
-
-
-def get_correlation_id() -> str | None:
-    """Return the correlation ID bound to the current context, if any."""
-    return _correlation_id.get()
-
-
-class CorrelationIDFilter(logging.Filter):
-    """Stamp the current correlation ID onto every record it sees.
+class TraceContextFilter(logging.Filter):
+    """Stamp ``trace_id`` and ``span_id`` onto every record it sees.
 
     Attached to the stream handler so both formatters can rely on the
-    ``correlation_id`` attribute always being present.
+    attributes always being present. Values come from the span context that
+    OpenTelemetry's logging instrumentation enriches onto the record
+    (``otelTraceID`` / ``otelSpanID``); ``"-"`` renders when no span is active
+    or telemetry is disabled.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.correlation_id = _correlation_id.get() or "-"
+        record.trace_id = getattr(record, _OTEL_TRACE_ATTR, None) or "-"
+        record.span_id = getattr(record, _OTEL_SPAN_ATTR, None) or "-"
         return True
 
 
@@ -65,9 +58,12 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        cid = getattr(record, "correlation_id", None)
-        if cid and cid != "-":
-            payload["correlation_id"] = cid
+        trace_id = getattr(record, "trace_id", None)
+        if trace_id and trace_id != "-":
+            payload["trace_id"] = trace_id
+            span_id = getattr(record, "span_id", None)
+            if span_id and span_id != "-":
+                payload["span_id"] = span_id
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         if record.stack_info:
@@ -89,12 +85,12 @@ def build_log_config(level: str, fmt: str) -> dict[str, Any]:
         # Keep loggers created at import time (app modules) working.
         "disable_existing_loggers": False,
         "filters": {
-            "correlation_id": {"()": f"{__name__}.CorrelationIDFilter"},
+            "trace_context": {"()": f"{__name__}.TraceContextFilter"},
         },
         "formatters": {
             "text": {
                 "format": (
-                    "%(asctime)s %(levelname)-8s [%(correlation_id)s] "
+                    "%(asctime)s %(levelname)-8s [%(trace_id)s] "
                     "%(name)s: %(message)s"
                 ),
             },
@@ -105,9 +101,9 @@ def build_log_config(level: str, fmt: str) -> dict[str, Any]:
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
                 "formatter": formatter,
-                # The filter stamps correlation_id onto every record, so the
-                # text format above can reference it unconditionally.
-                "filters": ["correlation_id"],
+                # The filter stamps trace_id/span_id onto every record, so the
+                # text format above can reference trace_id unconditionally.
+                "filters": ["trace_context"],
             },
         },
         # Root owns the only handler; uvicorn's loggers propagate to it so

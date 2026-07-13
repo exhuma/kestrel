@@ -16,18 +16,21 @@
     "docs/superpowers/**"
   ],
   "words": [
-    "aclose", "aread", "changeme", "codegen", "conftest", "contextvar",
+    "aclose", "aread", "ASGI", "changeme", "codegen", "conftest", "contextvar",
     "coro", "creds", "dedup", "deepseek", "dispatchable", "Dockerisation",
     "dotenv", "ecard", "ensembling", "exhuma", "extraheader", "fastapi",
     "formedness", "ghlink", "glanceable", "gpgsign", "grayscale",
     "HEALTHCHECK", "healthchecks", "healthz", "HMAC", "hrefs", "httpx",
-    "infosec", "KEEPALIVE", "keepalives", "kwargs", "livez", "multiedit",
+    "infosec", "Instrumentor", "KEEPALIVE", "keepalives", "kwargs", "livez",
+    "multiedit",
     "nosniff", "notebookedit", "notif", "ntfy", "Okabe", "ollama",
     "opencode", "pinentry", "Planka", "PROCS", "pydantic", "pyproject",
     "pytest", "qbadge", "qform", "qgroup", "qtab", "qtabs", "readyz",
-    "renamespaced", "rgba", "runbook", "runbooks", "savestatus", "scard",
+    "renamespaced", "reraise", "rgba", "runbook", "runbooks", "savestatus",
+    "scard",
     "sessionmaker", "sqlalchemy", "stageroot", "substep", "taskfile",
-    "todowrite", "topbar", "uiux", "unconfigured", "unparseable",
+    "todowrite", "topbar", "traceparent", "uiux", "unconfigured",
+    "unloadable", "unparseable",
     "uvicorn", "viewnav", "Vite", "Vuetify", "webfetch", "worktree",
     "Zammad"
   ]
