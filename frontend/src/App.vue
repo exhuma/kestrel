@@ -5,12 +5,19 @@ import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import GithubLink from './components/GithubLink.vue'
 import { useSessions } from './composables/useSessions'
+import { useWorkflows } from './composables/useWorkflows'
 
 // Shared composable state: the header reflects fleet-wide status.
-const { sessions } = useSessions()
+const { sessions, loading: sessionsLoading } = useSessions()
+const { loading: workflowsLoading } = useWorkflows()
 const running = computed(() =>
   sessions.value.some((s) => s.status === 'running'),
 )
+
+// Page-level loading: a thin indeterminate bar under the header while any
+// primary fetch (sessions or workflows) is in flight (module-vue-vuetify
+// loading-feedback rule).
+const loading = computed(() => sessionsLoading.value || workflowsLoading.value)
 
 // Workflows lead; the raw sessions view is kept only as a debugging
 // affordance (see the muted control in the header).
@@ -18,43 +25,62 @@ const view = ref<'sessions' | 'workflows'>('workflows')
 </script>
 
 <template>
-  <div class="shell">
-    <header class="topbar">
-      <div class="brand d-flex align-center ms-2">
-        <img src="/logo.svg" alt="kestrel logo" height="40" class="ms-2" />
-        <span class="brand__name">kestrel</span>
-        <span class="brand__tag mono">mission control</span>
-      </div>
-      <nav class="viewnav">
-        <button
-          class="viewnav__btn"
-          :class="{ 'viewnav__btn--on': view === 'workflows' }"
-          @click="view = 'workflows'"
-        >
-          Workflows
-        </button>
-        <button
-          class="viewnav__debug"
-          :class="{ 'viewnav__debug--on': view === 'sessions' }"
-          :aria-pressed="view === 'sessions'"
-          title="Raw agent sessions (debugging)"
-          @click="view = view === 'sessions' ? 'workflows' : 'sessions'"
-        >
-          <span aria-hidden="true">‹/›</span> sessions
-        </button>
-      </nav>
-      <div class="status" :class="running ? 'status--live' : 'status--idle'">
-        <span class="status__dot" />
-        <span class="status__label mono">{{ running ? 'live' : 'idle' }}</span>
-      </div>
-      <NotificationCenter @navigate="view = 'workflows'" />
-      <GithubLink />
-    </header>
-    <main class="stageroot">
-      <SessionPanel v-if="view === 'sessions'" />
-      <WorkflowPanel v-else />
-    </main>
-  </div>
+  <v-app>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand d-flex align-center ms-2">
+          <img src="/logo.svg" alt="kestrel logo" height="40" class="ms-2" />
+          <span class="brand__name">kestrel</span>
+          <span class="brand__tag mono">mission control</span>
+        </div>
+        <nav class="viewnav">
+          <v-btn
+            class="viewnav__btn text-none"
+            :variant="view === 'workflows' ? 'flat' : 'outlined'"
+            :color="view === 'workflows' ? 'primary' : undefined"
+            rounded="pill"
+            size="small"
+            :aria-pressed="view === 'workflows'"
+            @click="view = 'workflows'"
+          >
+            Workflows
+          </v-btn>
+          <v-btn
+            class="viewnav__debug text-none"
+            variant="text"
+            size="small"
+            rounded="pill"
+            :color="view === 'sessions' ? 'primary' : undefined"
+            :aria-pressed="view === 'sessions'"
+            title="Raw agent sessions (debugging)"
+            @click="view = view === 'sessions' ? 'workflows' : 'sessions'"
+          >
+            <span aria-hidden="true">‹/›</span>&nbsp;sessions
+          </v-btn>
+        </nav>
+        <div class="status" :class="running ? 'status--live' : 'status--idle'">
+          <span class="status__dot" />
+          <span class="status__label mono">{{
+            running ? 'live' : 'idle'
+          }}</span>
+        </div>
+        <NotificationCenter @navigate="view = 'workflows'" />
+        <GithubLink />
+        <v-progress-linear
+          :active="loading"
+          absolute
+          location="bottom"
+          color="primary"
+          height="2"
+          indeterminate
+        />
+      </header>
+      <main class="stageroot">
+        <SessionPanel v-if="view === 'sessions'" />
+        <WorkflowPanel v-else />
+      </main>
+    </div>
+  </v-app>
 </template>
 
 <style scoped>
@@ -71,6 +97,7 @@ const view = ref<'sessions' | 'workflows'>('workflows')
 }
 
 .topbar {
+  position: relative;
   height: var(--header-h);
   flex: none;
   display: flex;
@@ -124,48 +151,21 @@ const view = ref<'sessions' | 'workflows'>('workflows')
 
 .viewnav {
   display: flex;
+  align-items: center;
   gap: 4px;
   margin-left: 22px;
 }
+/* The nav toggles are Vuetify v-btns; only tune the debug ("sessions")
+   button's monospace/letter-spacing and dimmed idle colour, and keep the
+   segmented control compact. */
 .viewnav__btn {
-  background: transparent;
-  border: 1px solid var(--line);
-  color: var(--text-mid);
-  border-radius: 999px;
-  padding: 5px 14px;
   font-size: 12.5px;
-  cursor: pointer;
-  font-family: var(--font-sans);
-}
-.viewnav__btn--on {
-  color: var(--signal-ink);
-  background: var(--signal);
-  border-color: var(--signal);
+  letter-spacing: 0.01em;
 }
 .viewnav__debug {
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
-  padding: 5px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.viewnav__debug:hover {
-  color: var(--text-mid);
-}
-.viewnav__debug--on {
-  color: var(--signal);
-}
-.viewnav__debug:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--signal-glow);
 }
 
 .status {

@@ -10,12 +10,15 @@ const repoUrl = computed(
 </script>
 
 <template>
-  <a
+  <v-btn
     v-if="repoUrl"
     class="ghlink"
     :href="repoUrl"
     target="_blank"
     rel="noopener noreferrer"
+    variant="text"
+    icon
+    size="small"
     title="Source code"
     aria-label="Source code"
   >
@@ -38,29 +41,24 @@ const repoUrl = computed(
            1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
       />
     </svg>
-  </a>
+  </v-btn>
 </template>
 
 <style scoped>
+/* Keep the low-visibility "source code" affordance: a dimmed icon that lifts
+   to the signal colour on hover/focus, matching the header's other muted
+   controls. */
 .ghlink {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   color: var(--text-mid);
   opacity: 0.6;
   transition:
     color 0.15s ease,
     opacity 0.15s ease;
 }
-.ghlink:hover {
+.ghlink:hover,
+.ghlink:focus-visible {
   color: var(--signal);
   opacity: 1;
-}
-.ghlink:focus-visible {
-  outline: none;
-  opacity: 1;
-  box-shadow: 0 0 0 3px var(--signal-glow);
-  border-radius: var(--r-sm);
 }
 .ghlink__icon {
   display: block;

@@ -6,6 +6,7 @@ import type { WorkflowDetail, WorkflowSummary } from '../types/workflows'
 const workflows = ref<WorkflowSummary[]>([])
 const current = ref<WorkflowDetail | null>(null)
 const events = ref<SessionEvent[]>([])
+const loading = ref(false)
 const error = ref<string | null>(null)
 
 let detailSource: EventSource | null = null
@@ -19,7 +20,12 @@ function describe(e: unknown): string {
 
 export function useWorkflows() {
   async function refresh(): Promise<void> {
-    workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
+    loading.value = true
+    try {
+      workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
+    } finally {
+      loading.value = false
+    }
   }
 
   function applyDetail(detail: WorkflowDetail): void {
@@ -196,6 +202,7 @@ export function useWorkflows() {
     workflows,
     current,
     events,
+    loading,
     error,
     refresh,
     select,
