@@ -554,6 +554,13 @@ function badgeColor(token: string): string | undefined {
 .stage__body {
   overflow-y: auto;
 }
+/* The body scrolls; its children keep their natural height. Without this,
+   flex children whose overflow is hidden (notably v-alert) collapse their
+   auto min-height and get shrunk to a sliver when the deliverable below is
+   tall — the body must scroll, not squeeze the alerts. */
+.stage__body > * {
+  flex: 0 0 auto;
+}
 /* Keep the on-demand telemetry drawer bounded so the raw event stream can
    never push the panel around. */
 .drawer__feed {
