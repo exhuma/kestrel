@@ -287,7 +287,7 @@ function preview(e: SessionEvent): string {
       type="error"
       closable
       density="compact"
-      class="ma-4 mb-0"
+      class="ma-4 mb-0 stage__banner"
       role="alert"
       @click:close="error = null"
     >
@@ -361,6 +361,12 @@ function preview(e: SessionEvent): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* v-alert defaults to `flex: 1 1 auto`; as a child of the flex-column stage it
+   would grow to fill the space the feed should own. Pin it to natural height
+   (auto basis — the flex-grow-0 utility sets a 0% basis and re-collapses it). */
+.stage__banner {
+  flex: 0 0 auto;
 }
 .feed {
   overflow-y: auto;

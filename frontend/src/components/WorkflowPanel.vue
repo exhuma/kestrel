@@ -287,7 +287,7 @@ function badgeColor(token: string): string | undefined {
       type="error"
       closable
       density="compact"
-      class="ma-4 mb-0"
+      class="ma-4 mb-0 stage__banner"
       role="alert"
       @click:close="error = null"
     >
@@ -298,7 +298,7 @@ function badgeColor(token: string): string | undefined {
       v-if="current?.error"
       type="error"
       density="compact"
-      class="ma-4 mb-0"
+      class="ma-4 mb-0 stage__banner"
       role="alert"
     >
       Run failed: {{ current.error }}
@@ -554,10 +554,14 @@ function badgeColor(token: string): string | undefined {
 .stage__body {
   overflow-y: auto;
 }
-/* The body scrolls; its children keep their natural height. Without this,
-   flex children whose overflow is hidden (notably v-alert) collapse their
-   auto min-height and get shrunk to a sliver when the deliverable below is
-   tall — the body must scroll, not squeeze the alerts. */
+/* v-alert defaults to `flex: 1 1 auto`, so as a child of the flex-column
+   stage it both grows to fill empty space and (because its overflow is
+   hidden, collapsing its auto min-height) shrinks to a sliver under a tall
+   sibling. Pin banners and body children to their natural height; only the
+   body itself (flex-1-1) grows and scrolls. `auto` basis is essential —
+   the flex-grow-0/flex-shrink-0 utilities set a 0% basis, which re-collapses
+   the alert. */
+.stage__banner,
 .stage__body > * {
   flex: 0 0 auto;
 }
