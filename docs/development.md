@@ -12,6 +12,18 @@ For hacking on kestrel itself. To just *run* it, use the
 
 ## Run
 
+The quickest path is the [Taskfile](https://taskfile.dev) at the repo root
+(install `task`, then):
+
+```bash
+task setup   # one-time: install backend + frontend deps, seed
+             # backend/.env, apply migrations
+task dev     # run the backend (:8000) and frontend (:5173) dev servers
+```
+
+Run `task --list` to see every task (`task backend` / `task frontend` run one
+side on its own). The manual equivalents:
+
 ```bash
 # Backend — API on http://localhost:8000
 cd backend

@@ -85,7 +85,6 @@ module-operator-docs.
 includes the new `-oidc-python`/`-oidc-vue`, `dev-auth-bypass`, and
 `oidc-user-provisioning` kits), module-docs-sphinx and
 module-hosting-readthedocs (docs are plain Markdown),
-module-dev-tooling-taskfile (uses `scripts/*.sh`, no Taskfile),
 release-snapshot (single image, no
 upstream→downstream client snapshot), module-onboarding-tour (no first-run
 onboarding), module-diagrams (latent — no diagrams exist yet),
@@ -112,6 +111,10 @@ Do not re-do these:
   and a mirrored Vitest suite (HTTP mocked, real assertions, no snapshot-only).
 - **Quality gates:** ruff (80-col) for the backend, ESLint/Prettier for the
   frontend, and cspell + a doc line-length check wired into pre-commit and CI.
+- **Dev tooling (module-dev-tooling-taskfile):** a root `Taskfile.yml` wraps the
+  native dev workflow (`task setup`/`task dev`, plus per-side `task backend`/
+  `task frontend`). It deliberately runs the servers directly rather than via
+  Docker Compose, since the backend spawns the host `claude` CLI.
 - **Release engineering:** CalVer + cascading channels + version-sync guard
   (`scripts/check_version_sync.sh`, `scripts/derive_channels.sh`, `release.yml`
   via `workflow_call`, no `latest` tag) — near-exemplary.
