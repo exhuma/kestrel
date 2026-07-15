@@ -12,8 +12,7 @@
   "ignorePaths": [
     "**/node_modules/**",
     "**/dist/**",
-    "**/.venv/**",
-    "docs/superpowers/**"
+    "**/.venv/**"
   ],
   "words": [
     "aclose", "aread", "ASGI", "changeme", "codegen", "conftest", "contextvar",

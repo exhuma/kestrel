@@ -49,7 +49,6 @@ const repoUrl = computed(
    to the signal colour on hover/focus, matching the header's other muted
    controls. */
 .ghlink {
-  color: var(--text-mid);
   opacity: 0.6;
   transition:
     color 0.15s ease,
@@ -57,7 +56,7 @@ const repoUrl = computed(
 }
 .ghlink:hover,
 .ghlink:focus-visible {
-  color: var(--signal);
+  color: rgb(var(--v-theme-primary));
   opacity: 1;
 }
 .ghlink__icon {

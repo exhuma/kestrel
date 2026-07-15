@@ -133,8 +133,8 @@ Each WP is independent unless a dependency is noted.
 | WP2 | Backend health probes (livez/readyz) | observability-healthz | **P1** | done (`a1c9b97`, `7d61d53`) |
 | WP3 | Documentation accuracy + operator runbook | documentation, operator-docs | **P1** | done (`2c0a6fe`) |
 | WP4 | Quality gates: lint / format / spellcheck | code-style-python, documentation, stack | P2 | done (`ac8fff5`, `5601016`, `cf1fd92`) |
-| WP5 | Frontend Vuetify decision (adopt vs. drop) | vue-vuetify, stack | **P1** | **open (owner-gated)** |
-| WP6 | Frontend design-token single-source | design-tokens | P2 | **open** (depends on WP5) |
+| WP5 | Frontend Vuetify decision (adopt vs. drop) | vue-vuetify, stack | **P1** | **adopt chosen; deep adoption in progress on `wp5-vuetify-adopt`** |
+| WP6 | Frontend design-token single-source | design-tokens | P2 | **folded into WP5** (deep adoption drops the custom palette for Vuetify's built-in themes) |
 | WP7 | Frontend API client seams | vue-vuetify | P2 | done (`4e81cef`) |
 | WP8 | Notification signal classing | notification-alarm-discipline | P2 | done (`55161df`) |
 | WP9 | v2 OpenTelemetry migration | opentelemetry, http-middleware-hardening, logging-structured | **P1** | **done (this pass)** |
@@ -187,7 +187,16 @@ carries the three security headers + `X-Kestrel-Version`; JSON logs show
 `grep -rn "import opentelemetry"
 backend/app` returns only `telemetry.py`.
 
-### WP5 — Frontend Vuetify decision: adopt vs. drop (P1, decision-gated, open)
+### WP5 — Frontend Vuetify: adopt (P1, decided; deep adoption in progress)
+
+**Decision (2026-07-15):** **adopt**, and go deep. The initial adoption
+(`19ab696`) was cosmetic — Vuetify was wired up but almost no `<v-*>`
+components were used. The follow-on work on branch `wp5-vuetify-adopt` migrates
+the hand-rolled markup to Vuetify Material components, drops the custom palette
+for Vuetify's built-in light+dark themes (with an in-app toggle), and collapses
+the shared console shell — prioritising maintainability / CSS reduction. This
+subsumes WP6 (below). The original decision framing is kept for context.
+
 
 **Kits:** module-vue-vuetify, stack-fastapi-vuetify.
 
@@ -213,7 +222,13 @@ theme is built in `main.ts`, but `grep '<v-'` over `frontend/src` returns
 **Verify:** `npm run build` + `npm run test`; UI unchanged (drop) or visually
 equivalent with Vuetify (adopt); loading indicator visible on initial fetch.
 
-### WP6 — Frontend design-token single-source (P2, depends on WP5, open)
+### WP6 — Frontend design-token single-source (P2, folded into WP5)
+
+**Superseded by WP5's deep adoption:** rather than single-sourcing the custom
+palette, the deep-adoption work drops the custom palette entirely in favour of
+Vuetify's built-in `light`/`dark` themes, which removes the duplication this WP
+targeted. The original framing is kept for context.
+
 
 **Kit:** module-design-tokens.
 

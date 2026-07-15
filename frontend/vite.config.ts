@@ -10,6 +10,9 @@ export default defineConfig({
   plugins: [vue(), vuetify({ autoImport: true })],
   test: {
     environment: 'happy-dom',
+    // Register global stubs (ResizeObserver) that Vuetify components need
+    // under happy-dom.
+    setupFiles: ['./tests/support/setup.ts'],
     // Process Vuetify through Vite in tests so its per-component `.css`
     // imports go through the CSS pipeline instead of Node's ESM loader.
     server: { deps: { inline: ['vuetify'] } },

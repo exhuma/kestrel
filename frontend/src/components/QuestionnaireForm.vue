@@ -127,16 +127,6 @@ function groupComplete(g: ProfileGroup): boolean {
     .every((q) => isAnswered(q, answers))
 }
 
-const BADGE: Record<string, string> = {
-  user: 'var(--user)',
-  agent: 'var(--signal)',
-  warn: 'var(--warn)',
-  ok: 'var(--ok)',
-  err: 'var(--err)',
-  sys: 'var(--idle)',
-}
-const badgeColor = (token: string): string => BADGE[token] ?? 'var(--idle)'
-
 function waived(id: string): boolean {
   return isWaiver(answers[id])
 }
@@ -205,512 +195,223 @@ function onSaveDraft(): void {
 </script>
 
 <template>
-  <form class="qform" @submit.prevent="onSubmit">
-    <div class="qform__notice" role="status" v-if="justAdvanced">
-      <span class="qform__notice-pulse" aria-hidden="true" />
-      New questions arrived — your answers were kept.
-    </div>
+  <v-form class="qform d-flex flex-column ga-4" @submit.prevent="onSubmit">
+    <v-alert
+      v-if="justAdvanced"
+      type="info"
+      density="compact"
+      role="status"
+      text="New questions arrived — your answers were kept."
+    />
 
-    <div
+    <v-alert
       v-if="softIssues.length"
-      class="qform__issues qform__issues--soft"
+      data-testid="issues-soft"
+      type="warning"
+      density="compact"
       role="status"
     >
-      <span class="qform__issues-glyph" aria-hidden="true">↻</span>
-      <div>
-        <p class="qform__issues-head">
-          {{ softIssues.length }}
-          specialist{{ softIssues.length > 1 ? 's' : '' }} didn't respond and
-          will be retried when you submit your answers:
-        </p>
-        <ul class="qform__issues-list">
-          <li v-for="i in softIssues" :key="i.profile">
-            <span class="qform__issues-label">{{ i.label }}</span> —
-            {{ i.reason }}
-          </li>
-        </ul>
-      </div>
-    </div>
+      <p class="mb-1">
+        {{ softIssues.length }}
+        specialist{{ softIssues.length > 1 ? 's' : '' }} didn't respond and will
+        be retried when you submit your answers:
+      </p>
+      <ul class="ps-4 mb-0">
+        <li v-for="i in softIssues" :key="i.profile">
+          <strong>{{ i.label }}</strong> — {{ i.reason }}
+        </li>
+      </ul>
+    </v-alert>
 
-    <div
+    <v-alert
       v-if="hardIssues.length"
-      class="qform__issues qform__issues--hard"
+      data-testid="issues-hard"
+      type="error"
+      density="compact"
       role="alert"
     >
-      <span class="qform__issues-glyph" aria-hidden="true">!</span>
-      <div>
-        <p class="qform__issues-head">
-          {{ hardIssues.length }}
-          specialist{{ hardIssues.length > 1 ? 's' : '' }} failed after 3
-          retries and {{ hardIssues.length > 1 ? 'were' : 'was' }} skipped:
-        </p>
-        <ul class="qform__issues-list">
-          <li v-for="i in hardIssues" :key="i.profile">
-            <span class="qform__issues-label">{{ i.label }}</span> —
-            {{ i.reason }}
-          </li>
-        </ul>
-      </div>
-    </div>
+      <p class="mb-1">
+        {{ hardIssues.length }}
+        specialist{{ hardIssues.length > 1 ? 's' : '' }} failed after 3 retries
+        and {{ hardIssues.length > 1 ? 'were' : 'was' }} skipped:
+      </p>
+      <ul class="ps-4 mb-0">
+        <li v-for="i in hardIssues" :key="i.profile">
+          <strong>{{ i.label }}</strong> — {{ i.reason }}
+        </li>
+      </ul>
+    </v-alert>
 
-    <div class="qtabs" role="tablist" v-if="groups.length > 1">
-      <button
-        v-for="g in groups"
-        :key="g.profile.id"
-        type="button"
-        role="tab"
-        class="qtab"
-        :class="{
-          'qtab--on': activeTab === g.profile.id,
-          'qtab--done': groupComplete(g),
-        }"
-        :style="{ '--c': badgeColor(g.profile.badge) }"
-        :aria-selected="activeTab === g.profile.id"
-        @click="activeTab = g.profile.id"
-      >
-        <span class="qtab__dot" aria-hidden="true" />
-        <span class="qtab__label">{{ g.profile.label }}</span>
-        <span class="qtab__count mono">
+    <v-tabs
+      v-if="groups.length > 1"
+      v-model="activeTab"
+      density="compact"
+      show-arrows
+    >
+      <v-tab v-for="g in groups" :key="g.profile.id" :value="g.profile.id">
+        {{ g.profile.label }}
+        <v-chip
+          class="ms-2"
+          size="x-small"
+          :color="groupComplete(g) ? 'success' : undefined"
+        >
           {{ g.answered }}/{{ g.questions.length }}
-        </span>
-      </button>
-    </div>
+        </v-chip>
+      </v-tab>
+    </v-tabs>
 
     <section
       v-for="g in groups"
       v-show="activeTab === g.profile.id"
       :key="g.profile.id"
-      class="qgroup"
-      role="tabpanel"
+      class="d-flex flex-column ga-3"
     >
-      <header class="qgroup__head" v-if="groups.length === 1">
-        <span class="qbadge" :style="{ '--c': badgeColor(g.profile.badge) }">
+      <div
+        v-if="groups.length === 1"
+        class="d-flex align-center justify-space-between"
+      >
+        <v-chip label size="small" color="primary" variant="tonal">
           {{ g.profile.label }}
-        </span>
-        <span class="qgroup__progress mono">
+        </v-chip>
+        <span class="text-caption text-medium-emphasis">
           {{ g.answered }}/{{ g.questions.length }} answered
         </span>
-      </header>
+      </div>
 
       <div
         v-for="q in g.questions"
         :key="q.id"
-        class="qform__q"
-        :class="{
-          'qform__q--waived': waived(q.id),
-          'qform__q--custom': custom(q.id),
-        }"
+        data-testid="qblock"
+        class="pa-3 rounded border"
         role="group"
         :aria-labelledby="`qp-${q.id}`"
       >
-        <p :id="`qp-${q.id}`" class="qform__prompt">
+        <p :id="`qp-${q.id}`" class="text-body-2 font-weight-medium mb-1">
           {{ q.prompt }}<span v-if="q.required" aria-hidden="true"> *</span>
         </p>
-        <p v-if="q.why" class="qform__why mono">{{ q.why }}</p>
+        <p v-if="q.why" class="text-caption text-medium-emphasis mb-2">
+          {{ q.why }}
+        </p>
 
         <template v-if="!waived(q.id) && !custom(q.id)">
-          <div v-if="q.type === 'single_select'" class="qform__options">
-            <label v-for="o in q.options" :key="o.value" class="qform__option">
-              <input
-                type="radio"
-                :name="q.id"
-                :value="o.value"
-                :checked="primary(q.id) === o.value"
-                @change="setPrimary(q.id, o.value)"
-              />
-              {{ o.label }}
-            </label>
-          </div>
+          <v-radio-group
+            v-if="q.type === 'single_select'"
+            :model-value="primary(q.id)"
+            hide-details
+            @update:model-value="setPrimary(q.id, $event)"
+          >
+            <v-radio
+              v-for="o in q.options"
+              :key="o.value"
+              :label="o.label"
+              :value="o.value"
+            />
+          </v-radio-group>
 
-          <div v-else-if="q.type === 'multi_select'" class="qform__options">
-            <label v-for="o in q.options" :key="o.value" class="qform__option">
-              <input
-                type="checkbox"
-                :value="o.value"
-                :checked="isChecked(q.id, o.value)"
-                @change="
-                  toggleMulti(
-                    q.id,
-                    o.value,
-                    ($event.target as HTMLInputElement).checked,
-                  )
-                "
-              />
-              {{ o.label }}
-            </label>
-          </div>
+          <template v-else-if="q.type === 'multi_select'">
+            <v-checkbox
+              v-for="o in q.options"
+              :key="o.value"
+              :label="o.label"
+              :model-value="isChecked(q.id, o.value)"
+              density="compact"
+              hide-details
+              @update:model-value="toggleMulti(q.id, o.value, $event === true)"
+            />
+          </template>
 
-          <div v-else-if="q.type === 'boolean'" class="qform__options">
-            <label class="qform__option">
-              <input
-                type="radio"
-                :name="q.id"
-                :checked="primary(q.id) === true"
-                @change="setPrimary(q.id, true)"
-              />
-              Yes
-            </label>
-            <label class="qform__option">
-              <input
-                type="radio"
-                :name="q.id"
-                :checked="primary(q.id) === false"
-                @change="setPrimary(q.id, false)"
-              />
-              No
-            </label>
-          </div>
+          <v-radio-group
+            v-else-if="q.type === 'boolean'"
+            :model-value="primary(q.id)"
+            hide-details
+            @update:model-value="setPrimary(q.id, $event)"
+          >
+            <v-radio label="Yes" :value="true" />
+            <v-radio label="No" :value="false" />
+          </v-radio-group>
 
-          <textarea
+          <v-textarea
             v-else
-            class="field"
-            rows="2"
-            :value="
+            data-testid="primary-text"
+            :model-value="
               typeof primary(q.id) === 'string' ? (primary(q.id) as string) : ''
             "
-            @input="
-              setPrimary(q.id, ($event.target as HTMLTextAreaElement).value)
-            "
+            rows="2"
+            @update:model-value="setPrimary(q.id, $event)"
           />
 
-          <textarea
-            class="field qform__note"
+          <v-textarea
+            :model-value="noteFor(q.id)"
             rows="2"
-            :value="noteFor(q.id)"
+            class="mt-2"
             placeholder="Additional information (optional)…"
-            @input="setNote(q.id, ($event.target as HTMLTextAreaElement).value)"
+            @update:model-value="setNote(q.id, $event)"
           />
         </template>
 
-        <div v-else-if="custom(q.id)" class="qform__custom">
-          <textarea
-            class="field"
-            rows="2"
-            :value="customTextOf(q.id)"
-            placeholder="Explain what the agent got wrong (required)…"
-            @input="
-              setCustom(q.id, ($event.target as HTMLTextAreaElement).value)
-            "
-          />
-        </div>
+        <v-textarea
+          v-else-if="custom(q.id)"
+          data-testid="custom-text"
+          :model-value="customTextOf(q.id)"
+          rows="2"
+          placeholder="Explain what the agent got wrong (required)…"
+          @update:model-value="setCustom(q.id, $event)"
+        />
 
-        <div v-else class="qform__waiver">
-          <textarea
-            class="field"
-            rows="2"
-            :value="reasonOf(q.id)"
-            :placeholder="`Reason (required) — recorded in the refined issue…`"
-            @input="
-              setReason(q.id, ($event.target as HTMLTextAreaElement).value)
-            "
-          />
-        </div>
+        <v-textarea
+          v-else
+          data-testid="waiver-text"
+          :model-value="reasonOf(q.id)"
+          rows="2"
+          placeholder="Reason (required) — recorded in the refined issue…"
+          @update:model-value="setReason(q.id, $event)"
+        />
 
-        <div class="qform__toggles">
-          <label class="qform__toggle qform__toggle--custom">
-            <input
-              type="checkbox"
-              :checked="custom(q.id)"
-              @change="
-                toggleCustom(q.id, ($event.target as HTMLInputElement).checked)
-              "
-            />
-            None of these fit — tell the agent
-          </label>
-          <label class="qform__toggle qform__toggle--waive">
-            <input
-              type="checkbox"
-              :checked="waived(q.id)"
-              @change="
-                toggleWaiver(q.id, ($event.target as HTMLInputElement).checked)
-              "
-            />
-            {{ q.waiver_label || 'Unknown / N/A' }} — give a reason
-          </label>
+        <div class="d-flex flex-wrap ga-4 mt-1">
+          <v-checkbox
+            data-testid="toggle-custom"
+            label="None of these fit — tell the agent"
+            :model-value="custom(q.id)"
+            density="compact"
+            hide-details
+            @update:model-value="toggleCustom(q.id, $event === true)"
+          />
+          <v-checkbox
+            data-testid="toggle-waiver"
+            :label="`${q.waiver_label || 'Unknown / N/A'} — give a reason`"
+            :model-value="waived(q.id)"
+            density="compact"
+            hide-details
+            @update:model-value="toggleWaiver(q.id, $event === true)"
+          />
         </div>
       </div>
     </section>
 
-    <div class="qform__actions">
-      <button type="submit" class="btn btn--primary" :disabled="!canSubmit">
+    <div class="d-flex align-center ga-3 flex-wrap">
+      <v-btn type="submit" color="primary" :disabled="!canSubmit">
         {{ submittingIncomplete ? 'Submit incomplete' : 'Submit answers' }}
-      </button>
-      <button type="button" class="btn btn--ghost" @click="onSaveDraft">
+      </v-btn>
+      <v-btn type="button" variant="text" @click="onSaveDraft">
         Save progress
-      </button>
-      <span v-if="submittingIncomplete" class="qform__incomplete mono">
+      </v-btn>
+      <span v-if="submittingIncomplete" class="text-caption text-warning">
         Unanswered questions will be sent blank.
       </span>
-      <span class="qform__savestatus mono" v-else-if="saveStatusLabel">
+      <span
+        v-else-if="saveStatusLabel"
+        class="text-caption text-medium-emphasis"
+      >
         {{ saveStatusLabel }}
       </span>
     </div>
-  </form>
+  </v-form>
 </template>
 
 <style scoped>
-/* Cap the form to a comfortable reading measure (~66ch) so question
-   text stays legible instead of stretching the full stage width. */
+/* Cap the form to a comfortable reading measure so question text stays
+   legible instead of stretching the full stage width. */
 .qform {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
   max-width: 44rem;
-}
-
-/* One tab per specialist — same mnemonic + badge tone as the session
-   chips, so a profile reads as one identity across the whole view. */
-.qtabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
-}
-.qtab {
-  --c: var(--idle);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  border-radius: var(--r-md);
-  background: var(--ink-700);
-  border: 1px solid var(--line);
-  color: var(--text-mid);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease,
-    background 0.15s ease;
-}
-.qtab:hover {
-  color: var(--text-hi);
-  border-color: var(--c);
-}
-.qtab:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--signal-glow);
-}
-.qtab--on {
-  color: var(--text-hi);
-  border-color: var(--c);
-  background: var(--ink-650);
-}
-.qtab__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-  background: var(--c);
-  opacity: 0.5;
-}
-.qtab--on .qtab__dot,
-.qtab--done .qtab__dot {
-  opacity: 1;
-}
-.qtab--done .qtab__dot {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent);
-}
-.qtab__label {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.qtab__count {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.qtab--on .qtab__count {
-  color: var(--text-mid);
-}
-
-.qgroup {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.qgroup__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.qbadge {
-  --c: var(--idle);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 999px;
-  color: var(--ink-900);
-  background: var(--c);
-}
-.qgroup__progress {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.qform__q {
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.qform__q--waived {
-  border-style: dashed;
-  border-color: var(--warn);
-}
-.qform__q--custom {
-  border-style: dashed;
-  border-color: var(--signal);
-}
-.qform__prompt {
-  margin: 0;
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 1.45;
-  color: var(--text-hi);
-}
-.qform__why {
-  font-size: 11.5px;
-  color: var(--text-dim);
-  margin: 4px 0 0;
-  line-height: 1.5;
-}
-.qform__options {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.qform__option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--text-mid);
-}
-/* Optional "additional information" note, visually secondary to the
-   primary answer it annotates. */
-.qform__note {
-  margin-top: 2px;
-  opacity: 0.9;
-}
-.qform__toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  margin-top: 2px;
-}
-.qform__toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-.qform__toggle--waive {
-  color: var(--warn);
-}
-.qform__toggle--custom {
-  color: var(--signal);
-}
-.qform__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.qform__actions .btn {
-  width: auto;
-  padding-left: 22px;
-  padding-right: 22px;
-}
-.qform__savestatus {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.qform__incomplete {
-  font-size: 11px;
-  color: var(--warn);
-}
-
-/* Transient banner shown when the round genuinely advances, matching
-   the working--attention pulse used elsewhere for "needs your eyes". */
-.qform__notice {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--warn);
-  border-radius: var(--r-md);
-  background: var(--ink-700);
-  color: var(--text-hi);
-  font-size: 12.5px;
-}
-.qform__notice-pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--warn);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 45%, transparent);
-  animation: qform-notice-pulse 1.4s ease-out infinite;
-}
-@keyframes qform-notice-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 45%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-
-/* Persistent record of specialists that failed to respond this round,
-   shown with the questionnaire after the live chips have cleared. Soft
-   (retrying) uses the warn tone; hard (given up) uses the error tone. */
-.qform__issues {
-  --tone: var(--err);
-  display: flex;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--tone);
-  border-left: 3px solid var(--tone);
-  border-radius: var(--r-md);
-  background: color-mix(in srgb, var(--tone) 12%, var(--ink-800));
-  color: var(--text-hi);
-  font-size: 12.5px;
-}
-.qform__issues--soft {
-  --tone: var(--warn);
-}
-.qform__issues--hard {
-  --tone: var(--err);
-}
-.qform__issues-glyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  flex: none;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--ink-900);
-  background: var(--tone);
-}
-.qform__issues-head {
-  margin: 0 0 4px;
-  font-weight: 600;
-}
-.qform__issues-list {
-  margin: 0;
-  padding-left: 16px;
-  color: var(--text-mid);
-}
-.qform__issues-label {
-  color: var(--text-hi);
-  font-weight: 600;
 }
 </style>

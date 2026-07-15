@@ -71,5 +71,5 @@ suite gates CI and every release.
 | `docs/` | This documentation |
 | `docker/entrypoint.sh` | Container entrypoint (seed config, migrate, serve) |
 
-For the bigger picture see [Architecture](architecture.md) and the design
-notes under `docs/superpowers/specs/`.
+For the bigger picture see [Architecture](architecture.md); the roadmap and
+backlog live in the [GitHub issue tracker](https://github.com/exhuma/kestrel/issues).
