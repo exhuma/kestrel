@@ -36,7 +36,14 @@ function toggleTheme() {
   <v-app>
     <v-app-bar flat border>
       <template #prepend>
-        <img src="/logo.svg" alt="kestrel logo" height="32" class="ms-2" />
+        <!-- Theme-matched mark: the dark-outlined logo reads on the light
+             theme, the plain-fill logo reads on the dark theme. -->
+        <img
+          :src="isDark ? '/logo-dark.svg' : '/logo-bright.svg'"
+          alt="kestrel logo"
+          height="32"
+          class="ms-2"
+        />
       </template>
       <v-app-bar-title>
         kestrel
