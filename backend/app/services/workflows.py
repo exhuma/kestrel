@@ -21,6 +21,8 @@ from app.notifications import (
     InAppNotifier,
     Notifier,
 )
+from app.ports import Evidence
+from app.services.checks import CheckRunner
 from app.persistence.dismissal_store import (
     DismissalStore,
     get_dismissal_store,
@@ -76,7 +78,7 @@ _logger = logging.getLogger(__name__)
 #: subprocess (or transient side-effect) died with the process.
 _TRANSIENT = (
     "pending", "cloning", "refining",
-    "planning", "implementing", "opening_pr",
+    "designing", "coding", "verifying", "opening_pr",
 )
 
 #: Base guard on the coordinator loop so a misbehaving agent can't spin
@@ -225,39 +227,78 @@ REFINE_FEEDBACK_PROMPT = (
     "and nothing else.\n\nCURRENT REFINED ISSUE:\n{current}\n\n"
     "FEEDBACK:\n{feedback}"
 )
-PLAN_FEEDBACK_PROMPT = (
-    "The plan was not approved. Revise it according to this feedback and "
-    "output the complete revised plan wrapped EXACTLY in <PLAN> and "
-    "</PLAN> tags and nothing else. Do not edit any files.\n\n"
-    "FEEDBACK:\n{feedback}"
+CODE_FEEDBACK_PROMPT = (
+    "The verifier did not accept the implementation. Address this feedback by "
+    "editing the repository now, then stop.\n\nFEEDBACK:\n{feedback}"
 )
-IMPLEMENT_FEEDBACK_PROMPT = (
-    "The implementation was not approved. Address this feedback by "
-    "editing the repository now.\n\nFEEDBACK:\n{feedback}"
+DESIGN_PROMPT = (
+    "Read this approved PRD and the codebase, then produce a concise "
+    "high-level design and implementation plan. Do not use the ExitPlanMode "
+    "tool and do not write the plan to a file — this session is headless. "
+    "Output the complete plan directly in your final response, wrapped "
+    "EXACTLY in <PLAN> and </PLAN> tags and nothing else. Do not edit any "
+    "files.\n\nPRD:\n{issue}"
 )
-PLAN_PROMPT = (
-    "Read this refined GitHub issue and the codebase, then produce a concise "
-    "implementation plan. Do not use the ExitPlanMode tool and do not write "
-    "the plan to a file — this session is headless and cannot approve a "
-    "plan that way. Instead, output the complete plan directly in your "
-    "final response, wrapped EXACTLY in <PLAN> and </PLAN> tags and nothing "
-    "else. Do not edit any files.\n\nISSUE:\n{issue}"
+CODE_PROMPT = (
+    "Implement the design you just produced. Make all necessary code edits in "
+    "this repository now. This runs autonomously — there is no human to ask, "
+    "so make the best decision you can and implement it. Once the "
+    "implementation is complete, just stop — do not wrap your final summary "
+    "in any tags."
 )
-IMPLEMENT_PROMPT = (
-    "Implement the plan you just produced. Make all necessary code "
-    "edits in this repository now. If you get genuinely blocked and "
-    "need a decision you cannot make yourself, ask ONE round of "
-    "clarifying questions as a single JSON object wrapped EXACTLY in "
-    "<QUESTIONS> and </QUESTIONS> tags and nothing else, matching "
-    "this shape:\n"
-    '{"questions": [{"id": "q1", "prompt": "...", "why": "...", '
-    '"type": "single_select", "required": true, '
-    '"options": [{"value": "a", "label": "Option A"}]}]}\n'
-    '"type" is one of "single_select", "multi_select", "boolean", '
-    '"free_text" ("options" only applies to the select types; omit '
-    "it otherwise). Otherwise, once the implementation is complete, "
-    "just stop — do not wrap your final summary in any tags."
+VERIFY_PROMPT = (
+    "You are the verifier. Judge whether the implementation satisfies the PRD "
+    "and design. Weigh the EVIDENCE below (results of running the project's "
+    "checks in the worktree) as the primary basis of your verdict — a failing "
+    "check is a rejection. Where evidence is absent, judge the diff against "
+    "the PRD/design. Respond with ONLY a JSON object wrapped EXACTLY in "
+    "<VERDICT> and </VERDICT> tags, matching this shape:\n"
+    '{{"accept": true, "feedback": "..."}}\n'
+    "Set accept=false and give specific, actionable feedback for the coder "
+    "when the implementation is inconsistent or the evidence shows "
+    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
+    "DIFF:\n{diff}\n\nEVIDENCE:\n{evidence}"
 )
+
+
+def _render_evidence(evidence: Evidence) -> str:
+    """Render evidence for the verifier prompt (bounded, human-readable)."""
+    if not evidence.observations:
+        return "(no automated checks configured)"
+    lines = []
+    for obs in evidence.observations:
+        mark = "PASS" if obs.passed else "FAIL"
+        lines.append(f"[{mark}] ({obs.kind}) {obs.name}\n{obs.detail}".rstrip())
+    return "\n\n".join(lines)
+
+
+def _evidence_feedback(evidence: Evidence) -> str:
+    """Summarise failing observations as actionable coder feedback."""
+    fails = evidence.failures()
+    if not fails:
+        return ""
+    parts = ["Failing checks:"]
+    for obs in fails:
+        parts.append(f"- {obs.name}\n{obs.detail}".rstrip())
+    return "\n".join(parts)
+
+
+def _parse_verdict(text: str) -> tuple[bool, str]:
+    """Parse ``<VERDICT>{...}</VERDICT>``; default to reject if unparseable.
+
+    A reject-on-parse-failure is the safe default: unverified work must not
+    ship autonomously.
+    """
+    start = text.find("<VERDICT>")
+    end = text.find("</VERDICT>")
+    if start != -1 and end != -1 and end > start:
+        blob = text[start + len("<VERDICT>"):end].strip()
+        try:
+            data = json.loads(blob)
+            return bool(data.get("accept", False)), str(data.get("feedback", ""))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return False, "The verifier response could not be parsed as a verdict."
 
 
 @dataclass
@@ -315,6 +356,7 @@ class WorkflowService:
         notifier: Notifier,
         bus: WorkflowBus | None = None,
         dismissals: DismissalStore | None = None,
+        check_runner: CheckRunner | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -324,6 +366,14 @@ class WorkflowService:
         self.github = github
         self.notifier = notifier
         self.bus = bus
+        #: Verify evidence gatherer (v1: runs configured checks in the
+        #: worktree). Defaults from settings so existing callers need not
+        #: provide one; the behavioural harness drops in later (FR-015b).
+        self.check_runner = (
+            check_runner
+            if check_runner is not None
+            else CheckRunner(settings.verify_checks)
+        )
         #: Records a dismissal on abandon so a still-labelled ingested issue
         #: is not re-ingested (feature 002, FR-008a). Optional so unit tests
         #: that don't exercise ingestion need not provide one.
@@ -429,8 +479,9 @@ class WorkflowService:
             ),
             steps=[
                 WorkflowStep(name="refine"),
-                WorkflowStep(name="plan"),
-                WorkflowStep(name="implement"),
+                WorkflowStep(name="design"),
+                WorkflowStep(name="code"),
+                WorkflowStep(name="verify"),
             ],
             source=source,
         )
@@ -714,13 +765,20 @@ class WorkflowService:
     async def _continue(
         self, run: WorkflowRun, issue_body: str | None = None
     ) -> None:
-        """Run every unfinished phase, then deliver."""
+        """Run every unfinished phase, then deliver.
+
+        refine (PRD approval gate) -> design -> autonomous code<->verify loop
+        -> deliver. Everything after PRD approval is gateless (FR-014); the
+        loop may escalate instead of delivering (FR-018/FR-020).
+        """
         if run.steps[0].status != "done":
             await self._refine(run, issue_body)
         if run.steps[1].status != "done":
-            await self._plan(run)
-        if run.steps[2].status != "done":
-            await self._implement(run)
+            await self._design(run)
+        if run.steps[3].status != "done":
+            escalated = await self._code_and_verify(run)
+            if escalated:
+                return
         await self._deliver(run)
 
     async def _refine(
@@ -1429,131 +1487,145 @@ class WorkflowService:
         )
         return extract_refined_issue(text) or text
 
-    async def _plan(self, run: WorkflowRun) -> None:
+    async def _design(self, run: WorkflowRun) -> None:
+        """Run the designer: produce a high-level design/plan. Gateless."""
         step = run.steps[1]
-        refined = run.steps[0].deliverable or ""
-        prompt: str | None
-        if step.status == "awaiting_approval":
-            prompt = None  # recovered at the gate: skip to it
-        else:
-            prompt = PLAN_PROMPT.format(issue=refined)
-        model = get_policy().model_for("plan")
+        prd = run.steps[0].deliverable or ""
+        model = get_policy().model_for("design")
         step.model = model
-        while True:
-            if prompt is not None:
-                run.status = "planning"
-                step.status = "running"
-                slot = StepSession(
-                    profile_id="planner", label="Planner", badge="agent"
-                )
-                step.active_sessions = [slot]
-                self._save(run)
-                result = await self._run_turn_tracked(
-                    run,
-                    self.backends.backend_for("plan"),
-                    TurnRequest(
-                        prompt=prompt, cwd=run.workspace,
-                        permission_mode="plan",
-                        model=model, resume_id=step.session_id,
-                    ),
-                    slot,
-                    _bind(step, slot),
-                )
-                text = result.final_text
-                # Prefer the tagged block; fall back to the raw
-                # text so a run still gets a reviewable
-                # deliverable if the model doesn't comply (e.g.
-                # it falls into its native Plan Mode and tries
-                # ExitPlanMode instead).
-                step.deliverable = extract_plan(text) or text
-                step.active_sessions = []
-                step.status = "awaiting_approval"
-                run.status = "awaiting_plan_approval"
-                self._save(run)
-            decision = await self._await_gate(run.id)
-            if decision.approved:
-                step.status = "done"
-                self._save(run)
-                # implement resumes this plan session via
-                # run.steps[1].session_id.
-                return
-            if decision.refinement is None:
-                raise _Rejected()
-            prompt = PLAN_FEEDBACK_PROMPT.format(
-                feedback=decision.refinement
-            )
+        run.status = "designing"
+        step.status = "running"
+        slot = StepSession(
+            profile_id="designer", label="Designer", badge="agent"
+        )
+        step.active_sessions = [slot]
+        self._save(run)
+        result = await self._run_turn_tracked(
+            run,
+            self.backends.backend_for("design"),
+            TurnRequest(
+                prompt=DESIGN_PROMPT.format(issue=prd), cwd=run.workspace,
+                permission_mode="plan", model=model,
+                resume_id=step.session_id,
+            ),
+            slot,
+            _bind(step, slot),
+        )
+        step.deliverable = extract_plan(result.final_text) or result.final_text
+        step.active_sessions = []
+        step.status = "done"
+        self._save(run)
 
-    async def _implement(self, run: WorkflowRun) -> None:
-        step = run.steps[2]
-        prompt: str | None
-        if step.status == "awaiting_approval":
-            prompt = None  # recovered at the gate: skip to it
-        elif step.status == "awaiting_input":
-            # Recovered mid-blocker: wait for the answer, then
-            # resume the persisted claude session with it.
-            prompt = await self._control[run.id].replies.get()
-        else:
-            prompt = IMPLEMENT_PROMPT
-        model = get_policy().model_for("implement")
-        step.model = model
-        while True:
-            if prompt is not None:
-                run.status = "implementing"
-                step.status = "running"
-                slot = StepSession(
-                    profile_id="builder", label="Builder", badge="agent"
-                )
-                step.active_sessions = [slot]
-                self._save(run)
-                result = await self._run_turn_tracked(
-                    run,
-                    self.backends.backend_for("implement"),
-                    TurnRequest(
-                        prompt=prompt, cwd=run.workspace,
-                        permission_mode="acceptEdits",
-                        model=model,
-                        resume_id=(
-                            step.session_id
-                            or run.steps[1].session_id
-                        ),
-                    ),
-                    slot,
-                    _bind(step, slot),
-                )
-                text = result.final_text
-                diff = await self.git.diff(run.workspace)
-                if not diff.strip():
-                    # No changes yet: treat the response as a
-                    # blocker, structured or raw-text.
-                    questionnaire = extract_questionnaire(text)
-                    step.deliverable = (
-                        questionnaire.model_dump_json()
-                        if questionnaire is not None
-                        else text
-                    )
-                    step.active_sessions = []  # human's turn: chips off
-                    step.status = "awaiting_input"
-                    run.status = "awaiting_implement_input"
-                    self._save(run)
-                    prompt = await (
-                        self._control[run.id].replies.get()
-                    )
-                    continue
-                step.deliverable = diff
-                step.active_sessions = []  # chips off at the gate
-                step.status = "awaiting_approval"
-                run.status = "awaiting_implement_approval"
-                self._save(run)
-            decision = await self._await_gate(run.id)
-            if decision.approved:
-                step.status = "done"
-                self._save(run)
-                return
-            if decision.refinement is None:
-                raise _Rejected()
-            prompt = IMPLEMENT_FEEDBACK_PROMPT.format(
-                feedback=decision.refinement
+    async def _code_and_verify(self, run: WorkflowRun) -> bool:
+        """Run the autonomous code<->verify loop.
+
+        The coder implements the design; the verifier adjudicates it against
+        the PRD/design, weighing evidence from running the project's checks in
+        the worktree (a failing observation forces a reject — the
+        failing-observation invariant). On accept the loop finishes and the run
+        proceeds to deliver; on reject the coder re-runs with feedback, bounded
+        by ``max_verify_iterations``; on exhaustion (or a coder that makes no
+        progress) the run escalates (FR-014..FR-020).
+
+        :returns: ``True`` if the run escalated (caller must not deliver).
+        """
+        code_step, verify_step = run.steps[2], run.steps[3]
+        prd = run.steps[0].deliverable or ""
+        design = run.steps[1].deliverable or ""
+        code_model = get_policy().model_for("code")
+        verify_model = get_policy().model_for("verify")
+        prompt = CODE_PROMPT
+        for _ in range(max(1, self.settings.max_verify_iterations)):
+            # ---- code (gateless) ----
+            code_step.model = code_model
+            run.status = "coding"
+            code_step.status = "running"
+            slot = StepSession(
+                profile_id="coder", label="Coder", badge="agent"
             )
+            code_step.active_sessions = [slot]
+            self._save(run)
+            await self._run_turn_tracked(
+                run,
+                self.backends.backend_for("code"),
+                TurnRequest(
+                    prompt=prompt, cwd=run.workspace,
+                    permission_mode="acceptEdits", model=code_model,
+                    resume_id=(
+                        code_step.session_id or run.steps[1].session_id
+                    ),
+                ),
+                slot,
+                _bind(code_step, slot),
+            )
+            diff = await self.git.diff(run.workspace)
+            code_step.active_sessions = []
+            code_step.deliverable = diff
+            if not diff.strip():
+                # A coder that cannot make progress escalates instead of
+                # parking on a human gate (FR-020).
+                return await self._escalate(
+                    run, "the coder produced no changes"
+                )
+            code_step.status = "done"
+            self._save(run)
+
+            # ---- verify (gateless, evidence-grounded) ----
+            verify_step.model = verify_model
+            run.status = "verifying"
+            verify_step.status = "running"
+            vslot = StepSession(
+                profile_id="verifier", label="Verifier", badge="agent"
+            )
+            verify_step.active_sessions = [vslot]
+            self._save(run)
+            evidence = await self.check_runner.run(run.workspace)
+            vresult = await self._run_turn_tracked(
+                run,
+                self.backends.backend_for("verify"),
+                TurnRequest(
+                    prompt=VERIFY_PROMPT.format(
+                        prd=prd, design=design, diff=diff,
+                        evidence=_render_evidence(evidence),
+                    ),
+                    cwd=run.workspace, permission_mode="plan",
+                    model=verify_model,
+                ),
+                vslot,
+                _bind(verify_step, vslot),
+            )
+            accept, feedback = _parse_verdict(vresult.final_text)
+            # Failing-observation invariant: a failing check never accepts.
+            if not evidence.all_passed():
+                ev_fb = _evidence_feedback(evidence)
+                feedback = f"{ev_fb}\n\n{feedback}".strip()
+                accept = False
+            verify_step.active_sessions = []
+            verify_step.deliverable = (
+                "accepted" if accept else f"rejected: {feedback}"
+            )
+            if accept:
+                verify_step.status = "done"
+                self._save(run)
+                return False
+            # Rejected: loop back to the coder with the feedback.
+            code_step.status = "pending"
+            self._save(run)
+            prompt = CODE_FEEDBACK_PROMPT.format(feedback=feedback)
+        return await self._escalate(
+            run, "verification did not pass within the iteration limit"
+        )
+
+    async def _escalate(self, run: WorkflowRun, reason: str) -> bool:
+        """Stop the autonomous loop and flag the ticket for human attention.
+
+        :returns: ``True`` (so the caller skips delivery).
+        """
+        run.error = f"escalated: {reason}"
+        run.status = "escalated"
+        self._save(run)
+        await self._teardown_workspace(run)
+        return True
 
     async def _deliver(self, run: WorkflowRun) -> None:
         """Commit, push, open the PR, and finish the run."""

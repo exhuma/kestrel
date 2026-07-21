@@ -57,8 +57,8 @@ class _FakeNotifier:
         self.notified: list[str] = []
 
     def notify(self, run) -> None:
-        if run.status in ("done", "failed") or run.status.startswith(
-            "awaiting_"
+        if run.status in ("done", "failed", "escalated") or (
+            run.status.startswith("awaiting_")
         ):
             self.notified.append(run.status)
 
@@ -196,6 +196,11 @@ def _refined(text: str) -> str:
     return f"<REFINED_ISSUE>\n{text}\n</REFINED_ISSUE>"
 
 
+def _verdict(accept: bool = True, feedback: str = "") -> str:
+    """A verifier VERDICT block (feature 003 autonomous loop)."""
+    return f'<VERDICT>{json.dumps({"accept": accept, "feedback": feedback})}</VERDICT>'
+
+
 #: Simplest refine leg: coordinator needs nobody, writer emits the issue.
 def _refine_noquestions(text: str) -> list[str]:
     return [_coord([]), _refined(text)]
@@ -210,14 +215,16 @@ async def _wait(pred, timeout=2.0) -> None:
 
 
 @pytest.mark.asyncio
-async def test_happy_path_refine_plan_implement_pr() -> None:
-    """Ensure a run refines, plans, implements, and opens a PR."""
+async def test_happy_path_refine_design_code_verify_pr() -> None:
+    """Ensure a run refines (PRD gate) then autonomously designs, codes,
+    verifies, and opens a PR — no human gate after PRD approval (FR-014)."""
     gh = _FakeGitHub(body="vague issue")
     git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
         *_refine_noquestions("Build a clear widget"),              # refine
-        "<PLAN>\nStep 1: do X\nStep 2: do Y\n</PLAN>",              # plan
-        "Implemented X and Y",                                      # implement
+        "<PLAN>\nStep 1: do X\nStep 2: do Y\n</PLAN>",              # design
+        "Implemented X and Y",                                      # code
+        _verdict(accept=True),                                      # verify
     ])
     svc = _service(gh, runner, git)
 
@@ -225,32 +232,27 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     assert svc.get(wid).steps[0].deliverable == "Build a clear widget"
-    svc.approve(wid)  # writes issue + sentinel, advances to plan
-
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
-    assert gh.updated is not None and "kestrel:refined" in gh.updated
-    svc.approve(wid)
-
-    await _wait(lambda: svc.get(wid).status == "awaiting_implement_approval")
-    assert "diff" in svc.get(wid).steps[2].deliverable
-    svc.approve(wid)
+    svc.approve(wid)  # PRD approved → design/code/verify run autonomously
 
     await _wait(lambda: svc.get(wid).status == "done")
+    assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
+    assert gh.updated is not None and "kestrel:refined" in gh.updated
+    assert "diff" in svc.get(wid).steps[2].deliverable
+    assert svc.get(wid).steps[3].deliverable == "accepted"
     assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
     assert git.pushed == [svc.get(wid).branch]
 
 
 @pytest.mark.asyncio
 async def test_sentinel_skips_refine() -> None:
-    """Ensure an already-refined issue jumps straight to plan."""
+    """Ensure an already-refined issue jumps straight to autonomous design."""
     gh = _FakeGitHub(body="clear issue\n\n<!-- kestrel:refined -->")
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        "The plan", "Implemented",
+        "The plan", "coded", _verdict(accept=True),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "done")
     assert svc.get(wid).steps[0].status == "done"  # refine skipped
     # No <PLAN> tag emitted: falls back to the raw text rather than
     # leaving the deliverable empty (e.g. if the model doesn't comply).
@@ -288,12 +290,14 @@ async def test_refine_question_visible_while_awaiting_input() -> None:
 
 @pytest.mark.asyncio
 async def test_reject_ends_run() -> None:
-    """Ensure rejecting a gate ends the run as rejected."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
+    """Ensure rejecting the PRD gate ends the run as rejected."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("refined")]
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
 
@@ -355,28 +359,19 @@ async def test_steps_use_policy_models() -> None:
         "<PLAN>\nDo it\n</PLAN>",
         "Implemented",
     ])
+    runner._outputs.append(_verdict(accept=True))  # verify leg
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_approval"
     )
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_plan_approval"
-    )
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_implement_approval"
-    )
+    svc.approve(wid)  # PRD approved → design/code/verify run autonomously
+    await _wait(lambda: svc.get(wid).status == "done")
     assert {c["model"] for c in runner.calls} == {"sonnet"}
     assert [s.model for s in svc.get(wid).steps] == [
-        "sonnet", "sonnet", "sonnet",
+        "sonnet", "sonnet", "sonnet", "sonnet",
     ]
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "done")
 
 
 @pytest.mark.asyncio
@@ -418,59 +413,10 @@ async def test_reject_with_refinement_regenerates() -> None:
     assert "v1" in runner.calls[-1]["prompt"]
 
 
-@pytest.mark.asyncio
-async def test_reject_plan_with_refinement_regenerates() -> None:
-    """Ensure plan feedback resumes the plan session."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "plan v1", "plan v2",
-    ])
-    svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_plan_approval"
-    )
-    plan_sid = svc.get(wid).steps[1].session_id
-    svc.reject(wid, refinement_prompt="Split into two phases")
-    await _wait(
-        lambda: svc.get(wid).steps[1].deliverable == "plan v2"
-    )
-    assert svc.get(wid).status == "awaiting_plan_approval"
-    assert runner.calls[1]["resume_id"] == plan_sid
-    assert "Split into two phases" in runner.calls[1]["prompt"]
-
-
-@pytest.mark.asyncio
-async def test_reject_implement_with_refinement_reruns() -> None:
-    """Ensure implement feedback resumes the implement session."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "plan", "impl v1", "impl v2",
-    ])
-    git = _FakeGit()
-    svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_plan_approval"
-    )
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_implement_approval"
-    )
-    impl_sid = svc.get(wid).steps[2].session_id
-    svc.reject(wid, refinement_prompt="Add tests for X")
-    await _wait(
-        lambda: len(runner.calls) == 3
-        and svc.get(wid).status
-        == "awaiting_implement_approval"
-    )
-    assert runner.calls[2]["resume_id"] == impl_sid
-    assert "Add tests for X" in runner.calls[2]["prompt"]
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "done")
+# NOTE: the plan- and implement-approval human gates were removed by the
+# feature-003 reshape (design/code/verify run gatelessly after PRD approval).
+# The verifier's reject→re-run-coder loop replaces them and is covered by the
+# US3 verify-loop tests (test_verify_loop.py).
 
 
 @pytest.mark.asyncio
@@ -713,7 +659,9 @@ async def test_save_publishes_to_bus() -> None:
 
     bus = _Bus()
     gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=["plan", "impl", _verdict(accept=True)]
+    )
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
@@ -725,7 +673,7 @@ async def test_save_publishes_to_bus() -> None:
         bus=bus,
     )
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "done")
     assert bus.ticks  # at least one push happened
     assert all(t == wid for t in bus.ticks)
 
@@ -1068,81 +1016,19 @@ async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> (
     assert "ANSWERS:" in queued
 
 
-@pytest.mark.asyncio
-async def test_implement_blocker_is_structured_and_resumable() -> None:
-    """Ensure a mid-implementation blocker pauses and resumes."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    git = _FakeGit()
-    # First implement call produces no diff (it's the blocker);
-    # the second, post-answer call produces the real change.
-    git.diffs = ["", "diff --git a/x b/x"]
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>",
-        "<QUESTIONS>"
-        '{"questions": [{"id": "q1", "prompt": "Which file name?", '
-        '"type": "single_select", "required": true, '
-        '"options": [{"value": "a", "label": "config.yaml"}, '
-        '{"value": "b", "label": "settings.yaml"}]}]}'
-        "</QUESTIONS>",
-        "Implemented using config.yaml",
-    ])
-    svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
-
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    svc.approve(wid)
-
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_input"
-    )
-    deliverable = svc.get(wid).steps[2].deliverable
-    parsed = json.loads(deliverable)
-    assert parsed["questions"][0]["id"] == "q1"
-    blocked_sid = svc.get(wid).steps[2].session_id
-    plan_sid = svc.get(wid).steps[1].session_id
-    assert blocked_sid == plan_sid  # implement resumed the plan session
-
-    svc.submit_answers(wid, {"q1": "a"})
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_approval"
-    )
-    assert "ANSWERS:" in runner.calls[2]["prompt"]
-    assert runner.calls[2]["resume_id"] == blocked_sid
-    assert "diff" in svc.get(wid).steps[2].deliverable
-
-
-@pytest.mark.asyncio
-async def test_implement_malformed_blocker_falls_back_to_text_reply() -> None:
-    """Ensure a non-compliant blocker message still allows a reply."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    git = _FakeGit()
-    git.diffs = ["", "diff --git a/x b/x"]
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>",
-        "I'm not sure which approach — thoughts?",
-        "Implemented",
-    ])
-    svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_input"
-    )
-    assert svc.get(wid).steps[2].deliverable == (
-        "I'm not sure which approach — thoughts?"
-    )
-    svc.reply(wid, "Use approach B")
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_approval"
-    )
+# NOTE: the mid-implementation human blocker (awaiting_implement_input) was
+# removed by the feature-003 reshape — the autonomous coder cannot ask a human
+# mid-loop; a coder that makes no progress escalates instead (FR-020), covered
+# by test_autonomous_no_gate.py.
 
 
 @pytest.mark.asyncio
 async def test_notifier_fires_on_awaiting_and_done() -> None:
     """Ensure attention-worthy statuses reach the notifier."""
     gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=["plan", "impl", _verdict(accept=True)]
+    )
     notifier = _FakeNotifier()
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
@@ -1154,23 +1040,21 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
         notifier=notifier,
     )
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "awaiting_implement_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
-    assert "awaiting_plan_approval" in notifier.notified
-    assert "awaiting_implement_approval" in notifier.notified
     assert "done" in notifier.notified
-    assert "planning" not in notifier.notified
-    assert "implementing" not in notifier.notified
+    # The gateless autonomous phases are transient and never notified.
+    assert "designing" not in notifier.notified
+    assert "coding" not in notifier.notified
+    assert "verifying" not in notifier.notified
 
 
 @pytest.mark.asyncio
 async def test_notifier_does_not_fire_on_reject() -> None:
-    """Ensure a bare reject does not produce a notification."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
+    """Ensure a bare reject of the PRD gate does not produce a notification."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("refined")]
+    )
     notifier = _FakeNotifier()
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
@@ -1182,7 +1066,7 @@ async def test_notifier_does_not_fire_on_reject() -> None:
         notifier=notifier,
     )
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
     assert "rejected" not in notifier.notified
@@ -1232,12 +1116,14 @@ async def test_delete_drops_run_without_touching_github() -> None:
 @pytest.mark.asyncio
 async def test_delete_removes_workspace_dir(tmp_path) -> None:
     """Ensure abandoning a run deletes its local workspace clone."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["the plan"])
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("v1")]
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
     await _wait(
-        lambda: svc.get(wid).status == "awaiting_plan_approval"
+        lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
     workspace = tmp_path / "clone"
     workspace.mkdir()
