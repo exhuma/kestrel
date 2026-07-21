@@ -150,3 +150,66 @@ async def test_404_without_token_hints_at_missing_config() -> None:
     with pytest.raises(GitHubError) as exc:
         await client.get_issue("o/r", 7)
     assert "KESTREL_GITHUB_TOKEN" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_create_issue_comment_posts_and_returns_url() -> None:
+    """Ensure create_issue_comment POSTs the body and returns html_url."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["url"] = str(req.url)
+        seen["method"] = req.method
+        seen["json"] = json.loads(req.content)
+        return httpx.Response(
+            201, json={"html_url": "https://github.com/o/r/issues/7#c1"}
+        )
+
+    url = await _client(handler).create_issue_comment("o/r", 7, "hello")
+    assert url == "https://github.com/o/r/issues/7#c1"
+    assert seen["method"] == "POST"
+    assert seen["url"] == "https://api.github.com/repos/o/r/issues/7/comments"
+    assert seen["json"] == {"body": "hello"}
+
+
+@pytest.mark.asyncio
+async def test_create_issue_comment_raises_without_token_leak() -> None:
+    """Ensure a non-2xx raises GitHubError and never echoes the token."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="not found")
+
+    with pytest.raises(GitHubError) as exc:
+        await _client(handler).create_issue_comment("o/r", 7, "hi")
+    assert "tok-123" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_list_issues_by_label_paginates_and_excludes_prs() -> None:
+    """Ensure listing follows Link 'next' and drops pull requests."""
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        if "page=2" in str(req.url):
+            return httpx.Response(
+                200,
+                json=[{"number": 3, "title": "three", "body": "b3"}],
+            )
+        # First page: one issue, one PR (must be filtered out), + next link.
+        return httpx.Response(
+            200,
+            json=[
+                {"number": 1, "title": "one", "body": "b1"},
+                {"number": 2, "title": "pr", "body": "",
+                 "pull_request": {"url": "x"}},
+            ],
+            headers={
+                "Link": '<https://api.github.com/repos/o/r/issues?page=2>; '
+                'rel="next"'
+            },
+        )
+
+    issues = await _client(handler).list_issues_by_label("o/r", "kestrel")
+    assert [i.number for i in issues] == [1, 3]
+    assert len(calls) == 2

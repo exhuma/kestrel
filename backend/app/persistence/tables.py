@@ -60,6 +60,11 @@ class WorkflowRunRow(Base):
     error: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    #: Run origin: "manual" | "github-issue" (feature 002). Server-default
+    #: keeps pre-existing rows valid; internal-only (not in the API).
+    source: Mapped[str] = mapped_column(
+        default="manual", server_default="manual"
+    )
 
 
 class WorkflowStepRow(Base):
@@ -83,6 +88,37 @@ class WorkflowStepRow(Base):
     #: Monotonic counter bumped only when the refine step's interview
     #: genuinely advances to a new round (see WorkflowStep.refine_round).
     refine_round: Mapped[int] = mapped_column(default=0)
+
+
+class WebhookDeliveryRow(Base):
+    """One processed GitHub webhook delivery (dedup / at-most-once).
+
+    Keyed by GitHub's ``X-GitHub-Delivery`` id; retention-bounded by
+    pruning old rows on insert (feature 002, FR-004/FR-008).
+    """
+
+    __tablename__ = "webhook_delivery"
+
+    delivery_id: Mapped[str] = mapped_column(primary_key=True)
+    event: Mapped[str] = mapped_column()
+    outcome: Mapped[str] = mapped_column()
+    repo: Mapped[str | None] = mapped_column(nullable=True)
+    issue_number: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class IssueDismissalRow(Base):
+    """A durable tombstone that an issue's run was abandoned.
+
+    Suppresses re-ingestion/reconciliation for ``(repo, issue_number)``
+    until the trigger label is removed (feature 002, FR-008a).
+    """
+
+    __tablename__ = "issue_dismissal"
+
+    repo: Mapped[str] = mapped_column(primary_key=True)
+    issue_number: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class NotificationRow(Base):

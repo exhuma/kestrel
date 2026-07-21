@@ -1,6 +1,8 @@
 """FastAPI application factory for kestrel."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -54,7 +56,25 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     await get_workflow_service().recover()
-    yield
+
+    # Poll reconciliation (feature 002, US2): a safety net for missed webhook
+    # deliveries. Only started when repos are configured to watch; runs an
+    # initial cycle promptly, then every interval. Cancelled on shutdown.
+    reconcile_task: asyncio.Task | None = None
+    if settings.watched_repos:
+        from app.services.reconcile import get_reconcile_service
+
+        reconcile_task = asyncio.create_task(
+            get_reconcile_service().run_forever()
+        )
+
+    try:
+        yield
+    finally:
+        if reconcile_task is not None:
+            reconcile_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reconcile_task
 
 
 def create_app() -> FastAPI:
@@ -176,11 +196,17 @@ def create_app() -> FastAPI:
             status_code=status_code(status),
         )
 
-    from app.routers import notifications, sessions, workflows
+    from app.routers import (
+        github_webhook,
+        notifications,
+        sessions,
+        workflows,
+    )
 
     app.include_router(sessions.router)
     app.include_router(workflows.router)
     app.include_router(notifications.router)
+    app.include_router(github_webhook.router)
 
     # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op
     # unless KESTREL_OTEL_ENABLED: instruments the app + logging so spans and

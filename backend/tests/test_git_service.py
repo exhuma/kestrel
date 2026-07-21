@@ -104,3 +104,52 @@ async def test_clone_failure_raises_giterror_without_leaking_token(
             str(tmp_path / "no-such-remote"), str(tmp_path / "dest")
         )
     assert "super-secret-token" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_worktree_isolation_and_cleanup(tmp_path) -> None:
+    """Ensure two worktrees off one mirror are isolated and clean up cleanly."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+
+    dest_a = str(tmp_path / "wtA")
+    dest_b = str(tmp_path / "wtB")
+    await svc.provision_worktree(
+        str(bare), mirror, dest_a, "main", "kestrel/issue-1"
+    )
+    await svc.provision_worktree(
+        str(bare), mirror, dest_b, "main", "kestrel/issue-2"
+    )
+
+    # Each worktree has its own branch and files; neither sees the other's.
+    (Path(dest_a) / "a.txt").write_text("A\n")
+    (Path(dest_b) / "b.txt").write_text("B\n")
+    assert not (Path(dest_a) / "b.txt").exists()
+    assert not (Path(dest_b) / "a.txt").exists()
+
+    # A run commits + pushes its branch to the remote from its worktree.
+    await svc.commit_all(dest_a, "A: work")
+    await svc.push(dest_a, "kestrel/issue-1")
+    branches = subprocess.run(
+        ["git", "branch", "--list"], cwd=bare,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "kestrel/issue-1" in branches
+
+    # Removing A's worktree leaves B's intact.
+    await svc.remove_worktree(mirror, dest_a)
+    assert not Path(dest_a).exists()
+    assert (Path(dest_b) / "b.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_ensure_mirror_is_idempotent(tmp_path) -> None:
+    """Ensure a second ensure_mirror fetches rather than re-cloning."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    await svc.ensure_mirror(str(bare), mirror)
+    # Second call must not raise (fetch path over the existing mirror).
+    await svc.ensure_mirror(str(bare), mirror)
+    assert Path(mirror).is_dir()

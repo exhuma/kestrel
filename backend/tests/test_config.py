@@ -75,6 +75,36 @@ def test_github_settings_read_env(
     assert s.github_api_base == "https://ghe.example/api/v3"
 
 
+def test_ingestion_settings_have_defaults() -> None:
+    """Ensure the feature-002 ingestion settings default sensibly."""
+    s = Settings(_env_file=None)
+    assert s.webhook_secret == ""
+    assert s.watched_repos == []
+    assert s.trigger_label == "kestrel"
+    assert s.reconcile_interval_seconds == 300
+    assert s.public_base_url == ""
+
+
+def test_watched_repos_parses_comma_separated() -> None:
+    """Ensure watched_repos accepts a comma-separated string."""
+    s = Settings(_env_file=None, watched_repos="a/b, c/d ,e/f")
+    assert s.watched_repos == ["a/b", "c/d", "e/f"]
+
+
+def test_watched_repos_parses_json_list() -> None:
+    """Ensure watched_repos accepts a JSON array string."""
+    s = Settings(_env_file=None, watched_repos='["a/b", "c/d"]')
+    assert s.watched_repos == ["a/b", "c/d"]
+
+
+def test_watched_repos_reads_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure KESTREL_WATCHED_REPOS parses a comma-separated env value."""
+    monkeypatch.setenv("KESTREL_WATCHED_REPOS", "o/one,o/two")
+    assert Settings().watched_repos == ["o/one", "o/two"]
+
+
 def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
     """Ensure a TOML backends_file populates the backend settings."""
     toml = tmp_path / "backends.toml"

@@ -51,7 +51,19 @@ the image small and lets a deploy attach or swap backends purely by config.
 ## Design trade-offs
 
 - **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool bound to loopback. Multi-user/authn is out of scope.
+  tool bound to loopback. Multi-user/authn is out of scope. One exception:
+  the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
+  face the network so GitHub can deliver events; its authenticity gate is an
+  HMAC signature, not loopback binding (see the constitution's access model).
+- **Ingestion is a seam, not a framework.** GitHub ingestion (webhook +
+  reconciliation) ships as the only source today, with its boundaries kept
+  port-shaped so more sources (Jira, GitLab, Planka) slot in later without a
+  speculative abstraction: the `Notifier` protocol is the outbound port, and
+  the `ingestion` service plus the `WorkflowRun.source` discriminator are the
+  inbound seam. The load-bearing axis is *task source* (the ticket) vs *code
+  host* (the repo) — GitHub collapses both, but a future source such as Jira
+  targets a separate code repo, so those interfaces are extracted when the
+  second source lands.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

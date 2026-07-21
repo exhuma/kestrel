@@ -1,17 +1,21 @@
 """Application configuration via pydantic-settings."""
 from __future__ import annotations
 
+import logging
 import tomllib
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
+    NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+_log = logging.getLogger("kestrel.config")
 
 # Backend config is file-only: these keys are resolved from the TOML file
 # named by ``KESTREL_BACKENDS_FILE`` (or left at their claude-only defaults),
@@ -175,6 +179,53 @@ class Settings(BaseSettings):
     #: unanswered (sent blank). Provided answers are still validated for
     #: well-formedness. Off by default.
     allow_incomplete_answers: bool = False
+    #: GitHub ingestion (feature 002). The webhook HMAC shared secret
+    #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
+    #: off-loopback endpoint (constitution v1.2.0). Never logged.
+    webhook_secret: str = ""
+    #: Allow-list of ``owner/name`` repos kestrel may ingest from and
+    #: reconcile against (``KESTREL_WATCHED_REPOS``). Accepts a JSON list
+    #: or a comma-separated string; anything outside the list is ignored.
+    watched_repos: Annotated[list[str], NoDecode] = []
+    #: The issue label that flags an issue for ingestion.
+    trigger_label: str = "kestrel"
+    #: Reconciliation cadence in seconds
+    #: (``KESTREL_RECONCILE_INTERVAL_SECONDS``).
+    reconcile_interval_seconds: int = 300
+    #: Public base URL of the kestrel web UI, used to build gate-notification
+    #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
+    #: a link. Operator-exposed, same posture as the webhook endpoint.
+    public_base_url: str = ""
+
+    @field_validator("watched_repos", mode="before")
+    @classmethod
+    def _parse_watched_repos(cls, v: object) -> object:
+        """Accept a JSON list or a comma-separated string of repos."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                import json
+
+                return json.loads(s)
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
+
+    @model_validator(mode="after")
+    def _warn_incomplete_ingestion_config(self) -> Settings:
+        """Warn (not fail) when watched repos are set without a secret.
+
+        Ingestion silently doing nothing is a worse failure mode than a
+        startup warning, so surface the likely misconfiguration.
+        """
+        if self.watched_repos and not self.webhook_secret:
+            _log.warning(
+                "watched_repos is set but webhook_secret is empty; "
+                "webhook ingestion will reject every delivery until "
+                "KESTREL_WEBHOOK_SECRET is configured."
+            )
+        return self
 
     @model_validator(mode="after")
     def _apply_backends_file(self) -> Settings:

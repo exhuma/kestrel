@@ -207,3 +207,57 @@ async def test_recover_resumes_implement_blocker(
     svc2.approve(wid)
     await _wait(lambda: svc2.get(wid).status == "done")
     assert git2.pushed == [svc2.get(wid).branch]
+
+
+class _CountingNotifier:
+    """Records every notify() call, to prove recovery does not re-notify."""
+
+    def __init__(self) -> None:
+        self.statuses: list[str] = []
+
+    def notify(self, run) -> None:
+        self.statuses.append(run.status)
+
+
+@pytest.mark.asyncio
+async def test_recovery_does_not_renotify_gate(tmp_path: Path) -> None:
+    """Ensure recovering an awaiting_* run posts no fresh notification.
+
+    Pins research R-07 / FR-030: recovered gates re-park without _save(),
+    so the notifier (and thus the GitHub gate comment) never re-fires.
+    """
+    import asyncio
+
+    from app.config import Settings
+    from app.services.workflows import WorkflowService
+    from app.storage.workflow_registry import WorkflowRegistry
+
+    store = _store(tmp_path)
+    runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
+    ])
+    svc1 = _persistent_service(
+        store, _FakeGitHub(body="vague"), runner1, _FakeGit()
+    )
+    wid = await svc1.create("o/r", 5)
+    await _wait(lambda: svc1.get(wid).status == "awaiting_refine_input")
+
+    # --- simulated restart with a counting notifier ---
+    reg = WorkflowRegistry(store=store)
+    reg.preload(store.load_all())
+    counter = _CountingNotifier()
+    svc2 = WorkflowService(
+        settings=Settings(git_base="https://github.com", github_token="t"),
+        sessions=_FakeRunner(SessionRegistry(), outputs=[]).sessions,
+        workflows=reg,
+        backends=_FakeRunner(SessionRegistry(), outputs=[]),
+        git=_FakeGit(),
+        github=_FakeGitHub(body="vague"),
+        notifier=counter,
+    )
+    await svc2.recover()
+    await asyncio.sleep(0.05)
+
+    assert svc2.get(wid).status == "awaiting_refine_input"
+    assert counter.statuses == []

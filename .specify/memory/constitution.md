@@ -1,6 +1,45 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-07-21 (1.1.0 → 1.2.0, MINOR): Record a deliberate deviation from
+the loopback-bound access model in "Technology & Architecture Constraints". The
+GitHub webhook ingress endpoint (`POST /api/github/webhook`, feature
+002-github-ingestion) is intentionally reachable off-loopback so GitHub can
+deliver events; its authenticity gate is HMAC verification of
+`X-Hub-Signature-256` against a configured shared secret (constant-time), not
+loopback binding. Every other route stays loopback-bound and unauthenticated.
+Also records the optional public UI base URL (for notification deep-links) as the
+same operator-exposure posture, carrying no secret in the link. MINOR because it
+materially expands an existing constraint with a new permitted deviation and its
+conditions; no principle is removed or redefined, and the loopback rule still
+governs every other endpoint. Required by Principle I ("any intentional departure
+… MUST be recorded here … before it is relied upon") so feature
+002-github-ingestion can proceed.
+
+Modified sections:
+  - Technology & Architecture Constraints → "Access model" bullet expanded with
+    the recorded webhook + public-UI deviation and its HMAC authenticity gate.
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... ✅ aligned (Constitution Check gate
+    references the constitution dynamically; no edit)
+  - .specify/templates/spec-template.md ...... ✅ aligned (no mandatory section
+    changed)
+  - .specify/templates/tasks-template.md ..... ✅ aligned (no new principle-driven
+    task type)
+  - .claude/skills/speckit-*/SKILL.md ........ ✅ reviewed; generic guidance
+  - AGENTS.md / docs/next-steps.md ........... ✅ consistent (next-steps already
+    anticipates webhook ingress; AGENTS.md defers the access model to this file)
+  - docs/architecture.md .................... ⚠ pending: line ~54 ("tool bound to
+    loopback. Multi-user/authn is out of scope.") should note the single
+    off-loopback webhook exception; update during 002 implementation to prevent
+    drift (it is the system-context source of truth).
+
+Follow-up TODOs:
+  - docs/architecture.md and docs/setup-github-workflow.md are updated as part of
+    feature 002-github-ingestion implementation (webhook exposure guidance).
+
+--------------------------------------------------------------------------------
 Amendment 2026-07-21 (1.0.1 → 1.1.0, MINOR): Fold the standalone repo-level
 `contract.md` into this constitution and delete that file. Principle I (Contract
 Fidelity) is reworded so THIS document — not an external file — is the
@@ -144,9 +183,21 @@ section records only the non-negotiable constraints an agent must honour.
 - **Worker agent**: the backend invokes the host's logged-in `claude` CLI as a
   subprocess (OAuth/Max subscription). No `ANTHROPIC_API_KEY` and no Agent SDK.
   Alternative backends (opencode, self-hosted LLM) are dispatched the same way.
-- **Access model**: single concurrent user; the API is currently unauthenticated
-  and bound to loopback. The only planned protection is a shared-secret access
-  gate (see `docs/next-steps.md`), not multi-user authentication.
+- **Access model**: single concurrent user; the API is unauthenticated and bound
+  to loopback, with **one recorded exception**: the GitHub webhook ingress
+  endpoint (`POST /api/github/webhook`) is intentionally reachable off-loopback so
+  GitHub can deliver events. For that endpoint the authenticity gate is HMAC
+  verification of each delivery's `X-Hub-Signature-256` against a configured shared
+  secret, using a constant-time comparison; a delivery whose signature is missing
+  or does not match MUST be rejected and MUST start no work, and the secret and
+  signatures MUST never be logged. Every other route stays loopback-bound and
+  unauthenticated. How the webhook endpoint is exposed (tunnel, reverse proxy) is
+  the operator's responsibility. The only planned protection is a shared-secret
+  access gate (see `docs/next-steps.md`), not multi-user authentication; the
+  webhook HMAC is that same shared-secret posture applied to the one endpoint that
+  must face the network. Optionally, the web UI may be served at a configured
+  public base URL so that notification deep-links are clickable; this is the same
+  operator-exposure posture and the link MUST carry no secret.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -187,4 +238,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21
+**Version**: 1.2.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21

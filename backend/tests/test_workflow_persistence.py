@@ -214,3 +214,19 @@ def test_save_is_an_upsert(tmp_path: Path) -> None:
     assert loaded[0].status == "done"
     assert loaded[0].steps[0].status == "done"
     assert len(loaded[0].steps) == 3
+
+
+def test_source_defaults_to_manual(tmp_path: Path) -> None:
+    """Ensure a run with no explicit source persists as "manual"."""
+    store = _store(tmp_path)
+    store.save(_run())
+    assert store.load_all()[0].source == "manual"
+
+
+def test_source_round_trips(tmp_path: Path) -> None:
+    """Ensure an ingested run's source survives a save/load cycle."""
+    store = _store(tmp_path)
+    run = _run()
+    run.source = "github-issue"
+    store.save(run)
+    assert store.load_all()[0].source == "github-issue"

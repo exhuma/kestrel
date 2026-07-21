@@ -29,7 +29,7 @@
     "sessionmaker", "sqlalchemy", "stageroot", "substep", "taskfile",
     "todowrite", "topbar", "traceparent", "uiux", "unconfigured",
     "unloadable", "unparseable",
-    "uvicorn", "viewnav", "Vite", "Vuetify", "webfetch", "worktree",
-    "Zammad"
+    "unlabeled", "uvicorn", "viewnav", "Vite", "Vuetify", "webfetch",
+    "webhook", "worktree", "Zammad"
   ]
 }
