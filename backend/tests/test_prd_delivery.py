@@ -52,7 +52,8 @@ class _FakeJiraHost:
     def clone_remote(self, repo):
         return f"https://gitlab/{repo}.git"
 
-    async def open_change_request(self, repo, *, head, base, title, body, draft=True):
+    async def open_change_request(self, repo, *, head, base, title, body,
+                                  draft=True):
         return "https://gitlab/mr/1"
 
 
@@ -117,7 +118,9 @@ async def test_prd_rejection_ends_rejected_and_writes_dismissal() -> None:
     """Ensure a rejected PRD ends the run rejected + records a dismissal."""
     source = _FakeJiraSource(body="vague RFC")
     dismissals = _FakeDismissals()
-    runner = _FakeRunner(SessionRegistry(), outputs=[*_refine_noquestions("prd")])
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("prd")]
+    )
     svc = _jira_svc(source, _FakeJiraHost(), runner, dismissals=dismissals)
     wid = await svc.create(
         "team/svc", None, source="jira-issue", task_ref="RFC-1",

@@ -67,11 +67,19 @@ def _service(
     return IngestionService(settings, wf, dismissals)
 
 
+def _gh(task_ref: str, code_repo: str) -> dict:
+    """GitHub-issue ingestion kwargs for maybe_start_run."""
+    return dict(
+        source="github-issue", task_ref=task_ref,
+        code_repo=code_repo, issue_number=5,
+    )
+
+
 @pytest.mark.asyncio
 async def test_starts_one_run_for_watched_repo() -> None:
     """Ensure a qualifying issue starts exactly one run tagged github-issue."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
-    rid = await _service(wf, dis).maybe_start_run(source="github-issue", task_ref="o/r#5", code_repo="o/r", issue_number=5)
+    rid = await _service(wf, dis).maybe_start_run(**_gh("o/r#5", "o/r"))
     assert rid == "wf-0"
     assert wf.created == [("o/r", 5, "github-issue")]
 
@@ -80,7 +88,8 @@ async def test_starts_one_run_for_watched_repo() -> None:
 async def test_ignores_unwatched_repo() -> None:
     """Ensure an unwatched repo starts nothing."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
-    assert await _service(wf, dis).maybe_start_run(source="github-issue", task_ref="x/y#5", code_repo="x/y", issue_number=5) is None
+    got = await _service(wf, dis).maybe_start_run(**_gh("x/y#5", "x/y"))
+    assert got is None
     assert wf.created == []
 
 
@@ -89,7 +98,8 @@ async def test_ignores_dismissed_issue() -> None:
     """Ensure a dismissed (repo, issue) starts nothing."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
     dis.add("o/r#5")
-    assert await _service(wf, dis).maybe_start_run(source="github-issue", task_ref="o/r#5", code_repo="o/r", issue_number=5) is None
+    got = await _service(wf, dis).maybe_start_run(**_gh("o/r#5", "o/r"))
+    assert got is None
     assert wf.created == []
 
 
@@ -98,8 +108,8 @@ async def test_never_starts_second_run_for_same_issue() -> None:
     """Ensure an existing run for the pair blocks a duplicate."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
     svc = _service(wf, dis)
-    await svc.maybe_start_run(source="github-issue", task_ref="o/r#5", code_repo="o/r", issue_number=5)
-    assert await svc.maybe_start_run(source="github-issue", task_ref="o/r#5", code_repo="o/r", issue_number=5) is None
+    await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
+    assert await svc.maybe_start_run(**_gh("o/r#5", "o/r")) is None
     assert len(wf.created) == 1
 
 
@@ -108,6 +118,6 @@ async def test_failed_create_leaves_no_run_or_dismissal() -> None:
     """Ensure a failed create leaves nothing for reconciliation to trip on."""
     wf, dis = _FakeWorkflows(fail=True), _FakeDismissals()
     with pytest.raises(RuntimeError):
-        await _service(wf, dis).maybe_start_run(source="github-issue", task_ref="o/r#5", code_repo="o/r", issue_number=5)
+        await _service(wf, dis).maybe_start_run(**_gh("o/r#5", "o/r"))
     assert wf.runs == []
     assert dis.is_dismissed("o/r#5") is False

@@ -55,15 +55,30 @@ the image small and lets a deploy attach or swap backends purely by config.
   the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
   face the network so GitHub can deliver events; its authenticity gate is an
   HMAC signature, not loopback binding (see the constitution's access model).
-- **Ingestion is a seam, not a framework.** GitHub ingestion (webhook +
-  reconciliation) ships as the only source today, with its boundaries kept
-  port-shaped so more sources (Jira, GitLab, Planka) slot in later without a
-  speculative abstraction: the `Notifier` protocol is the outbound port, and
-  the `ingestion` service plus the `WorkflowRun.source` discriminator are the
-  inbound seam. The load-bearing axis is *task source* (the ticket) vs *code
-  host* (the repo) — GitHub collapses both, but a future source such as Jira
-  targets a separate code repo, so those interfaces are extracted when the
-  second source lands.
+- **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
+  (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)** both
+  feed one source-neutral entry point (`ingestion.maybe_start_run`, keyed on a
+  `task_ref`). The load-bearing axis — *task source* (the ticket) vs *code host*
+  (the repo) — is now realized as two protocols in `app/ports.py`: `TaskSource`
+  (read/comment/attach/publish/deep-link) and `CodeHost` (default branch, clone
+  remote, open a merge/pull request). GitHub implements both roles; **Jira**
+  implements `TaskSource` and delegates the `CodeHost` role to a configured,
+  **self-hostable** git host (GitLab reference; Gitea/Forgejo the same port) —
+  kestrel is sovereign by design, so a Jira-resolved repo can live on an on-prem
+  GitLab. The outbound `Notifier` is source-dispatching (`TaskSourceNotifier`),
+  posting thin gate/escalation comments to *the run's own* ticket. Jira is
+  poll-only, so it adds **no** off-loopback endpoint (no constitution amendment);
+  the entry point is shaped so a future Jira webhook is one added caller.
+- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or manual
+  — traverses the identical `refine → PRD approval → design → code → verify →
+  change request` sequence (`services/workflows.py`). The single human gate is
+  PRD approval; design/code/verify run **gatelessly**. The **verifier**
+  adjudicates the implementation against the PRD/design weighing measurable
+  **evidence** (the project's checks run in the isolated worktree, `services/
+  checks.py`); a failing check forces a reject, the loop is bounded by
+  `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
+  task source is only the human↔agent boundary — the process behind it is the
+  same, so the system is predictable.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

@@ -61,4 +61,5 @@ async def test_empty_field_is_unresolved() -> None:
 @pytest.mark.asyncio
 async def test_unreachable_repo_is_unresolved() -> None:
     """Ensure a repo the code host cannot reach yields None."""
-    assert await _svc("team/svc", reachable=False)._resolve_repo("RFC-1") is None
+    svc = _svc("team/svc", reachable=False)
+    assert await svc._resolve_repo("RFC-1") is None

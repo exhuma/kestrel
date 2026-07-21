@@ -198,7 +198,8 @@ def _refined(text: str) -> str:
 
 def _verdict(accept: bool = True, feedback: str = "") -> str:
     """A verifier VERDICT block (feature 003 autonomous loop)."""
-    return f'<VERDICT>{json.dumps({"accept": accept, "feedback": feedback})}</VERDICT>'
+    payload = json.dumps({"accept": accept, "feedback": feedback})
+    return f"<VERDICT>{payload}</VERDICT>"
 
 
 #: Simplest refine leg: coordinator needs nobody, writer emits the issue.

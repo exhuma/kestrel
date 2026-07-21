@@ -75,8 +75,8 @@ class WorkflowDetail(BaseModel):
 
     id: str
     repo: str
-    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003), whose
-    #: ticket has no numeric id. The run's origin/task_ref stay internal (FR-026).
+    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003),
+    #: whose ticket has no numeric id. Origin/task_ref stay internal (FR-026).
     issue_number: int | None
     issue_title: str
     status: str

@@ -217,15 +217,15 @@ class Settings(BaseSettings):
     #: Jira poll cadence in seconds.
     jira_poll_interval_seconds: int = 300
     #: Code host for Jira-resolved repos: ``github`` | ``gitlab`` | ``gitea``.
-    #: Self-hostable posture — ``gitlab``/``gitea`` point at an on-prem instance.
+    #: Self-hostable — ``gitlab``/``gitea`` point at an on-prem instance.
     code_host: Literal["github", "gitlab", "gitea"] = "github"
-    #: Self-hosted code-host instance base URL (e.g. ``https://gitlab.internal``).
+    #: Self-hosted code-host instance base URL (e.g. ``https://gitlab.local``).
     code_host_base_url: str = ""
     #: Code-host token / PAT. Secret; never logged. Falls back to
     #: ``github_token`` when ``code_host`` is ``github``.
     code_host_token: str = ""
-    #: Shell commands run in the run's worktree as verify evidence (v1 gatherer).
-    #: JSON list, e.g. ``["uv run pytest -q", "npm test"]``. Empty ⇒ judgment-only.
+    #: Shell commands run in the run's worktree as verify evidence (v1).
+    #: JSON list, e.g. ``["uv run pytest -q"]``. Empty ⇒ judgment-only.
     verify_checks: list[str] = []
     #: Max code↔verify iterations before the loop escalates (feature 003).
     max_verify_iterations: int = 3
@@ -267,7 +267,9 @@ class Settings(BaseSettings):
         Jira polling silently doing nothing is a worse failure mode than a
         startup warning, so surface the likely misconfiguration.
         """
-        if self.jira_base_url and not (self.jira_project and self.jira_api_token):
+        if self.jira_base_url and not (
+            self.jira_project and self.jira_api_token
+        ):
             _log.warning(
                 "jira_base_url is set but jira_project or jira_api_token is "
                 "empty; Jira polling will not start until both are configured."

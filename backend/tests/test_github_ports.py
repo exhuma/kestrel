@@ -45,7 +45,8 @@ async def test_task_source_get_task_and_comment() -> None:
         return httpx.Response(201, json={"html_url": "https://c/1"})
 
     src = GitHubTaskSource(_client(handler))
-    assert await src.get_task("o/r#7") == Task(ref="o/r#7", title="Bug", body="b")
+    task = await src.get_task("o/r#7")
+    assert task == Task(ref="o/r#7", title="Bug", body="b")
     assert await src.post_comment("o/r#7", "hi") == "https://c/1"
     assert seen["GET"].endswith("/repos/o/r/issues/7")
     assert seen["POST"].endswith("/repos/o/r/issues/7/comments")
@@ -53,7 +54,7 @@ async def test_task_source_get_task_and_comment() -> None:
 
 @pytest.mark.asyncio
 async def test_publish_refined_updates_issue_with_sentinel() -> None:
-    """Ensure publish_refined PATCHes the issue body and appends the sentinel."""
+    """Ensure publish_refined PATCHes the body + appends the sentinel."""
     seen = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -62,7 +63,8 @@ async def test_publish_refined_updates_issue_with_sentinel() -> None:
         seen["body"] = req.read().decode()
         return httpx.Response(200, json={})
 
-    await GitHubTaskSource(_client(handler)).publish_refined("o/r#7", "PRD text")
+    src = GitHubTaskSource(_client(handler))
+    await src.publish_refined("o/r#7", "PRD text")
     assert seen["method"] == "PATCH"
     assert seen["url"].endswith("/repos/o/r/issues/7")
     assert "PRD text" in seen["body"]
@@ -86,7 +88,9 @@ async def test_attach_is_noop() -> None:
 
 def test_code_host_clone_remote() -> None:
     """Ensure clone_remote composes git_base/repo.git."""
-    host = GitHubCodeHost(_client(lambda r: httpx.Response(200)), "https://github.com")
+    host = GitHubCodeHost(
+        _client(lambda r: httpx.Response(200)), "https://github.com"
+    )
     assert host.clone_remote("o/r") == "https://github.com/o/r.git"
 
 

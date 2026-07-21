@@ -50,8 +50,12 @@ async def _tick() -> None:
 
 def test_deep_link_builder() -> None:
     """Ensure the deep-link builder respects the base URL."""
-    assert gate_deep_link("https://k.example", "wf-1") == "https://k.example/?run=wf-1"
-    assert gate_deep_link("https://k.example/", "wf-1") == "https://k.example/?run=wf-1"
+    assert gate_deep_link("https://k.example", "wf-1") == (
+        "https://k.example/?run=wf-1"
+    )
+    assert gate_deep_link("https://k.example/", "wf-1") == (
+        "https://k.example/?run=wf-1"
+    )
     assert gate_deep_link("", "wf-1") == ""
 
 

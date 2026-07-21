@@ -37,7 +37,9 @@ class GitLabCodeHost:
         return headers
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
-        resp = await self._http.request(method, path, headers=self._headers(), **kw)
+        resp = await self._http.request(
+            method, path, headers=self._headers(), **kw
+        )
         if resp.status_code >= 300:
             # Redact: PRIVATE-TOKEN never appears in the message.
             raise GitLabError(

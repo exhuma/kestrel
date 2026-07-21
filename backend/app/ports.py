@@ -57,7 +57,7 @@ class Evidence:
         return all(o.passed for o in self.observations)
 
     def failures(self) -> list[Observation]:
-        """Return the failing observations (drives the failing-check invariant)."""
+        """Return failing observations (the failing-check invariant)."""
         return [o for o in self.observations if not o.passed]
 
 
@@ -89,7 +89,7 @@ class CodeHost(Protocol):
     """The repository role, keyed by ``owner/name`` (or a GitLab path)."""
 
     async def get_default_branch(self, repo: str) -> str:
-        """The repo's default branch (also the resolution reachability probe)."""
+        """The repo's default branch (also the reachability probe)."""
         ...
 
     def clone_remote(self, repo: str) -> str:

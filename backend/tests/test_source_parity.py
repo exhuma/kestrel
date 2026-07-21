@@ -90,4 +90,5 @@ def test_workflow_schemas_do_not_expose_source_or_task_ref() -> None:
         assert "source" not in fields
         assert "task_ref" not in fields
     # issue_number is nullable so a Jira run (no numeric id) serialises.
-    assert WorkflowDetail.model_fields["issue_number"].annotation == (int | None)
+    ann = WorkflowDetail.model_fields["issue_number"].annotation
+    assert ann == (int | None)

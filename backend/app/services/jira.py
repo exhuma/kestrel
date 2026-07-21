@@ -56,7 +56,9 @@ class JiraClient:
         resp = await self._http.request(method, path, headers=headers, **kw)
         if resp.status_code >= 300:
             # Redact: neither the token nor Basic credentials are echoed.
-            raise JiraError(f"{method} {path} -> {resp.status_code}: {resp.text}")
+            raise JiraError(
+                f"{method} {path} -> {resp.status_code}: {resp.text}"
+            )
         return resp
 
     @staticmethod

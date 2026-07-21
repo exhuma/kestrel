@@ -47,12 +47,10 @@ def _svc(gh, runner, git, *, max_iter=3, check_runner=None) -> WorkflowService:
 
 def test_parse_verdict() -> None:
     """Ensure the verdict parser reads accept/feedback and fails safe."""
-    assert _parse_verdict('<VERDICT>{"accept": true, "feedback": ""}</VERDICT>') == (
-        True, ""
-    )
-    assert _parse_verdict('x <VERDICT>{"accept": false, "feedback": "no"}</VERDICT>') == (
-        False, "no"
-    )
+    txt = '<VERDICT>{"accept": true, "feedback": ""}</VERDICT>'
+    assert _parse_verdict(txt) == (True, "")
+    txt = 'x <VERDICT>{"accept": false, "feedback": "no"}</VERDICT>'
+    assert _parse_verdict(txt) == (False, "no")
     # Unparseable ⇒ reject (never ship unverified work).
     assert _parse_verdict("no verdict here")[0] is False
 
@@ -75,7 +73,7 @@ async def test_accept_first_round_opens_pr() -> None:
 
 @pytest.mark.asyncio
 async def test_reject_then_accept_reruns_coder() -> None:
-    """Ensure a rejected verdict re-runs the coder with feedback, then accepts."""
+    """Ensure a rejected verdict re-runs the coder, then accepts."""
     gh, git = _FakeGitHub(body="vague"), _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
         *_refine_noquestions("prd"),
@@ -89,7 +87,10 @@ async def test_reject_then_accept_reruns_coder() -> None:
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     # Coder ran twice; the re-run carried the verifier's feedback.
-    coder_prompts = [c["prompt"] for c in runner.calls if "implement" in c["prompt"].lower()]
+    coder_prompts = [
+        c["prompt"] for c in runner.calls
+        if "implement" in c["prompt"].lower()
+    ]
     assert any("fix the edge case" in p for p in coder_prompts)
 
 
@@ -169,5 +170,7 @@ async def test_no_awaiting_gate_during_autonomous_phases() -> None:
     await _wait(lambda: svc.get(wid).status == "done")
     # The only awaiting_* status ever seen is the PRD gate.
     awaiting = [s for s in seen if s.startswith("awaiting_")]
-    assert set(awaiting) <= {"awaiting_refine_approval", "awaiting_refine_input"}
+    assert set(awaiting) <= {
+        "awaiting_refine_approval", "awaiting_refine_input"
+    }
     assert "designing" in seen and "coding" in seen and "verifying" in seen

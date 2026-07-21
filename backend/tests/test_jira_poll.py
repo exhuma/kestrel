@@ -62,7 +62,9 @@ class _FakeDismissals:
         self._d.discard(ref)
 
 
-def _svc(jira, ingestion, dismissals, source=None, jql_filter="") -> JiraPollService:
+def _svc(
+    jira, ingestion, dismissals, source=None, jql_filter=""
+) -> JiraPollService:
     return JiraPollService(
         Settings(jira_project="RFC", jira_repo_field="cf1",
                  jira_jql_filter=jql_filter),
@@ -117,7 +119,7 @@ async def test_clears_dismissal_for_rfc_no_longer_qualifying() -> None:
     dis = _FakeDismissals(dismissed={"RFC-5", "o/r#3"})
     await _svc(jira, _FakeIngestion(), dis).run_cycle()
     assert dis.is_dismissed("RFC-5") is False   # cleared (re-trigger gesture)
-    assert dis.is_dismissed("o/r#3") is True     # a GitHub dismissal is untouched
+    assert dis.is_dismissed("o/r#3") is True  # GitHub dismissal untouched
 
 
 @pytest.mark.asyncio

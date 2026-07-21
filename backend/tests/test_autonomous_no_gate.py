@@ -1,4 +1,4 @@
-"""A blocked coder escalates rather than parking on a gate (feature 003, US3)."""
+"""A blocked coder escalates instead of parking on a gate (US3)."""
 from __future__ import annotations
 
 import pytest

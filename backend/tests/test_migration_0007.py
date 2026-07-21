@@ -52,7 +52,10 @@ def test_upgrade_backfills_task_ref_and_dismissal_key(
         assert db.execute(
             sa.text("SELECT task_ref FROM issue_dismissal")
         ).scalar_one() == "o/r#9"
-        cols = {c["name"] for c in sa.inspect(engine).get_columns("issue_dismissal")}
+        cols = {
+            c["name"]
+            for c in sa.inspect(engine).get_columns("issue_dismissal")
+        }
         assert cols == {"task_ref", "created_at"}
         issue_col = next(
             c for c in sa.inspect(engine).get_columns("workflow_run")
@@ -77,12 +80,18 @@ def test_downgrade_restores_prior_shape(tmp_path: Path) -> None:
 
     command.downgrade(cfg, "0006")
 
-    cols = {c["name"] for c in sa.inspect(engine).get_columns("issue_dismissal")}
+    cols = {
+        c["name"]
+        for c in sa.inspect(engine).get_columns("issue_dismissal")
+    }
     assert cols == {"repo", "issue_number", "created_at"}
     with engine.connect() as db:
         row = db.execute(
             sa.text("SELECT repo, issue_number FROM issue_dismissal")
         ).one()
         assert (row.repo, row.issue_number) == ("o/r", 9)
-    wf_cols = {c["name"] for c in sa.inspect(engine).get_columns("workflow_run")}
+    wf_cols = {
+        c["name"]
+        for c in sa.inspect(engine).get_columns("workflow_run")
+    }
     assert "task_ref" not in wf_cols

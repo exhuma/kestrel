@@ -263,7 +263,7 @@ VERIFY_PROMPT = (
 
 
 def _slug_ref(task_ref: str) -> str:
-    """A branch-safe slug of a task_ref (e.g. Jira ``RFC-123`` -> ``RFC-123``)."""
+    """A branch-safe slug of a task_ref (e.g. Jira ``RFC-123``)."""
     return re.sub(r"[^A-Za-z0-9._-]+", "-", task_ref).strip("-") or "run"
 
 
@@ -301,7 +301,10 @@ def _parse_verdict(text: str) -> tuple[bool, str]:
         blob = text[start + len("<VERDICT>"):end].strip()
         try:
             data = json.loads(blob)
-            return bool(data.get("accept", False)), str(data.get("feedback", ""))
+            return (
+                bool(data.get("accept", False)),
+                str(data.get("feedback", "")),
+            )
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
     return False, "The verifier response could not be parsed as a verdict."
@@ -874,7 +877,9 @@ class WorkflowService:
                 final = decision.deliverable or (step.deliverable or "")
                 # Publish the approved PRD to the ticket: GitHub writes the
                 # refined body + sentinel; Jira attaches PRD.md (FR-011).
-                await self._task_source(run).publish_refined(run.task_ref, final)
+                await self._task_source(run).publish_refined(
+                    run.task_ref, final
+                )
                 step.deliverable = final
                 step.status = "done"
                 self._save(run)

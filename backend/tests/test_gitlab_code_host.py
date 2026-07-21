@@ -21,7 +21,9 @@ def _host(handler, token: str = "glpat-secret") -> GitLabCodeHost:
 def test_clone_remote_uses_base_url() -> None:
     """Ensure clone_remote composes the self-hosted base URL."""
     host = _host(lambda r: httpx.Response(200))
-    assert host.clone_remote("group/svc") == "https://gitlab.internal/group/svc.git"
+    assert host.clone_remote("group/svc") == (
+        "https://gitlab.internal/group/svc.git"
+    )
 
 
 @pytest.mark.asyncio
@@ -42,10 +44,9 @@ async def test_get_default_branch_url_encodes_project() -> None:
 @pytest.mark.asyncio
 async def test_get_default_branch_raises_on_unreachable_project() -> None:
     """Ensure an unreachable project raises (→ unresolved-repo upstream)."""
+    host = _host(lambda r: httpx.Response(404, text="Not Found"))
     with pytest.raises(GitLabError):
-        await _host(lambda r: httpx.Response(404, text="Not Found")).get_default_branch(
-            "group/missing"
-        )
+        await host.get_default_branch("group/missing")
 
 
 @pytest.mark.asyncio
@@ -56,7 +57,9 @@ async def test_open_change_request_opens_draft_merge_request() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         seen["url"] = str(req.url)
         seen["payload"] = json.loads(req.read().decode())
-        return httpx.Response(201, json={"web_url": "https://gitlab.internal/mr/3"})
+        return httpx.Response(
+            201, json={"web_url": "https://gitlab.internal/mr/3"}
+        )
 
     url = await _host(handler).open_change_request(
         "group/svc",
@@ -78,10 +81,13 @@ async def test_non_draft_merge_request_has_plain_title() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         payload = json.loads(req.read().decode())
         assert payload["title"] == "Implement RFC-1"
-        return httpx.Response(201, json={"web_url": "https://gitlab.internal/mr/4"})
+        return httpx.Response(
+            201, json={"web_url": "https://gitlab.internal/mr/4"}
+        )
 
     await _host(handler).open_change_request(
-        "group/svc", head="h", base="main", title="Implement RFC-1", body="", draft=False
+        "group/svc", head="h", base="main", title="Implement RFC-1",
+        body="", draft=False,
     )
 
 
@@ -90,6 +96,7 @@ async def test_token_not_leaked_in_error() -> None:
     """Ensure the PRIVATE-TOKEN never appears in a raised error."""
     with pytest.raises(GitLabError) as exc:
         await _host(
-            lambda r: httpx.Response(500, text="boom"), token="glpat-supersecret"
+            lambda r: httpx.Response(500, text="boom"),
+            token="glpat-supersecret",
         ).get_default_branch("group/svc")
     assert "glpat-supersecret" not in str(exc.value)

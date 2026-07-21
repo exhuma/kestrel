@@ -68,7 +68,7 @@ class IngestionService:
         :returns: The new run id, or ``None`` if filtered out.
         """
         if source == "github-issue" and not self.is_watched(code_repo):
-            _log.info("ingest outcome=skipped-filtered %s (unwatched)", task_ref)
+            _log.info("ingest outcome=skipped-filtered %s", task_ref)
             return None
         if self.dismissals.is_dismissed(task_ref):
             _log.info("ingest outcome=dismissed %s", task_ref)

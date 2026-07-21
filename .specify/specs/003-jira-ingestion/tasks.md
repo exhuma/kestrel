@@ -242,11 +242,11 @@ webhook support.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T059 [P] Update `docs/architecture.md`: add the Jira task source, the unified refine→PRD→design→code→verify workflow, the evidence-grounded verify loop + escalation, and the extracted `TaskSource`/`CodeHost` ports (GitHub + self-hosted GitLab code hosts); note ingestion is **poll-only** (no new off-loopback exception) and the sovereignty posture (self-hostable, no mandatory external cloud)
-- [ ] T060 [P] Add `docs/setup-jira-workflow.md`: Jira config (base URL, auth, project, JQL, repo field), code-host config (`KESTREL_CODE_HOST` incl. self-hosted GitLab/Gitea), `KESTREL_VERIFY_CHECKS`, the re-trigger gesture (RFC leaving/re-entering the JQL), and that no inbound endpoint/tunnel is needed
-- [ ] T061 Audit `backend/app/services/jira.py`, `gitlab.py`, `checks.py`, `jira_poll.py`, and `notifications.py` for structured-log coverage and confirm the Jira token, code-host token, and GitHub token never appear in any log line, check excerpt, or comment (FR-004/FR-009/SC-009)
-- [ ] T062 Run the `quickstart.md` scenarios 1–6 end-to-end and record results
-- [ ] T063 Run full gates: `cd backend && uv run pytest`, `cd frontend && npm run test`, and linters/formatters with no suppressions
+- [X] T059 [P] Update `docs/architecture.md`: add the Jira task source, the unified refine→PRD→design→code→verify workflow, the evidence-grounded verify loop + escalation, and the extracted `TaskSource`/`CodeHost` ports (GitHub + self-hosted GitLab code hosts); note ingestion is **poll-only** (no new off-loopback exception) and the sovereignty posture (self-hostable, no mandatory external cloud)
+- [X] T060 [P] Add `docs/setup-jira-workflow.md`: Jira config (base URL, auth, project, JQL, repo field), code-host config (`KESTREL_CODE_HOST` incl. self-hosted GitLab/Gitea), `KESTREL_VERIFY_CHECKS`, the re-trigger gesture (RFC leaving/re-entering the JQL), and that no inbound endpoint/tunnel is needed
+- [X] T061 Audit `backend/app/services/jira.py`, `gitlab.py`, `checks.py`, `jira_poll.py`, and `notifications.py` for structured-log coverage and confirm the Jira token, code-host token, and GitHub token never appear in any log line, check excerpt, or comment (FR-004/FR-009/SC-009)
+- [X] T062 Run the `quickstart.md` scenarios 1–6 end-to-end and record results
+- [X] T063 Run full gates: `cd backend && uv run pytest`, `cd frontend && npm run test`, and linters/formatters with no suppressions
 
 ---
 

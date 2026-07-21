@@ -170,7 +170,8 @@ class TaskSourceNotifier:
 
     def notify(self, run: WorkflowRun) -> None:
         """Schedule a thin ticket comment for a gate / escalation."""
-        if not (run.status.startswith("awaiting_") or run.status == "escalated"):
+        gate = run.status.startswith("awaiting_") or run.status == "escalated"
+        if not gate:
             return
         source = self._sources.get(run.source)
         if source is None or not run.task_ref:
