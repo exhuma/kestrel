@@ -29,6 +29,11 @@ class _FakeGit:
 
     async def clone(self, remote_url: str, dest: str) -> None: ...
     async def checkout_branch(self, dest: str, branch: str) -> None: ...
+    async def provision_worktree(
+        self, remote_url: str, mirror_dir: str, dest: str,
+        base_branch: str, new_branch: str,
+    ) -> None: ...
+    async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
     async def commit_all(self, dest: str, message: str) -> None: ...
     async def diff(self, dest: str) -> str:
         # Pop while more than one entry is queued; once down to the
@@ -1565,3 +1570,115 @@ async def test_empty_generator_response_recorded_as_issue() -> None:
     assert len(issues) == 1
     assert "no response" in issues[0].reason
     assert envelope.questionnaire.questions
+
+
+class _FakeDismissals:
+    """In-memory dismissal store for abandon tests."""
+
+    def __init__(self) -> None:
+        self.added: list[tuple[str, int]] = []
+
+    def add(self, repo: str, issue_number: int) -> None:
+        self.added.append((repo, issue_number))
+
+    def is_dismissed(self, repo: str, issue_number: int) -> bool:
+        return (repo, issue_number) in self.added
+
+    def clear(self, repo: str, issue_number: int) -> None:
+        self.added = [p for p in self.added if p != (repo, issue_number)]
+
+
+@pytest.mark.asyncio
+async def test_abandon_records_dismissal() -> None:
+    """Ensure delete() records a dismissal for the run's (repo, issue)."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    dismissals = _FakeDismissals()
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(),
+        sessions=runner.sessions,
+        workflows=reg,
+        backends=runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+        dismissals=dismissals,
+    )
+    run = WorkflowRun(
+        id="wf-abandon", repo="o/r", issue_number=9, source="github-issue"
+    )
+    reg.create(run)
+
+    await svc.delete("wf-abandon")
+
+    assert dismissals.is_dismissed("o/r", 9)
+
+
+class _SpyGit(_FakeGit):
+    """FakeGit that records worktree removals."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.removed: list[tuple[str, str]] = []
+
+    async def remove_worktree(self, mirror_dir: str, dest: str) -> None:
+        self.removed.append((mirror_dir, dest))
+
+
+@pytest.mark.asyncio
+async def test_teardown_removes_worktree_and_directory(tmp_path) -> None:
+    """Ensure teardown removes the worktree via git and deletes the dir."""
+    git = _SpyGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    svc = WorkflowService(
+        settings=_settings(workspace_root=str(tmp_path)),
+        sessions=runner.sessions,
+        workflows=WorkflowRegistry(),
+        backends=runner,
+        git=git,
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+    )
+    ws = tmp_path / "wf-x"
+    ws.mkdir()
+    (ws / "f.txt").write_text("x")
+    run = WorkflowRun(
+        id="wf-x", repo="o/r", issue_number=1, workspace=str(ws)
+    )
+
+    await svc._teardown_workspace(run)
+
+    assert not ws.exists()
+    assert git.removed == [(svc._mirror_dir("o/r"), str(ws))]
+
+
+@pytest.mark.asyncio
+async def test_abandon_one_run_leaves_others_worktree_intact(tmp_path) -> None:
+    """Ensure abandoning one run does not disturb another's worktree."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(workspace_root=str(tmp_path)),
+        sessions=runner.sessions,
+        workflows=reg,
+        backends=runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+        dismissals=_FakeDismissals(),
+    )
+    ws_a = tmp_path / "a"
+    ws_a.mkdir()
+    ws_b = tmp_path / "b"
+    ws_b.mkdir()
+    reg.create(
+        WorkflowRun(id="a", repo="o/r", issue_number=1, workspace=str(ws_a))
+    )
+    reg.create(
+        WorkflowRun(id="b", repo="o/r", issue_number=2, workspace=str(ws_b))
+    )
+
+    await svc.delete("a")
+
+    assert not ws_a.exists()
+    assert ws_b.exists()

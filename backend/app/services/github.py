@@ -87,6 +87,48 @@ class GitHubClient:
             body=data.get("body") or "",
         )
 
+    async def create_issue_comment(
+        self, repo: str, number: int, body: str
+    ) -> str:
+        """Post a comment on an issue and return its html_url."""
+        resp = await self._request(
+            "POST",
+            f"/repos/{repo}/issues/{number}/comments",
+            json={"body": body},
+        )
+        return resp.json()["html_url"]
+
+    async def list_issues_by_label(
+        self, repo: str, label: str, *, state: str = "open"
+    ) -> list[Issue]:
+        """
+        List issues carrying ``label``, following pagination.
+
+        The issues API also returns pull requests; those (items with a
+        ``pull_request`` key) are excluded so only real issues are returned.
+        """
+        issues: list[Issue] = []
+        resp = await self._request(
+            "GET",
+            f"/repos/{repo}/issues",
+            params={"labels": label, "state": state, "per_page": 100},
+        )
+        while True:
+            for item in resp.json():
+                if "pull_request" in item:
+                    continue
+                issues.append(
+                    Issue(
+                        number=item["number"],
+                        title=item.get("title", ""),
+                        body=item.get("body") or "",
+                    )
+                )
+            nxt = resp.links.get("next")
+            if not nxt:
+                return issues
+            resp = await self._request("GET", nxt["url"])
+
     async def get_default_branch(self, repo: str) -> str:
         """Return the repo's default branch (PR base)."""
         resp = await self._request("GET", f"/repos/{repo}")

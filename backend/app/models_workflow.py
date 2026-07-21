@@ -70,3 +70,8 @@ class WorkflowRun:
     steps: list[WorkflowStep] = field(default_factory=list)
     pr_url: str | None = None
     error: str | None = None
+    #: Origin of the run: ``"manual"`` (started via the UI) or
+    #: ``"github-issue"`` (ingested). Internal attribution only — never
+    #: surfaced to the API/UI, so an ingested run is indistinguishable from
+    #: a manual one (feature 002, FR-019 / clarification Q3).
+    source: str = "manual"

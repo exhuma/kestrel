@@ -15,7 +15,16 @@ from typing import Callable
 from app.backends.base import Backend, TurnRequest, TurnResult
 from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
-from app.notifications import InAppNotifier, Notifier
+from app.notifications import (
+    CompositeNotifier,
+    GitHubIssueNotifier,
+    InAppNotifier,
+    Notifier,
+)
+from app.persistence.dismissal_store import (
+    DismissalStore,
+    get_dismissal_store,
+)
 from app.persistence.notification_store import get_notification_store
 from app.policy import BackendPolicy, get_backend_policy, get_policy
 from app.profiles import get_profile, roster_summary
@@ -305,6 +314,7 @@ class WorkflowService:
         github: GitHubClient,
         notifier: Notifier,
         bus: WorkflowBus | None = None,
+        dismissals: DismissalStore | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -314,6 +324,10 @@ class WorkflowService:
         self.github = github
         self.notifier = notifier
         self.bus = bus
+        #: Records a dismissal on abandon so a still-labelled ingested issue
+        #: is not re-ingested (feature 002, FR-008a). Optional so unit tests
+        #: that don't exercise ingestion need not provide one.
+        self.dismissals = dismissals
         self._control: dict[str, _Control] = {}
         #: Driver task per run, so an abandon can cancel the in-flight
         #: orchestration for exactly that run.
@@ -375,8 +389,34 @@ class WorkflowService:
                 return step.session_id
         return None
 
+    # ---- workspace provisioning (per-run worktree, US3) ----------------
+    def _mirror_dir(self, repo: str) -> str:
+        """Path of the per-repo shared bare mirror."""
+        return os.path.join(
+            self.settings.workspace_root,
+            "repos",
+            repo.replace("/", "__") + ".git",
+        )
+
+    async def _teardown_workspace(self, run: WorkflowRun) -> None:
+        """Remove a run's worktree and directory; best-effort, isolated.
+
+        Closes the workspace leak (only abandon cleaned up before) so a
+        finished/failed run does not linger. Never disturbs another run's
+        worktree (feature 002, FR-017).
+        """
+        if not run.workspace:
+            return
+        with contextlib.suppress(Exception):
+            await self.git.remove_worktree(
+                self._mirror_dir(run.repo), run.workspace
+            )
+        shutil.rmtree(run.workspace, ignore_errors=True)
+
     # ---- commands ------------------------------------------------------
-    async def create(self, repo: str, issue_number: int) -> str:
+    async def create(
+        self, repo: str, issue_number: int, *, source: str = "manual"
+    ) -> str:
         run = WorkflowRun(
             id="wf-" + uuid.uuid4().hex[:8],
             repo=repo,
@@ -391,6 +431,7 @@ class WorkflowService:
                 WorkflowStep(name="plan"),
                 WorkflowStep(name="implement"),
             ],
+            source=source,
         )
         self.workflows.create(run)
         self._control[run.id] = self._new_control()
@@ -576,8 +617,12 @@ class WorkflowService:
                 self.sessions.remove(session_id)
         self._control.pop(workflow_id, None)
         self.workflows.remove(workflow_id)
-        if run.workspace:
-            shutil.rmtree(run.workspace, ignore_errors=True)
+        await self._teardown_workspace(run)
+        # Dismiss the issue so a still-labelled ingested run is not
+        # re-created by the webhook or reconciliation (feature 002,
+        # FR-008a). Cleared when the trigger label is removed.
+        if self.dismissals is not None:
+            self.dismissals.add(run.repo, run.issue_number)
 
     # ---- orchestration -------------------------------------------------
     async def _await_gate(self, workflow_id: str) -> _Decision:
@@ -612,6 +657,7 @@ class WorkflowService:
         except _Rejected:
             run.status = "rejected"
             self._save(run)
+            await self._teardown_workspace(run)
         except Exception as exc:
             _logger.exception(
                 "workflow %s (%s#%s) failed during %s",
@@ -621,6 +667,7 @@ class WorkflowService:
             run.status = "failed"
             run.error = str(exc)
             self._save(run)
+            await self._teardown_workspace(run)
 
     async def _drive(self, workflow_id: str) -> None:
         run = self.get(workflow_id)
@@ -632,8 +679,13 @@ class WorkflowService:
             run.base_branch = await self.github.get_default_branch(run.repo)
             self._save(run)
             remote = f"{self.settings.git_base}/{run.repo}.git"
-            await self.git.clone(remote, run.workspace)
-            await self.git.checkout_branch(run.workspace, run.branch)
+            await self.git.provision_worktree(
+                remote,
+                self._mirror_dir(run.repo),
+                run.workspace,
+                run.base_branch,
+                run.branch,
+            )
 
             if has_sentinel(issue.body):
                 run.steps[0].status = "done"
@@ -645,6 +697,7 @@ class WorkflowService:
         except _Rejected:
             run.status = "rejected"
             self._save(run)
+            await self._teardown_workspace(run)
         except Exception as exc:  # record, do not crash the loop
             _logger.exception(
                 "workflow %s (%s#%s) failed during %s",
@@ -653,6 +706,7 @@ class WorkflowService:
             run.status = "failed"
             run.error = str(exc)
             self._save(run)
+            await self._teardown_workspace(run)
 
     async def _continue(
         self, run: WorkflowRun, issue_body: str | None = None
@@ -1515,6 +1569,9 @@ class WorkflowService:
         )
         run.status = "done"
         self._save(run)
+        # Work is pushed and the PR is open — the worktree is no longer
+        # needed. Clean it up (closing the done-run leak, US3/FR-017).
+        await self._teardown_workspace(run)
 
 
 class _Rejected(Exception):
@@ -1526,15 +1583,23 @@ def get_workflow_service() -> WorkflowService:
     """Return the process-wide WorkflowService singleton."""
     settings = get_settings()
     registry = get_registry()
+    github = GitHubClient(settings.github_api_base, settings.github_token)
+    # In-app first (always records the durable fallback row), then the
+    # best-effort GitHub issue comment (feature 002, FR-023/FR-026).
+    notifier = CompositeNotifier(
+        [
+            InAppNotifier(get_notification_store(), get_notification_bus()),
+            GitHubIssueNotifier(github, settings.public_base_url),
+        ]
+    )
     return WorkflowService(
         settings=settings,
         sessions=registry,
         workflows=get_workflow_registry(),
         backends=get_backend_policy(),
         git=GitService(settings.github_token),
-        github=GitHubClient(settings.github_api_base, settings.github_token),
-        notifier=InAppNotifier(
-            get_notification_store(), get_notification_bus()
-        ),
+        github=github,
+        notifier=notifier,
         bus=get_workflow_bus(),
+        dismissals=get_dismissal_store(),
     )
