@@ -68,13 +68,24 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             get_reconcile_service().run_forever()
         )
 
+    # Jira poll ingestion (feature 003, US1): poll-only, started only when Jira
+    # is configured. Runs an initial cycle promptly, then every interval.
+    jira_task: asyncio.Task | None = None
+    if settings.jira_base_url and settings.jira_project:
+        from app.services.jira_poll import get_jira_poll_service
+
+        jira_task = asyncio.create_task(
+            get_jira_poll_service().run_forever()
+        )
+
     try:
         yield
     finally:
-        if reconcile_task is not None:
-            reconcile_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await reconcile_task
+        for task in (reconcile_task, jira_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
 
 def create_app() -> FastAPI:
