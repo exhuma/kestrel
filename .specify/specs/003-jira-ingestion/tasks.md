@@ -226,14 +226,14 @@ source-neutral call a future webhook could reuse.
 
 ### Tests for User Story 5 (write first, ensure they fail)
 
-- [ ] T054 [P] [US5] Write `backend/tests/test_jira_ingestion_recovery.py`: overlapping poll cycles ⇒ one run; restart with an in-flight/terminal run ⇒ no second run next cycle; `recover()` re-parks an `awaiting_refine_approval` Jira run without a duplicate comment; a run in `coding`/`verifying` is failed loudly on restart
-- [ ] T055 [P] [US5] Write `backend/tests/test_ingestion_logging.py`: `maybe_start_run`/poll log each outcome (`started`/`skipped-duplicate`/`skipped-filtered`/`unresolved-repo`/`dismissed`/`failed`) with no credential in any line
+- [X] T054 [P] [US5] Write `backend/tests/test_jira_ingestion_recovery.py`: overlapping poll cycles ⇒ one run; restart with an in-flight/terminal run ⇒ no second run next cycle; `recover()` re-parks an `awaiting_refine_approval` Jira run without a duplicate comment; a run in `coding`/`verifying` is failed loudly on restart
+- [X] T055 [P] [US5] Write `backend/tests/test_ingestion_logging.py`: `maybe_start_run`/poll log each outcome (`started`/`skipped-duplicate`/`skipped-filtered`/`unresolved-repo`/`dismissed`/`failed`) with no credential in any line
 
 ### Implementation for User Story 5
 
-- [ ] T056 [US5] Add `designing`/`coding`/`verifying` to `_TRANSIENT` and keep `escalated` terminal (with `done`/`failed`/`rejected`) in `backend/app/services/workflows.py` `recover()`
-- [ ] T057 [US5] Emit structured per-observation outcome logs in `backend/app/services/ingestion.py` and `backend/app/services/jira_poll.py` (credentials redacted)
-- [ ] T058 [US5] Confirm `maybe_start_run` is the single run-start entry point for both poll and (future) webhook, and add a short module docstring note in `backend/app/services/ingestion.py` marking the webhook seam (FR-034)
+- [X] T056 [US5] Add `designing`/`coding`/`verifying` to `_TRANSIENT` and keep `escalated` terminal (with `done`/`failed`/`rejected`) in `backend/app/services/workflows.py` `recover()`
+- [X] T057 [US5] Emit structured per-observation outcome logs in `backend/app/services/ingestion.py` and `backend/app/services/jira_poll.py` (credentials redacted)
+- [X] T058 [US5] Confirm `maybe_start_run` is the single run-start entry point for both poll and (future) webhook, and add a short module docstring note in `backend/app/services/ingestion.py` marking the webhook seam (FR-034)
 
 **Checkpoint**: Jira ingestion is idempotent, restart-safe, observable, and one caller away from
 webhook support.
