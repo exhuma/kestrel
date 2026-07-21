@@ -33,47 +33,57 @@ class IngestionService:
         """Return whether ``repo`` is in the configured allow-list."""
         return repo in self.settings.watched_repos
 
-    def has_run(self, repo: str, issue_number: int) -> bool:
-        """Return whether a run already exists for ``(repo, issue)``."""
-        return any(
-            r.repo == repo and r.issue_number == issue_number
-            for r in self.workflows.list()
-        )
+    def has_run(self, task_ref: str) -> bool:
+        """Return whether a run already exists for ``task_ref``."""
+        return any(r.task_ref == task_ref for r in self.workflows.list())
 
     async def maybe_start_run(
         self,
-        repo: str,
-        issue_number: int,
         *,
-        source: str = "github-issue",
+        source: str,
+        task_ref: str,
+        code_repo: str,
+        issue_number: int | None = None,
+        base_branch: str | None = None,
     ) -> str | None:
         """
-        Start a run for the issue unless it is filtered out.
+        Start a run for a ticket unless it is filtered out.
 
-        Filters, in order: unwatched repo, dismissed issue, an existing run
-        for the pair. Otherwise creates a run and returns its id. A failure
-        to create raises before any run row persists, leaving nothing for
-        reconciliation to trip over (FR-013a).
+        The single source-neutral entry point every trigger calls (GitHub
+        webhook, GitHub reconcile, Jira poll) so one-run-per-ticket, dismissal,
+        and (GitHub) watched-repo rules live in one place (FR-031/FR-033/
+        FR-034). A future Jira webhook is one more caller of this method.
 
-        :param repo: ``owner/name``.
-        :param issue_number: The flagged issue.
-        :param source: Run origin, stored on the run.
+        Filters, in order: (GitHub) unwatched repo, dismissed ticket, an
+        existing run for the ``task_ref``. Otherwise creates a run and returns
+        its id. A failure to create raises before any run row persists, leaving
+        nothing for reconciliation to trip over (FR-013a).
+
+        :param source: Run origin (``github-issue`` | ``jira-issue``).
+        :param task_ref: Source-native ticket id (dedup/dismissal key).
+        :param code_repo: The target code repository (``owner/name``).
+        :param issue_number: GitHub issue number; ``None`` for Jira.
+        :param base_branch: Resolved base branch (Jira); ``None`` ⇒ resolved by
+            the driver.
         :returns: The new run id, or ``None`` if filtered out.
         """
-        ref = f"{repo}#{issue_number}"
-        if not self.is_watched(repo):
-            _log.info("ingest ignored (unwatched repo) %s", ref)
+        if source == "github-issue" and not self.is_watched(code_repo):
+            _log.info("ingest outcome=skipped-filtered %s (unwatched)", task_ref)
             return None
-        if self.dismissals.is_dismissed(ref):
-            _log.info("ingest ignored (dismissed) %s", ref)
+        if self.dismissals.is_dismissed(task_ref):
+            _log.info("ingest outcome=dismissed %s", task_ref)
             return None
-        if self.has_run(repo, issue_number):
-            _log.info("ingest ignored (run exists) %s", ref)
+        if self.has_run(task_ref):
+            _log.info("ingest outcome=skipped-duplicate %s", task_ref)
             return None
         run_id = await self.workflows.create(
-            repo, issue_number, source=source
+            code_repo,
+            issue_number,
+            source=source,
+            task_ref=task_ref,
+            base_branch=base_branch,
         )
-        _log.info("ingest run-started %s -> %s", ref, run_id)
+        _log.info("ingest outcome=started %s -> %s", task_ref, run_id)
         return run_id
 
 

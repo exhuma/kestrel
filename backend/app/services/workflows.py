@@ -6,6 +6,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -17,9 +18,9 @@ from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
-    GitHubIssueNotifier,
     InAppNotifier,
     Notifier,
+    TaskSourceNotifier,
 )
 from app.ports import Evidence
 from app.services.checks import CheckRunner
@@ -52,7 +53,7 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 from app.services.git import GitService
-from app.services.github import GitHubClient
+from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.workflow_text import (
     activity_for,
     append_sentinel,
@@ -261,6 +262,11 @@ VERIFY_PROMPT = (
 )
 
 
+def _slug_ref(task_ref: str) -> str:
+    """A branch-safe slug of a task_ref (e.g. Jira ``RFC-123`` -> ``RFC-123``)."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", task_ref).strip("-") or "run"
+
+
 def _render_evidence(evidence: Evidence) -> str:
     """Render evidence for the verifier prompt (bounded, human-readable)."""
     if not evidence.observations:
@@ -357,6 +363,8 @@ class WorkflowService:
         bus: WorkflowBus | None = None,
         dismissals: DismissalStore | None = None,
         check_runner: CheckRunner | None = None,
+        sources: dict[str, object] | None = None,
+        code_hosts: dict[str, object] | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -366,6 +374,20 @@ class WorkflowService:
         self.github = github
         self.notifier = notifier
         self.bus = bus
+        #: Task Source / Code Host per ``run.source`` (feature 003). GitHub and
+        #: manual runs collapse onto the GitHub adapters over ``github``; the
+        #: factory registers the Jira source and a self-hosted code host. Built
+        #: from ``github`` by default so existing callers need no change.
+        _gh_source = GitHubTaskSource(github, settings.public_base_url)
+        _gh_host = GitHubCodeHost(github, settings.git_base)
+        self.sources = sources or {
+            "manual": _gh_source, "github-issue": _gh_source,
+        }
+        self.code_hosts = code_hosts or {
+            "manual": _gh_host, "github-issue": _gh_host,
+        }
+        self._fallback_source = _gh_source
+        self._fallback_host = _gh_host
         #: Verify evidence gatherer (v1: runs configured checks in the
         #: worktree). Defaults from settings so existing callers need not
         #: provide one; the behavioural harness drops in later (FR-015b).
@@ -396,6 +418,14 @@ class WorkflowService:
     def _new_control(self) -> _Control:
         loop = asyncio.get_running_loop()
         return _Control(gate=loop.create_future(), replies=asyncio.Queue())
+
+    def _task_source(self, run: WorkflowRun):
+        """The bound TaskSource for a run's origin (feature 003)."""
+        return self.sources.get(run.source, self._fallback_source)
+
+    def _code_host(self, run: WorkflowRun):
+        """The bound CodeHost for a run's target repository (feature 003)."""
+        return self.code_hosts.get(run.source, self._fallback_host)
 
     def _save(self, run: WorkflowRun) -> None:
         """
@@ -465,14 +495,33 @@ class WorkflowService:
 
     # ---- commands ------------------------------------------------------
     async def create(
-        self, repo: str, issue_number: int, *, source: str = "manual"
+        self,
+        repo: str,
+        issue_number: int | None = None,
+        *,
+        source: str = "manual",
+        task_ref: str | None = None,
+        base_branch: str | None = None,
     ) -> str:
+        """Create and drive a run for a ticket.
+
+        Source-neutral (feature 003): ``repo`` is the *code repository*;
+        ``task_ref`` is the source-native ticket id (defaults to
+        ``owner/name#n`` for GitHub/manual). A Jira run passes ``task_ref`` (the
+        RFC key), ``issue_number=None``, and a resolved ``base_branch``.
+        """
+        tref = task_ref or f"{repo}#{issue_number}"
+        if issue_number is not None:
+            branch = f"kestrel/issue-{issue_number}"
+        else:
+            branch = f"kestrel/{_slug_ref(tref)}"
         run = WorkflowRun(
             id="wf-" + uuid.uuid4().hex[:8],
             repo=repo,
             issue_number=issue_number,
-            task_ref=f"{repo}#{issue_number}",
-            branch=f"kestrel/issue-{issue_number}",
+            task_ref=tref,
+            base_branch=base_branch or "",
+            branch=branch,
             workspace=os.path.join(
                 self.settings.workspace_root,
                 f"wf-{uuid.uuid4().hex[:8]}",
@@ -728,11 +777,14 @@ class WorkflowService:
         try:
             run.status = "cloning"
             self._save(run)
-            issue = await self.github.get_issue(run.repo, run.issue_number)
-            run.issue_title = issue.title
-            run.base_branch = await self.github.get_default_branch(run.repo)
+            task = await self._task_source(run).get_task(run.task_ref)
+            run.issue_title = task.title
+            if not run.base_branch:
+                run.base_branch = await self._code_host(run).get_default_branch(
+                    run.repo
+                )
             self._save(run)
-            remote = f"{self.settings.git_base}/{run.repo}.git"
+            remote = self._code_host(run).clone_remote(run.repo)
             await self.git.provision_worktree(
                 remote,
                 self._mirror_dir(run.repo),
@@ -741,21 +793,21 @@ class WorkflowService:
                 run.branch,
             )
 
-            if has_sentinel(issue.body):
+            if has_sentinel(task.body):
                 run.steps[0].status = "done"
-                run.steps[0].deliverable = issue.body
+                run.steps[0].deliverable = task.body
                 self._save(run)
                 await self._continue(run)
             else:
-                await self._continue(run, issue_body=issue.body)
+                await self._continue(run, issue_body=task.body)
         except _Rejected:
             run.status = "rejected"
             self._save(run)
             await self._teardown_workspace(run)
         except Exception as exc:  # record, do not crash the loop
             _logger.exception(
-                "workflow %s (%s#%s) failed during %s",
-                workflow_id, run.repo, run.issue_number, run.status,
+                "workflow %s (%s) failed during %s",
+                workflow_id, run.task_ref, run.status,
             )
             run.status = "failed"
             run.error = str(exc)
@@ -810,9 +862,9 @@ class WorkflowService:
             decision = await self._await_gate(run.id)
             if decision.approved:
                 final = decision.deliverable or (step.deliverable or "")
-                await self.github.update_issue(
-                    run.repo, run.issue_number, append_sentinel(final),
-                )
+                # Publish the approved PRD to the ticket: GitHub writes the
+                # refined body + sentinel; Jira attaches PRD.md (FR-011).
+                await self._task_source(run).publish_refined(run.task_ref, final)
                 step.deliverable = final
                 step.status = "done"
                 self._save(run)
@@ -1628,23 +1680,38 @@ class WorkflowService:
         return True
 
     async def _deliver(self, run: WorkflowRun) -> None:
-        """Commit, push, open the PR, and finish the run."""
+        """Commit, push, open the change request, and finish the run."""
         run.status = "opening_pr"
         self._save(run)
-        await self.git.commit_all(
-            run.workspace, f"Implement #{run.issue_number}"
-        )
+        # Change-request metadata is source-aware: a GitHub run closes its
+        # issue (#n); a Jira run references the RFC key (the ticket is in Jira).
+        if run.issue_number is not None:
+            commit_msg = f"Implement #{run.issue_number}"
+            cr_title = f"{run.issue_title} (#{run.issue_number})"
+            cr_body = f"Closes #{run.issue_number}\n\nOpened by kestrel."
+        else:
+            commit_msg = f"Implement {run.task_ref}"
+            cr_title = f"{run.issue_title} ({run.task_ref})"
+            cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
+        await self.git.commit_all(run.workspace, commit_msg)
         await self.git.push(run.workspace, run.branch)
-        run.pr_url = await self.github.create_pull_request(
+        run.pr_url = await self._code_host(run).open_change_request(
             run.repo,
             head=run.branch,
             base=run.base_branch,
-            title=f"{run.issue_title} (#{run.issue_number})",
-            body=f"Closes #{run.issue_number}\n\nOpened by kestrel.",
+            title=cr_title,
+            body=cr_body,
         )
         run.status = "done"
         self._save(run)
-        # Work is pushed and the PR is open — the worktree is no longer
+        # Post the change-request link to the ticket (best-effort — FR-019).
+        try:
+            await self._task_source(run).post_comment(
+                run.task_ref, f"Change request opened: {run.pr_url}"
+            )
+        except Exception:  # noqa: BLE001 — best-effort; run is already done
+            _logger.exception("failed to post CR link for %s", run.task_ref)
+        # Work is pushed and the CR is open — the worktree is no longer
         # needed. Clean it up (closing the done-run leak, US3/FR-017).
         await self._teardown_workspace(run)
 
@@ -1659,12 +1726,36 @@ def get_workflow_service() -> WorkflowService:
     settings = get_settings()
     registry = get_registry()
     github = GitHubClient(settings.github_api_base, settings.github_token)
+    gh_source = GitHubTaskSource(github, settings.public_base_url)
+    gh_host = GitHubCodeHost(github, settings.git_base)
+    # Task Source / Code Host per run source. GitHub and manual runs collapse
+    # onto the GitHub adapters; the Jira source + its configured code host are
+    # registered below when Jira ingestion is configured (feature 003).
+    sources: dict[str, object] = {
+        "manual": gh_source, "github-issue": gh_source,
+    }
+    code_hosts: dict[str, object] = {
+        "manual": gh_host, "github-issue": gh_host,
+    }
+    if settings.jira_base_url and settings.jira_project:
+        from app.services.jira import JiraClient, JiraTaskSource
+
+        jira = JiraClient(
+            settings.jira_base_url,
+            auth=settings.jira_auth,
+            email=settings.jira_email,
+            token=settings.jira_api_token,
+        )
+        sources["jira-issue"] = JiraTaskSource(
+            jira, settings.public_base_url
+        )
+        code_hosts["jira-issue"] = _build_code_host(settings, github)
     # In-app first (always records the durable fallback row), then the
-    # best-effort GitHub issue comment (feature 002, FR-023/FR-026).
+    # best-effort ticket comment via the run's source (feature 003).
     notifier = CompositeNotifier(
         [
             InAppNotifier(get_notification_store(), get_notification_bus()),
-            GitHubIssueNotifier(github, settings.public_base_url),
+            TaskSourceNotifier(sources, settings.public_base_url),
         ]
     )
     return WorkflowService(
@@ -1677,4 +1768,22 @@ def get_workflow_service() -> WorkflowService:
         notifier=notifier,
         bus=get_workflow_bus(),
         dismissals=get_dismissal_store(),
+        sources=sources,
+        code_hosts=code_hosts,
     )
+
+
+def _build_code_host(settings: Settings, github: GitHubClient) -> object:
+    """Build the code host for Jira-resolved repos, per ``code_host`` config.
+
+    Self-hostable (feature 003, FR-023a): ``gitlab``/``gitea`` point at an
+    on-prem instance; ``github`` reuses the GitHub client. The code-host token
+    falls back to ``github_token`` when the host is GitHub.
+    """
+    if settings.code_host in ("gitlab", "gitea"):
+        from app.services.gitlab import GitLabCodeHost
+
+        return GitLabCodeHost(
+            settings.code_host_base_url, settings.code_host_token
+        )
+    return GitHubCodeHost(github, settings.git_base)

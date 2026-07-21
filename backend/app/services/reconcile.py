@@ -64,7 +64,10 @@ class ReconcileService:
         for issue in issues:
             try:
                 await self.ingestion.maybe_start_run(
-                    repo, issue.number, source="github-issue"
+                    source="github-issue",
+                    task_ref=f"{repo}#{issue.number}",
+                    code_repo=repo,
+                    issue_number=issue.number,
                 )
             except Exception:  # noqa: BLE001 — one issue must not stop the rest
                 _log.exception(

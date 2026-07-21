@@ -50,10 +50,11 @@ class _FakeDismissals:
 
 class _FakeIngestion:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, int]] = []
+        self.calls: list[tuple[str, int | None]] = []
 
-    async def maybe_start_run(self, repo, issue_number, *, source="github-issue"):
-        self.calls.append((repo, issue_number))
+    async def maybe_start_run(self, *, source, task_ref, code_repo,
+                              issue_number=None, base_branch=None):
+        self.calls.append((code_repo, issue_number))
         return "wf-x"
 
 

@@ -45,17 +45,11 @@ def signal_class(status: str) -> SignalClass:
     return "action_required" if status.startswith("awaiting_") else "summary"
 
 _MESSAGES: dict[str, str] = {
-    "awaiting_refine_input": (
-        "Kestrel needs your input refining {repo}#{issue_number}."
-    ),
-    "awaiting_refine_approval": (
-        "Refined description ready for review: {repo}#{issue_number}."
-    ),
-    "done": "PR opened for {repo}#{issue_number}.",
-    "failed": "Workflow failed for {repo}#{issue_number}.",
-    "escalated": (
-        "Autonomous run escalated — needs attention: {repo}#{issue_number}."
-    ),
+    "awaiting_refine_input": "Kestrel needs your input refining {task}.",
+    "awaiting_refine_approval": "PRD ready for review: {task}.",
+    "done": "Change request opened for {task}.",
+    "failed": "Workflow failed for {task}.",
+    "escalated": "Autonomous run escalated — needs attention: {task}.",
 }
 
 
@@ -63,18 +57,26 @@ def _is_notifiable(status: str) -> bool:
     return status in NOTIFY_STATUSES or status.startswith("awaiting_")
 
 
+def _task_label(run: WorkflowRun) -> str:
+    """The source-neutral ticket label for messages (feature 003)."""
+    return run.task_ref or f"{run.repo}#{run.issue_number}"
+
+
 def render_message(run: WorkflowRun) -> str:
     """
     Render the notification text for a run's current status.
 
+    Source-neutral: rendered from the run's ``task_ref`` (``owner/name#123``
+    for GitHub, ``RFC-123`` for Jira), so a Jira run — which has no numeric
+    issue number — reads correctly.
+
     :param run: The run that just transitioned.
-    :returns: A human-readable, repo-scoped message.
+    :returns: A human-readable, ticket-scoped message.
     """
     template = _MESSAGES.get(
-        run.status,
-        "Kestrel needs your attention: {repo}#{issue_number}.",
+        run.status, "Kestrel needs your attention: {task}."
     )
-    return template.format(repo=run.repo, issue_number=run.issue_number)
+    return template.format(task=_task_label(run))
 
 
 @dataclass
@@ -142,26 +144,36 @@ class InAppNotifier:
             self._bus.publish()
 
 
-class GitHubIssueNotifier:
-    """Posts a comment on the source issue when a run hits a gate.
+class TaskSourceNotifier:
+    """Posts a thin comment on a run's originating ticket when it hits a gate.
 
-    Only ``awaiting_*`` gates (input and approval) are posted; terminal
-    outcomes are left to the in-app notifier. Posting is fire-and-forget so
-    a GitHub outage never blocks the run (FR-026); the body is a fixed
-    template plus an optional deep-link, never deliverable content (FR-031).
+    Source-dispatching (feature 003): the comment goes to *this run's* ticket
+    via that source's ``TaskSource.post_comment`` — a Jira RFC for a Jira run,
+    a GitHub issue for a GitHub run. Only ``awaiting_*`` gates and terminal
+    ``escalated`` runs are posted (an escalation needs the human's attention on
+    the ticket); other terminal outcomes are left to the in-app notifier.
+    Posting is fire-and-forget so an outage never blocks the run (FR-028); the
+    body is a fixed template plus an optional deep-link, never deliverable
+    content (FR-029).
+
+    :param sources: ``run.source`` -> ``TaskSource``. A run whose source is
+        not present is skipped (e.g. a manual run with no external ticket).
     """
 
     def __init__(
-        self, github: "GitHubClient", public_base_url: str = ""
+        self, sources: "dict[str, object]", public_base_url: str = ""
     ) -> None:
-        self._github = github
+        self._sources = sources
         self._public_base_url = public_base_url
         #: Keep fire-and-forget tasks referenced so they are not GC'd.
         self._tasks: set[asyncio.Task] = set()
 
     def notify(self, run: WorkflowRun) -> None:
-        """Schedule a gate comment if the run is at an ``awaiting_*`` gate."""
-        if not run.status.startswith("awaiting_"):
+        """Schedule a thin ticket comment for a gate / escalation."""
+        if not (run.status.startswith("awaiting_") or run.status == "escalated"):
+            return
+        source = self._sources.get(run.source)
+        if source is None or not run.task_ref:
             return
         body = render_message(run)
         link = gate_deep_link(self._public_base_url, run.id)
@@ -174,19 +186,15 @@ class GitHubIssueNotifier:
                 "no running loop; skipping gate comment for %s", run.id
             )
             return
-        task = loop.create_task(
-            self._post(run.repo, run.issue_number, body)
-        )
+        task = loop.create_task(self._post(source, run.task_ref, body))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _post(self, repo: str, number: int, body: str) -> None:
+    async def _post(self, source: object, task_ref: str, body: str) -> None:
         try:
-            await self._github.create_issue_comment(repo, number, body)
+            await source.post_comment(task_ref, body)
         except Exception:  # noqa: BLE001 — best-effort; in-app is the fallback
-            _log.exception(
-                "failed to post gate comment for %s#%s", repo, number
-            )
+            _log.exception("failed to post gate comment for %s", task_ref)
 
 
 class CompositeNotifier:

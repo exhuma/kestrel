@@ -19,12 +19,14 @@ class _FakeWorkflows:
     def list(self) -> list[WorkflowRun]:
         return self.runs
 
-    async def create(self, repo, issue_number, *, source="manual"):
+    async def create(self, repo, issue_number=None, *, source="manual",
+                     task_ref=None, base_branch=None):
         rid = f"wf-{len(self.created)}"
         self.created.append((repo, issue_number))
         self.runs.append(
             WorkflowRun(id=rid, repo=repo, issue_number=issue_number,
-                        source=source)
+                        source=source,
+                        task_ref=task_ref or f"{repo}#{issue_number}")
         )
         return rid
 

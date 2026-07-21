@@ -63,7 +63,10 @@ def _dispatch_start(
     async def _run() -> None:
         try:
             await ingestion.maybe_start_run(
-                repo, issue_number, source="github-issue"
+                source="github-issue",
+                task_ref=f"{repo}#{issue_number}",
+                code_repo=repo,
+                issue_number=issue_number,
             )
         except Exception:  # noqa: BLE001 — best-effort; ACK already sent
             _log.exception(
