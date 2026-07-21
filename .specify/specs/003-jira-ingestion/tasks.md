@@ -199,13 +199,13 @@ Foundational status set.
 
 ### Tests for User Story 4 (write first, ensure they fail)
 
-- [ ] T050 [P] [US4] Write `backend/tests/test_source_parity.py`: a Jira run and a GitHub run produce the identical ordered status sequence and step set; only the notification surface (`post_comment` target) and the CR body/host differ; `WorkflowDetail` exposes no `source`/`task_ref`
-- [ ] T051 [P] [US4] Write `frontend/tests/composables/useWorkflows.states.test.ts`: the status/step label + chip-tone maps resolve `designing`/`coding`/`verifying`/`escalated` and `design`/`code`/`verify`; `?run=<id>` still selects a run (HTTP/SSE mocked)
+- [X] T050 [P] [US4] Write `backend/tests/test_source_parity.py`: a Jira run and a GitHub run produce the identical ordered status sequence and step set; only the notification surface (`post_comment` target) and the CR body/host differ; `WorkflowDetail` exposes no `source`/`task_ref`
+- [X] T051 [P] [US4] Write `frontend/tests/composables/useWorkflows.states.test.ts`: the status/step label + chip-tone maps resolve `designing`/`coding`/`verifying`/`escalated` and `design`/`code`/`verify`; `?run=<id>` still selects a run (HTTP/SSE mocked)
 
 ### Implementation for User Story 4
 
-- [ ] T052 [US4] Extend the frontend status/step label + chip-tone maps for `designing`/`coding`/`verifying`/`escalated` and `design`/`code`/`verify`, using existing Vuetify theme tokens (no hard-coded colours) in `frontend/src/` (the workflow status/step display component/composable)
-- [ ] T053 [US4] Confirm `source`/`task_ref` are not added to `frontend/src/types/` or the backend API schema (`backend/app/schemas.py`); the UI stays source-uniform (FR-026)
+- [X] T052 [US4] Extend the frontend status/step label + chip-tone maps for `designing`/`coding`/`verifying`/`escalated` and `design`/`code`/`verify`, using existing Vuetify theme tokens (no hard-coded colours) in `frontend/src/` (the workflow status/step display component/composable)
+- [X] T053 [US4] Confirm `source`/`task_ref` are not added to `frontend/src/types/` or the backend API schema (`backend/app/schemas.py`); the UI stays source-uniform (FR-026)
 
 **Checkpoint**: One predictable workflow across every source, correctly rendered, with `source`
 still internal.
