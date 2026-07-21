@@ -17,7 +17,8 @@ import asyncio
 import json
 import os
 import uuid
-from typing import Callable
+from contextlib import asynccontextmanager, suppress
+from typing import AsyncIterator, Callable
 
 import httpx
 
@@ -28,6 +29,16 @@ from app.storage.registry import SessionRegistry
 
 _TASKS: set[asyncio.Task[None]] = set()
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
+
+#: File-mutating opencode tools. On a read-only step (refine, plan) these are
+#: both disabled per message AND their permission requests are rejected, so
+#: the agent cannot modify the workspace (defense-in-depth).
+_DENY_WRITE_TOOLS = frozenset({"edit", "write", "patch"})
+
+#: The claude-style permission mode that means "read-only, no edits". The
+#: workflow passes this for the refine and plan steps; opencode maps it to a
+#: read-only turn. Anything else is treated as edit-capable.
+_READ_ONLY_MODE = "plan"
 
 
 def _split_model(model: str | None) -> dict[str, str] | None:
@@ -81,17 +92,26 @@ class OpenCodeBackend(Backend):
 
     # ---- Backend protocol ---------------------------------------------
     async def start(self, prompt: str) -> str:
-        sid = await self._create_session()
         cwd = os.path.join(
             self.settings.workspace_root, "session-" + uuid.uuid4().hex[:8]
         )
+        # opencode resolves file tools against this directory; make sure it
+        # exists (an ad-hoc session has no repo cloned into it yet).
+        os.makedirs(cwd, exist_ok=True)
+        sid = await self._create_session(cwd)
         self.registry.create(sid, cwd)
-        self._schedule(sid, prompt)
+        # Ad-hoc sessions are user-driven and edit-capable.
+        self._schedule(sid, prompt, cwd, read_only=False)
         return sid
 
     async def resume(self, session_id: str, prompt: str) -> str:
         # opencode keeps the session server-side; another message resumes it.
-        self._schedule(session_id, prompt)
+        self._schedule(
+            session_id,
+            prompt,
+            self._session_dir(session_id),
+            read_only=False,
+        )
         return session_id
 
     async def run_turn(
@@ -99,12 +119,13 @@ class OpenCodeBackend(Backend):
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
     ) -> TurnResult:
-        sid = req.resume_id or await self._create_session()
+        sid = req.resume_id or await self._create_session(req.cwd)
         if self.registry.get(sid) is None:
             self.registry.create(sid, req.cwd)
         if on_session_id is not None:
             on_session_id(sid)
-        content = await self._turn(sid, req.prompt)
+        read_only = req.permission_mode == _READ_ONLY_MODE
+        content = await self._turn(sid, req.prompt, req.cwd, read_only)
         return TurnResult(session_id=sid, final_text=content)
 
     def terminate(self, session_id: str) -> bool:
@@ -115,8 +136,105 @@ class OpenCodeBackend(Backend):
         return False
 
     # ---- internals ----------------------------------------------------
-    def _schedule(self, session_id: str, prompt: str) -> None:
-        task = asyncio.create_task(self._safe_turn(session_id, prompt))
+    def _session_dir(self, session_id: str) -> str | None:
+        """Return the working directory recorded for a session, if any."""
+        record = self.registry.get(session_id)
+        return record.cwd if record is not None else None
+
+    # ---- permissions --------------------------------------------------
+    @asynccontextmanager
+    async def _permission_handler(
+        self, session_id: str, directory: str | None, read_only: bool
+    ) -> AsyncIterator[None]:
+        """Answer opencode permission prompts for the duration of a turn.
+
+        opencode's permissions are ``ask`` by default, so a headless turn
+        would block on the first tool call. A background task streams the
+        server's ``/event`` bus and replies to each ``permission.asked`` for
+        this session so the turn proceeds unattended.
+        """
+        task = asyncio.create_task(
+            self._permission_loop(session_id, directory, read_only)
+        )
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+
+    async def _permission_loop(
+        self, session_id: str, directory: str | None, read_only: bool
+    ) -> None:
+        """Stream ``/event`` and answer this session's permission prompts."""
+        client = self._client or httpx.AsyncClient(timeout=None)
+        params = (
+            {"directory": os.path.abspath(directory)} if directory else None
+        )
+        try:
+            async with client.stream(
+                "GET",
+                f"{self._base_url}/event",
+                params=params,
+                auth=self._auth,
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    try:
+                        event = json.loads(line[len("data:") :].strip())
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") != "permission.asked":
+                        continue
+                    props = event.get("properties") or {}
+                    if props.get("sessionID") != session_id:
+                        continue
+                    await self._answer_permission(props, directory, read_only)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # never let permission handling break the turn
+            pass
+        finally:
+            if self._client is None:
+                await client.aclose()
+
+    async def _answer_permission(
+        self,
+        request: dict[str, object],
+        directory: str | None,
+        read_only: bool,
+    ) -> None:
+        """Approve or reject a single opencode permission request.
+
+        Rejects a file-mutating tool on a read-only turn (defense-in-depth
+        alongside the disabled tools); approves everything else — including
+        ``bash``. Approving shell execution inside the workspace is a
+        deliberate, documented prompt-injection risk in this alpha.
+        """
+        request_id = request.get("id")
+        tool = request.get("permission")
+        if not isinstance(request_id, str):
+            return
+        reject = read_only and tool in _DENY_WRITE_TOOLS
+        with suppress(Exception):
+            await self._request(
+                "POST",
+                f"/permission/{request_id}/reply",
+                json={"reply": "reject" if reject else "once"},
+                directory=directory,
+            )
+
+    def _schedule(
+        self,
+        session_id: str,
+        prompt: str,
+        directory: str | None,
+        read_only: bool,
+    ) -> None:
+        task = asyncio.create_task(
+            self._safe_turn(session_id, prompt, directory, read_only)
+        )
         self._live[session_id] = task
         _TASKS.add(task)
 
@@ -127,9 +245,15 @@ class OpenCodeBackend(Backend):
 
         task.add_done_callback(_done)
 
-    async def _safe_turn(self, session_id: str, prompt: str) -> None:
+    async def _safe_turn(
+        self,
+        session_id: str,
+        prompt: str,
+        directory: str | None,
+        read_only: bool,
+    ) -> None:
         try:
-            await self._turn(session_id, prompt)
+            await self._turn(session_id, prompt, directory, read_only)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"
@@ -143,7 +267,10 @@ class OpenCodeBackend(Backend):
                 ),
             )
 
-    async def _turn(self, session_id: str, prompt: str) -> str:
+    async def _turn(
+        self, session_id: str, prompt: str, directory: str | None,
+        read_only: bool,
+    ) -> str:
         """Send the prompt, map this turn's new messages, append a RESULT.
 
         A turn produces several assistant messages (tool calls then a final
@@ -152,9 +279,20 @@ class OpenCodeBackend(Backend):
         the messages that are new since before the prompt are mapped.
         Snapshotting before the prompt keeps this correct across resumes
         and process restarts (existing history is not re-emitted).
+
+        ``directory`` scopes every request to the session's working folder
+        (the checked-out repo) so opencode's file tools act there rather than
+        in the ``opencode serve`` process's own cwd.
+
+        On a ``read_only`` turn the file-mutating tools are disabled for the
+        message so the agent cannot edit the workspace. Throughout the turn a
+        concurrent handler answers opencode's permission prompts (approve
+        reads/bash, reject edits on a read-only turn) so a headless server
+        never blocks waiting for a human to click "allow".
         """
         seen = {
-            self._msg_id(m) for m in await self._messages(session_id)
+            self._msg_id(m)
+            for m in await self._messages(session_id, directory)
         }
         self.registry.append_event(
             session_id,
@@ -165,11 +303,19 @@ class OpenCodeBackend(Backend):
         body: dict[str, object] = {"parts": [{"type": "text", "text": prompt}]}
         if self._model is not None:
             body["model"] = self._model
-        await self._request(
-            "POST", f"/session/{session_id}/message", json=body
-        )
+        if read_only:
+            body["tools"] = {tool: False for tool in _DENY_WRITE_TOOLS}
+        async with self._permission_handler(
+            session_id, directory, read_only
+        ):
+            await self._request(
+                "POST",
+                f"/session/{session_id}/message",
+                json=body,
+                directory=directory,
+            )
         texts: list[str] = []
-        for message in await self._messages(session_id):
+        for message in await self._messages(session_id, directory):
             if self._msg_role(message) != "assistant":
                 continue  # user echo — we already emitted USER_TEXT
             if self._msg_id(message) in seen:
@@ -184,10 +330,16 @@ class OpenCodeBackend(Backend):
         )
         return final
 
-    async def _messages(self, session_id: str) -> list[dict]:
+    async def _messages(
+        self, session_id: str, directory: str | None = None
+    ) -> list[dict]:
         """Fetch the full message transcript for a session."""
-        data = await self._request("GET", f"/session/{session_id}/message")
-        return [m for m in data if isinstance(m, dict)] if isinstance(data, list) else []
+        data = await self._request(
+            "GET", f"/session/{session_id}/message", directory=directory
+        )
+        if not isinstance(data, list):
+            return []
+        return [m for m in data if isinstance(m, dict)]
 
     @staticmethod
     def _msg_id(message: dict) -> str | None:
@@ -225,15 +377,21 @@ class OpenCodeBackend(Backend):
                     ),
                 )
             elif ptype == "tool":
-                state = part.get("state") if isinstance(part.get("state"), dict) else {}
+                raw_state = part.get("state")
+                state = raw_state if isinstance(raw_state, dict) else {}
                 tool_input = state.get("input")
+                raw_tool = part.get("tool")
                 self.registry.append_event(
                     session_id,
                     CanonicalEvent(
                         kind=EventKind.TOOL_USE,
                         session_id=session_id,
-                        tool_name=part.get("tool") if isinstance(part.get("tool"), str) else None,
-                        tool_input=tool_input if isinstance(tool_input, dict) else None,
+                        tool_name=(
+                            raw_tool if isinstance(raw_tool, str) else None
+                        ),
+                        tool_input=(
+                            tool_input if isinstance(tool_input, dict) else None
+                        ),
                         tool_summary=_tool_summary(tool_input),
                         native=part,
                     ),
@@ -264,22 +422,46 @@ class OpenCodeBackend(Backend):
             # step-start / step-finish / snapshot / … are structural — skip.
         return texts
 
-    async def _create_session(self) -> str:
+    async def _create_session(self, directory: str | None = None) -> str:
         """Create an opencode session and return its id."""
-        data = await self._request("POST", "/session", json={})
+        data = await self._request(
+            "POST", "/session", json={}, directory=directory
+        )
         sid = data.get("id") if isinstance(data, dict) else None
         if not isinstance(sid, str):
             raise RuntimeError("opencode did not return a session id")
         return sid
 
     async def _request(
-        self, method: str, path: str, json: object | None = None
+        self,
+        method: str,
+        path: str,
+        json: object | None = None,
+        directory: str | None = None,
     ) -> object:
-        """Issue one HTTP request against the opencode server."""
+        """Issue one HTTP request against the opencode server.
+
+        When ``directory`` is set it is sent as the ``directory`` query
+        parameter, which opencode resolves the request's project directory
+        from (query > ``x-opencode-directory`` header > the server's own
+        cwd). Without it opencode would act in the ``opencode serve`` cwd.
+
+        The directory is resolved to an **absolute** path first: opencode is
+        a separate process with its own cwd (kestrel's workspace root is
+        relative by default), so a relative path would resolve against the
+        wrong base.
+        """
+        params = (
+            {"directory": os.path.abspath(directory)} if directory else None
+        )
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.request(
-                method, f"{self._base_url}{path}", json=json, auth=self._auth
+                method,
+                f"{self._base_url}{path}",
+                json=json,
+                params=params,
+                auth=self._auth,
             )
             resp.raise_for_status()
             return resp.json()

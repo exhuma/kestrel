@@ -7,13 +7,14 @@ describe('useSessions', () => {
   it('refresh populates sessions from api', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify([
-            { session_id: 's1', status: 'idle', event_count: 2 },
-          ]),
-          { status: 200 },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              { session_id: 's1', status: 'idle', event_count: 2 },
+            ]),
+            { status: 200 },
+          ),
       ),
     )
     const { sessions, refresh } = useSessions()
@@ -52,8 +53,9 @@ describe('useSessions', () => {
   it('surfaces a failed start via the error ref', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ detail: 'boom' }), { status: 502 }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: 'boom' }), { status: 502 }),
       ),
     )
     const { error, start } = useSessions()

@@ -121,10 +121,28 @@ password = "changeme"                      # inline (gitignored file), or:
 # api_key_env = "OPENCODE_SERVER_PASSWORD"  # name of an exported env var
 ```
 
-> **opencode and the `implement` step.** opencode sessions run in the
-> directory where `opencode serve` was started — opencode has no per-session
-> working directory. That is fine for ad-hoc sessions, but means opencode is
-> **not yet suitable for the workflow `implement` step**, which needs the
-> agent to edit a per-run cloned workspace. Keep `implement` on `claude`
-> (which honours the workspace). Live token-streaming (via opencode's
-> `/event` SSE) and an auto-started `serve` supervisor are still in progress.
+> **opencode working directory.** Each request kestrel sends is scoped to the
+> session's working directory (the per-run cloned workspace, or an ad-hoc
+> session's own folder) via opencode's `directory` parameter, so opencode's
+> file tools act there rather than in the directory where `opencode serve` was
+> started. The `opencode serve` process must be able to reach that path — run
+> it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
+>
+> **opencode read-only steps and permissions.** The reasoning steps (`refine`,
+> `plan`) run read-only: kestrel disables opencode's file-mutating tools
+> (`edit`/`write`/`patch`) for those turns and rejects any edit permission the
+> agent still asks for, so they can read and run commands but cannot change the
+> workspace. `implement` runs with edits enabled. kestrel answers opencode's
+> permission prompts itself — it streams the server's `/event` bus and replies
+> to each request — so a headless `opencode serve` never blocks waiting for a
+> human to click "allow"; you do **not** need to pre-configure opencode's
+> permissions. Live activity indicators (thinking / reading / writing, from the
+> same `/event` stream) and an auto-started `serve` supervisor are still in
+> progress.
+>
+> **Security (alpha).** To run unattended, kestrel auto-approves opencode's
+> tool use — including `bash` inside the workspace. A prompt-injected
+> repository or issue could therefore get the agent to run arbitrary shell
+> commands in the cloned workspace. This risk applies to the other file-editing
+> backends too; hardening it (sandboxing, command allow-lists) is deferred.
+> Only point kestrel at repositories and issues you trust.

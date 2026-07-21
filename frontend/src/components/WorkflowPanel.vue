@@ -2,9 +2,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useWorkflows } from '../composables/useWorkflows'
 import QuestionnaireForm from './QuestionnaireForm.vue'
-import { createPendingInterviewParser, parseQuestionnaire } from '../lib/questionnaire'
+import {
+  createPendingInterviewParser,
+  parseQuestionnaire,
+} from '../lib/questionnaire'
 import { renderMarkdown } from '../lib/markdown'
 import EventCard from './EventCard.vue'
+import ConsoleShell from './ConsoleShell.vue'
 import { toViewModel } from '../lib/eventView'
 
 // One parser instance for the whole panel: it memoizes on
@@ -13,17 +17,34 @@ import { toViewModel } from '../lib/eventView'
 // of churning a fresh one on every update.
 const parsePendingInterview = createPendingInterviewParser()
 
-const { workflows, current, events, error, refresh, select, ensureLive,
-  streamSession, closeSession, createWorkflow, reply, submitAnswers,
-  saveDraft, approve, reject, stop, remove } = useWorkflows()
+const {
+  workflows,
+  current,
+  events,
+  error,
+  refresh,
+  select,
+  ensureLive,
+  streamSession,
+  closeSession,
+  createWorkflow,
+  reply,
+  submitAnswers,
+  saveDraft,
+  approve,
+  reject,
+  stop,
+  remove,
+} = useWorkflows()
 
 const repo = ref('owner/name')
 const issueNumber = ref<number>(1)
 const answer = ref('')
 const edited = ref('')
 const feedback = ref('')
-const busy = ref<'create' | 'approve' | 'reject' | 'reply'
-  | 'changes' | null>(null)
+const busy = ref<'create' | 'approve' | 'reject' | 'reply' | 'changes' | null>(
+  null,
+)
 
 onMounted(() => {
   void refresh()
@@ -35,10 +56,15 @@ const STEP_LABELS = ['refine', 'plan', 'implement'] as const
 
 const activeStep = computed(() =>
   current.value?.steps.find((s) =>
-    ['running', 'awaiting_input', 'awaiting_approval'].includes(s.status)),
+    ['running', 'awaiting_input', 'awaiting_approval'].includes(s.status),
+  ),
 )
-const awaitingInput = computed(() => activeStep.value?.status === 'awaiting_input')
-const awaitingApproval = computed(() => activeStep.value?.status === 'awaiting_approval')
+const awaitingInput = computed(
+  () => activeStep.value?.status === 'awaiting_input',
+)
+const awaitingApproval = computed(
+  () => activeStep.value?.status === 'awaiting_approval',
+)
 const stepRunning = computed(() => activeStep.value?.status === 'running')
 const pendingInterview = computed(() =>
   awaitingInput.value && current.value
@@ -46,7 +72,9 @@ const pendingInterview = computed(() =>
     : null,
 )
 const issueUrl = computed(() =>
-  current.value ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}` : '',
+  current.value
+    ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}`
+    : '',
 )
 
 // Prose deliverables (refined issue, plan) are markdown — render them as
@@ -62,9 +90,10 @@ const deliverableHtml = computed(() => {
 // Named specialist sessions active right now, shown as activity chips.
 const activeSessions = computed(() => current.value?.active_sessions ?? [])
 const expandedSession = ref<string | null>(null)
-const expandedLabel = computed(() =>
-  activeSessions.value.find((s) => s.session_id === expandedSession.value)
-    ?.label ?? 'session',
+const expandedLabel = computed(
+  () =>
+    activeSessions.value.find((s) => s.session_id === expandedSession.value)
+      ?.label ?? 'session',
 )
 
 function toggleSession(sessionId: string | null): void {
@@ -79,16 +108,21 @@ function toggleSession(sessionId: string | null): void {
 }
 
 // Collapse the telemetry drawer whenever the selected run changes.
-watch(() => current.value?.id, () => {
-  expandedSession.value = null
-  closeSession()
-})
+watch(
+  () => current.value?.id,
+  () => {
+    expandedSession.value = null
+    closeSession()
+  },
+)
 
 // Close the drawer once its session is no longer active (the step
 // advanced), keeping the workflow view bounded in height.
 watch(activeSessions, (list) => {
-  if (expandedSession.value &&
-      !list.some((s) => s.session_id === expandedSession.value)) {
+  if (
+    expandedSession.value &&
+    !list.some((s) => s.session_id === expandedSession.value)
+  ) {
     expandedSession.value = null
     closeSession()
   }
@@ -105,8 +139,7 @@ async function onCreate(): Promise<void> {
 async function onApprove(): Promise<void> {
   busy.value = 'approve'
   try {
-    await approve(edited.value || undefined)
-    edited.value = ''
+    if (await approve(edited.value || undefined)) edited.value = ''
   } finally {
     busy.value = null
   }
@@ -122,8 +155,7 @@ async function onReject(): Promise<void> {
 async function onRequestChanges(): Promise<void> {
   busy.value = 'changes'
   try {
-    await reject(feedback.value)
-    feedback.value = ''
+    if (await reject(feedback.value)) feedback.value = ''
   } finally {
     busy.value = null
   }
@@ -131,8 +163,7 @@ async function onRequestChanges(): Promise<void> {
 async function onReply(): Promise<void> {
   busy.value = 'reply'
   try {
-    await reply(answer.value)
-    answer.value = ''
+    if (await reply(answer.value)) answer.value = ''
   } finally {
     busy.value = null
   }
@@ -147,9 +178,7 @@ async function onSubmitAnswers(
     busy.value = null
   }
 }
-async function onSaveDraft(
-  answers: Record<string, unknown>,
-): Promise<void> {
+async function onSaveDraft(answers: Record<string, unknown>): Promise<void> {
   try {
     await saveDraft(answers)
   } catch {
@@ -157,483 +186,393 @@ async function onSaveDraft(
   }
 }
 async function onDelete(id: string): Promise<void> {
-  if (!confirm('Abandon this workflow? This permanently deletes its local '
-    + 'clone and all associated sessions. Nothing on GitHub is changed.')) return
+  if (
+    !confirm(
+      'Abandon this workflow? This permanently deletes its local ' +
+        'clone and all associated sessions. Nothing on GitHub is changed.',
+    )
+  )
+    return
   await remove(id)
 }
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
 }
-function stepTone(status: string): string {
-  if (status === 'done') return 'ok'
-  if (status === 'running' || status === 'awaiting_input') return 'agent'
-  if (status === 'awaiting_approval') return 'warn'
-  if (status === 'failed') return 'err'
-  return 'sys'
+// Map a step/run status onto a Vuetify theme colour; `undefined` leaves the
+// chip in its neutral default (pending / not-yet-reached).
+function stepColor(status: string): string | undefined {
+  if (status === 'done') return 'success'
+  if (status === 'running' || status === 'awaiting_input') return 'primary'
+  if (status === 'awaiting_approval') return 'warning'
+  if (status === 'failed') return 'error'
+  return undefined
+}
+// Crew-chip badge token → Vuetify colour.
+const BADGE_COLOR: Record<string, string | undefined> = {
+  user: 'info',
+  agent: 'primary',
+  warn: 'warning',
+  ok: 'success',
+  err: 'error',
+  sys: undefined,
+}
+function badgeColor(token: string): string | undefined {
+  return BADGE_COLOR[token]
 }
 </script>
 
 <template>
-  <div class="console">
-    <aside class="rail">
-      <div class="rail__block">
-        <div class="eyebrow">New workflow</div>
-        <input v-model="repo" class="field" placeholder="owner/name" />
-        <input v-model="issueNumber" type="number" class="field" placeholder="Issue #" />
-        <button class="btn btn--primary" :disabled="busy === 'create'" @click="onCreate">
-          <span aria-hidden="true">⟐</span> {{ busy === 'create' ? 'Starting…' : 'Start workflow' }}
-        </button>
+  <ConsoleShell>
+    <template #rail>
+      <div class="pa-4">
+        <div class="text-overline text-medium-emphasis mb-2">New workflow</div>
+        <v-text-field v-model="repo" label="owner/name" class="mb-2" />
+        <v-text-field
+          v-model.number="issueNumber"
+          type="number"
+          label="Issue #"
+          class="mb-3"
+        />
+        <v-btn
+          block
+          color="primary"
+          prepend-icon="$rocketLaunchOutline"
+          :loading="busy === 'create'"
+          @click="onCreate"
+        >
+          Start workflow
+        </v-btn>
       </div>
-      <div class="rail__block rail__block--grow">
-        <div class="rail__head">
-          <span class="eyebrow">Runs</span>
-          <span class="pill mono">{{ workflows.length }}</span>
-        </div>
-        <div class="sessions scroll">
-          <div v-for="w in workflows" :key="w.id" class="scard-wrap">
-            <button
-              class="scard"
-              :class="{ 'scard--active': w.id === current?.id }"
-              @click="select(w.id)"
-            >
-              <span class="scard__id mono">{{ w.repo }}#{{ w.issue_number }}</span>
-              <span class="scard__meta">
-                <span v-if="w.status.startsWith('awaiting')" class="scard__dot"
-                  aria-hidden="true" />
-                {{ w.status }}
-              </span>
-            </button>
-            <button
-              class="scard__del"
+      <v-divider />
+      <div class="d-flex align-center justify-space-between px-4 py-2">
+        <span class="text-overline text-medium-emphasis">Runs</span>
+        <v-chip size="small" variant="tonal">{{ workflows.length }}</v-chip>
+      </div>
+      <v-list v-if="workflows.length" nav>
+        <v-list-item
+          v-for="w in workflows"
+          :key="w.id"
+          :active="w.id === current?.id"
+          :title="`${w.repo}#${w.issue_number}`"
+          :subtitle="w.status"
+          @click="select(w.id)"
+        >
+          <template #prepend>
+            <v-icon
+              v-if="w.status.startsWith('awaiting')"
+              icon="$circle"
+              color="warning"
+              size="x-small"
+            />
+          </template>
+          <template #append>
+            <v-btn
+              icon="$close"
+              size="x-small"
+              variant="text"
               title="Abandon workflow"
               aria-label="Abandon workflow"
               @click.stop="onDelete(w.id)"
-            >✕</button>
-          </div>
-          <p v-if="!workflows.length" class="sessions__empty mono">
-            No workflows yet
-          </p>
-        </div>
+            />
+          </template>
+        </v-list-item>
+      </v-list>
+      <div v-else class="px-4 text-medium-emphasis text-body-2">
+        No workflows yet
       </div>
-    </aside>
+    </template>
 
-    <section class="stage">
-      <div v-if="error" class="banner" role="alert">
-        <span class="banner__glyph" aria-hidden="true">!</span>
-        <span class="banner__text">{{ error }}</span>
-        <button class="banner__close" @click="error = null">✕</button>
-      </div>
+    <v-alert
+      v-if="error"
+      type="error"
+      closable
+      density="compact"
+      class="ma-4 mb-0 stage__banner"
+      role="alert"
+      @click:close="error = null"
+    >
+      {{ error }}
+    </v-alert>
 
-      <div v-if="current?.error" class="banner" role="alert">
-        <span class="banner__glyph" aria-hidden="true">!</span>
-        <span class="banner__text">Run failed: {{ current.error }}</span>
-      </div>
+    <v-alert
+      v-if="current?.error"
+      type="error"
+      density="compact"
+      class="ma-4 mb-0 stage__banner"
+      role="alert"
+    >
+      Run failed: {{ current.error }}
+    </v-alert>
 
-      <header class="stage__head" v-if="current">
-        <div class="stage__title">
-          <span class="eyebrow">Workflow</span>
-          <a class="stage__id mono" :href="issueUrl" target="_blank" rel="noopener noreferrer">
+    <template v-if="current">
+      <div class="d-flex align-center justify-space-between ga-4 pa-4 border-b">
+        <div class="d-flex align-center ga-2">
+          <span class="text-overline text-medium-emphasis">Workflow</span>
+          <a
+            class="stage__id text-body-1"
+            :href="issueUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {{ current.repo }}#{{ current.issue_number }}
           </a>
         </div>
-        <div class="tracker">
-          <span
+        <div class="d-flex ga-2 flex-wrap">
+          <v-chip
             v-for="name in STEP_LABELS"
             :key="name"
-            class="tracker__step"
-            :class="`t-${stepTone(stepStatus(name))}`"
+            size="small"
+            label
+            :color="stepColor(stepStatus(name))"
+            :variant="stepColor(stepStatus(name)) ? 'tonal' : 'outlined'"
           >
-            <span class="tracker__dot" />{{ name }}
-          </span>
-          <span class="tracker__step" :class="current.pr_url ? 't-ok' : 't-sys'">
-            <span class="tracker__dot" />PR
-          </span>
+            {{ name }}
+          </v-chip>
+          <v-chip
+            size="small"
+            label
+            :color="current.pr_url ? 'success' : undefined"
+            :variant="current.pr_url ? 'tonal' : 'outlined'"
+          >
+            PR
+          </v-chip>
         </div>
-      </header>
+      </div>
 
-      <div class="stage__body scroll" v-if="current">
-        <div v-if="stepRunning" class="crew">
-          <span class="eyebrow">
-            {{ activeStep?.name }}<template
-              v-if="activeStep?.backend"> · {{ activeStep.backend }}</template><template
-              v-if="activeStep?.name === 'refine' && activeStep.refine_round">
-              · round {{ activeStep.refine_round }}/{{ current.refine_round_cap }}
-              (max {{ current.refine_max_rounds }})</template>
+      <div class="stage__body flex-1-1 pa-4 d-flex flex-column ga-4">
+        <div v-if="stepRunning">
+          <div class="text-overline text-medium-emphasis mb-2">
+            {{ activeStep?.name
+            }}<template v-if="activeStep?.backend">
+              · {{ activeStep.backend }}</template
+            ><template
+              v-if="activeStep?.name === 'refine' && activeStep.refine_round"
+            >
+              · round {{ activeStep.refine_round }}/{{
+                current.refine_round_cap
+              }}
+              (max {{ current.refine_max_rounds }})</template
+            >
             · live
-          </span>
-          <div v-if="activeSessions.length" class="chips">
-            <button
+          </div>
+          <div v-if="activeSessions.length" class="d-flex flex-wrap ga-2">
+            <v-chip
               v-for="s in activeSessions"
               :key="s.session_id ?? s.profile_id"
-              type="button"
-              class="chip"
-              :class="[`chip--${s.badge}`,
-                { 'chip--live': s.status === 'running',
-                  'chip--error': s.status === 'error',
-                  'chip--open': expandedSession === s.session_id }]"
+              :color="s.status === 'error' ? 'error' : badgeColor(s.badge)"
+              :variant="expandedSession === s.session_id ? 'flat' : 'tonal'"
               :disabled="!s.session_id"
               :title="s.status === 'error' ? (s.error ?? undefined) : undefined"
               @click="toggleSession(s.session_id)"
             >
-              <!-- live chips sparkle; errored chips show a warning glyph -->
-              <span v-if="s.status === 'running'" class="chip__fx"
-                aria-hidden="true">✦</span>
-              <span v-else-if="s.status === 'error'" class="chip__err-glyph"
-                aria-hidden="true">!</span>
-              <span v-else class="chip__dot" aria-hidden="true" />
-              <span class="chip__text">
-                <span class="chip__label mono">{{ s.label }}</span>
-                <span v-if="s.status === 'error' && s.error"
-                  class="chip__activity chip__activity--err mono">{{ s.error }}</span>
-                <span v-else-if="s.activity" class="chip__activity mono">{{ s.activity }}</span>
+              <template #prepend>
+                <v-progress-circular
+                  v-if="s.status === 'running'"
+                  indeterminate
+                  size="12"
+                  width="2"
+                  class="me-2"
+                />
+                <v-icon
+                  v-else-if="s.status === 'error'"
+                  icon="$alertCircle"
+                  size="small"
+                  class="me-1"
+                />
+              </template>
+              {{ s.label }}
+              <span
+                v-if="s.status === 'error' && s.error"
+                class="ms-1 text-truncate chip__activity"
+              >
+                · {{ s.error }}
               </span>
-            </button>
+              <span
+                v-else-if="s.activity"
+                class="ms-1 text-truncate chip__activity text-medium-emphasis"
+              >
+                · {{ s.activity }}
+              </span>
+            </v-chip>
           </div>
-          <div v-else class="working">
-            <span class="working__pulse" aria-hidden="true" />
-            <span class="mono">{{ activeStep?.name }} — agent is working…</span>
-          </div>
+          <v-alert v-else type="info" density="compact" variant="tonal">
+            <template #prepend>
+              <v-progress-circular indeterminate size="16" width="2" />
+            </template>
+            {{ activeStep?.name }} — agent is working…
+          </v-alert>
         </div>
 
-        <div v-if="awaitingInput || awaitingApproval" class="working working--attention"
-          role="status">
-          <span class="working__pulse working__pulse--warn" aria-hidden="true" />
-          <span class="mono">
-            {{ activeStep?.name }} —
-            {{ awaitingInput ? 'the agent awaits your answers below'
-              : 'awaiting your approval below' }}
-          </span>
-        </div>
+        <v-alert
+          v-if="awaitingInput || awaitingApproval"
+          type="warning"
+          density="compact"
+          variant="tonal"
+          role="status"
+        >
+          {{ activeStep?.name }} —
+          {{
+            awaitingInput
+              ? 'the agent awaits your answers below'
+              : 'awaiting your approval below'
+          }}
+        </v-alert>
 
         <!-- Only prose deliverables (refined issue, plan, a plain agent
-             question) are shown here. A structured deliverable — the
-             questionnaire envelope — is JSON, so deliverableHtml is null and
-             the block is hidden: the form renders it while awaiting input, and
-             nothing dumps the raw JSON during the coordinator's next run. -->
-        <div class="deliverable" v-if="deliverableHtml">
-          <div class="eyebrow">
-            {{ awaitingInput ? `${activeStep?.name} — agent asks` : `${activeStep?.name} deliverable` }}
+               question) are shown here. A structured deliverable — the
+               questionnaire envelope — is JSON, so deliverableHtml is null and
+               the block is hidden: the form renders it while awaiting input,
+               and nothing dumps the raw JSON during the next run. -->
+        <div v-if="deliverableHtml">
+          <div class="text-overline text-medium-emphasis mb-1">
+            {{
+              awaitingInput
+                ? `${activeStep?.name} — agent asks`
+                : `${activeStep?.name} deliverable`
+            }}
           </div>
           <div class="markdown deliverable__prose" v-html="deliverableHtml" />
         </div>
 
-        <div class="gate" v-if="awaitingApproval">
-          <textarea v-model="edited" class="field" rows="4"
-            :placeholder="`Optionally edit the ${activeStep?.name} deliverable before approving…`" />
-          <div class="gate__actions">
-            <button class="btn btn--primary" :disabled="!!busy" @click="onApprove">
-              {{ busy === 'approve' ? 'Approving…' : 'Approve' }}
-            </button>
-            <button class="btn btn--ghost" :disabled="!!busy" @click="onReject">
-              {{ busy === 'reject' ? 'Rejecting…' : 'Reject' }}
-            </button>
+        <div v-if="awaitingApproval" class="d-flex flex-column ga-3">
+          <v-textarea
+            v-model="edited"
+            rows="4"
+            :label="`Optionally edit the ${activeStep?.name} deliverable before approving…`"
+          />
+          <div class="d-flex ga-3">
+            <v-btn
+              color="primary"
+              :loading="busy === 'approve'"
+              @click="onApprove"
+            >
+              Approve
+            </v-btn>
+            <v-btn
+              variant="tonal"
+              :loading="busy === 'reject'"
+              @click="onReject"
+            >
+              Reject
+            </v-btn>
           </div>
-          <textarea v-model="feedback" class="field" rows="3"
-            placeholder="Or describe what to change and send it back…" />
-          <button class="btn" :disabled="!feedback.trim() || !!busy"
-            @click="onRequestChanges">
-            {{ busy === 'changes' ? 'Sending…' : 'Request changes' }}
-          </button>
+          <v-textarea
+            v-model="feedback"
+            rows="3"
+            label="Or describe what to change and send it back…"
+          />
+          <v-btn
+            variant="outlined"
+            :disabled="!feedback.trim()"
+            :loading="busy === 'changes'"
+            @click="onRequestChanges"
+          >
+            Request changes
+          </v-btn>
         </div>
 
-        <div class="gate" v-if="awaitingInput">
-          <QuestionnaireForm v-if="pendingInterview"
+        <div v-if="awaitingInput">
+          <QuestionnaireForm
+            v-if="pendingInterview"
             :questionnaire="pendingInterview.questionnaire"
             :draft-answers="pendingInterview.draft_answers"
             :round="pendingInterview.round"
             :allow-incomplete="current?.allow_incomplete_answers ?? false"
-            @submit="onSubmitAnswers" @save-draft="onSaveDraft" />
-          <template v-else>
-            <textarea v-model="answer" class="field" rows="3"
-              placeholder="Answer the agent's questions…" />
-            <button class="btn btn--primary" :disabled="!!busy" @click="onReply">
-              {{ busy === 'reply' ? 'Sending…' : 'Send reply' }}
-            </button>
-          </template>
+            @submit="onSubmitAnswers"
+            @save-draft="onSaveDraft"
+          />
+          <div v-else class="d-flex flex-column ga-3">
+            <v-textarea
+              v-model="answer"
+              rows="3"
+              label="Answer the agent's questions…"
+            />
+            <v-btn color="primary" :loading="busy === 'reply'" @click="onReply">
+              Send reply
+            </v-btn>
+          </div>
         </div>
 
-        <a v-if="current.pr_url" class="pr-link" :href="current.pr_url" target="_blank"
-          rel="noopener noreferrer">View pull request →</a>
+        <v-btn
+          v-if="current.pr_url"
+          :href="current.pr_url"
+          target="_blank"
+          rel="noopener noreferrer"
+          variant="text"
+          color="primary"
+          append-icon="$arrowRight"
+        >
+          View pull request
+        </v-btn>
 
-        <div class="drawer" v-if="expandedSession">
-          <div class="drawer__head">
-            <span class="eyebrow">Session · {{ expandedLabel }}</span>
-            <button type="button" class="drawer__close mono"
-              @click="toggleSession(expandedSession)">Hide ✕</button>
-          </div>
-          <div class="drawer__feed scroll">
-            <EventCard v-for="(e, i) in events" :key="i"
-              :event="toViewModel(e)" />
-            <p v-if="!events.length" class="drawer__empty mono">
+        <v-card v-if="expandedSession" variant="tonal">
+          <v-card-title class="d-flex align-center justify-space-between py-2">
+            <span class="text-overline">Session · {{ expandedLabel }}</span>
+            <v-btn
+              size="small"
+              variant="text"
+              append-icon="$close"
+              @click="toggleSession(expandedSession)"
+            >
+              Hide
+            </v-btn>
+          </v-card-title>
+          <v-divider />
+          <div class="drawer__feed px-3 pb-3">
+            <EventCard
+              v-for="(e, i) in events"
+              :key="i"
+              :event="toViewModel(e)"
+            />
+            <p v-if="!events.length" class="text-medium-emphasis text-body-2">
               Waiting for activity…
             </p>
           </div>
-        </div>
+        </v-card>
       </div>
+    </template>
 
-      <div class="feed__empty" v-else>
-        <p class="feed__empty-title">No workflow selected</p>
-        <p class="feed__empty-sub mono">Start one from an issue on the left.</p>
-      </div>
-    </section>
-  </div>
+    <v-empty-state
+      v-else
+      headline="No workflow selected"
+      text="Start one from an issue on the left."
+    />
+  </ConsoleShell>
 </template>
 
 <style scoped>
-/* Reuses tokens from styles/theme.css. Layout mirrors SessionPanel. */
-.console { display: flex; height: 100%; min-height: 0; }
-.rail {
-  width: 340px; flex: none; display: flex; flex-direction: column; gap: 4px;
-  padding: 22px 18px; border-right: 1px solid var(--line); background: var(--ink-800);
-  overflow: hidden;
+/* The prose deliverable is capped to a comfortable reading measure; the
+   .markdown element styling itself lives globally in styles/theme.css since
+   scoped rules cannot reach v-html children. */
+.deliverable__prose {
+  max-width: 44rem;
 }
-.rail__block {
-  display: flex; flex-direction: column; gap: 10px; padding: 14px 0 18px;
-  border-bottom: 1px solid var(--line-soft);
-}
-.rail__block:first-child { padding-top: 0; }
-.rail__block--grow { flex: 1; min-height: 0; border-bottom: none; }
-.rail__head { display: flex; align-items: center; justify-content: space-between; }
-.pill {
-  font-size: 11px; color: var(--text-mid); background: var(--ink-700);
-  border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px;
-}
-.sessions { margin-top: 12px; display: flex; flex-direction: column; gap: 8px;
-  overflow-y: auto; min-height: 0; }
-.scard {
-  text-align: left; display: flex; flex-direction: column; gap: 6px;
-  padding: 11px 13px; background: var(--ink-700); border: 1px solid var(--line);
-  border-left: 2px solid var(--line); border-radius: var(--r-md); cursor: pointer;
-}
-.scard--active { border-left-color: var(--signal); background: var(--ink-650); }
-.scard-wrap { position: relative; display: flex; }
-.scard-wrap .scard { flex: 1; width: 100%; padding-right: 30px; }
-.scard__del {
-  position: absolute; top: 8px; right: 8px; width: 20px; height: 20px;
-  display: grid; place-items: center; border: none; border-radius: 4px;
-  background: transparent; color: var(--text-dim); font-size: 12px;
-  cursor: pointer; opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
-}
-.scard-wrap:hover .scard__del, .scard__del:focus-visible { opacity: 1; }
-.scard__del:hover {
-  color: var(--err); background: color-mix(in srgb, var(--err) 15%, transparent);
-}
-.scard__id { font-size: 12.5px; color: var(--text-hi); }
-.scard__meta { font-size: 11.5px; color: var(--text-mid); }
-.sessions__empty { color: var(--text-dim); font-size: 12px; padding: 8px 2px; }
-.stage { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.stage__head {
-  flex: none; display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 20px 24px 18px; border-bottom: 1px solid var(--line);
-}
-.stage__title { display: flex; align-items: baseline; gap: 12px; }
 .stage__id {
-  font-size: 15px; color: var(--text-hi); text-decoration: none;
-  border-bottom: 1px dotted var(--line);
+  color: rgb(var(--v-theme-primary));
+  text-decoration: none;
 }
-.stage__id:hover { color: var(--signal); border-bottom-color: var(--signal); }
-.tracker { display: flex; gap: 14px; }
-.tracker__step {
-  --c: var(--idle); display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--c);
+.stage__body {
+  overflow-y: auto;
 }
-.tracker__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
-.t-sys { --c: var(--idle); } .t-agent { --c: var(--signal); }
-.t-warn { --c: var(--warn); } .t-ok { --c: var(--ok); } .t-err { --c: var(--err); }
-.stage__body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 18px; }
-/* Cap rendered prose to a comfortable reading measure (~66ch) instead of the
-   full stage width — matches the .qform convention. The .markdown element
-   styling itself lives globally in theme.css (scoped rules can't reach
-   v-html children). */
-.deliverable__prose { max-width: 44rem; margin: 6px 0 0; }
-.working {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--ink-700); color: var(--text-mid); font-size: 12.5px;
+/* v-alert defaults to `flex: 1 1 auto`, so as a child of the flex-column
+   stage it both grows to fill empty space and (because its overflow is
+   hidden, collapsing its auto min-height) shrinks to a sliver under a tall
+   sibling. Pin banners and body children to their natural height; only the
+   body itself (flex-1-1) grows and scrolls. `auto` basis is essential —
+   the flex-grow-0/flex-shrink-0 utilities set a 0% basis, which re-collapses
+   the alert. */
+.stage__banner,
+.stage__body > * {
+  flex: 0 0 auto;
 }
-.working__pulse {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--signal);
-  box-shadow: 0 0 0 0 rgba(53, 230, 201, 0.45);
-  animation: working-pulse 1.4s ease-out infinite;
-}
-@keyframes working-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(53, 230, 201, 0.45); }
-  70% { box-shadow: 0 0 0 7px rgba(53, 230, 201, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(53, 230, 201, 0); }
-}
-.working--attention { border-color: var(--warn); color: var(--text-hi); }
-.working__pulse--warn {
-  background: var(--warn);
-  animation: attention-pulse 1.4s ease-out infinite;
-}
-.scard__dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  margin-right: 6px; background: var(--warn);
-  animation: attention-pulse 1.4s ease-out infinite;
-}
-@keyframes attention-pulse {
-  0% {
-    box-shadow: 0 0 0 0
-      color-mix(in srgb, var(--warn) 45%, transparent);
-  }
-  70% { box-shadow: 0 0 0 7px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-.gate { display: flex; flex-direction: column; gap: 10px; }
-.gate__actions { display: flex; gap: 10px; }
-.gate__actions .btn { width: auto; padding-left: 22px; padding-right: 22px; }
-.pr-link { color: var(--signal); font-weight: 600; text-decoration: none; }
-
-/* Crew band — the named specialist sessions active right now. This is
-   the workflow view's signature: mnemonics only, each pulsing while its
-   session is live, the verbose telemetry tucked away until asked for. */
-.crew { display: flex; flex-direction: column; gap: 8px; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
-  --c: var(--idle);
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 12px 6px 10px;
-  background: var(--ink-700); color: var(--text-mid);
-  border: 1px solid var(--line); border-radius: 999px;
-  cursor: pointer; font-family: var(--font-sans);
-  transition: border-color 0.15s ease, background 0.15s ease,
-    color 0.15s ease;
-}
-.chip:hover:not(:disabled) { border-color: var(--c); color: var(--text-hi); }
-.chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--signal-glow); }
-.chip:disabled { cursor: default; opacity: 0.6; }
-/* Label stacked over its live activity hint, so a chip reads
-   "Writer / editing" without widening into a second pill. */
-.chip__text {
-  display: inline-flex; flex-direction: column; align-items: flex-start;
-  line-height: 1.15;
-}
-.chip__label { font-size: 12.5px; }
-.chip__activity {
-  font-size: 9.5px; color: var(--text-dim); text-transform: lowercase;
-  letter-spacing: 0.02em;
-  /* An error reason can be long: keep the chip compact, full text in title. */
-  max-width: 22ch; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chip__activity--err { color: var(--err); text-transform: none; }
-.chip__dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--c);
-  flex: none;
-}
-.chip--open {
-  border-color: var(--c); color: var(--text-hi);
-  background: var(--ink-650);
-}
-.chip--user { --c: var(--user); }
-.chip--agent { --c: var(--signal); }
-.chip--warn { --c: var(--warn); }
-.chip--ok { --c: var(--ok); }
-.chip--err { --c: var(--err); }
-.chip--sys { --c: var(--idle); }
-
-/* A failed sub-agent (crash/timeout/no-response). Status-driven, distinct
-   from the badge tone .chip--err; mirrors the red .banner treatment. */
-.chip--error {
-  --c: var(--err);
-  border-color: var(--err);
-  background: color-mix(in srgb, var(--err) 12%, var(--ink-700));
-}
-.chip__err-glyph {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 13px; height: 13px; border-radius: 50%; flex: none;
-  font-size: 9px; font-weight: 700; line-height: 1;
-  color: var(--ink-900); background: var(--err);
-}
-
-/* ---- live-chip flourish — SWAPPABLE (rainbow border + sparkle) -------
-   A running chip gets two combined effects: an animated rainbow gradient
-   flowing through its border, and a bright ✦ sparkle in place of the
-   resting dot. Border technique: two backgrounds — the chip fill on
-   padding-box, the rainbow on border-box — with the border made
-   transparent so the gradient shows through it; the border layer is
-   oversized and its position animated for a seamless flow. To try a
-   different effect, replace this block; nothing else references it. */
-.chip__fx {
-  font-size: 11px;
-  line-height: 1;
-  flex: none;
-  color: color-mix(in srgb, var(--c) 72%, white);
-  transform-origin: center;
-  animation: chip-sparkle 1.6s ease-in-out infinite;
-}
-@keyframes chip-sparkle {
-  0%, 100% {
-    opacity: 0.6;
-    transform: scale(0.85) rotate(0deg);
-    filter: drop-shadow(0 0 2px var(--c));
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.2) rotate(90deg);
-    filter: drop-shadow(0 0 6px var(--c));
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .chip__fx { animation: none; opacity: 0.9; }
-}
-.chip--live {
-  border-color: transparent;
-  background:
-    linear-gradient(var(--ink-700), var(--ink-700)) padding-box,
-    linear-gradient(90deg,
-      #ff6b8b, #ffb347, #ffe66d, #4ade80, #38bdf8, #a78bfa, #ff6b8b)
-      border-box;
-  background-size: 100% 100%, 220% 100%;
-  animation: chip-rainbow 6s linear infinite;
-}
-@keyframes chip-rainbow {
-  to { background-position: 0 0, -220% 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .chip--live { animation: none; }
-}
-/* --------------------------------------------------------------------- */
-
-/* Telemetry drawer — opened on demand from a chip, capped in height so
-   the raw event stream can never push the panel around. */
-.drawer {
-  display: flex; flex-direction: column; gap: 6px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--ink-750); overflow: hidden;
-}
-.drawer__head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 12px; border-bottom: 1px solid var(--line-soft);
-}
-.drawer__close {
-  background: none; border: none; color: var(--text-dim);
-  cursor: pointer; font-size: 11px; letter-spacing: 0.04em;
-}
-.drawer__close:hover { color: var(--text-hi); }
+/* Keep the on-demand telemetry drawer bounded so the raw event stream can
+   never push the panel around. */
 .drawer__feed {
-  display: flex; flex-direction: column; gap: 4px;
-  max-height: 300px; overflow-y: auto; padding: 8px 12px 12px;
+  max-height: 300px;
+  overflow-y: auto;
 }
-.drawer__empty { color: var(--text-dim); font-size: 12px; padding: 6px 2px; }
-.feed { display: flex; flex-direction: column; gap: 4px; }
-.banner {
-  display: flex; align-items: center; gap: 12px; margin: 16px 24px 0;
-  padding: 11px 14px; border: 1px solid var(--err); border-left: 3px solid var(--err);
-  border-radius: var(--r-md); background: color-mix(in srgb, var(--err) 12%, var(--ink-800));
-  font-size: 13px;
+/* An error/activity hint on a crew chip can be long: keep the chip compact. */
+.chip__activity {
+  max-width: 22ch;
 }
-.banner__glyph {
-  display: grid; place-items: center; width: 20px; height: 20px; flex: none;
-  border-radius: 50%; background: var(--err); color: var(--ink-900); font-weight: 700;
-}
-.banner__text { flex: 1; }
-.banner__close { background: none; border: none; color: var(--text-mid); cursor: pointer; }
-.feed__empty {
-  height: 100%; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 6px;
-}
-.feed__empty-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-mid); }
-.feed__empty-sub { margin: 0; font-size: 12px; color: var(--text-dim); }
 </style>

@@ -1,9 +1,9 @@
 """Alembic environment wiring kestrel settings and metadata."""
 from __future__ import annotations
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from app.config import Settings
 from app.persistence.tables import Base
 

@@ -31,13 +31,14 @@ describe('useWorkflows', () => {
   it('refresh populates workflows from the api', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify([
-            { id: 'wf-1', repo: 'o/r', issue_number: 3, status: 'planning' },
-          ]),
-          { status: 200 },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              { id: 'wf-1', repo: 'o/r', issue_number: 3, status: 'planning' },
+            ]),
+            { status: 200 },
+          ),
       ),
     )
     const { workflows, refresh } = useWorkflows()
@@ -68,9 +69,16 @@ describe('useWorkflows', () => {
     expect(esInstances).toBe(1)
     expect(lastEs?.url).toContain('/api/workflows/wf-1/events')
     lastEs?.emit({
-      id: 'wf-1', repo: 'o/r', issue_number: 3, issue_title: 't',
-      status: 'refining', branch: 'b', steps: [],
-      current_session_id: null, active_sessions: [], pr_url: null,
+      id: 'wf-1',
+      repo: 'o/r',
+      issue_number: 3,
+      issue_title: 't',
+      status: 'refining',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      pr_url: null,
       error: null,
     })
     expect(current.value?.status).toBe('refining')
@@ -79,26 +87,36 @@ describe('useWorkflows', () => {
   it('applies live snapshots to the sidebar list card status', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify([
-            { id: 'wf-2', repo: 'o/r', issue_number: 4, status: 'cloning' },
-          ]),
-          { status: 200 },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              { id: 'wf-2', repo: 'o/r', issue_number: 4, status: 'cloning' },
+            ]),
+            { status: 200 },
+          ),
       ),
     )
     const { workflows, refresh, select } = useWorkflows()
     await refresh()
     select('wf-2')
     lastEs?.emit({
-      id: 'wf-2', repo: 'o/r', issue_number: 4, issue_title: 't',
-      status: 'refining', branch: 'b', steps: [],
-      current_session_id: null, active_sessions: [], pr_url: null,
+      id: 'wf-2',
+      repo: 'o/r',
+      issue_number: 4,
+      issue_title: 't',
+      status: 'refining',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      pr_url: null,
       error: null,
     })
     // The list card status advanced from its create-time value, live.
-    expect(workflows.value.find((w) => w.id === 'wf-2')?.status).toBe('refining')
+    expect(workflows.value.find((w) => w.id === 'wf-2')?.status).toBe(
+      'refining',
+    )
   })
 
   it('stop closes the active EventSource', async () => {
@@ -123,16 +141,24 @@ describe('useWorkflows', () => {
   })
 
   it('reject sends the refinement prompt', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ status: 'ok' }), { status: 200 }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: 'ok' }), { status: 200 }),
     )
     vi.stubGlobal('fetch', fetchMock)
     const wf = useWorkflows()
     // a current run must be selected for reject() to post
     wf.current.value = {
-      id: 'wf-1', repo: 'o/r', issue_number: 1, issue_title: 't',
-      status: 'awaiting_plan_approval', branch: 'b', steps: [],
-      current_session_id: null, active_sessions: [], pr_url: null,
+      id: 'wf-1',
+      repo: 'o/r',
+      issue_number: 1,
+      issue_title: 't',
+      status: 'awaiting_plan_approval',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      pr_url: null,
       error: null,
     }
     await wf.reject('tighten scope')
@@ -146,5 +172,29 @@ describe('useWorkflows', () => {
     expect(JSON.parse((init2 as RequestInit).body as string)).toEqual({
       refinement_prompt: null,
     })
+  })
+
+  it('surfaces a gate-action failure instead of doing nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('no gate awaiting', { status: 409 })),
+    )
+    const wf = useWorkflows()
+    wf.current.value = {
+      id: 'wf-1',
+      repo: 'o/r',
+      issue_number: 1,
+      issue_title: 't',
+      status: 'awaiting_refine_approval',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      pr_url: null,
+      error: null,
+    }
+    const ok = await wf.reject()
+    expect(ok).toBe(false)
+    expect(wf.error.value).toBeTruthy()
   })
 })

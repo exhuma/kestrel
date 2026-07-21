@@ -19,7 +19,11 @@ def main() -> None:
     """Start uvicorn for ``app.main:app`` with the configured logging."""
     settings = get_settings()
     log_config = build_log_config(settings.log_level, settings.log_format)
-    reload = os.environ.get("KESTREL_RELOAD", "").lower() in {"1", "true", "yes"}
+    reload = os.environ.get("KESTREL_RELOAD", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     uvicorn.run(
         "app.main:app",
         host=os.environ.get("KESTREL_HOST", "0.0.0.0"),

@@ -5,8 +5,8 @@ from functools import lru_cache
 
 from app.backends.base import Backend
 from app.backends.claude_cli import ClaudeCliBackend
-from app.backends.opencode import OpenCodeBackend
 from app.backends.openai_compat import OpenAICompatBackend
+from app.backends.opencode import OpenCodeBackend
 from app.config import BackendConfig, Settings, get_settings
 from app.storage.registry import SessionRegistry, get_registry
 

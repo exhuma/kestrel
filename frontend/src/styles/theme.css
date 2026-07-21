@@ -1,49 +1,13 @@
 /*
- * kestrel — Mission Control design tokens.
- * Layered navy "ink" (not black), one mint-teal signal, and a real
- * status palette because status telemetry is what this tool shows.
- * Single source of truth for colour and type; components reference
- * these variables and add nothing new.
+ * Global styles that Vuetify does not own.
+ *
+ * Colours, typography, and component surfaces now come from Vuetify's built-in
+ * light/dark themes (see main.ts) — there is no bespoke token layer here any
+ * more. What remains: base document resets, a reduced-motion guard, and the
+ * `.markdown` prose rules, which must be global because that markup comes from
+ * `v-html` and scoped styles cannot reach it. Every colour below is sourced
+ * from the active Vuetify theme via `rgb(var(--v-theme-*))`.
  */
-:root {
-  /* Surfaces — deepest at the back, each layer a step lighter */
-  --ink-900: #0b1220; /* app background */
-  --ink-850: #0e1626; /* header / recessed */
-  --ink-800: #111a2b; /* dispatch rail */
-  --ink-750: #14203a; /* input wells */
-  --ink-700: #16213a; /* cards / stage surface */
-  --ink-650: #1b2942; /* hover */
-  --line: #223049; /* hairline borders */
-  --line-soft: #1a2438;
-
-  /* Text */
-  --text-hi: #e6edf7;
-  --text-mid: #9fb0c7;
-  --text-dim: #62748c;
-
-  /* Signal + status */
-  --signal: #35e6c9; /* primary action / live */
-  --signal-ink: #04231f; /* text on signal fills */
-  --signal-glow: rgba(53, 230, 201, 0.16);
-  --run: #35e6c9;
-  --idle: #7c8ca5;
-  --ok: #5bd98a;
-  --warn: #f5b14c;
-  --err: #f2727f;
-  --user: #6ea8ff;
-
-  /* Type */
-  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
-
-  /* Rhythm */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --pad: 20px;
-  --header-h: 60px;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -56,163 +20,78 @@ body,
 
 body {
   margin: 0;
-  background: var(--ink-900);
-  color: var(--text-hi);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* Instrument-panel label: uppercase mono eyebrow */
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.mono {
-  font-family: var(--font-mono);
-}
-
-/* Native controls, mission-control styled */
-.field {
-  width: 100%;
-  resize: vertical;
-  background: var(--ink-750);
-  color: var(--text-hi);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 12px 14px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-.field::placeholder {
-  color: var(--text-dim);
-}
-.field:focus {
-  outline: none;
-  border-color: var(--signal);
-  box-shadow: 0 0 0 3px var(--signal-glow);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 11px 16px;
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  transition:
-    transform 0.08s ease,
-    background 0.15s ease,
-    border-color 0.15s ease,
-    opacity 0.15s ease;
-}
-.btn:active {
-  transform: translateY(1px);
-}
-.btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--signal-glow);
-}
-.btn--primary {
-  background: var(--signal);
-  color: var(--signal-ink);
-}
-.btn--primary:hover {
-  background: #4ff0d6;
-}
-.btn--ghost {
-  background: transparent;
-  color: var(--text-hi);
-  border-color: var(--line);
-}
-.btn--ghost:hover {
-  border-color: var(--idle);
-  background: var(--ink-700);
-}
-.btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* Quiet, thin scrollbars so the feed reads as an instrument */
-.scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-}
-.scroll::-webkit-scrollbar {
-  width: 8px;
-}
-.scroll::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 8px;
-}
-.scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
 /* Rendered markdown prose (refined issue, plan). Global rather than scoped
    because these elements come from v-html and scoped rules can't reach them.
-   The reading measure (max-width) is set by the host block (.deliverable__prose). */
+   The reading measure (max-width) is set by the host block. */
 .markdown {
-  color: var(--text-mid);
-  font-family: var(--font-sans);
-  font-size: 13.5px;
+  color: rgba(var(--v-theme-on-surface), 0.8);
   line-height: 1.6;
 }
-.markdown > :first-child { margin-top: 0; }
-.markdown > :last-child { margin-bottom: 0; }
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
 .markdown h1,
 .markdown h2,
 .markdown h3,
 .markdown h4 {
-  color: var(--text-hi);
+  color: rgb(var(--v-theme-on-surface));
   font-weight: 600;
   line-height: 1.3;
   margin: 1.4em 0 0.5em;
 }
-.markdown h1 { font-size: 1.5em; }
-.markdown h2 { font-size: 1.3em; }
-.markdown h3 { font-size: 1.12em; }
-.markdown h4 { font-size: 1em; }
-.markdown p { margin: 0.7em 0; }
+.markdown h1 {
+  font-size: 1.5em;
+}
+.markdown h2 {
+  font-size: 1.3em;
+}
+.markdown h3 {
+  font-size: 1.12em;
+}
+.markdown h4 {
+  font-size: 1em;
+}
+.markdown p {
+  margin: 0.7em 0;
+}
 .markdown ul,
-.markdown ol { margin: 0.7em 0; padding-left: 1.5em; }
-.markdown li { margin: 0.25em 0; }
+.markdown ol {
+  margin: 0.7em 0;
+  padding-left: 1.5em;
+}
+.markdown li {
+  margin: 0.25em 0;
+}
 .markdown li > ul,
-.markdown li > ol { margin: 0.25em 0; }
-.markdown a { color: var(--signal); text-decoration: underline; }
-.markdown a:hover { color: #4ff0d6; }
-.markdown strong { color: var(--text-hi); font-weight: 600; }
+.markdown li > ol {
+  margin: 0.25em 0;
+}
+.markdown a {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
+}
+.markdown strong {
+  color: rgb(var(--v-theme-on-surface));
+  font-weight: 600;
+}
 .markdown code {
-  font-family: var(--font-mono);
   font-size: 0.88em;
-  background: var(--ink-750);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  background: rgb(var(--v-theme-surface-light));
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 4px;
   padding: 0.1em 0.35em;
 }
 .markdown pre {
-  background: var(--ink-750);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  background: rgb(var(--v-theme-surface-light));
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
   padding: 12px 14px;
   margin: 0.8em 0;
   overflow-x: auto;
@@ -222,19 +101,33 @@ body {
   border: none;
   padding: 0;
   font-size: 12.5px;
-  color: var(--text-hi);
+  color: rgb(var(--v-theme-on-surface));
 }
 .markdown blockquote {
   margin: 0.8em 0;
   padding: 0.2em 0 0.2em 1em;
-  border-left: 3px solid var(--line);
-  color: var(--text-dim);
+  border-left: 3px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
-.markdown hr { border: none; border-top: 1px solid var(--line); margin: 1.4em 0; }
-.markdown table { border-collapse: collapse; margin: 0.8em 0; }
+.markdown hr {
+  border: none;
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  margin: 1.4em 0;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
 .markdown th,
-.markdown td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
-.markdown th { color: var(--text-hi); font-weight: 600; }
+.markdown td {
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown th {
+  color: rgb(var(--v-theme-on-surface));
+  font-weight: 600;
+}
 
 @media (prefers-reduced-motion: reduce) {
   * {

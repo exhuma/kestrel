@@ -10,6 +10,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.middleware import (
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    VersionHeaderMiddleware,
+)
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
@@ -107,6 +112,16 @@ def create_app() -> FastAPI:
             },
         )
 
+    # Cross-cutting HTTP middleware (see module-http-middleware-hardening).
+    # ORDER MATTERS: Starlette applies middleware LIFO, so the LAST
+    # add_middleware call sits OUTERMOST and runs first on the way in. Keep
+    # CORS last so it answers preflight OPTIONS before any inner layer; keep
+    # request logging inside it so the log line reflects the real handler.
+    # Do not reorder. (Rate limiting is intentionally omitted: single-user
+    # localhost tool — add a limiter here if ever exposed beyond loopback.)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(VersionHeaderMiddleware, version=get_settings().version)
+    app.add_middleware(RequestLoggingMiddleware)
     # Personal single-user dev tool: allow the SPA from any local port
     # (Vite may pick 5173, 5174, ... depending on what is free) served
     # from any loopback host (localhost, 127.0.0.1, or IPv6 ::1) — the
@@ -118,35 +133,61 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get("/healthz")
-    async def healthz() -> JSONResponse:
-        """Readiness probe used by the container/compose healthcheck.
+    # Health probes (see module-observability-healthz). The running version
+    # rides the X-Kestrel-Version response header (VersionHeaderMiddleware),
+    # not the body — health payloads must not leak version fingerprints.
+    from app.health import (
+        build_response,
+        check_database,
+        overall_status,
+        status_code,
+    )
 
-        Reports the running image version and verifies the database is
-        reachable (a cheap ``SELECT 1``). Returns HTTP 503 if the DB is
-        unreachable so an unready container is flagged rather than served.
+    @app.get("/livez")
+    async def livez() -> JSONResponse:
+        """Liveness: the process is up. Touches no external dependency."""
+        return JSONResponse(build_response("livez", [], "ok"))
+
+    @app.get("/readyz")
+    async def readyz() -> JSONResponse:
+        """Readiness: required dependencies (the database) are usable.
+
+        Returns HTTP 503 when the database is unreachable so an unready
+        container is gated out of traffic rather than served.
         """
-        from sqlalchemy import text
-
         from app.persistence.db import get_engine
 
-        version = get_settings().version
-        try:
-            with get_engine().connect() as conn:
-                conn.execute(text("SELECT 1"))
-        except Exception:  # pragma: no cover - defensive: DB down at runtime
-            _logger.exception("healthz: database check failed")
-            return JSONResponse(
-                status_code=503,
-                content={"status": "unavailable", "version": version},
-            )
-        return JSONResponse(content={"status": "ok", "version": version})
+        components = [await check_database(get_engine())]
+        status = overall_status(components, include_optional=False)
+        return JSONResponse(
+            build_response("readyz", components, status),
+            status_code=status_code(status),
+        )
+
+    @app.get("/healthz")
+    async def healthz() -> JSONResponse:
+        """Operational summary over required and optional dependencies."""
+        from app.persistence.db import get_engine
+
+        components = [await check_database(get_engine())]
+        status = overall_status(components, include_optional=True)
+        return JSONResponse(
+            build_response("healthz", components, status),
+            status_code=status_code(status),
+        )
 
     from app.routers import notifications, sessions, workflows
 
     app.include_router(sessions.router)
     app.include_router(workflows.router)
     app.include_router(notifications.router)
+
+    # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op
+    # unless KESTREL_OTEL_ENABLED: instruments the app + logging so spans and
+    # trace-linked log fields flow when a collector is configured.
+    from app import telemetry
+
+    telemetry.init_tracing(app, get_settings())
 
     # When packaged as a single image the backend also serves the built SPA.
     # Mounted last so the API routers above keep priority; html=True serves

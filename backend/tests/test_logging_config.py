@@ -4,7 +4,12 @@ from __future__ import annotations
 import json
 import logging
 
-from app.logging_config import JsonFormatter, build_log_config, configure_logging
+from app.logging_config import (
+    JsonFormatter,
+    TraceContextFilter,
+    build_log_config,
+    configure_logging,
+)
 
 
 def _record(**kw: object) -> logging.LogRecord:
@@ -42,6 +47,42 @@ def test_json_formatter_includes_exception() -> None:
         rec = _record(exc_info=sys.exc_info())
     doc = json.loads(JsonFormatter().format(rec))
     assert "boom" in doc["exception"]
+
+
+def test_json_formatter_includes_trace_context() -> None:
+    """Ensure OTel-enriched trace_id/span_id surface in the JSON payload."""
+    rec = _record()
+    # Simulate the attributes OpenTelemetry's LoggingInstrumentor injects.
+    rec.otelTraceID = "abc123"
+    rec.otelSpanID = "def456"
+    TraceContextFilter().filter(rec)
+    doc = json.loads(JsonFormatter().format(rec))
+    assert doc["trace_id"] == "abc123"
+    assert doc["span_id"] == "def456"
+
+
+def test_json_formatter_omits_trace_context_when_unset() -> None:
+    """Ensure the sentinel '-' is not emitted as a trace id."""
+    rec = _record()
+    TraceContextFilter().filter(rec)  # no span active -> stamps "-"
+    doc = json.loads(JsonFormatter().format(rec))
+    assert "trace_id" not in doc
+    assert "span_id" not in doc
+
+
+def test_trace_context_filter_stamps_records() -> None:
+    """Ensure the filter always provides trace_id/span_id attributes."""
+    rec = _record()
+    assert TraceContextFilter().filter(rec) is True
+    assert rec.trace_id == "-"
+    assert rec.span_id == "-"
+
+
+def test_build_log_config_wires_trace_context_filter() -> None:
+    """Ensure the stream handler carries the trace-context filter."""
+    cfg = build_log_config("info", "json")
+    assert "trace_context" in cfg["filters"]
+    assert cfg["handlers"]["default"]["filters"] == ["trace_context"]
 
 
 def test_build_log_config_unifies_uvicorn_with_root() -> None:

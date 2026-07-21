@@ -36,5 +36,29 @@ export function useNotifications() {
 
   const unreadCount = computed(() => items.value.filter((n) => !n.read).length)
 
-  return { items, unreadCount, refresh, markRead, start, stop }
+  // Split by signal class so the UI can separate gates that block on the
+  // human from terminal catch-up items (module-notification-alarm-discipline).
+  const actionRequired = computed(() =>
+    items.value.filter((n) => n.signal_class === 'action_required'),
+  )
+  const summaries = computed(() =>
+    items.value.filter((n) => n.signal_class === 'summary'),
+  )
+  // Badge = things still needing action, not "unread everything": an unread
+  // summary is catch-up, not a call to act.
+  const actionRequiredCount = computed(
+    () => actionRequired.value.filter((n) => !n.read).length,
+  )
+
+  return {
+    items,
+    unreadCount,
+    actionRequired,
+    summaries,
+    actionRequiredCount,
+    refresh,
+    markRead,
+    start,
+    stop,
+  }
 }

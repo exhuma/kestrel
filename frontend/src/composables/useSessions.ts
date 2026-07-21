@@ -28,10 +28,9 @@ export function useSessions() {
   async function start(prompt: string): Promise<string | null> {
     error.value = null
     try {
-      const out = await api.post<{ session_id: string }>(
-        '/api/sessions',
-        { prompt },
-      )
+      const out = await api.post<{ session_id: string }>('/api/sessions', {
+        prompt,
+      })
       await refresh()
       return out.session_id
     } catch (e) {
@@ -40,10 +39,7 @@ export function useSessions() {
     }
   }
 
-  async function resume(
-    id: string,
-    prompt: string,
-  ): Promise<string | null> {
+  async function resume(id: string, prompt: string): Promise<string | null> {
     error.value = null
     try {
       const out = await api.post<{ session_id: string }>(
@@ -82,7 +78,7 @@ export function useSessions() {
   async function remove(id: string): Promise<void> {
     error.value = null
     try {
-      await api.del(`/api/sessions/${id}`)
+      await api.delete(`/api/sessions/${id}`)
       await refresh()
     } catch (e) {
       error.value = describe(e)

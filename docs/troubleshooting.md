@@ -64,23 +64,24 @@ ports:
 
 ## The container shows `unhealthy`
 
-`GET /healthz` returns 503 when the database is unreachable. Check the logs
-(`docker compose logs kestrel`) for a migration or database error, and verify
-the `/data` volume is writable. Confirm liveness directly:
+`GET /readyz` (the healthcheck endpoint) returns 503 when the database is
+unreachable. Check the logs (`docker compose logs kestrel`) for a migration or
+database error, and verify the `/data` volume is writable. Confirm readiness
+directly:
 
 ```bash
-curl -s http://localhost:8000/healthz
-# {"status":"ok","version":"2026.7.3-alpha.1"}   when ready
+curl -s http://localhost:8000/readyz
+# {"probe":"readyz","status":"ok","checked_at":"…","components":[…]}   when ready
 ```
 
 ## Which version am I running?
 
 ```bash
-curl -s http://localhost:8000/healthz
+curl -sD - -o /dev/null http://localhost:8000/livez | grep -i x-kestrel-version
 ```
 
-The `version` field reports the baked-in image version. A from-source run
-reports `0.0.0-dev`.
+The `X-Kestrel-Version` header reports the baked-in image version. A
+from-source run reports `0.0.0-dev`.
 
 ## Backend edits are not taking effect
 

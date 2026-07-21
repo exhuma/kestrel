@@ -21,7 +21,7 @@ services:
       - "host.docker.internal:host-gateway"
     # Surface readiness to `docker compose ps` and enable
     # `depends_on: condition: service_healthy`. Mirrors the image's own
-    # HEALTHCHECK (GET /healthz, which also checks the database).
+    # HEALTHCHECK (GET /readyz, which checks the database).
     healthcheck:
       test:
         - CMD
@@ -30,7 +30,7 @@ services:
         - >-
           import urllib.request,sys;
           sys.exit(0 if urllib.request.urlopen(
-          'http://127.0.0.1:8000/healthz').status==200 else 1)
+          'http://127.0.0.1:8000/readyz').status==200 else 1)
       interval: 30s
       timeout: 5s
       start_period: 20s

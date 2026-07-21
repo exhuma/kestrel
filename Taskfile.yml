@@ -1,0 +1,64 @@
+# Taskfile — https://taskfile.dev
+#
+# Convenience wrapper around the native "running from source" dev workflow
+# documented in docs/development.md: the FastAPI backend under `uv` and the
+# Vite frontend under `npm`, run directly on the host (not via Docker Compose,
+# because the backend spawns the host `claude` CLI). To just *run* kestrel, use
+# the Docker image / `docker compose` instead.
+#
+# Quick start:
+#   task setup   # one-time: install deps, seed backend/.env, run migrations
+#   task dev     # run backend + frontend dev servers together
+
+version: '3'
+
+tasks:
+  default:
+    desc: 'List available tasks.'
+    cmds:
+      - task --list
+    silent: true
+
+  setup:
+    desc: 'Prepare the dev environment (backend + frontend).'
+    deps:
+      - setup:backend
+      - setup:frontend
+
+  setup:backend:
+    desc: 'Install backend deps, seed backend/.env, apply DB migrations.'
+    dir: backend
+    cmds:
+      - uv sync
+      # Seed a local .env from the example on first run (gitignored, never
+      # overwritten if it already exists).
+      - 'test -f .env || cp .env.example .env'
+      - uv run alembic upgrade head
+
+  setup:frontend:
+    desc: 'Install frontend dependencies.'
+    dir: frontend
+    cmds:
+      - npm install
+
+  dev:
+    desc: 'Run the backend and frontend dev servers together.'
+    deps:
+      - backend
+      - frontend
+
+  backend:
+    desc: 'Run the backend API dev server (hot-reload, unified logs) on :8000.'
+    dir: backend
+    env:
+      # The package launcher gives the same unified logging the container uses,
+      # with hot-reload — see docs/development.md.
+      KESTREL_RELOAD: '1'
+    cmds:
+      - uv run python -m app
+
+  frontend:
+    desc: 'Run the Vite frontend dev server on :5173.'
+    dir: frontend
+    cmds:
+      - npm run dev

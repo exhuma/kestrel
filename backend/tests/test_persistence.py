@@ -1,15 +1,14 @@
 """Tests for the persistence layer and migrations."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
-import json
-
+from alembic import command
 from app.models import CanonicalEvent, EventKind
 from app.persistence.store import SessionStore
 from app.persistence.tables import EventRow, SessionRow

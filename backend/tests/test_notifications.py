@@ -4,12 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
+from alembic import command
 from app.models_workflow import WorkflowRun
-from app.notifications import InAppNotifier, render_message
+from app.notifications import InAppNotifier, render_message, signal_class
 from app.persistence.notification_store import NotificationStore
 
 
@@ -50,6 +50,14 @@ def test_render_message_falls_back_for_unknown_status() -> None:
     """Ensure an unrecognised status still renders something useful."""
     msg = render_message(_run("some_future_status"))
     assert "o/r#5" in msg
+
+
+def test_signal_class_splits_gates_from_summaries() -> None:
+    """Ensure awaiting_* gates are action-required and rest are summaries."""
+    assert signal_class("awaiting_plan_approval") == "action_required"
+    assert signal_class("awaiting_refine_input") == "action_required"
+    assert signal_class("done") == "summary"
+    assert signal_class("failed") == "summary"
 
 
 def test_in_app_notifier_records_awaiting_status(tmp_path: Path) -> None:

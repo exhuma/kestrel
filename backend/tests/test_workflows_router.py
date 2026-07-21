@@ -89,7 +89,9 @@ def _client(service):
 async def test_create_returns_id() -> None:
     """Ensure POST /api/workflows returns a workflow id."""
     async with _client(_FakeService()) as c:
-        r = await c.post("/api/workflows", json={"repo": "o/r", "issue_number": 3})
+        r = await c.post(
+            "/api/workflows", json={"repo": "o/r", "issue_number": 3}
+        )
     assert r.status_code == 200
     assert r.json()["workflow_id"] == "wf-1"
 
@@ -185,7 +187,11 @@ async def test_detail_exposes_step_backend_and_round_caps() -> None:
     body = r.json()
     assert r.status_code == 200
     # Default config routes every step to the sole "claude" backend.
-    assert [s["backend"] for s in body["steps"]] == ["claude", "claude", "claude"]
+    assert [s["backend"] for s in body["steps"]] == [
+        "claude",
+        "claude",
+        "claude",
+    ]
     assert body["refine_max_rounds"] == MAX_REFINE_ROUNDS_HARD
     # No interview envelope in the deliverable -> base cap.
     assert body["refine_round_cap"] == MAX_REFINE_ROUNDS

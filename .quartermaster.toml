@@ -1,0 +1,19 @@
+# Quartermaster repo configuration.
+#
+# Records the major version of each multi-version instruction kit this repo
+# has adopted, so `resolve_kits` / `get_kit` return that major instead of the
+# conservative earliest-major default (and stop emitting a version advisory).
+# These are VERSION pins, not a fixed kit list — the set of kits in scope is
+# still resolved per task (see AGENTS.md). Update a pin only after reviewing
+# the kit's breaking changes and migrating the code.
+#
+# The 2026-07-13 alignment run (docs/qm-alignment.md, WP9) migrated the
+# observability stack from the v1 correlation-ID model to the v2 OpenTelemetry
+# trace-context model; these three kits are pinned to v2 accordingly.
+
+project_id = "kestrel"
+
+[kits]
+module-http-middleware-hardening = "v2"
+module-logging-structured = "v2"
+module-opentelemetry = "v2"

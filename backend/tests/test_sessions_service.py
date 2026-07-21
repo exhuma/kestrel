@@ -155,7 +155,9 @@ async def test_stream_replays_then_streams_live_and_unsubscribes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_payload_carries_canonical_fields_for_a_claude_line() -> None:
+async def test_stream_payload_carries_canonical_fields_for_a_claude_line() -> (
+    None
+):
     """Ensure a real claude assistant line reaches the wire as canonical.
 
     Ties the claude mapping to the SSE payload the browser consumes: the

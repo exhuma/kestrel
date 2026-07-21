@@ -1,197 +1,136 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import SessionPanel from './components/SessionPanel.vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
+import { useTheme } from 'vuetify'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import GithubLink from './components/GithubLink.vue'
+import PanelLoading from './components/PanelLoading.vue'
+import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
+import { useWorkflows } from './composables/useWorkflows'
+
+// Workflows is the default view; the raw sessions view is a secondary
+// debugging affordance, so its code is fetched on demand (a separate chunk).
+// The default initial load therefore excludes SessionPanel's code (SC-006),
+// with a loading spinner while it fetches and a clear error if that fails
+// (FR-009).
+const SessionPanel = defineAsyncComponent({
+  loader: () => import('./components/SessionPanel.vue'),
+  loadingComponent: PanelLoading,
+  errorComponent: PanelError,
+  delay: 200,
+})
 
 // Shared composable state: the header reflects fleet-wide status.
-const { sessions } = useSessions()
+const { sessions, loading: sessionsLoading } = useSessions()
+const { loading: workflowsLoading } = useWorkflows()
 const running = computed(() =>
   sessions.value.some((s) => s.status === 'running'),
 )
 
+// Page-level loading: a thin indeterminate bar under the app bar while any
+// primary fetch (sessions or workflows) is in flight (module-vue-vuetify
+// loading-feedback rule).
+const loading = computed(() => sessionsLoading.value || workflowsLoading.value)
+
 // Workflows lead; the raw sessions view is kept only as a debugging
-// affordance (see the muted control in the header).
+// affordance (the muted toggle in the header).
 const view = ref<'sessions' | 'workflows'>('workflows')
+
+// Light/dark toggle over Vuetify's two built-in themes.
+const theme = useTheme()
+const isDark = computed(() => theme.current.value.dark)
+function toggleTheme() {
+  theme.change(isDark.value ? 'light' : 'dark')
+}
 </script>
 
 <template>
-  <div class="shell">
-    <header class="topbar">
-      <div class="brand d-flex align-center ms-2">
-        <img src="/logo.svg" alt="kestrel logo" height="40" class="ms-2" />
-        <span class="brand__name">kestrel</span>
-        <span class="brand__tag mono">mission control</span>
-      </div>
-      <nav class="viewnav">
-        <button class="viewnav__btn" :class="{ 'viewnav__btn--on': view === 'workflows' }"
-          @click="view = 'workflows'">Workflows</button>
-        <button class="viewnav__debug" :class="{ 'viewnav__debug--on': view === 'sessions' }"
-          :aria-pressed="view === 'sessions'"
+  <v-app>
+    <v-app-bar flat border>
+      <template #prepend>
+        <!-- Theme-matched mark: the dark-outlined logo reads on the light
+             theme, the plain-fill logo reads on the dark theme. -->
+        <img
+          :src="isDark ? '/logo-dark.svg' : '/logo-bright.svg'"
+          alt="kestrel logo"
+          height="32"
+          class="ms-2"
+        />
+      </template>
+      <v-app-bar-title>
+        kestrel
+        <span class="text-medium-emphasis text-caption ms-2"
+          >mission control</span
+        >
+      </v-app-bar-title>
+
+      <v-btn-toggle
+        v-model="view"
+        mandatory
+        variant="outlined"
+        divided
+        density="comfortable"
+        class="me-4"
+      >
+        <v-btn value="workflows" size="small" class="text-none"
+          >Workflows</v-btn
+        >
+        <v-btn
+          value="sessions"
+          size="small"
+          class="text-none"
           title="Raw agent sessions (debugging)"
-          @click="view = view === 'sessions' ? 'workflows' : 'sessions'">
-          <span aria-hidden="true">‹/›</span> sessions
-        </button>
-      </nav>
-      <div class="status" :class="running ? 'status--live' : 'status--idle'">
-        <span class="status__dot" />
-        <span class="status__label mono">{{ running ? 'live' : 'idle' }}</span>
-      </div>
+        >
+          <span aria-hidden="true">‹/›</span>&nbsp;sessions
+        </v-btn>
+      </v-btn-toggle>
+
+      <v-chip
+        :color="running ? 'success' : undefined"
+        variant="tonal"
+        label
+        class="me-2"
+      >
+        <v-icon
+          :icon="running ? '$circle' : '$circleOutline'"
+          size="x-small"
+          start
+        />
+        {{ running ? 'live' : 'idle' }}
+      </v-chip>
+
       <NotificationCenter @navigate="view = 'workflows'" />
+      <v-btn
+        :icon="isDark ? '$weatherNight' : '$weatherSunny'"
+        variant="text"
+        :title="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
+        @click="toggleTheme"
+      />
       <GithubLink />
-    </header>
-    <main class="stageroot">
+
+      <v-progress-linear
+        v-if="loading"
+        absolute
+        color="primary"
+        indeterminate
+        location="bottom"
+      />
+    </v-app-bar>
+
+    <v-main class="stageroot">
       <SessionPanel v-if="view === 'sessions'" />
       <WorkflowPanel v-else />
-    </main>
-  </div>
+    </v-main>
+  </v-app>
 </template>
 
 <style scoped>
-.shell {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background:
-    radial-gradient(
-      1100px 420px at 78% -8%,
-      rgba(53, 230, 201, 0.06),
-      transparent 60%
-    ),
-    var(--ink-900);
-}
-
-.topbar {
-  height: var(--header-h);
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 22px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink-850) 82%, transparent);
-  backdrop-filter: blur(8px);
-}
-
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.brand__mark {
-  position: relative;
-  align-self: center;
-  width: 22px;
-  height: 22px;
-  border: 1.5px solid var(--line);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-}
-.brand__mark::before {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border: 1.5px solid var(--signal);
-  border-radius: 50%;
-  opacity: 0.55;
-}
-.brand__name {
-  font-weight: 700;
-  font-size: 15.5px;
-  letter-spacing: 0.01em;
-}
-.brand__dot {
-  color: var(--signal);
-  padding: 0 1px;
-}
-.brand__tag {
-  font-size: 10.5px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.viewnav { display: flex; gap: 4px; margin-left: 22px; }
-.viewnav__btn {
-  background: transparent; border: 1px solid var(--line); color: var(--text-mid);
-  border-radius: 999px; padding: 5px 14px; font-size: 12.5px; cursor: pointer;
-  font-family: var(--font-sans);
-}
-.viewnav__btn--on { color: var(--signal-ink); background: var(--signal); border-color: var(--signal); }
-.viewnav__debug {
-  align-self: center; display: inline-flex; align-items: center; gap: 5px;
-  background: transparent; border: none; color: var(--text-dim);
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
-  padding: 5px 8px; border-radius: 999px; cursor: pointer;
-}
-.viewnav__debug:hover { color: var(--text-mid); }
-.viewnav__debug--on { color: var(--signal); }
-.viewnav__debug:focus-visible {
-  outline: none; box-shadow: 0 0 0 3px var(--signal-glow);
-}
-
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--ink-800);
-  margin-left: auto;
-}
-.status__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-.status__label {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.status--idle .status__dot {
-  background: var(--idle);
-}
-.status--idle .status__label {
-  color: var(--text-mid);
-}
-.status--live .status__dot {
-  background: var(--run);
-  box-shadow: 0 0 0 0 var(--signal-glow);
-  animation: pulse 1.8s ease-out infinite;
-}
-.status--live .status__label {
-  color: var(--run);
-}
-
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(53, 230, 201, 0.45);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(53, 230, 201, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(53, 230, 201, 0);
-  }
-}
-
+/* Let the two-pane consoles own the full height below the app bar; their
+   inner scroll regions handle overflow. v-main is border-box with a
+   padding-top equal to the app-bar height, so its content box is the
+   remaining viewport height. */
 .stageroot {
-  flex: 1;
-  min-height: 0;
-}
-
-@media (max-width: 620px) {
-  .brand__tag {
-    display: none;
-  }
-  .topbar {
-    padding: 0 16px;
-  }
+  height: 100dvh;
 }
 </style>

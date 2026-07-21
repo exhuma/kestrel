@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import QuestionnaireForm from '../../src/components/QuestionnaireForm.vue'
 import { parseQuestionnaire } from '../../src/lib/questionnaire'
 import type { Question, Questionnaire } from '../../src/types/questionnaire'
+import { withVuetify } from '../support/vuetify'
 
 function q(partial: Partial<Question> & { id: string }): Question {
   return {
-    prompt: '', why: '', type: 'free_text', required: true, options: [],
-    audience: '', waiver_label: 'Unknown / N/A', ...partial,
+    prompt: '',
+    why: '',
+    type: 'free_text',
+    required: true,
+    options: [],
+    audience: '',
+    waiver_label: 'Unknown / N/A',
+    ...partial,
   }
 }
 
@@ -15,26 +22,41 @@ function questionnaire(...questions: Question[]): Questionnaire {
   return { questions, profiles: [] }
 }
 
+// The question wrapper keeps its `aria-labelledby="qp-<id>"` anchor so blocks
+// stay addressable after the Vuetify conversion; test-only `data-testid` hooks
+// mark the primary free-text field and the correction/waiver controls whose
+// class names went away when they became Vuetify components.
 function blockFor(wrapper: ReturnType<typeof mount>, id: string) {
   return wrapper
-    .findAll('.qform__q')
+    .findAll('[data-testid="qblock"]')
     .find((b) => b.attributes('aria-labelledby') === `qp-${id}`)
 }
 function textareaFor(wrapper: ReturnType<typeof mount>, id: string) {
-  return blockFor(wrapper, id)!.find('textarea.field')
+  return blockFor(wrapper, id)!.find('[data-testid="primary-text"] textarea')
+}
+function noteFor(wrapper: ReturnType<typeof mount>, id: string) {
+  return blockFor(wrapper, id)!.find(
+    'textarea[placeholder^="Additional information"]',
+  )
 }
 
 describe('QuestionnaireForm', () => {
   it('keeps an in-progress answer across a structurally-equal but new-reference prop update at the same round', async () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(q({ id: 'q1', prompt: 'Which auth?' })),
-        draftAnswers: {},
-        round: 1,
-      },
-    })
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(q({ id: 'q1', prompt: 'Which auth?' })),
+          draftAnswers: {},
+          round: 1,
+        },
+      }),
+    )
     await textareaFor(wrapper, 'q1').setValue('use OIDC')
-    expect(textareaFor(wrapper, 'q1').element.value).toBe('use OIDC')
+    await flushPromises()
+    expect(
+      (textareaFor(wrapper, 'q1').element as HTMLTextAreaElement).value,
+    ).toBe('use OIDC')
 
     // A fresh SSE frame at the same round: new object references, same
     // content — this must NOT reset the form.
@@ -43,64 +65,90 @@ describe('QuestionnaireForm', () => {
       draftAnswers: {},
       round: 1,
     })
+    await flushPromises()
 
-    expect(textareaFor(wrapper, 'q1').element.value).toBe('use OIDC')
+    expect(
+      (textareaFor(wrapper, 'q1').element as HTMLTextAreaElement).value,
+    ).toBe('use OIDC')
   })
 
   it('a custom correction satisfies submit and emits a {custom} answer', async () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(q({
-          id: 'q1', prompt: 'Which auth?', type: 'single_select',
-          options: [{ value: 'oidc', label: 'OIDC' }],
-        })),
-        draftAnswers: {},
-        round: 1,
-      },
-    })
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(
+            q({
+              id: 'q1',
+              prompt: 'Which auth?',
+              type: 'single_select',
+              options: [{ value: 'oidc', label: 'OIDC' }],
+            }),
+          ),
+          draftAnswers: {},
+          round: 1,
+        },
+      }),
+    )
     // A required, unanswered question keeps submit disabled.
     expect(
       wrapper.find('button[type="submit"]').attributes('disabled'),
     ).toBeDefined()
 
     const block = blockFor(wrapper, 'q1')!
-    await block.find('.qform__toggle--custom input').setValue(true)
-    await block.find('.qform__custom textarea').setValue('It is a CLI, not web')
+    await block.find('[data-testid="toggle-custom"] input').setValue(true)
+    await flushPromises()
+    await block
+      .find('[data-testid="custom-text"] textarea')
+      .setValue('It is a CLI, not web')
+    await flushPromises()
 
     expect(
       wrapper.find('button[type="submit"]').attributes('disabled'),
     ).toBeUndefined()
     await wrapper.find('form').trigger('submit')
     const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
-      string, unknown
+      string,
+      unknown
     >
     expect(submitted.q1).toEqual({ custom: 'It is a CLI, not web' })
   })
 
   it('wraps a selection plus additional info into {value, note}, and collapses when cleared', async () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(q({
-          id: 'q1', prompt: 'Which auth?', type: 'single_select',
-          options: [{ value: 'oidc', label: 'OIDC' }],
-        })),
-        draftAnswers: {},
-        round: 1,
-      },
-    })
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(
+            q({
+              id: 'q1',
+              prompt: 'Which auth?',
+              type: 'single_select',
+              options: [{ value: 'oidc', label: 'OIDC' }],
+            }),
+          ),
+          draftAnswers: {},
+          round: 1,
+        },
+      }),
+    )
     const block = blockFor(wrapper, 'q1')!
     await block.find('input[type="radio"]').setValue()
-    const note = block.find('.qform__note')
+    await flushPromises()
+    const note = noteFor(wrapper, 'q1')
     await note.setValue('SSO only')
+    await flushPromises()
 
     await wrapper.find('form').trigger('submit')
     let submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
-      string, unknown
+      string,
+      unknown
     >
     expect(submitted.q1).toEqual({ value: 'oidc', note: 'SSO only' })
 
     // Clearing the note collapses back to the plain selected value.
     await note.setValue('')
+    await flushPromises()
     await wrapper.find('form').trigger('submit')
     submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<string, unknown>
     expect(submitted.q1).toBe('oidc')
@@ -110,15 +158,25 @@ describe('QuestionnaireForm', () => {
     // A stale/edge questionnaire whose select carries no options: parsed
     // through the same path the parent uses, it must reach the form as an
     // answerable free-text input rather than a dead, un-answerable select.
-    const parsed = parseQuestionnaire(JSON.stringify({
-      questions: [q({
-        id: 'q1', prompt: 'Scope?', type: 'single_select', options: [],
-      })],
-      profiles: [],
-    }))!
-    const wrapper = mount(QuestionnaireForm, {
-      props: { questionnaire: parsed, draftAnswers: {}, round: 1 },
-    })
+    const parsed = parseQuestionnaire(
+      JSON.stringify({
+        questions: [
+          q({
+            id: 'q1',
+            prompt: 'Scope?',
+            type: 'single_select',
+            options: [],
+          }),
+        ],
+        profiles: [],
+      }),
+    )!
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: { questionnaire: parsed, draftAnswers: {}, round: 1 },
+      }),
+    )
     // Required and unanswered → submit disabled, and a textarea is present.
     expect(
       wrapper.find('button[type="submit"]').attributes('disabled'),
@@ -127,29 +185,35 @@ describe('QuestionnaireForm', () => {
     expect(field.exists()).toBe(true)
 
     await field.setValue('the core API')
+    await flushPromises()
     expect(
       wrapper.find('button[type="submit"]').attributes('disabled'),
     ).toBeUndefined()
     await wrapper.find('form').trigger('submit')
     const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
-      string, unknown
+      string,
+      unknown
     >
     expect(submitted.q1).toBe('the core API')
   })
 
   it('on a genuine round change, keeps answers for surviving question ids and drops the rest', async () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(
-          q({ id: 'q1', prompt: 'Which auth?' }),
-          q({ id: 'q2', prompt: 'Which region?' }),
-        ),
-        draftAnswers: {},
-        round: 1,
-      },
-    })
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(
+            q({ id: 'q1', prompt: 'Which auth?' }),
+            q({ id: 'q2', prompt: 'Which region?' }),
+          ),
+          draftAnswers: {},
+          round: 1,
+        },
+      }),
+    )
     await textareaFor(wrapper, 'q1').setValue('use OIDC')
     await textareaFor(wrapper, 'q2').setValue('eu-west')
+    await flushPromises()
 
     // Round genuinely advances; q2 is dropped from the new questionnaire.
     await wrapper.setProps({
@@ -157,30 +221,44 @@ describe('QuestionnaireForm', () => {
       draftAnswers: {},
       round: 2,
     })
+    await flushPromises()
 
-    expect(textareaFor(wrapper, 'q1').element.value).toBe('use OIDC')
+    expect(
+      (textareaFor(wrapper, 'q1').element as HTMLTextAreaElement).value,
+    ).toBe('use OIDC')
     expect(blockFor(wrapper, 'q2')).toBeUndefined()
   })
 
   it('shows a soft (retrying) notice distinct from a hard one', () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: {
-          questions: [q({ id: 'q1', prompt: 'Which auth?' })],
-          profiles: [],
-          issues: [
-            { profile: 'infosec', label: 'InfoSec',
-              reason: 'timed out after 120s', severity: 'soft' },
-            { profile: 'perf', label: 'Perf',
-              reason: 'crashed', severity: 'hard' },
-          ],
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: {
+            questions: [q({ id: 'q1', prompt: 'Which auth?' })],
+            profiles: [],
+            issues: [
+              {
+                profile: 'infosec',
+                label: 'InfoSec',
+                reason: 'timed out after 120s',
+                severity: 'soft',
+              },
+              {
+                profile: 'perf',
+                label: 'Perf',
+                reason: 'crashed',
+                severity: 'hard',
+              },
+            ],
+          },
+          draftAnswers: {},
+          round: 1,
         },
-        draftAnswers: {},
-        round: 1,
-      },
-    })
-    const soft = wrapper.find('.qform__issues--soft')
-    const hard = wrapper.find('.qform__issues--hard')
+      }),
+    )
+    const soft = wrapper.find('[data-testid="issues-soft"]')
+    const hard = wrapper.find('[data-testid="issues-hard"]')
     expect(soft.exists()).toBe(true)
     expect(soft.text()).toContain('will be retried when you submit')
     expect(soft.text()).toContain('InfoSec')
@@ -190,16 +268,19 @@ describe('QuestionnaireForm', () => {
   })
 
   it('allows submitting an incomplete questionnaire when allowIncomplete is set', async () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(
-          q({ id: 'q1', prompt: 'Which auth?', required: true }),
-        ),
-        draftAnswers: {},
-        round: 1,
-        allowIncomplete: true,
-      },
-    })
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(
+            q({ id: 'q1', prompt: 'Which auth?', required: true }),
+          ),
+          draftAnswers: {},
+          round: 1,
+          allowIncomplete: true,
+        },
+      }),
+    )
     const submit = wrapper.find('button[type="submit"]')
     expect(submit.attributes('disabled')).toBeUndefined()
     expect(submit.text()).toContain('Submit incomplete')
@@ -208,28 +289,35 @@ describe('QuestionnaireForm', () => {
   })
 
   it('keeps submit disabled when incomplete without allowIncomplete', () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(
-          q({ id: 'q1', prompt: 'Which auth?', required: true }),
-        ),
-        draftAnswers: {},
-        round: 1,
-      },
-    })
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(
+            q({ id: 'q1', prompt: 'Which auth?', required: true }),
+          ),
+          draftAnswers: {},
+          round: 1,
+        },
+      }),
+    )
     expect(
       wrapper.find('button[type="submit"]').attributes('disabled'),
     ).toBeDefined()
   })
 
   it('renders no failure notice when there are no issues', () => {
-    const wrapper = mount(QuestionnaireForm, {
-      props: {
-        questionnaire: questionnaire(q({ id: 'q1', prompt: 'Which auth?' })),
-        draftAnswers: {},
-        round: 1,
-      },
-    })
-    expect(wrapper.find('.qform__issues').exists()).toBe(false)
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: {
+          questionnaire: questionnaire(q({ id: 'q1', prompt: 'Which auth?' })),
+          draftAnswers: {},
+          round: 1,
+        },
+      }),
+    )
+    expect(wrapper.find('[data-testid="issues-soft"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="issues-hard"]').exists()).toBe(false)
   })
 })

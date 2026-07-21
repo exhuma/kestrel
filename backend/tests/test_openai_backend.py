@@ -30,7 +30,8 @@ def _backend(
         base_url="http://model.local/v1", model="llama3",
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return OpenAICompatBackend(_settings(), registry, cfg, client=client), registry
+    backend = OpenAICompatBackend(_settings(), registry, cfg, client=client)
+    return backend, registry
 
 
 def _echo(captured: list[dict]) -> Callable[[httpx.Request], httpx.Response]:

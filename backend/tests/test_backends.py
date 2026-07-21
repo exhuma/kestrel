@@ -69,7 +69,11 @@ async def test_run_turn_returns_the_result_deliverable(tmp_path: Path) -> None:
 
     seen: list[str] = []
     result = await backend.run_turn(
-        TurnRequest(prompt="hi", cwd=str(tmp_path / "step"), permission_mode="plan"),
+        TurnRequest(
+            prompt="hi",
+            cwd=str(tmp_path / "step"),
+            permission_mode="plan",
+        ),
         on_session_id=seen.append,
     )
 

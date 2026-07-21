@@ -55,6 +55,9 @@ async def test_list_notifications_newest_first() -> None:
     assert body[0]["message"] == "PR opened for o/r#5."
     assert body[0]["read"] is False
     assert body[1]["read"] is True
+    # done -> summary; awaiting_* -> action_required.
+    assert body[0]["signal_class"] == "summary"
+    assert body[1]["signal_class"] == "action_required"
 
 
 @pytest.mark.asyncio

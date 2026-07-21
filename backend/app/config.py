@@ -131,6 +131,15 @@ class Settings(BaseSettings):
     #: human-readable lines (default), ``json`` for one JSON document per
     #: line to feed a log pipeline (OTEL, Logstash, …).
     log_format: Literal["text", "json"] = "text"
+    #: Enable OpenTelemetry tracing (``KESTREL_OTEL_ENABLED``). Off by
+    #: default: a personal localhost tool pays nothing until a collector is
+    #: configured. When true, spans export over OTLP to
+    #: ``OTEL_EXPORTER_OTLP_ENDPOINT`` and log records gain ``trace_id`` /
+    #: ``span_id`` (see :mod:`app.telemetry` and ``module-opentelemetry``).
+    otel_enabled: bool = False
+    #: ``service.name`` reported on exported spans
+    #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
+    otel_service_name: str = "kestrel"
     #: Path to a TOML file holding the backend config (``backends``,
     #: ``step_backends``, ``default_session_backend``). This file is the
     #: single way to configure backends — the recommended pattern is to

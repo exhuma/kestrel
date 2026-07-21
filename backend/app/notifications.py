@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from app.models_workflow import WorkflowRun
 
@@ -21,6 +21,23 @@ if TYPE_CHECKING:
 #: outcome worth knowing about. "rejected" is excluded — the human
 #: caused it themselves by rejecting with no feedback.
 NOTIFY_STATUSES = frozenset({"done", "failed"})
+
+#: A notification's signal class (see module-notification-alarm-discipline).
+#: An ``action_required`` item is a gate blocking on the human; a ``summary``
+#: is a terminal, catch-up item that needs no action. The UI separates them
+#: so a badge count means "things needing action", not "unread everything".
+SignalClass = Literal["action_required", "summary"]
+
+
+def signal_class(status: str) -> SignalClass:
+    """
+    Classify a notification status as action-required or summary.
+
+    :param status: The run status the notification was raised for.
+    :returns: ``"action_required"`` for an ``awaiting_*`` gate, else
+        ``"summary"`` (terminal outcomes such as ``done``/``failed``).
+    """
+    return "action_required" if status.startswith("awaiting_") else "summary"
 
 _MESSAGES: dict[str, str] = {
     "awaiting_refine_input": (

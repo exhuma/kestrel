@@ -12,6 +12,18 @@ For hacking on kestrel itself. To just *run* it, use the
 
 ## Run
 
+The quickest path is the [Taskfile](https://taskfile.dev) at the repo root
+(install `task`, then):
+
+```bash
+task setup   # one-time: install backend + frontend deps, seed
+             # backend/.env, apply migrations
+task dev     # run the backend (:8000) and frontend (:5173) dev servers
+```
+
+Run `task --list` to see every task (`task backend` / `task frontend` run one
+side on its own). The manual equivalents:
+
 ```bash
 # Backend — API on http://localhost:8000
 cd backend
@@ -71,5 +83,5 @@ suite gates CI and every release.
 | `docs/` | This documentation |
 | `docker/entrypoint.sh` | Container entrypoint (seed config, migrate, serve) |
 
-For the bigger picture see [Architecture](architecture.md) and the design
-notes under `docs/superpowers/specs/`.
+For the bigger picture see [Architecture](architecture.md); the roadmap and
+backlog live in the [GitHub issue tracker](https://github.com/exhuma/kestrel/issues).

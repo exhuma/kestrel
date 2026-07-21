@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useSessions } from '../composables/useSessions'
+import ConsoleShell from './ConsoleShell.vue'
 import type { SessionEvent } from '../types/sessions'
 
 const {
@@ -92,14 +93,6 @@ function relTime(iso: string | null): string {
   if (hrs < 24) return `${hrs}h ago`
   return `${Math.round(hrs / 24)}d ago`
 }
-function absTime(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-    `${p(d.getHours())}:${p(d.getMinutes())}`
-}
 
 // Map a canonical event to a semantic tone + glyph. Tone drives the --c
 // colour custom property shared by the dot, rule, and labels. Reads the
@@ -139,6 +132,18 @@ function statusTone(s: string): string {
   if (s === 'error') return 'err'
   return 'sys'
 }
+// Semantic tone → Vuetify theme colour (undefined = neutral default).
+const TONE_COLOR: Record<string, string | undefined> = {
+  agent: 'primary',
+  user: 'info',
+  tool: 'warning',
+  ok: 'success',
+  err: 'error',
+  sys: undefined,
+}
+function toneColor(t: string): string | undefined {
+  return TONE_COLOR[t]
+}
 function subtype(e: SessionEvent): string | null {
   return typeof e.subtype === 'string' ? e.subtype : null
 }
@@ -172,7 +177,7 @@ function preview(e: SessionEvent): string {
           : servers && `MCP: ${servers}`
       const tools = e.tools?.length ? `tools: ${e.tools.join(', ')}` : ''
       const bits = [e.model, mcp, tools].filter(Boolean)
-      return bits.length ? bits.join('   ·   ') : e.summary ?? '—'
+      return bits.length ? bits.join('   ·   ') : (e.summary ?? '—')
     }
     case 'rate_limit':
       return e.status ?? '—'
@@ -192,607 +197,187 @@ function preview(e: SessionEvent): string {
 </script>
 
 <template>
-  <div class="console">
-    <aside class="rail">
-      <div class="rail__block">
-        <div class="eyebrow">Dispatch</div>
-        <textarea
+  <ConsoleShell>
+    <template #rail>
+      <div class="pa-4">
+        <div class="text-overline text-medium-emphasis mb-2">Dispatch</div>
+        <v-textarea
           v-model="prompt"
-          class="field"
           rows="4"
-          placeholder="Describe the task for a new agent…"
+          class="mb-2"
+          label="Describe the task for a new agent…"
         />
-        <button
-          class="btn btn--primary"
+        <v-btn
+          block
+          color="primary"
+          prepend-icon="$rocketLaunchOutline"
           :disabled="loading || !prompt.trim()"
           @click="onStart"
         >
-          <span aria-hidden="true">⟐</span> Launch session
-        </button>
+          Launch session
+        </v-btn>
       </div>
-
-      <div class="rail__block">
-        <div class="eyebrow">Follow-up</div>
-        <textarea
+      <v-divider />
+      <div class="pa-4">
+        <div class="text-overline text-medium-emphasis mb-2">Follow-up</div>
+        <v-textarea
           v-model="followUp"
-          class="field"
           rows="3"
+          class="mb-2"
           :disabled="!current"
-          placeholder="Send more input to the selected session…"
+          label="Send more input to the selected session…"
         />
-        <button
-          class="btn btn--ghost"
+        <v-btn
+          block
+          variant="tonal"
           :disabled="!current || loading"
           @click="onResume"
         >
           Resume session
-        </button>
+        </v-btn>
       </div>
-
-      <div class="rail__block rail__block--grow">
-        <div class="rail__head">
-          <span class="eyebrow">Sessions</span>
-          <span class="pill mono">{{ sessions.length }}</span>
-        </div>
-        <div class="sessions scroll">
-          <div
-            v-for="s in sessions"
-            :key="s.session_id"
-            class="scard-wrap"
-          >
-            <button
-              class="scard"
-              :class="{ 'scard--active': s.session_id === current }"
-              @click="onSelect(s.session_id)"
+      <v-divider />
+      <div class="d-flex align-center justify-space-between px-4 py-2">
+        <span class="text-overline text-medium-emphasis">Sessions</span>
+        <v-chip size="small" variant="tonal">{{ sessions.length }}</v-chip>
+      </div>
+      <v-list v-if="sessions.length" nav>
+        <v-list-item
+          v-for="s in sessions"
+          :key="s.session_id"
+          :active="s.session_id === current"
+          @click="onSelect(s.session_id)"
+        >
+          <v-list-item-title class="d-flex align-center ga-2">
+            <v-icon
+              icon="$circle"
+              :color="toneColor(statusTone(s.status))"
+              size="x-small"
+            />
+            {{ shortId(s.session_id) }}
+          </v-list-item-title>
+          <v-list-item-subtitle>
+            {{ s.status }} · {{ s.event_count }} ev
+            <template v-if="s.created_at">
+              · {{ relTime(s.created_at) }}</template
             >
-              <span class="scard__id mono">{{ shortId(s.session_id) }}</span>
-              <span class="scard__meta" :class="`t-${statusTone(s.status)}`">
-                <span class="scard__dot" />
-                {{ s.status }}
-                <span class="scard__sep">·</span>
-                {{ s.event_count }} ev
-              </span>
-              <span v-if="s.workflow" class="scard__wf mono">
-                ⟐ {{ s.workflow }}
-              </span>
-              <span v-if="s.created_at" class="scard__time mono">
-                {{ relTime(s.created_at) }} · {{ absTime(s.created_at) }}
-              </span>
-            </button>
-            <button
-              class="scard__del"
+          </v-list-item-subtitle>
+          <v-list-item-subtitle v-if="s.workflow">
+            ⟐ {{ s.workflow }}
+          </v-list-item-subtitle>
+          <template #append>
+            <v-btn
+              icon="$close"
+              size="x-small"
+              variant="text"
               title="Abandon session"
               aria-label="Abandon session"
               @click.stop="onDelete(s.session_id)"
-            >✕</button>
+            />
+          </template>
+        </v-list-item>
+      </v-list>
+      <div v-else class="px-4 text-medium-emphasis text-body-2">
+        No sessions dispatched yet
+      </div>
+    </template>
+
+    <v-alert
+      v-if="error"
+      type="error"
+      closable
+      density="compact"
+      class="ma-4 mb-0 stage__banner"
+      role="alert"
+      @click:close="error = null"
+    >
+      {{ error }}
+    </v-alert>
+
+    <div class="d-flex align-center justify-space-between ga-4 pa-4 border-b">
+      <div class="d-flex align-center ga-2 text-truncate">
+        <span class="text-overline text-medium-emphasis">Session</span>
+        <span class="stage__id text-body-1">{{ current ?? '—' }}</span>
+      </div>
+      <div class="d-flex align-center ga-3 flex-shrink-0">
+        <v-chip size="small" :color="toneColor(statusTone(currentStatus))">
+          {{ currentStatus }}
+        </v-chip>
+        <span class="text-caption text-medium-emphasis">
+          {{ events.length }} events
+        </span>
+      </div>
+    </div>
+
+    <div ref="feedEl" class="feed flex-1-1 pa-4">
+      <v-empty-state
+        v-if="!events.length"
+        icon="$radar"
+        headline="Awaiting dispatch"
+        text="Launch a session to stream its telemetry here."
+      />
+
+      <v-timeline
+        v-else
+        density="compact"
+        side="end"
+        align="start"
+        truncate-line="both"
+      >
+        <v-timeline-item
+          v-for="(e, i) in events"
+          :key="i"
+          :dot-color="toneColor(tone(e))"
+          size="x-small"
+        >
+          <template #icon>
+            <span class="ev__glyph">{{ glyph(e) }}</span>
+          </template>
+          <div class="d-flex align-center ga-2 mb-1 flex-wrap">
+            <span class="text-caption text-medium-emphasis">{{
+              stamps[i]
+            }}</span>
+            <span class="text-body-2 font-weight-medium">{{ e.kind }}</span>
+            <v-chip
+              v-if="subtype(e)"
+              size="x-small"
+              variant="tonal"
+              :color="toneColor(tone(e))"
+            >
+              {{ subtype(e) }}
+            </v-chip>
           </div>
-          <p v-if="!sessions.length" class="sessions__empty mono">
-            No sessions dispatched yet
-          </p>
-        </div>
-      </div>
-    </aside>
-
-    <section class="stage">
-      <transition name="drop">
-        <div v-if="error" class="banner" role="alert">
-          <span class="banner__glyph" aria-hidden="true">!</span>
-          <span class="banner__text">{{ error }}</span>
-          <button class="banner__close" aria-label="Dismiss" @click="error = null">
-            ✕
-          </button>
-        </div>
-      </transition>
-
-      <header class="stage__head">
-        <div class="stage__title">
-          <span class="eyebrow">Session</span>
-          <span class="stage__id mono">{{ current ?? '—' }}</span>
-        </div>
-        <div class="stage__right">
-          <span class="chip" :class="`t-${statusTone(currentStatus)}`">
-            <span class="chip__dot" />
-            <span class="mono">{{ currentStatus }}</span>
-          </span>
-          <span class="stage__count mono">{{ events.length }} events</span>
-        </div>
-      </header>
-
-      <div ref="feedEl" class="feed scroll">
-        <div v-if="!events.length" class="feed__empty">
-          <span class="feed__ping" aria-hidden="true" />
-          <p class="feed__empty-title">Awaiting dispatch</p>
-          <p class="feed__empty-sub mono">
-            Launch a session to stream its telemetry here.
-          </p>
-        </div>
-
-        <ol v-else class="timeline">
-          <li
-            v-for="(e, i) in events"
-            :key="i"
-            class="ev"
-            :class="`t-${tone(e)}`"
-          >
-            <div class="ev__rail">
-              <span class="ev__dot">{{ glyph(e) }}</span>
-            </div>
-            <div class="ev__body">
-              <div class="ev__meta">
-                <span class="ev__tick mono">{{ stamps[i] }}</span>
-                <span class="ev__type">{{ e.kind }}</span>
-                <span v-if="subtype(e)" class="ev__sub mono">{{
-                  subtype(e)
-                }}</span>
-              </div>
-              <div class="ev__payload mono">{{ preview(e) }}</div>
-            </div>
-          </li>
-        </ol>
-      </div>
-    </section>
-  </div>
+          <div class="ev__payload text-body-2 text-medium-emphasis">
+            {{ preview(e) }}
+          </div>
+        </v-timeline-item>
+      </v-timeline>
+    </div>
+  </ConsoleShell>
 </template>
 
 <style scoped>
-.console {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-}
-
-/* ---- Dispatch rail ---- */
-.rail {
-  width: 340px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 22px 18px;
-  border-right: 1px solid var(--line);
-  background: var(--ink-800);
-  overflow: hidden;
-}
-.rail__block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 0 18px;
-  border-bottom: 1px solid var(--line-soft);
-}
-.rail__block:first-child {
-  padding-top: 0;
-}
-.rail__block--grow {
-  flex: 1;
-  min-height: 0;
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.rail__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.pill {
-  font-size: 11px;
-  color: var(--text-mid);
-  background: var(--ink-700);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 1px 9px;
-}
-
-.sessions {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow-y: auto;
-  min-height: 0;
-  padding-right: 4px;
-}
-.scard {
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 11px 13px;
-  background: var(--ink-700);
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--line);
-  border-radius: var(--r-md);
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
-}
-.scard:hover {
-  background: var(--ink-650);
-}
-.scard--active {
-  border-left-color: var(--signal);
-  background: var(--ink-650);
-}
-.scard-wrap {
-  position: relative;
-  display: flex;
-}
-.scard-wrap .scard {
-  flex: 1;
-  width: 100%;
-  padding-right: 30px;
-}
-.scard__del {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 12px;
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 0.12s ease,
-    color 0.12s ease,
-    background 0.12s ease;
-}
-.scard-wrap:hover .scard__del,
-.scard__del:focus-visible {
-  opacity: 1;
-}
-.scard__del:hover {
-  color: var(--err);
-  background: color-mix(in srgb, var(--err) 15%, transparent);
-}
-.scard__id {
-  font-size: 12.5px;
-  color: var(--text-hi);
-}
-.scard__meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--text-mid);
-}
-.scard__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--c, var(--idle));
-}
-.scard__sep {
-  color: var(--text-dim);
-}
-.scard__wf {
-  align-self: flex-start;
-  font-size: 11px;
-  color: var(--signal);
-  background: color-mix(in srgb, var(--signal) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--signal) 30%, transparent);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-.scard__time {
-  font-size: 10.5px;
-  color: var(--text-dim);
-  letter-spacing: 0.02em;
-}
-.sessions__empty {
-  color: var(--text-dim);
-  font-size: 12px;
-  padding: 8px 2px;
-}
-
-/* ---- Stage ---- */
-.stage {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 16px 24px 0;
-  padding: 11px 14px;
-  border: 1px solid color-mix(in srgb, var(--err) 45%, var(--line));
-  border-left: 3px solid var(--err);
-  border-radius: var(--r-md);
-  background: color-mix(in srgb, var(--err) 12%, var(--ink-800));
-  color: var(--text-hi);
-  font-size: 13px;
-}
-.banner__glyph {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--err);
-  color: var(--ink-900);
-  font-weight: 700;
-  font-size: 13px;
-}
-.banner__text {
-  flex: 1;
-}
-.banner__close {
-  background: none;
-  border: none;
-  color: var(--text-mid);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 4px;
-}
-.banner__close:hover {
-  color: var(--text-hi);
-}
-
-.stage__head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 24px 18px;
-  border-bottom: 1px solid var(--line);
-}
-.stage__title {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-}
 .stage__id {
-  font-size: 15px;
-  color: var(--text-hi);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.stage__right {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: none;
+/* v-alert defaults to `flex: 1 1 auto`; as a child of the flex-column stage it
+   would grow to fill the space the feed should own. Pin it to natural height
+   (auto basis — the flex-grow-0 utility sets a 0% basis and re-collapses it). */
+.stage__banner {
+  flex: 0 0 auto;
 }
-.stage__count {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 11px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--c, var(--idle)) 40%, var(--line));
-  background: color-mix(in srgb, var(--c, var(--idle)) 12%, transparent);
-  font-size: 11.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--c, var(--idle));
-}
-.chip__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--c, var(--idle));
-}
-
-/* ---- Signature: live telemetry feed ---- */
 .feed {
-  flex: 1;
-  min-height: 0;
   overflow-y: auto;
-  padding: 8px 24px 28px;
 }
-.feed__empty {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  text-align: center;
-}
-.feed__ping {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1.5px solid var(--line);
-  position: relative;
-  margin-bottom: 8px;
-}
-.feed__ping::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1.5px solid var(--signal);
-  opacity: 0.5;
-  animation: ping 2.4s ease-out infinite;
-}
-@keyframes ping {
-  0% {
-    transform: scale(0.5);
-    opacity: 0.6;
-  }
-  100% {
-    transform: scale(1.4);
-    opacity: 0;
-  }
-}
-.feed__empty-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-mid);
-}
-.feed__empty-sub {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.timeline {
-  list-style: none;
-  margin: 0;
-  padding: 14px 0 0;
-}
-.ev {
-  --c: var(--idle);
-  display: grid;
-  grid-template-columns: 34px 1fr;
-  gap: 14px;
-}
-.ev.t-sys {
-  --c: var(--idle);
-}
-.ev.t-agent {
-  --c: var(--signal);
-}
-.ev.t-user {
-  --c: var(--user);
-}
-.ev.t-tool {
-  --c: var(--warn);
-}
-.ev.t-ok {
-  --c: var(--ok);
-}
-.ev.t-err {
-  --c: var(--err);
-}
-
-.ev__rail {
-  position: relative;
-  display: flex;
-  justify-content: center;
-}
-.ev__rail::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  background: var(--line);
-  transform: translateX(-0.5px);
-}
-.ev:first-child .ev__rail::before {
-  top: 11px;
-}
-.ev:last-child .ev__rail::before {
-  bottom: auto;
-  height: 11px;
-}
-.ev__dot {
-  position: relative;
-  z-index: 1;
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
+.ev__glyph {
+  font-size: 10px;
   line-height: 1;
-  color: var(--c);
-  background: var(--ink-700);
-  border: 1px solid color-mix(in srgb, var(--c) 55%, var(--line));
-  box-shadow: 0 0 0 3px var(--ink-900);
-}
-.ev__body {
-  padding-bottom: 16px;
-  min-width: 0;
-}
-.ev__meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 3px;
-}
-.ev__tick {
-  font-size: 11.5px;
-  color: var(--text-dim);
-  flex: none;
-}
-.ev__type {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-hi);
-}
-.ev__sub {
-  font-size: 11px;
-  color: var(--c);
-  border: 1px solid color-mix(in srgb, var(--c) 35%, var(--line));
-  border-radius: 999px;
-  padding: 0 8px;
-  background: color-mix(in srgb, var(--c) 10%, transparent);
 }
 .ev__payload {
-  font-size: 12px;
-  color: var(--text-mid);
   word-break: break-word;
   white-space: pre-wrap;
   line-height: 1.5;
-}
-
-/* status tones reused on rail cards + chip via --c */
-.t-sys {
-  --c: var(--idle);
-}
-.t-agent {
-  --c: var(--signal);
-}
-.t-user {
-  --c: var(--user);
-}
-.t-tool {
-  --c: var(--warn);
-}
-.t-ok {
-  --c: var(--ok);
-}
-.t-err {
-  --c: var(--err);
-}
-
-.drop-enter-active,
-.drop-leave-active {
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
-}
-.drop-enter-from,
-.drop-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-@media (max-width: 860px) {
-  .console {
-    flex-direction: column;
-  }
-  .rail {
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid var(--line);
-    max-height: 46%;
-  }
 }
 </style>

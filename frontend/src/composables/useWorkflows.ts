@@ -6,6 +6,7 @@ import type { WorkflowDetail, WorkflowSummary } from '../types/workflows'
 const workflows = ref<WorkflowSummary[]>([])
 const current = ref<WorkflowDetail | null>(null)
 const events = ref<SessionEvent[]>([])
+const loading = ref(false)
 const error = ref<string | null>(null)
 
 let detailSource: EventSource | null = null
@@ -19,7 +20,12 @@ function describe(e: unknown): string {
 
 export function useWorkflows() {
   async function refresh(): Promise<void> {
-    workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
+    loading.value = true
+    try {
+      workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
+    } finally {
+      loading.value = false
+    }
   }
 
   function applyDetail(detail: WorkflowDetail): void {
@@ -69,9 +75,13 @@ export function useWorkflows() {
       // The browser auto-reconnects on a transient drop; if it gives up
       // (connection permanently closed — e.g. a network path dropped the
       // idle stream), re-open so the view self-heals instead of freezing.
-      if (detailSource?.readyState === EventSource.CLOSED &&
-          current.value?.id === id) {
-        setTimeout(() => { if (current.value?.id === id) select(id) }, 2000)
+      if (
+        detailSource?.readyState === EventSource.CLOSED &&
+        current.value?.id === id
+      ) {
+        setTimeout(() => {
+          if (current.value?.id === id) select(id)
+        }, 2000)
       }
     }
   }
@@ -83,7 +93,10 @@ export function useWorkflows() {
     if (current.value && !detailSource) select(current.value.id)
   }
 
-  async function createWorkflow(repo: string, issueNumber: number): Promise<string | null> {
+  async function createWorkflow(
+    repo: string,
+    issueNumber: number,
+  ): Promise<string | null> {
     error.value = null
     try {
       const out = await api.post<{ workflow_id: string }>('/api/workflows', {
@@ -99,38 +112,61 @@ export function useWorkflows() {
     }
   }
 
-  async function reply(text: string): Promise<void> {
-    if (current.value) await api.post(`/api/workflows/${current.value.id}/reply`, { text })
+  // Gate actions (reply/approve/reject/submit) surface failures on the
+  // `error` banner and report success, so a rejected/expired gate never just
+  // "does nothing" — the user sees why (e.g. a 409 "no gate awaiting a
+  // decision" when the run already moved on) instead of a silent no-op.
+  async function gate(
+    id: string | undefined,
+    action: (id: string) => Promise<unknown>,
+  ): Promise<boolean> {
+    if (!id) return false
+    error.value = null
+    try {
+      await action(id)
+      return true
+    } catch (e) {
+      error.value = describe(e)
+      return false
+    }
+  }
+
+  async function reply(text: string): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/reply`, { text }),
+    )
   }
 
   async function submitAnswers(
     answers: Record<string, unknown>,
-  ): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/answers`, {
-        answers,
-      })
+  ): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/answers`, { answers }),
+    )
   }
 
-  async function saveDraft(
-    answers: Record<string, unknown>,
-  ): Promise<void> {
+  // Draft saves stay best-effort: no error banner for a transient failure.
+  async function saveDraft(answers: Record<string, unknown>): Promise<void> {
     if (current.value)
       await api.post(`/api/workflows/${current.value.id}/answers/draft`, {
         answers,
       })
   }
 
-  async function approve(deliverable?: string): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/approve`, { deliverable: deliverable ?? null })
+  async function approve(deliverable?: string): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/approve`, {
+        deliverable: deliverable ?? null,
+      }),
+    )
   }
 
-  async function reject(refinementPrompt?: string): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/reject`, {
+  async function reject(refinementPrompt?: string): Promise<boolean> {
+    return gate(current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/reject`, {
         refinement_prompt: refinementPrompt ?? null,
-      })
+      }),
+    )
   }
 
   function stopDetail(): void {
@@ -151,7 +187,7 @@ export function useWorkflows() {
   async function remove(id: string): Promise<void> {
     error.value = null
     try {
-      await api.del(`/api/workflows/${id}`)
+      await api.delete(`/api/workflows/${id}`)
       if (current.value?.id === id) {
         stop()
         current.value = null
@@ -162,5 +198,24 @@ export function useWorkflows() {
     }
   }
 
-  return { workflows, current, events, error, refresh, select, ensureLive, streamSession, closeSession, createWorkflow, reply, submitAnswers, saveDraft, approve, reject, stop, remove }
+  return {
+    workflows,
+    current,
+    events,
+    loading,
+    error,
+    refresh,
+    select,
+    ensureLive,
+    streamSession,
+    closeSession,
+    createWorkflow,
+    reply,
+    submitAnswers,
+    saveDraft,
+    approve,
+    reject,
+    stop,
+    remove,
+  }
 }

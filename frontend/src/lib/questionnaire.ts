@@ -11,9 +11,7 @@ import type {
 } from '../types/questionnaire'
 
 function titleCase(id: string): string {
-  return id
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
+  return id.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 /**
@@ -55,9 +53,7 @@ function normaliseQuestionnaire(obj: unknown): Questionnaire | null {
  * backend now stores; returns null for anything else (free-text agent
  * messages included) so callers can fall back gracefully.
  */
-export function parseQuestionnaire(
-  text: string | null,
-): Questionnaire | null {
+export function parseQuestionnaire(text: string | null): Questionnaire | null {
   return parseInterview(text)?.questionnaire ?? null
 }
 
@@ -65,9 +61,7 @@ export function parseQuestionnaire(
  * Parse the interview envelope, unwrapping either the enveloped form
  * (`{ questionnaire, draft_answers }`) or a bare questionnaire.
  */
-export function parseInterview(
-  text: string | null,
-): InterviewEnvelope | null {
+export function parseInterview(text: string | null): InterviewEnvelope | null {
   if (!text) return null
   let data: unknown
   try {
@@ -177,7 +171,9 @@ export function noteOf(id: string, answers: Record<string, unknown>): string {
 
 function isMissing(value: unknown): boolean {
   return (
-    value === undefined || value === null || value === '' ||
+    value === undefined ||
+    value === null ||
+    value === '' ||
     (Array.isArray(value) && value.length === 0)
   )
 }
@@ -234,9 +230,11 @@ export function groupByProfile(
   return order.map((id) => {
     const questions = byId.get(id)!
     return {
-      profile:
-        metaById.get(id) ??
-        { id, label: id === 'general' ? 'General' : titleCase(id), badge: 'sys' },
+      profile: metaById.get(id) ?? {
+        id,
+        label: id === 'general' ? 'General' : titleCase(id),
+        badge: 'sys',
+      },
       questions,
       answered: questions.filter((q) => isAnswered(q, answers)).length,
     }

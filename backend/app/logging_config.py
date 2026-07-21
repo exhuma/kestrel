@@ -8,6 +8,13 @@ pipeline (OTEL, Logstash, …).
 The container launches via ``python -m app`` (see ``app.__main__``), which
 hands the config below to uvicorn so uvicorn's loggers propagate to the same
 root handler — closing the gap between uvicorn output and app output.
+
+Per the ``module-logging-structured`` (v2) and ``module-opentelemetry`` kits,
+cross-request correlation rides **W3C trace context**, not a custom
+correlation header: each record carries ``trace_id`` / ``span_id`` fields,
+enriched from the active span by OpenTelemetry's logging instrumentation
+(installed by :mod:`app.telemetry` when telemetry is enabled). ``"-"`` renders
+when no span is active — startup, shutdown, background work, or telemetry off.
 """
 from __future__ import annotations
 
@@ -15,6 +22,28 @@ import datetime as _dt
 import json
 import logging
 from typing import Any
+
+#: Record attributes injected by OpenTelemetry's ``LoggingInstrumentor`` when
+#: a span is active. The filter below maps them onto the stable
+#: ``trace_id`` / ``span_id`` names both formatters read.
+_OTEL_TRACE_ATTR = "otelTraceID"
+_OTEL_SPAN_ATTR = "otelSpanID"
+
+
+class TraceContextFilter(logging.Filter):
+    """Stamp ``trace_id`` and ``span_id`` onto every record it sees.
+
+    Attached to the stream handler so both formatters can rely on the
+    attributes always being present. Values come from the span context that
+    OpenTelemetry's logging instrumentation enriches onto the record
+    (``otelTraceID`` / ``otelSpanID``); ``"-"`` renders when no span is active
+    or telemetry is disabled.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.trace_id = getattr(record, _OTEL_TRACE_ATTR, None) or "-"
+        record.span_id = getattr(record, _OTEL_SPAN_ATTR, None) or "-"
+        return True
 
 
 class JsonFormatter(logging.Formatter):
@@ -29,6 +58,12 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        trace_id = getattr(record, "trace_id", None)
+        if trace_id and trace_id != "-":
+            payload["trace_id"] = trace_id
+            span_id = getattr(record, "span_id", None)
+            if span_id and span_id != "-":
+                payload["span_id"] = span_id
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         if record.stack_info:
@@ -49,9 +84,15 @@ def build_log_config(level: str, fmt: str) -> dict[str, Any]:
         "version": 1,
         # Keep loggers created at import time (app modules) working.
         "disable_existing_loggers": False,
+        "filters": {
+            "trace_context": {"()": f"{__name__}.TraceContextFilter"},
+        },
         "formatters": {
             "text": {
-                "format": "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+                "format": (
+                    "%(asctime)s %(levelname)-8s [%(trace_id)s] "
+                    "%(name)s: %(message)s"
+                ),
             },
             "json": {"()": f"{__name__}.JsonFormatter"},
         },
@@ -60,6 +101,9 @@ def build_log_config(level: str, fmt: str) -> dict[str, Any]:
                 "class": "logging.StreamHandler",
                 "stream": "ext://sys.stdout",
                 "formatter": formatter,
+                # The filter stamps trace_id/span_id onto every record, so the
+                # text format above can reference trace_id unconditionally.
+                "filters": ["trace_context"],
             },
         },
         # Root owns the only handler; uvicorn's loggers propagate to it so

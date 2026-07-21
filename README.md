@@ -40,6 +40,8 @@ and how your host Claude config is used.
 - [Development](docs/development.md) — run from source and run the tests.
 - [Architecture](docs/architecture.md) — how it fits together.
 - [Versioning & releases](docs/releasing.md) — CalVer, channels, tagging.
+- [Quartermaster alignment](docs/qm-alignment.md) — kit-alignment audit and
+  the work-package backlog it produced.
 
 ## License
 

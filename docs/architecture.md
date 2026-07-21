@@ -1,7 +1,7 @@
 # Architecture
 
-_System context as of 2026-07-05 (alpha). For the detailed design notes see
-`docs/superpowers/specs/`._
+_System context as of 2026-07-05 (alpha). Design history and the backlog now
+live in the [GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
 
 Kestrel is a **single-user** tool that dispatches and monitors coding-agent
 sessions from a web UI. One process serves both the API and (when packaged)

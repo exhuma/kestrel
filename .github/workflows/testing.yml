@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install uv
         run: pipx install uv
+      - name: Lint (ruff)
+        run: uvx ruff@0.15.20 check .
       - name: Run backend tests
         run: uv run --frozen pytest -q
 
@@ -33,5 +35,21 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Format check (prettier)
+        run: npm run format:check
       - name: Type-check and build
         run: npm run build
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Spell check (cspell)
+        run: >-
+          npx --yes cspell@8.16.1 --no-progress "README.md"
+          "docs/*.md" "backend/app/**/*.py" "frontend/src/**/*.{ts,vue}"
+      - name: Markdown prose line length
+        run: bash scripts/check_doc_line_length.sh README.md docs/*.md

@@ -1,0 +1,34 @@
+# Doc-quality and hygiene gate (module-documentation). Install locally with
+# `pre-commit install`; CI runs the same checks (see .github/workflows).
+# Only non-mutating hooks are enabled so a commit is never silently rewritten.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+        # tsconfig.*.json are JSONC (comments + trailing commas), valid for
+        # TypeScript but not strict JSON.
+        exclude: '(^|/)tsconfig(\..+)?\.json$'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: https://github.com/streetsidesoftware/cspell-cli
+    rev: v8.16.1
+    hooks:
+      - id: cspell
+        name: cspell (spell check)
+        # Config (cspell.json) sets the surfaces and the project dictionary.
+        files: '^(README\.md|contract\.md|docs/[^/]+\.md|backend/app/.+\.py|frontend/src/.+\.(ts|vue))$'
+
+  - repo: local
+    hooks:
+      - id: doc-line-length
+        name: markdown prose <= 80 columns
+        entry: scripts/check_doc_line_length.sh
+        language: script
+        files: '^(README\.md|contract\.md|docs/[^/]+\.md)$'
+
+  # proselint is intentionally opt-in and left disabled by default: its
+  # terse-imperative false positives are noisy on runbooks. Enable per-file
+  # when writing longer narrative prose.
