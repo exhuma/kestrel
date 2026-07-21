@@ -196,6 +196,39 @@ class Settings(BaseSettings):
     #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
     #: a link. Operator-exposed, same posture as the webhook endpoint.
     public_base_url: str = ""
+    #: Jira ingestion (feature 003). Base URL of the Jira instance
+    #: (``KESTREL_JIRA_BASE_URL``); empty ⇒ Jira polling disabled.
+    jira_base_url: str = ""
+    #: Jira auth mode: ``basic`` (Cloud — email + API token) or ``bearer``
+    #: (Server/DC — personal access token).
+    jira_auth: Literal["basic", "bearer"] = "basic"
+    #: Basic-auth username (Jira Cloud email); used when ``jira_auth`` is
+    #: ``basic``.
+    jira_email: str = ""
+    #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
+    jira_api_token: str = ""
+    #: RFC project key polled for change requests (required to poll).
+    jira_project: str = ""
+    #: Extra JQL AND-ed onto ``project = "<key>"`` (e.g. ``status = "Ready"``).
+    #: Keeps kestrel agnostic of company-internal workflow states.
+    jira_jql_filter: str = ""
+    #: Field id/name on the RFC holding the target ``owner/name[@base_branch]``.
+    jira_repo_field: str = ""
+    #: Jira poll cadence in seconds.
+    jira_poll_interval_seconds: int = 300
+    #: Code host for Jira-resolved repos: ``github`` | ``gitlab`` | ``gitea``.
+    #: Self-hostable posture — ``gitlab``/``gitea`` point at an on-prem instance.
+    code_host: Literal["github", "gitlab", "gitea"] = "github"
+    #: Self-hosted code-host instance base URL (e.g. ``https://gitlab.internal``).
+    code_host_base_url: str = ""
+    #: Code-host token / PAT. Secret; never logged. Falls back to
+    #: ``github_token`` when ``code_host`` is ``github``.
+    code_host_token: str = ""
+    #: Shell commands run in the run's worktree as verify evidence (v1 gatherer).
+    #: JSON list, e.g. ``["uv run pytest -q", "npm test"]``. Empty ⇒ judgment-only.
+    verify_checks: list[str] = []
+    #: Max code↔verify iterations before the loop escalates (feature 003).
+    max_verify_iterations: int = 3
 
     @field_validator("watched_repos", mode="before")
     @classmethod
@@ -224,6 +257,34 @@ class Settings(BaseSettings):
                 "watched_repos is set but webhook_secret is empty; "
                 "webhook ingestion will reject every delivery until "
                 "KESTREL_WEBHOOK_SECRET is configured."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_jira_config(self) -> Settings:
+        """Warn (not fail) when Jira is half-configured.
+
+        Jira polling silently doing nothing is a worse failure mode than a
+        startup warning, so surface the likely misconfiguration.
+        """
+        if self.jira_base_url and not (self.jira_project and self.jira_api_token):
+            _log.warning(
+                "jira_base_url is set but jira_project or jira_api_token is "
+                "empty; Jira polling will not start until both are configured."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_code_host_config(self) -> Settings:
+        """Warn when a self-hosted code host lacks its URL or token."""
+        if self.code_host in ("gitlab", "gitea") and not (
+            self.code_host_base_url and self.code_host_token
+        ):
+            _log.warning(
+                "code_host is %r but code_host_base_url or code_host_token is "
+                "empty; Jira-resolved repositories cannot be reached until "
+                "both are configured.",
+                self.code_host,
             )
         return self
 

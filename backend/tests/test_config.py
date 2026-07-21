@@ -154,6 +154,98 @@ def test_backend_env_vars_are_ignored(
     assert s.step_backends == {}
 
 
+def test_jira_settings_have_defaults() -> None:
+    """Ensure the feature-003 Jira settings default sensibly."""
+    s = Settings(_env_file=None)
+    assert s.jira_base_url == ""
+    assert s.jira_auth == "basic"
+    assert s.jira_email == ""
+    assert s.jira_api_token == ""
+    assert s.jira_project == ""
+    assert s.jira_jql_filter == ""
+    assert s.jira_repo_field == ""
+    assert s.jira_poll_interval_seconds == 300
+
+
+def test_code_host_and_verify_defaults() -> None:
+    """Ensure code-host and verify settings default sensibly."""
+    s = Settings(_env_file=None)
+    assert s.code_host == "github"
+    assert s.code_host_base_url == ""
+    assert s.code_host_token == ""
+    assert s.verify_checks == []
+    assert s.max_verify_iterations == 3
+
+
+def test_jira_auth_and_code_host_accept_literals() -> None:
+    """Ensure the literal-typed settings accept their allowed values."""
+    assert Settings(_env_file=None, jira_auth="bearer").jira_auth == "bearer"
+    assert Settings(_env_file=None, code_host="gitlab").code_host == "gitlab"
+    assert Settings(_env_file=None, code_host="gitea").code_host == "gitea"
+    with pytest.raises(Exception):
+        Settings(_env_file=None, jira_auth="oauth")
+    with pytest.raises(Exception):
+        Settings(_env_file=None, code_host="bitbucket")
+
+
+def test_verify_checks_parses_json_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure KESTREL_VERIFY_CHECKS parses a JSON array from the env."""
+    monkeypatch.setenv(
+        "KESTREL_VERIFY_CHECKS", '["uv run pytest -q", "npm test"]'
+    )
+    assert Settings().verify_checks == ["uv run pytest -q", "npm test"]
+
+
+def test_jira_partial_config_warns_without_leaking_token(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A half-configured Jira setup warns, and never logs the token."""
+    with caplog.at_level("WARNING"):
+        Settings(
+            _env_file=None,
+            jira_base_url="https://jira.example",
+            jira_api_token="super-secret-token",
+        )
+    text = caplog.text
+    assert "jira_project" in text
+    assert "super-secret-token" not in text
+
+
+def test_code_host_partial_config_warns_without_leaking_token(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A self-hosted code host with no URL/token warns, without the token."""
+    with caplog.at_level("WARNING"):
+        Settings(
+            _env_file=None,
+            code_host="gitlab",
+            code_host_token="ch-secret-token",
+        )
+    text = caplog.text
+    assert "code_host_base_url" in text
+    assert "ch-secret-token" not in text
+
+
+def test_full_jira_and_code_host_config_does_not_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A complete config emits no ingestion/code-host warning."""
+    with caplog.at_level("WARNING"):
+        Settings(
+            _env_file=None,
+            jira_base_url="https://jira.example",
+            jira_project="RFC",
+            jira_api_token="t",
+            code_host="gitlab",
+            code_host_base_url="https://gitlab.internal",
+            code_host_token="t",
+        )
+    assert "jira_project" not in caplog.text
+    assert "code_host_base_url is" not in caplog.text
+
+
 def test_backends_file_missing_fails_fast(tmp_path: Path) -> None:
     """Ensure a bad backends_file path raises at settings load."""
     with pytest.raises(Exception) as exc:

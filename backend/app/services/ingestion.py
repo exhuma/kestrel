@@ -64,7 +64,7 @@ class IngestionService:
         if not self.is_watched(repo):
             _log.info("ingest ignored (unwatched repo) %s", ref)
             return None
-        if self.dismissals.is_dismissed(repo, issue_number):
+        if self.dismissals.is_dismissed(ref):
             _log.info("ingest ignored (dismissed) %s", ref)
             return None
         if self.has_run(repo, issue_number):

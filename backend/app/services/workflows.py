@@ -421,6 +421,7 @@ class WorkflowService:
             id="wf-" + uuid.uuid4().hex[:8],
             repo=repo,
             issue_number=issue_number,
+            task_ref=f"{repo}#{issue_number}",
             branch=f"kestrel/issue-{issue_number}",
             workspace=os.path.join(
                 self.settings.workspace_root,
@@ -622,7 +623,9 @@ class WorkflowService:
         # re-created by the webhook or reconciliation (feature 002,
         # FR-008a). Cleared when the trigger label is removed.
         if self.dismissals is not None:
-            self.dismissals.add(run.repo, run.issue_number)
+            self.dismissals.add(
+                run.task_ref or f"{run.repo}#{run.issue_number}"
+            )
 
     # ---- orchestration -------------------------------------------------
     async def _await_gate(self, workflow_id: str) -> _Decision:

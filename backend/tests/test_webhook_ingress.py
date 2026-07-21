@@ -33,16 +33,19 @@ class _FakeDeliveries:
 
 class _FakeDismissals:
     def __init__(self) -> None:
-        self._d: set[tuple[str, int]] = set()
+        self._d: set[str] = set()
 
-    def add(self, repo, issue_number):
-        self._d.add((repo, issue_number))
+    def add(self, task_ref):
+        self._d.add(task_ref)
 
-    def is_dismissed(self, repo, issue_number):
-        return (repo, issue_number) in self._d
+    def is_dismissed(self, task_ref):
+        return task_ref in self._d
 
-    def clear(self, repo, issue_number):
-        self._d.discard((repo, issue_number))
+    def all(self):
+        return list(self._d)
+
+    def clear(self, task_ref):
+        self._d.discard(task_ref)
 
 
 class _FakeIngestion:
@@ -187,7 +190,7 @@ async def test_non_issues_event_ignored() -> None:
 async def test_dismissed_issue_ignored() -> None:
     ing = _FakeIngestion()
     dis = _FakeDismissals()
-    dis.add("o/r", 5)
+    dis.add("o/r#5")
     async with _client(_FakeDeliveries(), dis, ing) as c:
         r = await _post(c, _payload())
         await _tick()
@@ -199,10 +202,10 @@ async def test_dismissed_issue_ignored() -> None:
 async def test_unlabeled_clears_dismissal_then_relabel_starts() -> None:
     ing = _FakeIngestion()
     dis = _FakeDismissals()
-    dis.add("o/r", 5)
+    dis.add("o/r#5")
     async with _client(_FakeDeliveries(), dis, ing) as c:
         r_unlabel = await _post(c, _payload(action="unlabeled"), delivery="d1")
-        assert dis.is_dismissed("o/r", 5) is False
+        assert dis.is_dismissed("o/r#5") is False
         r_relabel = await _post(c, _payload(), delivery="d2")
         await _tick()
     assert r_unlabel.status_code == 200

@@ -57,11 +57,13 @@ class WorkflowStep:
 
 @dataclass
 class WorkflowRun:
-    """A GitHub issue -> code workflow run."""
+    """A ticket -> code workflow run."""
 
     id: str
     repo: str
-    issue_number: int
+    #: GitHub issue number. ``None`` for a Jira-sourced run, whose ticket has
+    #: no numeric id (feature 003) — the universal identity is ``task_ref``.
+    issue_number: int | None = None
     issue_title: str = ""
     base_branch: str = ""
     branch: str = ""
@@ -70,8 +72,12 @@ class WorkflowRun:
     steps: list[WorkflowStep] = field(default_factory=list)
     pr_url: str | None = None
     error: str | None = None
-    #: Origin of the run: ``"manual"`` (started via the UI) or
-    #: ``"github-issue"`` (ingested). Internal attribution only — never
-    #: surfaced to the API/UI, so an ingested run is indistinguishable from
-    #: a manual one (feature 002, FR-019 / clarification Q3).
+    #: Origin of the run: ``"manual"`` (started via the UI), ``"github-issue"``
+    #: or ``"jira-issue"`` (ingested). Internal attribution / notification
+    #: routing only — never surfaced to the API/UI, and never changes which
+    #: phases/gates a run traverses (feature 002 FR-019; feature 003 FR-026).
     source: str = "manual"
+    #: Source-native ticket identity: GitHub ``"owner/name#123"``, Jira the
+    #: issue key ``"RFC-123"``. The universal key for dedup, dismissal, and
+    #: notification rendering (feature 003, FR-024/FR-031/FR-033).
+    task_ref: str = ""

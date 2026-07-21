@@ -46,6 +46,7 @@ class WorkflowStore:
                     pr_url=run.pr_url,
                     error=run.error,
                     source=run.source,
+                    task_ref=run.task_ref,
                 )
             )
             for i, step in enumerate(run.steps):
@@ -124,6 +125,7 @@ class WorkflowStore:
                         pr_url=row.pr_url,
                         error=row.error,
                         source=row.source,
+                        task_ref=row.task_ref,
                     )
                 )
             return runs

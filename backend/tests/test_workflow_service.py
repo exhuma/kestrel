@@ -1573,19 +1573,22 @@ async def test_empty_generator_response_recorded_as_issue() -> None:
 
 
 class _FakeDismissals:
-    """In-memory dismissal store for abandon tests."""
+    """In-memory dismissal store for abandon tests (keyed by task_ref)."""
 
     def __init__(self) -> None:
-        self.added: list[tuple[str, int]] = []
+        self.added: list[str] = []
 
-    def add(self, repo: str, issue_number: int) -> None:
-        self.added.append((repo, issue_number))
+    def add(self, task_ref: str) -> None:
+        self.added.append(task_ref)
 
-    def is_dismissed(self, repo: str, issue_number: int) -> bool:
-        return (repo, issue_number) in self.added
+    def is_dismissed(self, task_ref: str) -> bool:
+        return task_ref in self.added
 
-    def clear(self, repo: str, issue_number: int) -> None:
-        self.added = [p for p in self.added if p != (repo, issue_number)]
+    def all(self) -> list[str]:
+        return list(self.added)
+
+    def clear(self, task_ref: str) -> None:
+        self.added = [p for p in self.added if p != task_ref]
 
 
 @pytest.mark.asyncio
@@ -1611,7 +1614,7 @@ async def test_abandon_records_dismissal() -> None:
 
     await svc.delete("wf-abandon")
 
-    assert dismissals.is_dismissed("o/r", 9)
+    assert dismissals.is_dismissed("o/r#9")
 
 
 class _SpyGit(_FakeGit):

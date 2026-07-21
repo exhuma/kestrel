@@ -45,7 +45,7 @@ class GitService:
             )
         return out.decode("utf-8", "replace")
 
-    def _auth(self) -> list[str]:
+    def _auth(self, token: str | None = None) -> list[str]:
         # Injected per-command so the token never persists in .git/config.
         # Ignored by git for non-http remotes (e.g. local bare repos).
         #
@@ -53,8 +53,11 @@ class GitService:
         # "x-access-token:<token>"); a raw "Bearer <token>" header — which
         # does work for the REST API — is rejected with
         # "remote: invalid credentials" / "fatal: Authentication failed".
+        # A ``token`` override lets a per-run code host (e.g. a self-hosted
+        # GitLab) authenticate with its own credential alongside GitHub;
+        # GitLab's git-over-HTTPS accepts the same Basic scheme.
         creds = base64.b64encode(
-            f"x-access-token:{self.token}".encode()
+            f"x-access-token:{token or self.token}".encode()
         ).decode()
         return ["-c", f"http.extraheader=AUTHORIZATION: basic {creds}"]
 

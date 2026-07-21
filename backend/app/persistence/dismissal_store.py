@@ -1,7 +1,10 @@
-"""Durable per-issue dismissal tombstones (feature 002, FR-008a).
+"""Durable per-ticket dismissal tombstones (feature 002 FR-008a; feature 003
+FR-033).
 
-Abandoning an ingested run records a dismissal so a still-labelled issue is
-not re-ingested/reconciled; removing the trigger label clears it.
+Rejecting a PRD or abandoning a run records a dismissal so a still-qualifying
+ticket is not re-ingested/reconciled; the ticket leaving its qualifying filter
+(GitHub label removed, or a Jira RFC leaving the JQL) clears it. Keyed by the
+source-neutral ``task_ref`` so GitHub and Jira share one guard.
 """
 from __future__ import annotations
 
@@ -17,24 +20,23 @@ from app.persistence.tables import IssueDismissalRow
 
 
 class DismissalStore:
-    """Records/queries/clears dismissals keyed by ``(repo, issue_number)``."""
+    """Records / queries / clears dismissals keyed by ``task_ref``."""
 
     def __init__(self, factory: sessionmaker[Session]) -> None:
         self._factory = factory
 
-    def add(self, repo: str, issue_number: int) -> None:
+    def add(self, task_ref: str) -> None:
         """
-        Record a dismissal for ``(repo, issue_number)`` (idempotent).
+        Record a dismissal for ``task_ref`` (idempotent).
 
-        :param repo: ``owner/name``.
-        :param issue_number: The dismissed issue.
+        :param task_ref: Source-native ticket id (e.g. ``owner/name#7`` or
+            ``RFC-123``).
         """
         try:
             with self._factory.begin() as db:
                 db.add(
                     IssueDismissalRow(
-                        repo=repo,
-                        issue_number=issue_number,
+                        task_ref=task_ref,
                         created_at=datetime.now(timezone.utc),
                     )
                 )
@@ -42,50 +44,38 @@ class DismissalStore:
             # Already dismissed — adding again is a no-op.
             pass
 
-    def is_dismissed(self, repo: str, issue_number: int) -> bool:
+    def is_dismissed(self, task_ref: str) -> bool:
         """
-        Return whether ``(repo, issue_number)`` is currently dismissed.
+        Return whether ``task_ref`` is currently dismissed.
 
-        :param repo: ``owner/name``.
-        :param issue_number: The issue to check.
+        :param task_ref: The ticket id to check.
         :returns: ``True`` if a dismissal exists.
         """
         with self._factory() as db:
-            return (
-                db.get(IssueDismissalRow, (repo, issue_number)) is not None
-            )
+            return db.get(IssueDismissalRow, task_ref) is not None
 
-    def list_dismissed(self, repo: str) -> list[int]:
+    def all(self) -> list[str]:
         """
-        Return the issue numbers currently dismissed for ``repo``.
+        Return every currently-dismissed ``task_ref``.
 
-        Used by reconciliation to clear dismissals whose label was removed
-        (feature 002, FR-008a).
+        Used by reconciliation / the Jira poll to clear dismissals whose
+        ticket no longer qualifies (feature 003, FR-033).
 
-        :param repo: ``owner/name``.
-        :returns: Dismissed issue numbers.
+        :returns: All dismissed task refs.
         """
         with self._factory() as db:
-            return list(
-                db.scalars(
-                    select(IssueDismissalRow.issue_number).where(
-                        IssueDismissalRow.repo == repo
-                    )
-                )
-            )
+            return list(db.scalars(select(IssueDismissalRow.task_ref)))
 
-    def clear(self, repo: str, issue_number: int) -> None:
+    def clear(self, task_ref: str) -> None:
         """
-        Remove any dismissal for ``(repo, issue_number)`` (idempotent).
+        Remove any dismissal for ``task_ref`` (idempotent).
 
-        :param repo: ``owner/name``.
-        :param issue_number: The issue to un-dismiss.
+        :param task_ref: The ticket to un-dismiss.
         """
         with self._factory.begin() as db:
             db.execute(
                 delete(IssueDismissalRow).where(
-                    IssueDismissalRow.repo == repo,
-                    IssueDismissalRow.issue_number == issue_number,
+                    IssueDismissalRow.task_ref == task_ref
                 )
             )
 

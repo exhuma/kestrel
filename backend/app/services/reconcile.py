@@ -49,10 +49,18 @@ class ReconcileService:
             return
         labelled = {issue.number for issue in issues}
         # Clear dismissals whose trigger label is gone (self-heal a missed
-        # `unlabeled` delivery), so a re-label can start fresh.
-        for number in self.dismissals.list_dismissed(repo):
+        # `unlabeled` delivery), so a re-label can start fresh. Dismissals are
+        # keyed by the source-neutral task_ref (``owner/name#n`` for GitHub).
+        prefix = f"{repo}#"
+        for ref in self.dismissals.all():
+            if not ref.startswith(prefix):
+                continue
+            try:
+                number = int(ref[len(prefix):])
+            except ValueError:
+                continue
             if number not in labelled:
-                self.dismissals.clear(repo, number)
+                self.dismissals.clear(ref)
         for issue in issues:
             try:
                 await self.ingestion.maybe_start_run(

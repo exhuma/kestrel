@@ -230,3 +230,33 @@ def test_source_round_trips(tmp_path: Path) -> None:
     run.source = "github-issue"
     store.save(run)
     assert store.load_all()[0].source == "github-issue"
+
+
+def test_task_ref_round_trips_and_github_keeps_issue_number(
+    tmp_path: Path,
+) -> None:
+    """Ensure task_ref persists and a GitHub run keeps its issue number."""
+    store = _store(tmp_path)
+    run = _run()
+    run.task_ref = "o/r#7"
+    store.save(run)
+    loaded = store.load_all()[0]
+    assert loaded.task_ref == "o/r#7"
+    assert loaded.issue_number == 7
+
+
+def test_jira_run_rehydrates_with_null_issue_number(
+    tmp_path: Path,
+) -> None:
+    """Ensure a Jira-sourced run round-trips with issue_number None."""
+    store = _store(tmp_path)
+    run = _run()
+    run.source = "jira-issue"
+    run.issue_number = None
+    run.task_ref = "RFC-123"
+    run.repo = "team/service"
+    store.save(run)
+    loaded = store.load_all()[0]
+    assert loaded.source == "jira-issue"
+    assert loaded.issue_number is None
+    assert loaded.task_ref == "RFC-123"

@@ -126,7 +126,7 @@ async def github_webhook(
     # Label removed: clear any dismissal so a later re-label starts fresh.
     if action == "unlabeled":
         if watched and is_trigger and issue_number is not None:
-            dismissals.clear(repo, issue_number)
+            dismissals.clear(f"{repo}#{issue_number}")
         return _ack(200, "ignored", issue_number)
 
     if action != "labeled" or not is_trigger or not watched:
@@ -135,7 +135,7 @@ async def github_webhook(
     if issue_number is None:
         return _ack(400, "ignored", None)
 
-    if dismissals.is_dismissed(repo, issue_number):
+    if dismissals.is_dismissed(f"{repo}#{issue_number}"):
         return _ack(200, "ignored", issue_number)
 
     # Dedup: record and check at-most-once. A re-delivery is acknowledged

@@ -50,7 +50,8 @@ class WorkflowRunRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     repo: Mapped[str] = mapped_column()
-    issue_number: Mapped[int] = mapped_column()
+    #: GitHub issue number; NULL for a Jira-sourced run (feature 003).
+    issue_number: Mapped[int | None] = mapped_column(nullable=True)
     issue_title: Mapped[str] = mapped_column(default="")
     base_branch: Mapped[str] = mapped_column(default="")
     branch: Mapped[str] = mapped_column(default="")
@@ -60,11 +61,15 @@ class WorkflowRunRow(Base):
     error: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
-    #: Run origin: "manual" | "github-issue" (feature 002). Server-default
+    #: Run origin: "manual" | "github-issue" | "jira-issue". Server-default
     #: keeps pre-existing rows valid; internal-only (not in the API).
     source: Mapped[str] = mapped_column(
         default="manual", server_default="manual"
     )
+    #: Source-native ticket identity (feature 003): GitHub "owner/name#123",
+    #: Jira "RFC-123". Server-default "" keeps pre-existing rows valid; the
+    #: migration backfills it.
+    task_ref: Mapped[str] = mapped_column(default="", server_default="")
 
 
 class WorkflowStepRow(Base):
@@ -108,16 +113,17 @@ class WebhookDeliveryRow(Base):
 
 
 class IssueDismissalRow(Base):
-    """A durable tombstone that an issue's run was abandoned.
+    """A durable tombstone that a ticket's run was rejected/abandoned.
 
-    Suppresses re-ingestion/reconciliation for ``(repo, issue_number)``
-    until the trigger label is removed (feature 002, FR-008a).
+    Suppresses re-ingestion/reconciliation for a ``task_ref`` until the
+    ticket stops qualifying (GitHub: trigger label removed; Jira: the RFC
+    leaves the qualifying JQL). Source-neutral key (feature 003, FR-033;
+    generalized from the feature-002 ``(repo, issue_number)`` composite).
     """
 
     __tablename__ = "issue_dismissal"
 
-    repo: Mapped[str] = mapped_column(primary_key=True)
-    issue_number: Mapped[int] = mapped_column(primary_key=True)
+    task_ref: Mapped[str] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

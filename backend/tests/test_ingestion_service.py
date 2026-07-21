@@ -35,19 +35,22 @@ class _FakeWorkflows:
 
 
 class _FakeDismissals:
-    """In-memory dismissal store."""
+    """In-memory dismissal store keyed by task_ref."""
 
     def __init__(self) -> None:
-        self._d: set[tuple[str, int]] = set()
+        self._d: set[str] = set()
 
-    def add(self, repo: str, issue_number: int) -> None:
-        self._d.add((repo, issue_number))
+    def add(self, task_ref: str) -> None:
+        self._d.add(task_ref)
 
-    def is_dismissed(self, repo: str, issue_number: int) -> bool:
-        return (repo, issue_number) in self._d
+    def is_dismissed(self, task_ref: str) -> bool:
+        return task_ref in self._d
 
-    def clear(self, repo: str, issue_number: int) -> None:
-        self._d.discard((repo, issue_number))
+    def all(self) -> list[str]:
+        return list(self._d)
+
+    def clear(self, task_ref: str) -> None:
+        self._d.discard(task_ref)
 
 
 def _service(
@@ -78,7 +81,7 @@ async def test_ignores_unwatched_repo() -> None:
 async def test_ignores_dismissed_issue() -> None:
     """Ensure a dismissed (repo, issue) starts nothing."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
-    dis.add("o/r", 5)
+    dis.add("o/r#5")
     assert await _service(wf, dis).maybe_start_run("o/r", 5) is None
     assert wf.created == []
 
@@ -100,4 +103,4 @@ async def test_failed_create_leaves_no_run_or_dismissal() -> None:
     with pytest.raises(RuntimeError):
         await _service(wf, dis).maybe_start_run("o/r", 5)
     assert wf.runs == []
-    assert dis.is_dismissed("o/r", 5) is False
+    assert dis.is_dismissed("o/r#5") is False

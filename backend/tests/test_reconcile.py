@@ -31,19 +31,19 @@ class _FakeWorkflows:
 
 class _FakeDismissals:
     def __init__(self) -> None:
-        self._d: set[tuple[str, int]] = set()
+        self._d: set[str] = set()
 
-    def add(self, repo, issue_number):
-        self._d.add((repo, issue_number))
+    def add(self, task_ref):
+        self._d.add(task_ref)
 
-    def is_dismissed(self, repo, issue_number):
-        return (repo, issue_number) in self._d
+    def is_dismissed(self, task_ref):
+        return task_ref in self._d
 
-    def clear(self, repo, issue_number):
-        self._d.discard((repo, issue_number))
+    def clear(self, task_ref):
+        self._d.discard(task_ref)
 
-    def list_dismissed(self, repo):
-        return [n for (r, n) in self._d if r == repo]
+    def all(self):
+        return list(self._d)
 
 
 class _FakeGitHub:
@@ -81,20 +81,20 @@ async def test_starts_missing_run_once_and_is_idempotent() -> None:
 async def test_dismissed_issue_is_skipped() -> None:
     """Ensure a dismissed, still-labelled issue is not started."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
-    dis.add("o/r", 5)
+    dis.add("o/r#5")
     await _svc(_FakeGitHub(issues=[Issue(5, "t", "b")]), wf, dis).run_cycle()
     assert wf.created == []
     # Still labelled ⇒ dismissal stays.
-    assert dis.is_dismissed("o/r", 5) is True
+    assert dis.is_dismissed("o/r#5") is True
 
 
 @pytest.mark.asyncio
 async def test_dismissal_cleared_when_label_removed() -> None:
     """Ensure a dismissal for an unlabelled issue is cleared."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
-    dis.add("o/r", 9)  # dismissed, but no longer labelled
+    dis.add("o/r#9")  # dismissed, but no longer labelled
     await _svc(_FakeGitHub(issues=[Issue(5, "t", "b")]), wf, dis).run_cycle()
-    assert dis.is_dismissed("o/r", 9) is False
+    assert dis.is_dismissed("o/r#9") is False
     assert wf.created == [("o/r", 5)]
 
 
