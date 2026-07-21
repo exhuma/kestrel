@@ -1,6 +1,22 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-07-21 (1.0.1 → 1.1.0, MINOR): Fold the standalone repo-level
+`contract.md` into this constitution and delete that file. Principle I (Contract
+Fidelity) is reworded so THIS document — not an external file — is the
+authoritative record of the constraints an agent must honour; the type-contract
+rule is retained, and the contract's access model (single-user, unauthenticated,
+loopback-bound; shared-secret gate only) is captured in Technology &
+Architecture Constraints. No obligation was removed or reversed — the contract's
+constraints were already reflected here — which is why this is MINOR rather than
+a MAJOR principle redefinition. Dangling references updated in AGENTS.md,
+backend/app/schemas.py, docs/qm-alignment.md, and
+.specify/specs/000-baseline/spec.md.
+
+Amendment 2026-07-21 (1.0.0 → 1.0.1, PATCH): Link docs/architecture.md as the
+authoritative system-context source from "Technology & Architecture Constraints"
+(reference, not a copy, to prevent drift). No principle changed.
+
 Version change: (unversioned template) → 1.0.0
 Rationale: Initial ratification. The template placeholders are replaced with
 concrete, project-derived principles for the first time, so this is a MAJOR
@@ -42,17 +58,18 @@ Follow-up TODOs:
 
 ### I. Contract Fidelity
 
-`contract.md` at the repository root is the authoritative source of the
-constraints an agent MUST honour when changing the code. Every change MUST be
-consistent with it; a change MUST NOT silently contradict it. Any intentional
-departure from stack norms MUST be recorded in `contract.md` (with its
-rationale) before it is relied upon. Frontend business types in
-`frontend/src/types/` MUST stay in sync with the backend JSON shapes they
-mirror; changing one side of that contract without the other is prohibited.
+This constitution is the authoritative record of the constraints an agent MUST
+honour when changing the code. Every change MUST be consistent with it and MUST
+NOT silently contradict it; any intentional departure from stack norms MUST be
+recorded here (see Technology & Architecture Constraints), with its rationale,
+before it is relied upon. The frontend/backend **type contract** MUST stay in
+sync: business types in `frontend/src/types/` mirror the backend JSON shapes
+they represent (e.g. `SessionSummary`, `SessionEvent`), and changing one side
+without the other is prohibited.
 
-**Rationale**: A single, version-controlled contract prevents drift between the
-backend and frontend and keeps deliberate deviations visible instead of
-tribal knowledge.
+**Rationale**: A single, version-controlled record prevents drift between the
+backend and frontend and keeps deliberate deviations visible instead of tribal
+knowledge.
 
 ### II. Layered, Backend-Owned Architecture
 
@@ -108,19 +125,28 @@ trust in the running system.
 
 ## Technology & Architecture Constraints
 
+The living description of how the system fits together is
+[`docs/architecture.md`](../../docs/architecture.md) — it is the source of truth
+for system context and MUST NOT be duplicated here (a copy would drift). This
+section records only the non-negotiable constraints an agent must honour.
+
 - **Backend**: FastAPI (Python), managed with `uv`, in `backend/`.
   `pyproject.toml` is the dependency source of truth.
 - **Frontend**: Vue 3 + Vuetify 4 + TypeScript (Vite, npm), in `frontend/`.
   `package.json` is the dependency source of truth. Components use the
   Composition API (`<script setup lang="ts">`).
 - **Persistence**: SQLite via SQLAlchemy 2.x, schema owned by Alembic
-  (`backend/alembic/`). Two deliberate, contract-recorded deviations are
-  permitted and MUST be preserved unless contract.md is amended: stores own
-  their `Session` lifecycle (no request-scoped `get_db` dependency), and
-  timestamps are stored as naive UTC.
+  (`backend/alembic/`). Two deliberate, recorded deviations from the usual
+  FastAPI/SQLAlchemy patterns are permitted and MUST be preserved unless this
+  constitution is amended: stores own their `Session` lifecycle (a
+  `sessionmaker(...).begin()` context per operation; no request-scoped `get_db`
+  dependency), and timestamps are stored as naive UTC.
 - **Worker agent**: the backend invokes the host's logged-in `claude` CLI as a
   subprocess (OAuth/Max subscription). No `ANTHROPIC_API_KEY` and no Agent SDK.
   Alternative backends (opencode, self-hosted LLM) are dispatched the same way.
+- **Access model**: single concurrent user; the API is currently unauthenticated
+  and bound to loopback. The only planned protection is a shared-secret access
+  gate (see `docs/next-steps.md`), not multi-user authentication.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -132,7 +158,8 @@ trust in the running system.
 - **Quality gates before merge**: backend and frontend test suites pass;
   linters/formatters pass with no suppressions added to dodge a real finding.
 - **Documentation**: user-facing or behavioural changes update the relevant
-  docs (`README.md`, `docs/*`) and, when constraints change, `contract.md`.
+  docs (`README.md`, `docs/*`) and, when binding constraints change, this
+  constitution.
 - **Security-first, minimal changes**: prefer the smallest change that solves
   the problem; ask before guessing at ambiguous requirements; never introduce
   hard-coded secrets or credentials.
@@ -141,9 +168,10 @@ trust in the running system.
 
 ## Governance
 
-This constitution supersedes ad-hoc practice for the topics it covers; where it
-and `contract.md` both speak, they MUST agree, and a conflict is a defect to be
-resolved by amending one of them, not ignored.
+This constitution supersedes ad-hoc practice for the topics it covers and is the
+single authoritative record of the project's binding constraints; a conflict
+between it and any other document is a defect to be resolved by amending this
+constitution, not ignored.
 
 - **Amendments** MUST be made by editing this file, documenting the change in
   the Sync Impact Report, and bumping the version.
@@ -159,4 +187,4 @@ resolved by amending one of them, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21
+**Version**: 1.1.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21

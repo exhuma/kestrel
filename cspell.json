@@ -4,7 +4,6 @@
   "language": "en,en-GB",
   "files": [
     "README.md",
-    "contract.md",
     "docs/*.md",
     "backend/app/**/*.py",
     "frontend/src/**/*.{ts,vue}"

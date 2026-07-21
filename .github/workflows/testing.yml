@@ -49,7 +49,7 @@ jobs:
           node-version: "22"
       - name: Spell check (cspell)
         run: >-
-          npx --yes cspell@8.16.1 --no-progress "README.md" "contract.md"
+          npx --yes cspell@8.16.1 --no-progress "README.md"
           "docs/*.md" "backend/app/**/*.py" "frontend/src/**/*.{ts,vue}"
       - name: Markdown prose line length
-        run: bash scripts/check_doc_line_length.sh README.md contract.md docs/*.md
+        run: bash scripts/check_doc_line_length.sh README.md docs/*.md

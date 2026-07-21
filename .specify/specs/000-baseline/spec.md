@@ -6,8 +6,9 @@
 
 **Status**: Baseline (describes shipped behavior, not proposed work)
 
-**Input**: Reverse-engineered from `docs/architecture.md`, `contract.md`, and the
-backend/frontend source as of this commit. This document is a *descriptive*
+**Input**: Reverse-engineered from `docs/architecture.md`, the constitution
+(`.specify/memory/constitution.md`), and the backend/frontend source as of this
+commit. This document is a *descriptive*
 baseline: it records what the system does today so that future specs can state
 changes as deltas against it. Where behavior is a deliberate, contract-recorded
 deviation or a known quirk, it is called out rather than idealized.

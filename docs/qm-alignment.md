@@ -16,9 +16,10 @@ forward. The goal remains a durable, prioritized backlog, not a big refactor.
 
 ## Scope decisions
 
-- **Pragmatic alignment bar.** `contract.md` scopes kestrel as a personal,
-  single-user, host-run tool. High/Med gaps (correctness, security posture,
-  doc accuracy) are treated as *required*; Low gaps that only matter at
+- **Pragmatic alignment bar.** The
+  [constitution](../.specify/memory/constitution.md) scopes kestrel as a
+  personal, single-user, host-run tool. High/Med gaps (correctness, security
+  posture, doc accuracy) are treated as *required*; Low gaps that only matter at
   multi-user / production scale are listed under
   [Deferred](#deferred-single-user-scope) with rationale, not dropped silently.
 - **Adopted the v2 observability model.** The catalog's coordinated v2 breaking

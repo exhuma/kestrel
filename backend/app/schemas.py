@@ -1,7 +1,8 @@
 """Response/DTO schemas shared across the service and router layers.
 
 These mirror the frontend business types in ``frontend/src/types/``;
-keep them in sync when the API changes (see ``contract.md``).
+keep them in sync when the API changes (see the type contract in
+``.specify/memory/constitution.md``).
 """
 from __future__ import annotations
 
