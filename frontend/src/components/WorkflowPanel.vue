@@ -236,7 +236,7 @@ function badgeColor(token: string): string | undefined {
         <v-btn
           block
           color="primary"
-          prepend-icon="mdi-rocket-launch-outline"
+          prepend-icon="$rocketLaunchOutline"
           :loading="busy === 'create'"
           @click="onCreate"
         >
@@ -260,14 +260,14 @@ function badgeColor(token: string): string | undefined {
           <template #prepend>
             <v-icon
               v-if="w.status.startsWith('awaiting')"
-              icon="mdi-circle"
+              icon="$circle"
               color="warning"
               size="x-small"
             />
           </template>
           <template #append>
             <v-btn
-              icon="mdi-close"
+              icon="$close"
               size="x-small"
               variant="text"
               title="Abandon workflow"
@@ -375,7 +375,7 @@ function badgeColor(token: string): string | undefined {
                 />
                 <v-icon
                   v-else-if="s.status === 'error'"
-                  icon="mdi-alert-circle"
+                  icon="$alertCircle"
                   size="small"
                   class="me-1"
                 />
@@ -500,7 +500,7 @@ function badgeColor(token: string): string | undefined {
           rel="noopener noreferrer"
           variant="text"
           color="primary"
-          append-icon="mdi-arrow-right"
+          append-icon="$arrowRight"
         >
           View pull request
         </v-btn>
@@ -511,7 +511,7 @@ function badgeColor(token: string): string | undefined {
             <v-btn
               size="small"
               variant="text"
-              append-icon="mdi-close"
+              append-icon="$close"
               @click="toggleSession(expandedSession)"
             >
               Hide

@@ -1,7 +1,8 @@
 import { createApp } from 'vue'
 import { createVuetify } from 'vuetify'
 import 'vuetify/styles'
-import '@mdi/font/css/materialdesignicons.css'
+import { aliases as vuetifyAliases, mdi } from 'vuetify/iconsets/mdi-svg'
+import { aliases as appAliases } from './plugins/icons'
 import './styles/theme.css'
 import App from './App.vue'
 
@@ -11,6 +12,14 @@ import App from './App.vue'
 // is used. Global `defaults` set the house style once (density, variants) so
 // individual call sites stay prop-light.
 const vuetify = createVuetify({
+  // SVG icon set (@mdi/js paths) instead of the webfont: only the referenced
+  // glyphs ship. Merge Vuetify's own mdi-svg aliases (used by built-in
+  // component icons like $dropdown/$close) with the app's registry.
+  icons: {
+    defaultSet: 'mdi',
+    aliases: { ...vuetifyAliases, ...appAliases },
+    sets: { mdi },
+  },
   theme: {
     defaultTheme: 'dark',
   },

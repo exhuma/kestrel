@@ -19,7 +19,7 @@ const expanded = ref(false)
       <template v-else-if="event.view.kind === 'tool_call'">
         <details class="ecard__tool flex-1-1">
           <summary class="text-warning">
-            <v-icon icon="mdi-cog-outline" size="x-small" />
+            <v-icon icon="$cogOutline" size="x-small" />
             {{ event.view.name }}
             <span v-if="event.view.input" class="text-medium-emphasis">
               · {{ event.view.input }}
@@ -33,7 +33,7 @@ const expanded = ref(false)
 
       <template v-else-if="event.view.kind === 'tool_result'">
         <v-icon
-          icon="mdi-subdirectory-arrow-right"
+          icon="$subdirectoryArrowRight"
           size="x-small"
           class="text-medium-emphasis mt-1"
         />
@@ -90,7 +90,7 @@ const expanded = ref(false)
       </template>
 
       <v-btn
-        icon="mdi-code-json"
+        icon="$codeJson"
         size="x-small"
         variant="text"
         density="comfortable"

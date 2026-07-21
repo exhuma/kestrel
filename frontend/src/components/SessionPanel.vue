@@ -210,7 +210,7 @@ function preview(e: SessionEvent): string {
         <v-btn
           block
           color="primary"
-          prepend-icon="mdi-rocket-launch-outline"
+          prepend-icon="$rocketLaunchOutline"
           :disabled="loading || !prompt.trim()"
           @click="onStart"
         >
@@ -250,7 +250,7 @@ function preview(e: SessionEvent): string {
         >
           <v-list-item-title class="d-flex align-center ga-2">
             <v-icon
-              icon="mdi-circle"
+              icon="$circle"
               :color="toneColor(statusTone(s.status))"
               size="x-small"
             />
@@ -267,7 +267,7 @@ function preview(e: SessionEvent): string {
           </v-list-item-subtitle>
           <template #append>
             <v-btn
-              icon="mdi-close"
+              icon="$close"
               size="x-small"
               variant="text"
               title="Abandon session"
@@ -312,7 +312,7 @@ function preview(e: SessionEvent): string {
     <div ref="feedEl" class="feed flex-1-1 pa-4">
       <v-empty-state
         v-if="!events.length"
-        icon="mdi-radar"
+        icon="$radar"
         headline="Awaiting dispatch"
         text="Launch a session to stream its telemetry here."
       />

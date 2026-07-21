@@ -42,7 +42,7 @@ async function onClick(id: number, workflowId: string): Promise<void> {
           :content="actionRequiredCount"
           color="error"
         >
-          <v-icon icon="mdi-bell" />
+          <v-icon icon="$bell" />
         </v-badge>
       </v-btn>
     </template>
@@ -63,7 +63,7 @@ async function onClick(id: number, workflowId: string): Promise<void> {
         >
           <template #prepend>
             <v-icon
-              :icon="n.read ? 'mdi-circle-outline' : 'mdi-circle'"
+              :icon="n.read ? '$circleOutline' : '$circle'"
               :color="n.read ? undefined : 'primary'"
               size="x-small"
             />
@@ -82,7 +82,7 @@ async function onClick(id: number, workflowId: string): Promise<void> {
         >
           <template #prepend>
             <v-icon
-              :icon="n.read ? 'mdi-circle-outline' : 'mdi-circle'"
+              :icon="n.read ? '$circleOutline' : '$circle'"
               :color="n.read ? undefined : 'primary'"
               size="x-small"
             />

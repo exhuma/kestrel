@@ -1,12 +1,25 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import SessionPanel from './components/SessionPanel.vue'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import GithubLink from './components/GithubLink.vue'
+import PanelLoading from './components/PanelLoading.vue'
+import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
 import { useWorkflows } from './composables/useWorkflows'
+
+// Workflows is the default view; the raw sessions view is a secondary
+// debugging affordance, so its code is fetched on demand (a separate chunk).
+// The default initial load therefore excludes SessionPanel's code (SC-006),
+// with a loading spinner while it fetches and a clear error if that fails
+// (FR-009).
+const SessionPanel = defineAsyncComponent({
+  loader: () => import('./components/SessionPanel.vue'),
+  loadingComponent: PanelLoading,
+  errorComponent: PanelError,
+  delay: 200,
+})
 
 // Shared composable state: the header reflects fleet-wide status.
 const { sessions, loading: sessionsLoading } = useSessions()
@@ -80,7 +93,7 @@ function toggleTheme() {
         class="me-2"
       >
         <v-icon
-          :icon="running ? 'mdi-circle' : 'mdi-circle-outline'"
+          :icon="running ? '$circle' : '$circleOutline'"
           size="x-small"
           start
         />
@@ -89,7 +102,7 @@ function toggleTheme() {
 
       <NotificationCenter @navigate="view = 'workflows'" />
       <v-btn
-        :icon="isDark ? 'mdi-weather-night' : 'mdi-weather-sunny'"
+        :icon="isDark ? '$weatherNight' : '$weatherSunny'"
         variant="text"
         :title="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
         @click="toggleTheme"
