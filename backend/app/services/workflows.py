@@ -760,6 +760,11 @@ class WorkflowService:
         except _Rejected:
             run.status = "rejected"
             self._save(run)
+            # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
+            # dismissal so polling does not silently re-create the run while
+            # the ticket still qualifies; the re-trigger gesture clears it.
+            if self.dismissals is not None and run.task_ref:
+                self.dismissals.add(run.task_ref)
             await self._teardown_workspace(run)
         except Exception as exc:
             _logger.exception(
@@ -803,6 +808,11 @@ class WorkflowService:
         except _Rejected:
             run.status = "rejected"
             self._save(run)
+            # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
+            # dismissal so polling does not silently re-create the run while
+            # the ticket still qualifies; the re-trigger gesture clears it.
+            if self.dismissals is not None and run.task_ref:
+                self.dismissals.add(run.task_ref)
             await self._teardown_workspace(run)
         except Exception as exc:  # record, do not crash the loop
             _logger.exception(

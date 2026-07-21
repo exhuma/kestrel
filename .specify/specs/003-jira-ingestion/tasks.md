@@ -140,14 +140,14 @@ in the UI ⇒ refinement resumes; completion ⇒ PRD attached + thin approval co
 
 ### Tests for User Story 2 (write first, ensure they fail)
 
-- [ ] T039 [P] [US2] Write `backend/tests/test_refine_notifications.py`: `awaiting_refine_input` posts a thin comment carrying only the questionnaire deep-link (no question text); `awaiting_refine_approval` posts a thin approval comment; neither leaks refined/PRD content (FR-029)
-- [ ] T040 [P] [US2] Write `backend/tests/test_prd_delivery.py`: on PRD approval, `publish_refined` attaches `PRD.md` for a Jira run and updates the issue (sentinel) for a GitHub run; PRD rejection ends the run `rejected` and writes a `task_ref` dismissal — stop-and-dismiss, not auto-return (FR-012)
+- [X] T039 [P] [US2] Write `backend/tests/test_refine_notifications.py`: `awaiting_refine_input` posts a thin comment carrying only the questionnaire deep-link (no question text); `awaiting_refine_approval` posts a thin approval comment; neither leaks refined/PRD content (FR-029)
+- [X] T040 [P] [US2] Write `backend/tests/test_prd_delivery.py`: on PRD approval, `publish_refined` attaches `PRD.md` for a Jira run and updates the issue (sentinel) for a GitHub run; PRD rejection ends the run `rejected` and writes a `task_ref` dismissal — stop-and-dismiss, not auto-return (FR-012)
 
 ### Implementation for User Story 2
 
-- [ ] T041 [US2] On PRD approval in `_refine` (`backend/app/services/workflows.py`), call `TaskSource.publish_refined(run.task_ref, prd)` before entering `design` (Jira ⇒ attachment, GitHub ⇒ issue+sentinel — unchanged for GitHub)
-- [ ] T042 [US2] Ensure the refine clarification + approval notifications are thin deep-link comments (verify the `TaskSourceNotifier`/template path carries no questionnaire or PRD content) in `backend/app/notifications.py`
-- [ ] T043 [US2] Write a `task_ref` dismissal on PRD rejection (and on abandon) in `backend/app/services/workflows.py` (`reject`/`delete` paths)
+- [X] T041 [US2] On PRD approval in `_refine` (`backend/app/services/workflows.py`), call `TaskSource.publish_refined(run.task_ref, prd)` before entering `design` (Jira ⇒ attachment, GitHub ⇒ issue+sentinel — unchanged for GitHub)
+- [X] T042 [US2] Ensure the refine clarification + approval notifications are thin deep-link comments (verify the `TaskSourceNotifier`/template path carries no questionnaire or PRD content) in `backend/app/notifications.py`
+- [X] T043 [US2] Write a `task_ref` dismissal on PRD rejection (and on abandon) in `backend/app/services/workflows.py` (`reject`/`delete` paths)
 
 **Checkpoint**: A human working only in Jira can clarify (via the linked form) and approve/reject
 the PRD; the PRD lands as an attachment; nothing sensitive is posted to the ticket.
