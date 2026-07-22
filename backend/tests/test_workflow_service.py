@@ -349,6 +349,118 @@ async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_code_prompt_carries_design_on_cross_backend() -> None:
+    """The coder must receive the plan in its prompt, not only via session.
+
+    On a cross-backend route the coder starts a fresh session (no memory of
+    the designer's turn), so the design plan has to be embedded directly in
+    the coder prompt — otherwise opencode's build agent has nothing to
+    implement and exits with an empty diff.
+    """
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    design = _FakeRunner(
+        sessions, outputs=["<PLAN>\nAdd a shiny widget\n</PLAN>"],
+        id_prefix="llm-",
+    )
+    code = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("Build a clear widget"),
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _service(gh, policy, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    code_call = next(
+        c for c in code.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert code_call["resume_id"] is None  # fresh session, no memory
+    assert "Add a shiny widget" in code_call["prompt"]  # plan embedded
+
+
+@pytest.mark.asyncio
+async def test_no_changes_escalation_fails_code_step() -> None:
+    """An empty coder diff escalates the run AND marks the code step failed.
+
+    The UI keys its activity spinner off step status, so a terminal run must
+    not leave the code step stuck ``running`` (FR: any failure stops the
+    activity indicators).
+    """
+    gh = _FakeGitHub(body="vague issue")
+    git = _FakeGit()
+    git.diffs = [""]  # coder produces no changes
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\ndo X\n</PLAN>",
+        "I looked but changed nothing",
+    ])
+    svc = _service(gh, runner, git)
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "escalated")
+
+    run = svc.get(wid)
+    assert run.error == "escalated: the coder produced no changes"
+    code_step = run.steps[2]
+    assert code_step.status == "failed"
+    assert code_step.active_sessions == []
+
+
+class _RaisingBackend:
+    """A backend whose turns always explode, to exercise the in-flight
+    step being marked failed when a step raises mid-run."""
+
+    caps = frozenset({Capability.TEXT})
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def run_turn(self, req, on_session_id=None):
+        raise RuntimeError("boom: design backend exploded")
+
+    def terminate(self, session_id: str) -> bool:
+        return True
+
+
+@pytest.mark.asyncio
+async def test_step_exception_marks_active_step_failed() -> None:
+    """An exception while a step is running fails that step, not just the run.
+
+    Otherwise the run shows ``failed`` while the design step stays
+    ``running`` and the UI keeps spinning."""
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    code = _FakeRunner(
+        sessions, outputs=[*_refine_noquestions("Build a clear widget")],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, _RaisingBackend(), code)
+    svc = _service(gh, policy, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)  # design runs next → raises
+    await _wait(lambda: svc.get(wid).status == "failed")
+
+    run = svc.get(wid)
+    assert "boom" in (run.error or "")
+    design_step = run.steps[1]
+    assert design_step.status == "failed"
+    assert design_step.active_sessions == []
+
+
+@pytest.mark.asyncio
 async def test_sentinel_skips_refine() -> None:
     """Ensure an already-refined issue jumps straight to autonomous design."""
     gh = _FakeGitHub(body="clear issue\n\n<!-- kestrel:refined -->")

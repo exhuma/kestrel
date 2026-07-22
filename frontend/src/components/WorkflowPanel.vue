@@ -65,7 +65,17 @@ const awaitingInput = computed(
 const awaitingApproval = computed(
   () => activeStep.value?.status === 'awaiting_approval',
 )
-const stepRunning = computed(() => activeStep.value?.status === 'running')
+// A terminal/failed run must never show a step activity indicator, even if a
+// step's status was left 'running' by some backend path — the run-level state
+// is authoritative here.
+const runFailed = computed(
+  () =>
+    !!current.value?.error ||
+    ['failed', 'escalated', 'rejected'].includes(current.value?.status ?? ''),
+)
+const stepRunning = computed(
+  () => activeStep.value?.status === 'running' && !runFailed.value,
+)
 const pendingInterview = computed(() =>
   awaitingInput.value && current.value
     ? parsePendingInterview(current.value.id, activeStep.value ?? null)

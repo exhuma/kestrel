@@ -229,7 +229,8 @@ REFINE_FEEDBACK_PROMPT = (
 )
 CODE_FEEDBACK_PROMPT = (
     "The verifier did not accept the implementation. Address this feedback by "
-    "editing the repository now, then stop.\n\nFEEDBACK:\n{feedback}"
+    "editing the repository now, then stop.\n\nFEEDBACK:\n{feedback}\n\n"
+    "DESIGN:\n{design}"
 )
 DESIGN_PROMPT = (
     "Read this approved PRD and the codebase, then produce a concise "
@@ -240,11 +241,11 @@ DESIGN_PROMPT = (
     "files.\n\nPRD:\n{issue}"
 )
 CODE_PROMPT = (
-    "Implement the design you just produced. Make all necessary code edits in "
-    "this repository now. This runs autonomously — there is no human to ask, "
-    "so make the best decision you can and implement it. Once the "
-    "implementation is complete, just stop — do not wrap your final summary "
-    "in any tags."
+    "Implement the design below. Make all necessary code edits in this "
+    "repository now. This runs autonomously — there is no human to ask, so "
+    "make the best decision you can and implement it. Once the implementation "
+    "is complete, just stop — do not wrap your final summary in any tags."
+    "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
 VERIFY_PROMPT = (
     "You are the verifier. Judge whether the implementation satisfies the PRD "
@@ -752,6 +753,7 @@ class WorkflowService:
             elif run.status in _TRANSIENT:
                 run.status = "failed"
                 run.error = "backend restarted mid-step"
+                self._fail_active_steps(run)
                 self._save(run)
 
     async def _resume(self, workflow_id: str) -> None:
@@ -776,6 +778,7 @@ class WorkflowService:
             )
             run.status = "failed"
             run.error = str(exc)
+            self._fail_active_steps(run)
             self._save(run)
             await self._teardown_workspace(run)
 
@@ -823,6 +826,7 @@ class WorkflowService:
             )
             run.status = "failed"
             run.error = str(exc)
+            self._fail_active_steps(run)
             self._save(run)
             await self._teardown_workspace(run)
 
@@ -1600,7 +1604,7 @@ class WorkflowService:
         design = run.steps[1].deliverable or ""
         code_model = get_policy().model_for("code")
         verify_model = get_policy().model_for("verify")
-        prompt = CODE_PROMPT
+        prompt = CODE_PROMPT.format(prd=prd, design=design)
         for _ in range(max(1, self.settings.max_verify_iterations)):
             # ---- code (gateless) ----
             code_step.model = code_model
@@ -1687,10 +1691,28 @@ class WorkflowService:
             # Rejected: loop back to the coder with the feedback.
             code_step.status = "pending"
             self._save(run)
-            prompt = CODE_FEEDBACK_PROMPT.format(feedback=feedback)
+            prompt = CODE_FEEDBACK_PROMPT.format(
+                feedback=feedback, design=design
+            )
         return await self._escalate(
             run, "verification did not pass within the iteration limit"
         )
+
+    @staticmethod
+    def _fail_active_steps(run: WorkflowRun) -> None:
+        """Flip any in-flight step to a terminal ``failed`` state.
+
+        A terminal run status (``escalated``/``failed``) must not leave a step
+        still ``running`` (or parked on a gate): the UI keys its activity
+        indicators off step status, so a stranded ``running`` step spins
+        forever. Clears the ephemeral session chips too.
+        """
+        for step in run.steps:
+            if step.status in (
+                "running", "awaiting_input", "awaiting_approval"
+            ):
+                step.status = "failed"
+                step.active_sessions = []
 
     async def _escalate(self, run: WorkflowRun, reason: str) -> bool:
         """Stop the autonomous loop and flag the ticket for human attention.
@@ -1699,6 +1721,7 @@ class WorkflowService:
         """
         run.error = f"escalated: {reason}"
         run.status = "escalated"
+        self._fail_active_steps(run)
         self._save(run)
         await self._teardown_workspace(run)
         return True

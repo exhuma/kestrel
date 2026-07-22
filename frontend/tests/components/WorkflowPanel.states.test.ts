@@ -92,3 +92,25 @@ describe('WorkflowPanel run identity + steps', () => {
     expect(link.attributes('href')).toBe('https://github.com/o/r/issues/5')
   })
 })
+
+describe('WorkflowPanel failure state', () => {
+  it('shows the working spinner while a step runs and the run is healthy', () => {
+    state.current.value = detail({}) // code step running, no error
+    const html = mount(WorkflowPanel, withVuetify()).html()
+    expect(html).toContain('agent is working')
+  })
+
+  it('stops the spinner and shows the banner when the run has failed', () => {
+    // The buggy backend snapshot: run escalated (error set) yet the code
+    // step is still 'running'. The activity indicator must not spin.
+    state.current.value = detail({
+      status: 'escalated',
+      error: 'escalated: the coder produced no changes',
+    })
+    const html = mount(WorkflowPanel, withVuetify()).html()
+    expect(html).not.toContain('agent is working')
+    expect(html).toContain(
+      'Run failed: escalated: the coder produced no changes',
+    )
+  })
+})
