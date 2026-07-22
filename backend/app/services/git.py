@@ -1,13 +1,12 @@
 """Async wrapper over the git CLI for workflow git operations."""
 from __future__ import annotations
 
-import logging
 import asyncio
 import base64
+import logging
 import os
 
 from app.services.exceptions import GitError
-
 
 LOG = logging.getLogger(__name__)
 
