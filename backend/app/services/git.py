@@ -1,12 +1,15 @@
 """Async wrapper over the git CLI for workflow git operations."""
 from __future__ import annotations
 
+import logging
 import asyncio
 import base64
 import os
 
 from app.services.exceptions import GitError
 
+
+LOG = logging.getLogger(__name__)
 
 class GitService:
     """Runs git commands; injects auth per-command, never into config."""
@@ -24,6 +27,7 @@ class GitService:
         return self._locks.setdefault(mirror_dir, asyncio.Lock())
 
     async def _git(self, *args: str, cwd: str | None = None) -> str:
+        LOG.info("git %s (cwd=%s)", " ".join(args), cwd)
         proc = await asyncio.create_subprocess_exec(
             "git",
             *args,
