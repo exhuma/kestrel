@@ -88,15 +88,21 @@ class _FakeRunner:
 
     caps = frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
-    def __init__(self, sessions: SessionRegistry, outputs: list[str]) -> None:
+    def __init__(
+        self,
+        sessions: SessionRegistry,
+        outputs: list[str],
+        id_prefix: str = "s",
+    ) -> None:
         self.sessions = sessions
         self._outputs = list(outputs)
+        self._id_prefix = id_prefix
         self._n = 0
         self.calls: list[dict] = []
         self.terminated: list[str] = []
 
     async def run_turn(self, req, on_session_id=None):
-        sid = req.resume_id or f"s{self._n}"
+        sid = req.resume_id or f"{self._id_prefix}{self._n}"
         self._n += 1
         self.calls.append(
             {"resume_id": req.resume_id, "model": req.model,
@@ -125,8 +131,39 @@ class _FakeRunner:
     def backend_for(self, step: str):
         return self
 
+    def backend_id_for(self, step: str) -> str:
+        return "fake"
+
     def backends(self):
         return [self]
+
+
+class _RoutingPolicy:
+    """A BackendPolicy stub routing ``design`` and ``code`` to different
+    backends, so a cross-backend session handoff can be exercised.
+
+    Mirrors the real routing where ``design`` may resolve to a TEXT-only
+    LLM backend (``llm-…`` session ids) while ``code`` resolves to
+    opencode (``ses-…`` ids). Every other step uses the code backend.
+    """
+
+    def __init__(
+        self, sessions: SessionRegistry, design, code
+    ) -> None:
+        self.sessions = sessions
+        self._design = design
+        self._code = code
+
+    def backend_for(self, step: str):
+        return self._design if step.split(".", 1)[0] == "design" else (
+            self._code
+        )
+
+    def backend_id_for(self, step: str) -> str:
+        return "llm" if step.split(".", 1)[0] == "design" else "opencode"
+
+    def backends(self):
+        return [self._design, self._code]
 
 
 def _service(github, runner, git, settings=None) -> WorkflowService:
@@ -242,6 +279,73 @@ async def test_happy_path_refine_design_code_verify_pr() -> None:
     assert svc.get(wid).steps[3].deliverable == "accepted"
     assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
     assert git.pushed == [svc.get(wid).branch]
+
+
+@pytest.mark.asyncio
+async def test_code_step_reuses_same_backend_design_session() -> None:
+    """When design and code share a backend, the coder resumes the
+    designer's session for context continuity (the intended handoff)."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\ndo X\n</PLAN>",          # design → mints a session id
+        "Implemented X",                   # code → should resume it
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    design_sid = svc.get(wid).steps[1].session_id
+    code_call = next(
+        c for c in runner.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert design_sid is not None
+    assert code_call["resume_id"] == design_sid
+
+
+@pytest.mark.asyncio
+async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
+    """A design session id must not leak into a different code backend.
+
+    Regression: when ``design`` runs on an LLM backend (``llm-…`` ids)
+    and ``code`` on opencode (``ses-…`` ids), the coder must start a
+    fresh session rather than resume the designer's foreign id — which
+    opencode would reject with a 500 (``Expected a string starting with
+    "ses"``).
+    """
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    design = _FakeRunner(
+        sessions, outputs=["<PLAN>\ndo X\n</PLAN>"], id_prefix="llm-"
+    )
+    code = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("Build a clear widget"),  # refine substeps
+            "Implemented X",                                # code
+            _verdict(accept=True),                          # verify
+        ],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _service(gh, policy, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    # The design step really did mint an id that would have leaked...
+    assert svc.get(wid).steps[1].session_id.startswith("llm-")
+    # ...but the coder started fresh instead of resuming it.
+    code_call = next(
+        c for c in code.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert code_call["resume_id"] is None
 
 
 @pytest.mark.asyncio

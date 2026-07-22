@@ -1611,15 +1611,25 @@ class WorkflowService:
             )
             code_step.active_sessions = [slot]
             self._save(run)
+            # The coder inherits the designer's session for context
+            # continuity, but only when both steps resolve to the same
+            # backend: a session id is native to the backend that minted it,
+            # so handing a design backend's id (e.g. an ``llm-…`` id) to a
+            # different code backend (opencode, expecting ``ses-…``) would be
+            # rejected. On a cross-backend route the coder starts fresh.
+            same_backend = self.backends.backend_id_for(
+                "design"
+            ) == self.backends.backend_id_for("code")
+            code_resume_id = code_step.session_id or (
+                run.steps[1].session_id if same_backend else None
+            )
             await self._run_turn_tracked(
                 run,
                 self.backends.backend_for("code"),
                 TurnRequest(
                     prompt=prompt, cwd=run.workspace,
                     permission_mode="acceptEdits", model=code_model,
-                    resume_id=(
-                        code_step.session_id or run.steps[1].session_id
-                    ),
+                    resume_id=code_resume_id,
                 ),
                 slot,
                 _bind(code_step, slot),
