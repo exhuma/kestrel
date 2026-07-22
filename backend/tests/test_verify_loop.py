@@ -55,6 +55,22 @@ def test_parse_verdict() -> None:
     assert _parse_verdict("no verdict here")[0] is False
 
 
+def test_parse_verdict_tolerates_common_formats() -> None:
+    """Ensure the parser reads fenced or untagged JSON models often emit."""
+    # JSON wrapped in a ``` fence inside the tags.
+    fenced = (
+        '<VERDICT>\n```json\n{"accept": true, "feedback": "ok"}\n```\n'
+        "</VERDICT>"
+    )
+    assert _parse_verdict(fenced) == (True, "ok")
+    # Tags dropped entirely, bare JSON in prose.
+    bare = 'Here is my verdict: {"accept": false, "feedback": "nope"}'
+    assert _parse_verdict(bare) == (False, "nope")
+    # A fence with no explicit language tag.
+    plain_fence = '```\n{"accept": true, "feedback": ""}\n```'
+    assert _parse_verdict(plain_fence) == (True, "")
+
+
 @pytest.mark.asyncio
 async def test_accept_first_round_opens_pr() -> None:
     """Ensure an accepted verdict opens the change request."""

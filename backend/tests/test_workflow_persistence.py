@@ -245,6 +245,34 @@ def test_task_ref_round_trips_and_github_keeps_issue_number(
     assert loaded.issue_number == 7
 
 
+def test_migrations_add_artifact_dir_column(tmp_path: Path) -> None:
+    """Ensure the artifact_dir column exists after migrating (0008)."""
+    url = _migrate(tmp_path / "art.db")
+    columns = {
+        c["name"]
+        for c in sa.inspect(sa.create_engine(url)).get_columns(
+            "workflow_run"
+        )
+    }
+    assert "artifact_dir" in columns
+
+
+def test_artifact_dir_round_trips(tmp_path: Path) -> None:
+    """Ensure the run's artifact directory survives a save/load cycle."""
+    store = _store(tmp_path)
+    run = _run()
+    run.artifact_dir = ".kestrel/2026-07-22-001"
+    store.save(run)
+    assert store.load_all()[0].artifact_dir == ".kestrel/2026-07-22-001"
+
+
+def test_artifact_dir_defaults_to_empty(tmp_path: Path) -> None:
+    """Ensure a run saved before provisioning rehydrates with ''."""
+    store = _store(tmp_path)
+    store.save(_run())
+    assert store.load_all()[0].artifact_dir == ""
+
+
 def test_jira_run_rehydrates_with_null_issue_number(
     tmp_path: Path,
 ) -> None:

@@ -79,6 +79,14 @@ the image small and lets a deploy attach or swap backends purely by config.
   `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
   task source is only the human↔agent boundary — the process behind it is the
   same, so the system is predictable.
+- **File-based step handover (`.kestrel/`).** The steps share one worktree, so a
+  step's artifacts pass to the next as *files* under
+  `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `design.md`) — spec-kit's
+  `.specify/` in spirit. A file-capable backend (claude, opencode) is pointed at
+  the file so a large PRD/design never bloats its prompt; a text-only LLM, which
+  cannot read the worktree, still gets the content inlined. The artifacts are
+  committed with the change (they appear in the PR/MR and accumulate in the repo
+  under dated folders) but are excluded from the code diff the verifier weighs.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

@@ -70,6 +70,12 @@ class WorkflowRunRow(Base):
     #: Jira "RFC-123". Server-default "" keeps pre-existing rows valid; the
     #: migration backfills it.
     task_ref: Mapped[str] = mapped_column(default="", server_default="")
+    #: Worktree-relative artifact directory (.kestrel/<date>-<serial>/) for
+    #: this run's step-handover files. Server-default "" keeps pre-existing
+    #: rows valid; empty until the worktree is provisioned. Internal-only.
+    artifact_dir: Mapped[str] = mapped_column(
+        Text, default="", server_default=""
+    )
 
 
 class WorkflowStepRow(Base):

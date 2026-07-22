@@ -81,3 +81,9 @@ class WorkflowRun:
     #: issue key ``"RFC-123"``. The universal key for dedup, dismissal, and
     #: notification rendering (feature 003, FR-024/FR-031/FR-033).
     task_ref: str = ""
+    #: Worktree-relative directory holding this run's handover artifacts
+    #: (``.kestrel/<YYYY-MM-DD>-<serial>/``, e.g. ``prd.md`` / ``design.md``).
+    #: Chosen once when the worktree is provisioned and stable across a
+    #: restart so a resumed run keeps writing to the same folder. Empty until
+    #: provisioning. Internal only — never surfaced to the API/UI.
+    artifact_dir: str = ""

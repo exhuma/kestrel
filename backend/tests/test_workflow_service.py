@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
+from datetime import datetime, timezone
 
 import pytest
 
@@ -26,6 +28,7 @@ class _FakeGit:
     def __init__(self) -> None:
         self.pushed: list[str] = []
         self.diffs: list[str] = ["diff --git a/x b/x"]
+        self.diff_excludes: list[str | None] = []
 
     async def clone(self, remote_url: str, dest: str) -> None: ...
     async def checkout_branch(self, dest: str, branch: str) -> None: ...
@@ -35,11 +38,12 @@ class _FakeGit:
     ) -> None: ...
     async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
     async def commit_all(self, dest: str, message: str) -> None: ...
-    async def diff(self, dest: str) -> str:
+    async def diff(self, dest: str, exclude: str | None = None) -> str:
         # Pop while more than one entry is queued; once down to the
         # last (or default single) entry, keep returning it so
         # tests that call diff() repeatedly without pre-loading a
         # long queue still see a stable, non-empty value.
+        self.diff_excludes.append(exclude)
         if len(self.diffs) > 1:
             return self.diffs.pop(0)
         return self.diffs[0] if self.diffs else ""
@@ -349,13 +353,14 @@ async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_code_prompt_carries_design_on_cross_backend() -> None:
-    """The coder must receive the plan in its prompt, not only via session.
+async def test_code_handover_via_file_on_cross_backend() -> None:
+    """Cross-backend: the coder gets the design as a worktree file, not inline.
 
     On a cross-backend route the coder starts a fresh session (no memory of
-    the designer's turn), so the design plan has to be embedded directly in
-    the coder prompt — otherwise opencode's build agent has nothing to
-    implement and exits with an empty diff.
+    the designer's turn). The design is handed over as ``design.md`` in the
+    shared ``.kestrel/`` folder — which the file-capable coder reads — rather
+    than embedded verbatim in the prompt, so a large plan never bloats the
+    context window.
     """
     gh = _FakeGitHub(body="vague issue")
     sessions = SessionRegistry()
@@ -384,7 +389,9 @@ async def test_code_prompt_carries_design_on_cross_backend() -> None:
         c for c in code.calls if c["permission_mode"] == "acceptEdits"
     )
     assert code_call["resume_id"] is None  # fresh session, no memory
-    assert "Add a shiny widget" in code_call["prompt"]  # plan embedded
+    # Handover is by file reference, not inlined plan text.
+    assert "design.md" in code_call["prompt"]
+    assert "Add a shiny widget" not in code_call["prompt"]
 
 
 @pytest.mark.asyncio
@@ -1788,3 +1795,146 @@ async def test_abandon_one_run_leaves_others_worktree_intact(tmp_path) -> None:
 
     assert not ws_a.exists()
     assert ws_b.exists()
+
+
+# ---- step-handover artifacts (.kestrel/) -------------------------------
+
+
+def _artifact_service(tmp_path, policy, github=None):
+    return _service(
+        github or _FakeGitHub(body="vague issue"),
+        policy,
+        _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_artifact_dir_picks_next_free_serial(tmp_path) -> None:
+    """The run's artifact folder is the next free serial for today's date.
+
+    Scanning the worktree means a repo that already carries an earlier run's
+    committed ``.kestrel/<date>-001`` gets ``-002``, never a collision.
+    """
+    sessions = SessionRegistry()
+    runner = _FakeRunner(sessions, outputs=[])
+    svc = _service(
+        _FakeGitHub(), runner, _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+    ws = tmp_path / "wf-1"
+    ws.mkdir()
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    (ws / ".kestrel" / f"{date}-001").mkdir(parents=True)
+
+    run = WorkflowRun(id="wf-1", repo="o/r", workspace=str(ws))
+    svc.workflows.create(run)
+    svc._ensure_artifact_dir(run)
+
+    assert run.artifact_dir == os.path.join(".kestrel", f"{date}-002")
+    assert (ws / run.artifact_dir).is_dir()
+    # Idempotent: a second call keeps the same folder (restart stability).
+    svc._ensure_artifact_dir(run)
+    assert run.artifact_dir == os.path.join(".kestrel", f"{date}-002")
+
+
+@pytest.mark.asyncio
+async def test_write_artifact_persists_file(tmp_path) -> None:
+    """_write_artifact writes the content into the run's artifact folder."""
+    sessions = SessionRegistry()
+    runner = _FakeRunner(sessions, outputs=[])
+    svc = _service(
+        _FakeGitHub(), runner, _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+    ws = tmp_path / "wf-2"
+    ws.mkdir()
+    run = WorkflowRun(id="wf-2", repo="o/r", workspace=str(ws))
+    svc.workflows.create(run)
+
+    svc._write_artifact(run, "prd.md", "PRD BODY")
+
+    written = ws / run.artifact_dir / "prd.md"
+    assert written.read_text() == "PRD BODY"
+
+
+@pytest.mark.asyncio
+async def test_artifact_slot_refs_file_or_inlines_by_capability(
+    tmp_path,
+) -> None:
+    """File-capable step gets a file reference; text-only step gets inline."""
+    sessions = SessionRegistry()
+    design = _FakeRunner(sessions, outputs=[])
+    design.caps = frozenset({Capability.TEXT})  # text-only: cannot read files
+    code = _FakeRunner(sessions, outputs=[])  # file-capable (TEXT+FILE_EDITS)
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _artifact_service(tmp_path, policy)
+    ws = tmp_path / "wf-3"
+    ws.mkdir()
+    run = WorkflowRun(id="wf-3", repo="o/r", workspace=str(ws))
+    svc.workflows.create(run)
+    svc._ensure_artifact_dir(run)
+
+    text_slot = svc._artifact_slot("design", run, "prd.md", "FULL PRD TEXT")
+    file_slot = svc._artifact_slot("code", run, "prd.md", "FULL PRD TEXT")
+
+    assert text_slot == "FULL PRD TEXT"  # inlined for a text-only backend
+    assert "prd.md" in file_slot  # a file reference for a file-capable one
+    assert "FULL PRD TEXT" not in file_slot
+
+
+@pytest.mark.asyncio
+async def test_text_only_design_backend_inlines_the_prd(tmp_path) -> None:
+    """A text-only design backend still receives the PRD inlined in-prompt."""
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    design = _FakeRunner(
+        sessions, outputs=["<PLAN>the plan</PLAN>"], id_prefix="llm-"
+    )
+    design.caps = frozenset({Capability.TEXT})  # cannot read the worktree
+    code = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("UNIQUE-PRD-MARKER body"),
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _artifact_service(tmp_path, policy, github=gh)
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    design_call = design.calls[0]
+    assert "UNIQUE-PRD-MARKER" in design_call["prompt"]  # PRD inlined
+
+
+@pytest.mark.asyncio
+async def test_verifier_diff_excludes_artifact_folder(tmp_path) -> None:
+    """The code diff is taken with the .kestrel folder excluded."""
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    runner = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("Build a widget"),
+            "<PLAN>plan</PLAN>",
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+    )
+    git = _FakeGit()
+    svc = _service(
+        gh, runner, git, settings=_settings(workspace_root=str(tmp_path))
+    )
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    assert ".kestrel" in git.diff_excludes

@@ -10,10 +10,11 @@ import re
 import shutil
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Callable
 
-from app.backends.base import Backend, TurnRequest, TurnResult
+from app.backends.base import Backend, Capability, TurnRequest, TurnResult
 from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
 from app.notifications import (
@@ -80,6 +81,12 @@ _TRANSIENT = (
     "pending", "cloning", "refining",
     "designing", "coding", "verifying", "opening_pr",
 )
+
+#: Top-level folder (worktree-relative) under which a run's step-handover
+#: artifacts live, spec-kit's ``.specify`` in spirit. Each run gets a unique
+#: dated subfolder (``.kestrel/<YYYY-MM-DD>-<serial>/``) so artifacts from
+#: different change-tickets, once committed, never collide in the repo.
+_ARTIFACT_ROOT = ".kestrel"
 
 #: Base guard on the coordinator loop so a misbehaving agent can't spin
 #: the interview forever. Retrying a failed specialist extends the cap
@@ -255,6 +262,9 @@ VERIFY_PROMPT = (
     "the PRD/design. Respond with ONLY a JSON object wrapped EXACTLY in "
     "<VERDICT> and </VERDICT> tags, matching this shape:\n"
     '{{"accept": true, "feedback": "..."}}\n'
+    "This session is headless: do not use the ExitPlanMode tool and do not "
+    "stop to investigate with tools — output the verdict JSON directly in "
+    "your final response and nothing else. "
     "Set accept=false and give specific, actionable feedback for the coder "
     "when the implementation is inconsistent or the evidence shows "
     "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
@@ -289,24 +299,53 @@ def _evidence_feedback(evidence: Evidence) -> str:
     return "\n".join(parts)
 
 
-def _parse_verdict(text: str) -> tuple[bool, str]:
-    """Parse ``<VERDICT>{...}</VERDICT>``; default to reject if unparseable.
+def _clean_json_blob(blob: str) -> str:
+    """Strip whitespace and a surrounding Markdown ``` fence from a blob."""
+    blob = blob.strip()
+    if blob.startswith("```"):
+        newline = blob.find("\n")
+        if newline != -1:
+            blob = blob[newline + 1:]
+        if blob.rstrip().endswith("```"):
+            blob = blob.rstrip()[:-3]
+    return blob.strip()
 
-    A reject-on-parse-failure is the safe default: unverified work must not
-    ship autonomously.
+
+def _parse_verdict(text: str) -> tuple[bool, str]:
+    """Parse the verifier's verdict, tolerating common formatting.
+
+    Reads, in order of preference: the canonical
+    ``<VERDICT>{...}</VERDICT>`` block; that same JSON wrapped in a Markdown
+    code fence; or, as a last resort, a bare ``{...}`` object anywhere in the
+    response that carries an ``accept`` key (some models drop the tags). A
+    reject-on-parse-failure is the safe default — unverified work must not
+    ship autonomously — and the raw output is logged so a genuine failure is
+    diagnosable rather than silent.
     """
+    candidates: list[str] = []
     start = text.find("<VERDICT>")
     end = text.find("</VERDICT>")
     if start != -1 and end != -1 and end > start:
-        blob = text[start + len("<VERDICT>"):end].strip()
+        candidates.append(text[start + len("<VERDICT>"):end])
+    # Fallback for a model that omits the tags: any flat object mentioning
+    # "accept". Only ever yields accept=true when the JSON explicitly says so.
+    candidates.extend(
+        re.findall(r"\{[^{}]*\"accept\"[^{}]*\}", text, re.DOTALL)
+    )
+    for blob in candidates:
         try:
-            data = json.loads(blob)
+            data = json.loads(_clean_json_blob(blob))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if isinstance(data, dict) and "accept" in data:
             return (
                 bool(data.get("accept", False)),
                 str(data.get("feedback", "")),
             )
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
+    _logger.warning(
+        "verifier produced no parseable verdict (%d chars): %r",
+        len(text), text[:800],
+    )
     return False, "The verifier response could not be parsed as a verdict."
 
 
@@ -480,6 +519,60 @@ class WorkflowService:
             "repos",
             repo.replace("/", "__") + ".git",
         )
+
+    # ---- step-handover artifacts (.kestrel/) ---------------------------
+    def _ensure_artifact_dir(self, run: WorkflowRun) -> None:
+        """Pick (once) this run's ``.kestrel/<date>-<serial>/`` folder.
+
+        Idempotent: a run that already has an ``artifact_dir`` (a resumed
+        run, restored from the DB) keeps it, so it writes to the same folder
+        across a restart. The serial is the next free counter for today's
+        date, found by scanning the worktree — so a repo that already carries
+        earlier runs' committed artifacts never collides.
+        """
+        if run.artifact_dir:
+            return
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        root = os.path.join(run.workspace, _ARTIFACT_ROOT)
+        existing = (
+            set(os.listdir(root)) if os.path.isdir(root) else set()
+        )
+        serial = 1
+        while f"{date}-{serial:03d}" in existing:
+            serial += 1
+        rel = os.path.join(_ARTIFACT_ROOT, f"{date}-{serial:03d}")
+        os.makedirs(os.path.join(run.workspace, rel), exist_ok=True)
+        run.artifact_dir = rel
+        self._save(run)
+
+    def _write_artifact(
+        self, run: WorkflowRun, filename: str, content: str
+    ) -> None:
+        """Write a handover artifact into this run's artifact folder."""
+        self._ensure_artifact_dir(run)
+        path = os.path.join(run.workspace, run.artifact_dir, filename)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+    def _artifact_slot(
+        self, step: str, run: WorkflowRun, filename: str, content: str
+    ) -> str:
+        """Value to interpolate for a prior artifact in a step's prompt.
+
+        A file-capable backend (claude, opencode) is pointed at the file so
+        the large PRD/design text stays out of the prompt; a text-only
+        backend (a plain LLM, which cannot read the worktree) still gets the
+        content inlined, exactly as before.
+        """
+        backend = self.backends.backend_for(step)
+        if Capability.FILE_EDITS in backend.caps:
+            relpath = os.path.join(run.artifact_dir, filename)
+            return (
+                f"(Provided as a file in the working tree at `{relpath}` — "
+                "read it in full before proceeding.)"
+            )
+        return content
 
     async def _teardown_workspace(self, run: WorkflowRun) -> None:
         """Remove a run's worktree and directory; best-effort, isolated.
@@ -839,6 +932,10 @@ class WorkflowService:
         -> deliver. Everything after PRD approval is gateless (FR-014); the
         loop may escalate instead of delivering (FR-018/FR-020).
         """
+        # Reserve this run's artifact folder once the worktree exists —
+        # covers both the fresh drive and a resumed run (no-op if already
+        # chosen and restored from the DB).
+        self._ensure_artifact_dir(run)
         if run.steps[0].status != "done":
             await self._refine(run, issue_body)
         if run.steps[1].status != "done":
@@ -1561,6 +1658,9 @@ class WorkflowService:
         """Run the designer: produce a high-level design/plan. Gateless."""
         step = run.steps[1]
         prd = run.steps[0].deliverable or ""
+        # Persist the approved PRD as a handover artifact, then reference it
+        # (file-capable backend) or inline it (text-only) in the prompt.
+        self._write_artifact(run, "prd.md", prd)
         model = get_policy().model_for("design")
         step.model = model
         run.status = "designing"
@@ -1574,14 +1674,20 @@ class WorkflowService:
             run,
             self.backends.backend_for("design"),
             TurnRequest(
-                prompt=DESIGN_PROMPT.format(issue=prd), cwd=run.workspace,
+                prompt=DESIGN_PROMPT.format(
+                    issue=self._artifact_slot("design", run, "prd.md", prd)
+                ),
+                cwd=run.workspace,
                 permission_mode="plan", model=model,
                 resume_id=step.session_id,
             ),
             slot,
             _bind(step, slot),
         )
-        step.deliverable = extract_plan(result.final_text) or result.final_text
+        design = extract_plan(result.final_text) or result.final_text
+        step.deliverable = design
+        # Persist the design as the second handover artifact for code/verify.
+        self._write_artifact(run, "design.md", design)
         step.active_sessions = []
         step.status = "done"
         self._save(run)
@@ -1602,9 +1708,19 @@ class WorkflowService:
         code_step, verify_step = run.steps[2], run.steps[3]
         prd = run.steps[0].deliverable or ""
         design = run.steps[1].deliverable or ""
+        # Ensure both handover artifacts are on disk (defensive: _design
+        # wrote them earlier this drive, but this keeps code/verify correct
+        # on any resume path).
+        self._write_artifact(run, "prd.md", prd)
+        self._write_artifact(run, "design.md", design)
         code_model = get_policy().model_for("code")
         verify_model = get_policy().model_for("verify")
-        prompt = CODE_PROMPT.format(prd=prd, design=design)
+        # The coder always needs FILE_EDITS, so it reads the artifacts from
+        # the worktree rather than carrying their full text in the prompt.
+        prompt = CODE_PROMPT.format(
+            prd=self._artifact_slot("code", run, "prd.md", prd),
+            design=self._artifact_slot("code", run, "design.md", design),
+        )
         for _ in range(max(1, self.settings.max_verify_iterations)):
             # ---- code (gateless) ----
             code_step.model = code_model
@@ -1638,7 +1754,10 @@ class WorkflowService:
                 slot,
                 _bind(code_step, slot),
             )
-            diff = await self.git.diff(run.workspace)
+            # Exclude the handover artifacts from the code diff: they are
+            # committed with the change, but must not pollute what the
+            # verifier weighs or what the code step stores as its diff.
+            diff = await self.git.diff(run.workspace, exclude=_ARTIFACT_ROOT)
             code_step.active_sessions = []
             code_step.deliverable = diff
             if not diff.strip():
@@ -1664,6 +1783,14 @@ class WorkflowService:
                 run,
                 self.backends.backend_for("verify"),
                 TurnRequest(
+                    # The verifier gets PRD/design INLINE, not as file
+                    # pointers. It must emit a strict <VERDICT> JSON block
+                    # (a parse miss is a hard reject, no fallback), and it
+                    # runs in plan mode — forcing a tool round-trip to read
+                    # the files pushes it into an investigate/plan flow that
+                    # stops reliably emitting the verdict. Its cwd is still
+                    # the worktree, so a future repo-reading verifier keeps
+                    # full file access regardless of this.
                     prompt=VERIFY_PROMPT.format(
                         prd=prd, design=design, diff=diff,
                         evidence=_render_evidence(evidence),
@@ -1692,7 +1819,8 @@ class WorkflowService:
             code_step.status = "pending"
             self._save(run)
             prompt = CODE_FEEDBACK_PROMPT.format(
-                feedback=feedback, design=design
+                feedback=feedback,
+                design=self._artifact_slot("code", run, "design.md", design),
             )
         return await self._escalate(
             run, "verification did not pass within the iteration limit"

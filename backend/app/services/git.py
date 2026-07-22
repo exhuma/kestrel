@@ -76,10 +76,21 @@ class GitService:
         """Create and switch to a new branch."""
         await self._git("checkout", "-b", branch, cwd=dest)
 
-    async def diff(self, dest: str) -> str:
-        """Return the working-tree diff including untracked files."""
+    async def diff(self, dest: str, exclude: str | None = None) -> str:
+        """Return the working-tree diff including untracked files.
+
+        :param dest: The worktree to diff.
+        :param exclude: Optional top-level path (e.g. ``".kestrel"``) whose
+            changes are omitted from the returned diff. It is still staged
+            (so a later ``commit_all`` commits it) — only the diff view hides
+            it, keeping handover artifacts out of the code diff the verifier
+            weighs and the code step stores.
+        """
         await self._git("add", "-A", cwd=dest)
-        return await self._git("diff", "--cached", cwd=dest)
+        args = ["diff", "--cached"]
+        if exclude:
+            args += ["--", ".", f":(exclude){exclude}"]
+        return await self._git(*args, cwd=dest)
 
     async def commit_all(self, dest: str, message: str) -> None:
         """Stage everything and commit."""

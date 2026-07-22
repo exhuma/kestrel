@@ -47,6 +47,7 @@ class WorkflowStore:
                     error=run.error,
                     source=run.source,
                     task_ref=run.task_ref,
+                    artifact_dir=run.artifact_dir,
                 )
             )
             for i, step in enumerate(run.steps):
@@ -126,6 +127,7 @@ class WorkflowStore:
                         error=row.error,
                         source=row.source,
                         task_ref=row.task_ref,
+                        artifact_dir=row.artifact_dir or "",
                     )
                 )
             return runs

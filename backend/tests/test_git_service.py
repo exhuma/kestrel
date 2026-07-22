@@ -56,6 +56,39 @@ async def test_clone_branch_commit_push_roundtrip(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_diff_excludes_path_but_commit_keeps_it(tmp_path) -> None:
+    """diff(exclude=...) hides a folder from the diff yet still commits it.
+
+    The handover artifacts under ``.kestrel/`` must not pollute the code diff
+    the verifier weighs, but must still travel with the change on commit —
+    so the exclude only affects the diff view, not what gets staged.
+    """
+    bare = _seed_bare_remote(tmp_path)
+    dest = str(tmp_path / "work")
+    svc = GitService(token="unused-locally")
+    await svc.clone(str(bare), dest)
+    await svc.checkout_branch(dest, "kestrel/issue-1")
+
+    (Path(dest) / "code.py").write_text("print('hi')\n")
+    artifacts = Path(dest) / ".kestrel" / "2026-07-22-001"
+    artifacts.mkdir(parents=True)
+    (artifacts / "design.md").write_text("# design\n")
+
+    diff = await svc.diff(dest, exclude=".kestrel")
+    assert "code.py" in diff
+    assert "design.md" not in diff  # excluded from the diff view
+
+    # ...but a commit still includes the artifact (add -A staged it).
+    await svc.commit_all(dest, "work: add code + artifacts")
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=dest, check=True, capture_output=True,
+        text=True,
+    ).stdout
+    assert ".kestrel/2026-07-22-001/design.md" in tracked
+    assert "code.py" in tracked
+
+
+@pytest.mark.asyncio
 async def test_commit_all_ignores_repo_gpgsign_setting(tmp_path) -> None:
     """Ensure commit_all never attempts GPG signing, even if the repo
     (or the machine's global config) has commit.gpgsign=true — which
