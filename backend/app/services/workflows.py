@@ -22,14 +22,13 @@ from app.notifications import (
     Notifier,
     TaskSourceNotifier,
 )
-from app.ports import Evidence
-from app.services.checks import CheckRunner
 from app.persistence.dismissal_store import (
     DismissalStore,
     get_dismissal_store,
 )
 from app.persistence.notification_store import get_notification_store
 from app.policy import BackendPolicy, get_backend_policy, get_policy
+from app.ports import Evidence
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
     GenerationIssue,
@@ -48,6 +47,7 @@ from app.questionnaire import (
     to_entries,
     validate_answers,
 )
+from app.services.checks import CheckRunner
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
@@ -56,7 +56,6 @@ from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.workflow_text import (
     activity_for,
-    append_sentinel,
     extract_coverage,
     extract_plan,
     extract_profiles,

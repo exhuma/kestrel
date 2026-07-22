@@ -36,7 +36,9 @@ def upgrade() -> None:
         "WHERE task_ref = '' AND issue_number IS NOT NULL"
     )
     with op.batch_alter_table("workflow_run") as batch:
-        batch.alter_column("issue_number", existing_type=sa.Integer(), nullable=True)
+        batch.alter_column(
+            "issue_number", existing_type=sa.Integer(), nullable=True
+        )
 
     # issue_dismissal: rebuild with a single task_ref PK, backfilling from
     # the old (repo, issue_number) composite.
@@ -62,11 +64,13 @@ def downgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
     # Split a GitHub task_ref "owner/name#123" back into (repo, issue_number);
-    # rows without a numeric suffix (Jira) cannot be represented and are dropped.
+    # rows without a numeric suffix (Jira) cannot be represented; drop them.
     op.execute(
-        "INSERT OR IGNORE INTO issue_dismissal_old (repo, issue_number, created_at) "
+        "INSERT OR IGNORE INTO issue_dismissal_old "
+        "(repo, issue_number, created_at) "
         "SELECT substr(task_ref, 1, instr(task_ref, '#') - 1), "
-        "CAST(substr(task_ref, instr(task_ref, '#') + 1) AS INTEGER), created_at "
+        "CAST(substr(task_ref, instr(task_ref, '#') + 1) AS INTEGER), "
+        "created_at "
         "FROM issue_dismissal WHERE instr(task_ref, '#') > 0"
     )
     op.drop_table("issue_dismissal")

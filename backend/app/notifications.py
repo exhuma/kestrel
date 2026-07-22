@@ -16,7 +16,6 @@ from app.models_workflow import WorkflowRun
 
 if TYPE_CHECKING:
     from app.persistence.notification_store import NotificationStore
-    from app.services.github import GitHubClient
     from app.storage.notification_bus import NotificationBus
 
 _log = logging.getLogger("kestrel.notifications")

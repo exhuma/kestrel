@@ -81,7 +81,9 @@ describe('WorkflowPanel run identity + steps', () => {
 
   it('shows a GitHub run as repo#number with an issue link', () => {
     state.current.value = detail({
-      repo: 'o/r', issue_number: 5, branch: 'kestrel/issue-5',
+      repo: 'o/r',
+      issue_number: 5,
+      branch: 'kestrel/issue-5',
     })
     const wrapper = mount(WorkflowPanel, withVuetify())
     const link = wrapper.find('a.stage__id')

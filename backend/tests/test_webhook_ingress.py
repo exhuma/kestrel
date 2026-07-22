@@ -59,7 +59,8 @@ class _FakeIngestion:
 
 
 def _sign(body: bytes) -> str:
-    return "sha256=" + hmac.new(_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    digest = hmac.new(_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    return "sha256=" + digest
 
 
 def _payload(action="labeled", repo="o/r", issue=5, label="kestrel") -> bytes:
@@ -97,7 +98,9 @@ async def _post(client, body, delivery="d1", event="issues", sign=None):
         "X-Hub-Signature-256": _sign(body) if sign is None else sign,
         "Content-Type": "application/json",
     }
-    return await client.post("/api/github/webhook", content=body, headers=headers)
+    return await client.post(
+        "/api/github/webhook", content=body, headers=headers
+    )
 
 
 async def _tick() -> None:

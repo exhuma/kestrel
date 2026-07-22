@@ -24,7 +24,6 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
     gh = _FakeGitHub(body="vague")
     git = _FakeGit()
     git.diffs = [""]  # coder produced no changes
-    notifier = _FakeNotifier()
     seen: list[str] = []
 
     class _Recorder(_FakeNotifier):

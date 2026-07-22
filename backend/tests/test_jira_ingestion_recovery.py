@@ -5,6 +5,7 @@ import pytest
 
 from app.config import Settings
 from app.models_workflow import WorkflowRun
+from app.ports import Task
 from app.services.ingestion import IngestionService
 from app.services.jira_poll import JiraPollService
 from tests.test_jira_poll import (
@@ -13,7 +14,6 @@ from tests.test_jira_poll import (
     _FakeJira,
     _FakeSource,
 )
-from app.ports import Task
 
 
 class _RecordingWorkflows:
@@ -73,12 +73,15 @@ async def test_restart_with_existing_run_starts_no_duplicate() -> None:
 @pytest.mark.asyncio
 async def test_recover_fails_jira_run_in_coding() -> None:
     """Ensure a Jira run in a transient phase is failed loudly on restart."""
-    from app.storage.workflow_registry import WorkflowRegistry
-    from app.services.workflows import WorkflowService, _TRANSIENT
-    from tests.test_workflow_service import (
-        _FakeGit, _FakeGitHub, _FakeNotifier, _FakeRunner,
-    )
+    from app.services.workflows import _TRANSIENT, WorkflowService
     from app.storage.registry import SessionRegistry
+    from app.storage.workflow_registry import WorkflowRegistry
+    from tests.test_workflow_service import (
+        _FakeGit,
+        _FakeGitHub,
+        _FakeNotifier,
+        _FakeRunner,
+    )
 
     assert "coding" in _TRANSIENT and "verifying" in _TRANSIENT
     reg = WorkflowRegistry()

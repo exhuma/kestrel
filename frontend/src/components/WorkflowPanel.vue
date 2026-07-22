@@ -264,7 +264,9 @@ function badgeColor(token: string): string | undefined {
           v-for="w in workflows"
           :key="w.id"
           :active="w.id === current?.id"
-          :title="w.issue_number != null ? `${w.repo}#${w.issue_number}` : w.repo"
+          :title="
+            w.issue_number != null ? `${w.repo}#${w.issue_number}` : w.repo
+          "
           :subtitle="w.status"
           @click="select(w.id)"
         >
