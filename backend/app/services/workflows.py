@@ -1640,13 +1640,13 @@ class WorkflowService:
             verify_step.model = verify_model
             run.status = "verifying"
             verify_step.status = "running"
-            vslot = StepSession(
+            verify_slot = StepSession(
                 profile_id="verifier", label="Verifier", badge="agent"
             )
-            verify_step.active_sessions = [vslot]
+            verify_step.active_sessions = [verify_slot]
             self._save(run)
             evidence = await self.check_runner.run(run.workspace)
-            vresult = await self._run_turn_tracked(
+            verify_result = await self._run_turn_tracked(
                 run,
                 self.backends.backend_for("verify"),
                 TurnRequest(
@@ -1657,10 +1657,10 @@ class WorkflowService:
                     cwd=run.workspace, permission_mode="plan",
                     model=verify_model,
                 ),
-                vslot,
-                _bind(verify_step, vslot),
+                verify_slot,
+                _bind(verify_step, verify_slot),
             )
-            accept, feedback = _parse_verdict(vresult.final_text)
+            accept, feedback = _parse_verdict(verify_result.final_text)
             # Failing-observation invariant: a failing check never accepts.
             if not evidence.all_passed():
                 ev_fb = _evidence_feedback(evidence)

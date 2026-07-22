@@ -56,8 +56,8 @@ the image small and lets a deploy attach or swap backends purely by config.
   face the network so GitHub can deliver events; its authenticity gate is an
   HMAC signature, not loopback binding (see the constitution's access model).
 - **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
-  (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)** both
-  feed one source-neutral entry point (`ingestion.maybe_start_run`, keyed on a
+  (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)**
+  both feed one source-neutral entry point (`ingestion.maybe_start_run`, on a
   `task_ref`). The load-bearing axis — *task source* (the ticket) vs *code host*
   (the repo) — is now realized as two protocols in `app/ports.py`: `TaskSource`
   (read/comment/attach/publish/deep-link) and `CodeHost` (default branch, clone
@@ -67,12 +67,12 @@ the image small and lets a deploy attach or swap backends purely by config.
   kestrel is sovereign by design, so a Jira-resolved repo can live on an on-prem
   GitLab. The outbound `Notifier` is source-dispatching (`TaskSourceNotifier`),
   posting thin gate/escalation comments to *the run's own* ticket. Jira is
-  poll-only, so it adds **no** off-loopback endpoint (no constitution amendment);
-  the entry point is shaped so a future Jira webhook is one added caller.
+  poll-only, so it adds **no** off-loopback endpoint (no amendment); the entry
+  point is shaped so a future Jira webhook is one added caller.
 - **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or manual
   — traverses the identical `refine → PRD approval → design → code → verify →
   change request` sequence (`services/workflows.py`). The single human gate is
-  PRD approval; design/code/verify run **gatelessly**. The **verifier**
+  PRD approval; design/code/verify run **without human gates**. The **verifier**
   adjudicates the implementation against the PRD/design weighing measurable
   **evidence** (the project's checks run in the isolated worktree, `services/
   checks.py`); a failing check forces a reject, the loop is bounded by
