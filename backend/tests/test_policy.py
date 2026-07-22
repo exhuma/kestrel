@@ -15,13 +15,14 @@ def test_model_for_uses_defaults() -> None:
     """Ensure known steps resolve to their default model."""
     policy = ModelPolicy(overrides={})
     assert policy.model_for("gap_analysis") == "haiku"
-    assert policy.model_for("implement") == "sonnet"
+    assert policy.model_for("code") == "sonnet"
+    assert policy.model_for("verify") == "sonnet"
 
 
 def test_overrides_win() -> None:
     """Ensure configured overrides replace defaults."""
-    policy = ModelPolicy(overrides={"plan": "opus"})
-    assert policy.model_for("plan") == "opus"
+    policy = ModelPolicy(overrides={"design": "opus"})
+    assert policy.model_for("design") == "opus"
 
 
 def test_unknown_step_raises() -> None:

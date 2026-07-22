@@ -125,7 +125,7 @@ def _mixed_registry() -> BackendRegistry:
 def test_policy_default_backend_serves_every_step() -> None:
     """Ensure the default backend is used for steps without an override."""
     policy = BackendPolicy(_mixed_registry(), {}, "claude")
-    for step in ("refine", "plan", "implement"):
+    for step in ("refine", "design", "code", "verify"):
         assert policy.backend_for(step).id == "claude"
 
 
@@ -133,25 +133,25 @@ def test_policy_per_step_override() -> None:
     """Ensure a step-specific backend overrides the default."""
     policy = BackendPolicy(_mixed_registry(), {"refine": "local"}, "claude")
     assert policy.backend_for("refine").id == "local"   # text-only, ok
-    assert policy.backend_for("implement").id == "claude"
+    assert policy.backend_for("code").id == "claude"
 
 
 def test_policy_text_only_backend_rejected_for_implement() -> None:
     """Ensure a text-only backend can't be routed to a file-editing step."""
     policy = BackendPolicy(
-        _mixed_registry(), {"implement": "local"}, "claude"
+        _mixed_registry(), {"code": "local"}, "claude"
     )
     with pytest.raises(BackendCapabilityError):
-        policy.backend_for("implement")
+        policy.backend_for("code")
 
 
 def test_policy_text_only_backend_allowed_for_reasoning() -> None:
     """Ensure a text-only backend may serve reasoning steps (subsumption)."""
     policy = BackendPolicy(
-        _mixed_registry(), {"refine": "local", "plan": "local"}, "claude"
+        _mixed_registry(), {"refine": "local", "design": "local"}, "claude"
     )
     assert policy.backend_for("refine").id == "local"
-    assert policy.backend_for("plan").id == "local"
+    assert policy.backend_for("design").id == "local"
 
 
 def test_policy_backends_lists_all() -> None:
@@ -179,9 +179,9 @@ def test_policy_substep_override_wins() -> None:
 
 def test_policy_substep_inherits_parent_capability() -> None:
     """Ensure a sub-step is capability-checked against its parent step,
-    so a text-only backend can't sneak into an implement sub-step."""
+    so a text-only backend can't sneak into a code sub-step."""
     policy = BackendPolicy(
-        _mixed_registry(), {"implement.fix": "local"}, "claude"
+        _mixed_registry(), {"code.fix": "local"}, "claude"
     )
     with pytest.raises(BackendCapabilityError):
-        policy.backend_for("implement.fix")
+        policy.backend_for("code.fix")

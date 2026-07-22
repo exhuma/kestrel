@@ -6,18 +6,30 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Callable
 
-from app.backends.base import Backend, TurnRequest, TurnResult
+from app.backends.base import Backend, Capability, TurnRequest, TurnResult
 from app.config import Settings, get_settings
 from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
-from app.notifications import InAppNotifier, Notifier
+from app.notifications import (
+    CompositeNotifier,
+    InAppNotifier,
+    Notifier,
+    TaskSourceNotifier,
+)
+from app.persistence.dismissal_store import (
+    DismissalStore,
+    get_dismissal_store,
+)
 from app.persistence.notification_store import get_notification_store
 from app.policy import BackendPolicy, get_backend_policy, get_policy
+from app.ports import Evidence
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
     GenerationIssue,
@@ -36,15 +48,15 @@ from app.questionnaire import (
     to_entries,
     validate_answers,
 )
+from app.services.checks import CheckRunner
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
 )
 from app.services.git import GitService
-from app.services.github import GitHubClient
+from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.workflow_text import (
     activity_for,
-    append_sentinel,
     extract_coverage,
     extract_plan,
     extract_profiles,
@@ -67,8 +79,14 @@ _logger = logging.getLogger(__name__)
 #: subprocess (or transient side-effect) died with the process.
 _TRANSIENT = (
     "pending", "cloning", "refining",
-    "planning", "implementing", "opening_pr",
+    "designing", "coding", "verifying", "opening_pr",
 )
+
+#: Top-level folder (worktree-relative) under which a run's step-handover
+#: artifacts live, spec-kit's ``.specify`` in spirit. Each run gets a unique
+#: dated subfolder (``.kestrel/<YYYY-MM-DD>-<serial>/``) so artifacts from
+#: different change-tickets, once committed, never collide in the repo.
+_ARTIFACT_ROOT = ".kestrel"
 
 #: Base guard on the coordinator loop so a misbehaving agent can't spin
 #: the interview forever. Retrying a failed specialist extends the cap
@@ -216,39 +234,119 @@ REFINE_FEEDBACK_PROMPT = (
     "and nothing else.\n\nCURRENT REFINED ISSUE:\n{current}\n\n"
     "FEEDBACK:\n{feedback}"
 )
-PLAN_FEEDBACK_PROMPT = (
-    "The plan was not approved. Revise it according to this feedback and "
-    "output the complete revised plan wrapped EXACTLY in <PLAN> and "
-    "</PLAN> tags and nothing else. Do not edit any files.\n\n"
-    "FEEDBACK:\n{feedback}"
+CODE_FEEDBACK_PROMPT = (
+    "The verifier did not accept the implementation. Address this feedback by "
+    "editing the repository now, then stop.\n\nFEEDBACK:\n{feedback}\n\n"
+    "DESIGN:\n{design}"
 )
-IMPLEMENT_FEEDBACK_PROMPT = (
-    "The implementation was not approved. Address this feedback by "
-    "editing the repository now.\n\nFEEDBACK:\n{feedback}"
+DESIGN_PROMPT = (
+    "Read this approved PRD and the codebase, then produce a concise "
+    "high-level design and implementation plan. Do not use the ExitPlanMode "
+    "tool and do not write the plan to a file — this session is headless. "
+    "Output the complete plan directly in your final response, wrapped "
+    "EXACTLY in <PLAN> and </PLAN> tags and nothing else. Do not edit any "
+    "files.\n\nPRD:\n{issue}"
 )
-PLAN_PROMPT = (
-    "Read this refined GitHub issue and the codebase, then produce a concise "
-    "implementation plan. Do not use the ExitPlanMode tool and do not write "
-    "the plan to a file — this session is headless and cannot approve a "
-    "plan that way. Instead, output the complete plan directly in your "
-    "final response, wrapped EXACTLY in <PLAN> and </PLAN> tags and nothing "
-    "else. Do not edit any files.\n\nISSUE:\n{issue}"
+CODE_PROMPT = (
+    "Implement the design below. Make all necessary code edits in this "
+    "repository now. This runs autonomously — there is no human to ask, so "
+    "make the best decision you can and implement it. Once the implementation "
+    "is complete, just stop — do not wrap your final summary in any tags."
+    "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
-IMPLEMENT_PROMPT = (
-    "Implement the plan you just produced. Make all necessary code "
-    "edits in this repository now. If you get genuinely blocked and "
-    "need a decision you cannot make yourself, ask ONE round of "
-    "clarifying questions as a single JSON object wrapped EXACTLY in "
-    "<QUESTIONS> and </QUESTIONS> tags and nothing else, matching "
-    "this shape:\n"
-    '{"questions": [{"id": "q1", "prompt": "...", "why": "...", '
-    '"type": "single_select", "required": true, '
-    '"options": [{"value": "a", "label": "Option A"}]}]}\n'
-    '"type" is one of "single_select", "multi_select", "boolean", '
-    '"free_text" ("options" only applies to the select types; omit '
-    "it otherwise). Otherwise, once the implementation is complete, "
-    "just stop — do not wrap your final summary in any tags."
+VERIFY_PROMPT = (
+    "You are the verifier. Judge whether the implementation satisfies the PRD "
+    "and design. Weigh the EVIDENCE below (results of running the project's "
+    "checks in the worktree) as the primary basis of your verdict — a failing "
+    "check is a rejection. Where evidence is absent, judge the diff against "
+    "the PRD/design. Respond with ONLY a JSON object wrapped EXACTLY in "
+    "<VERDICT> and </VERDICT> tags, matching this shape:\n"
+    '{{"accept": true, "feedback": "..."}}\n'
+    "This session is headless: do not use the ExitPlanMode tool and do not "
+    "stop to investigate with tools — output the verdict JSON directly in "
+    "your final response and nothing else. "
+    "Set accept=false and give specific, actionable feedback for the coder "
+    "when the implementation is inconsistent or the evidence shows "
+    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
+    "DIFF:\n{diff}\n\nEVIDENCE:\n{evidence}"
 )
+
+
+def _slug_ref(task_ref: str) -> str:
+    """A branch-safe slug of a task_ref (e.g. Jira ``RFC-123``)."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", task_ref).strip("-") or "run"
+
+
+def _render_evidence(evidence: Evidence) -> str:
+    """Render evidence for the verifier prompt (bounded, human-readable)."""
+    if not evidence.observations:
+        return "(no automated checks configured)"
+    lines = []
+    for obs in evidence.observations:
+        mark = "PASS" if obs.passed else "FAIL"
+        lines.append(f"[{mark}] ({obs.kind}) {obs.name}\n{obs.detail}".rstrip())
+    return "\n\n".join(lines)
+
+
+def _evidence_feedback(evidence: Evidence) -> str:
+    """Summarise failing observations as actionable coder feedback."""
+    fails = evidence.failures()
+    if not fails:
+        return ""
+    parts = ["Failing checks:"]
+    for obs in fails:
+        parts.append(f"- {obs.name}\n{obs.detail}".rstrip())
+    return "\n".join(parts)
+
+
+def _clean_json_blob(blob: str) -> str:
+    """Strip whitespace and a surrounding Markdown ``` fence from a blob."""
+    blob = blob.strip()
+    if blob.startswith("```"):
+        newline = blob.find("\n")
+        if newline != -1:
+            blob = blob[newline + 1:]
+        if blob.rstrip().endswith("```"):
+            blob = blob.rstrip()[:-3]
+    return blob.strip()
+
+
+def _parse_verdict(text: str) -> tuple[bool, str]:
+    """Parse the verifier's verdict, tolerating common formatting.
+
+    Reads, in order of preference: the canonical
+    ``<VERDICT>{...}</VERDICT>`` block; that same JSON wrapped in a Markdown
+    code fence; or, as a last resort, a bare ``{...}`` object anywhere in the
+    response that carries an ``accept`` key (some models drop the tags). A
+    reject-on-parse-failure is the safe default — unverified work must not
+    ship autonomously — and the raw output is logged so a genuine failure is
+    diagnosable rather than silent.
+    """
+    candidates: list[str] = []
+    start = text.find("<VERDICT>")
+    end = text.find("</VERDICT>")
+    if start != -1 and end != -1 and end > start:
+        candidates.append(text[start + len("<VERDICT>"):end])
+    # Fallback for a model that omits the tags: any flat object mentioning
+    # "accept". Only ever yields accept=true when the JSON explicitly says so.
+    candidates.extend(
+        re.findall(r"\{[^{}]*\"accept\"[^{}]*\}", text, re.DOTALL)
+    )
+    for blob in candidates:
+        try:
+            data = json.loads(_clean_json_blob(blob))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if isinstance(data, dict) and "accept" in data:
+            return (
+                bool(data.get("accept", False)),
+                str(data.get("feedback", "")),
+            )
+    _logger.warning(
+        "verifier produced no parseable verdict (%d chars): %r",
+        len(text), text[:800],
+    )
+    return False, "The verifier response could not be parsed as a verdict."
 
 
 @dataclass
@@ -305,6 +403,10 @@ class WorkflowService:
         github: GitHubClient,
         notifier: Notifier,
         bus: WorkflowBus | None = None,
+        dismissals: DismissalStore | None = None,
+        check_runner: CheckRunner | None = None,
+        sources: dict[str, object] | None = None,
+        code_hosts: dict[str, object] | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -314,6 +416,32 @@ class WorkflowService:
         self.github = github
         self.notifier = notifier
         self.bus = bus
+        #: Task Source / Code Host per ``run.source`` (feature 003). GitHub and
+        #: manual runs collapse onto the GitHub adapters over ``github``; the
+        #: factory registers the Jira source and a self-hosted code host. Built
+        #: from ``github`` by default so existing callers need no change.
+        _gh_source = GitHubTaskSource(github, settings.public_base_url)
+        _gh_host = GitHubCodeHost(github, settings.git_base)
+        self.sources = sources or {
+            "manual": _gh_source, "github-issue": _gh_source,
+        }
+        self.code_hosts = code_hosts or {
+            "manual": _gh_host, "github-issue": _gh_host,
+        }
+        self._fallback_source = _gh_source
+        self._fallback_host = _gh_host
+        #: Verify evidence gatherer (v1: runs configured checks in the
+        #: worktree). Defaults from settings so existing callers need not
+        #: provide one; the behavioural harness drops in later (FR-015b).
+        self.check_runner = (
+            check_runner
+            if check_runner is not None
+            else CheckRunner(settings.verify_checks)
+        )
+        #: Records a dismissal on abandon so a still-labelled ingested issue
+        #: is not re-ingested (feature 002, FR-008a). Optional so unit tests
+        #: that don't exercise ingestion need not provide one.
+        self.dismissals = dismissals
         self._control: dict[str, _Control] = {}
         #: Driver task per run, so an abandon can cancel the in-flight
         #: orchestration for exactly that run.
@@ -332,6 +460,14 @@ class WorkflowService:
     def _new_control(self) -> _Control:
         loop = asyncio.get_running_loop()
         return _Control(gate=loop.create_future(), replies=asyncio.Queue())
+
+    def _task_source(self, run: WorkflowRun):
+        """The bound TaskSource for a run's origin (feature 003)."""
+        return self.sources.get(run.source, self._fallback_source)
+
+    def _code_host(self, run: WorkflowRun):
+        """The bound CodeHost for a run's target repository (feature 003)."""
+        return self.code_hosts.get(run.source, self._fallback_host)
 
     def _save(self, run: WorkflowRun) -> None:
         """
@@ -375,22 +511,124 @@ class WorkflowService:
                 return step.session_id
         return None
 
+    # ---- workspace provisioning (per-run worktree, US3) ----------------
+    def _mirror_dir(self, repo: str) -> str:
+        """Path of the per-repo shared bare mirror."""
+        return os.path.join(
+            self.settings.workspace_root,
+            "repos",
+            repo.replace("/", "__") + ".git",
+        )
+
+    # ---- step-handover artifacts (.kestrel/) ---------------------------
+    def _ensure_artifact_dir(self, run: WorkflowRun) -> None:
+        """Pick (once) this run's ``.kestrel/<date>-<serial>/`` folder.
+
+        Idempotent: a run that already has an ``artifact_dir`` (a resumed
+        run, restored from the DB) keeps it, so it writes to the same folder
+        across a restart. The serial is the next free counter for today's
+        date, found by scanning the worktree — so a repo that already carries
+        earlier runs' committed artifacts never collides.
+        """
+        if run.artifact_dir:
+            return
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        root = os.path.join(run.workspace, _ARTIFACT_ROOT)
+        existing = (
+            set(os.listdir(root)) if os.path.isdir(root) else set()
+        )
+        serial = 1
+        while f"{date}-{serial:03d}" in existing:
+            serial += 1
+        rel = os.path.join(_ARTIFACT_ROOT, f"{date}-{serial:03d}")
+        os.makedirs(os.path.join(run.workspace, rel), exist_ok=True)
+        run.artifact_dir = rel
+        self._save(run)
+
+    def _write_artifact(
+        self, run: WorkflowRun, filename: str, content: str
+    ) -> None:
+        """Write a handover artifact into this run's artifact folder."""
+        self._ensure_artifact_dir(run)
+        path = os.path.join(run.workspace, run.artifact_dir, filename)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+    def _artifact_slot(
+        self, step: str, run: WorkflowRun, filename: str, content: str
+    ) -> str:
+        """Value to interpolate for a prior artifact in a step's prompt.
+
+        A file-capable backend (claude, opencode) is pointed at the file so
+        the large PRD/design text stays out of the prompt; a text-only
+        backend (a plain LLM, which cannot read the worktree) still gets the
+        content inlined, exactly as before.
+        """
+        backend = self.backends.backend_for(step)
+        if Capability.FILE_EDITS in backend.caps:
+            relpath = os.path.join(run.artifact_dir, filename)
+            return (
+                f"(Provided as a file in the working tree at `{relpath}` — "
+                "read it in full before proceeding.)"
+            )
+        return content
+
+    async def _teardown_workspace(self, run: WorkflowRun) -> None:
+        """Remove a run's worktree and directory; best-effort, isolated.
+
+        Closes the workspace leak (only abandon cleaned up before) so a
+        finished/failed run does not linger. Never disturbs another run's
+        worktree (feature 002, FR-017).
+        """
+        if not run.workspace:
+            return
+        with contextlib.suppress(Exception):
+            await self.git.remove_worktree(
+                self._mirror_dir(run.repo), run.workspace
+            )
+        shutil.rmtree(run.workspace, ignore_errors=True)
+
     # ---- commands ------------------------------------------------------
-    async def create(self, repo: str, issue_number: int) -> str:
+    async def create(
+        self,
+        repo: str,
+        issue_number: int | None = None,
+        *,
+        source: str = "manual",
+        task_ref: str | None = None,
+        base_branch: str | None = None,
+    ) -> str:
+        """Create and drive a run for a ticket.
+
+        Source-neutral (feature 003): ``repo`` is the *code repository*;
+        ``task_ref`` is the source-native ticket id (defaults to
+        ``owner/name#n`` for GitHub/manual). A Jira run passes ``task_ref`` (the
+        RFC key), ``issue_number=None``, and a resolved ``base_branch``.
+        """
+        tref = task_ref or f"{repo}#{issue_number}"
+        if issue_number is not None:
+            branch = f"kestrel/issue-{issue_number}"
+        else:
+            branch = f"kestrel/{_slug_ref(tref)}"
         run = WorkflowRun(
             id="wf-" + uuid.uuid4().hex[:8],
             repo=repo,
             issue_number=issue_number,
-            branch=f"kestrel/issue-{issue_number}",
+            task_ref=tref,
+            base_branch=base_branch or "",
+            branch=branch,
             workspace=os.path.join(
                 self.settings.workspace_root,
                 f"wf-{uuid.uuid4().hex[:8]}",
             ),
             steps=[
                 WorkflowStep(name="refine"),
-                WorkflowStep(name="plan"),
-                WorkflowStep(name="implement"),
+                WorkflowStep(name="design"),
+                WorkflowStep(name="code"),
+                WorkflowStep(name="verify"),
             ],
+            source=source,
         )
         self.workflows.create(run)
         self._control[run.id] = self._new_control()
@@ -576,8 +814,14 @@ class WorkflowService:
                 self.sessions.remove(session_id)
         self._control.pop(workflow_id, None)
         self.workflows.remove(workflow_id)
-        if run.workspace:
-            shutil.rmtree(run.workspace, ignore_errors=True)
+        await self._teardown_workspace(run)
+        # Dismiss the issue so a still-labelled ingested run is not
+        # re-created by the webhook or reconciliation (feature 002,
+        # FR-008a). Cleared when the trigger label is removed.
+        if self.dismissals is not None:
+            self.dismissals.add(
+                run.task_ref or f"{run.repo}#{run.issue_number}"
+            )
 
     # ---- orchestration -------------------------------------------------
     async def _await_gate(self, workflow_id: str) -> _Decision:
@@ -602,6 +846,7 @@ class WorkflowService:
             elif run.status in _TRANSIENT:
                 run.status = "failed"
                 run.error = "backend restarted mid-step"
+                self._fail_active_steps(run)
                 self._save(run)
 
     async def _resume(self, workflow_id: str) -> None:
@@ -612,6 +857,12 @@ class WorkflowService:
         except _Rejected:
             run.status = "rejected"
             self._save(run)
+            # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
+            # dismissal so polling does not silently re-create the run while
+            # the ticket still qualifies; the re-trigger gesture clears it.
+            if self.dismissals is not None and run.task_ref:
+                self.dismissals.add(run.task_ref)
+            await self._teardown_workspace(run)
         except Exception as exc:
             _logger.exception(
                 "workflow %s (%s#%s) failed during %s",
@@ -620,50 +871,79 @@ class WorkflowService:
             )
             run.status = "failed"
             run.error = str(exc)
+            self._fail_active_steps(run)
             self._save(run)
+            await self._teardown_workspace(run)
 
     async def _drive(self, workflow_id: str) -> None:
         run = self.get(workflow_id)
         try:
             run.status = "cloning"
             self._save(run)
-            issue = await self.github.get_issue(run.repo, run.issue_number)
-            run.issue_title = issue.title
-            run.base_branch = await self.github.get_default_branch(run.repo)
+            task = await self._task_source(run).get_task(run.task_ref)
+            run.issue_title = task.title
+            if not run.base_branch:
+                run.base_branch = await self._code_host(run).get_default_branch(
+                    run.repo
+                )
             self._save(run)
-            remote = f"{self.settings.git_base}/{run.repo}.git"
-            await self.git.clone(remote, run.workspace)
-            await self.git.checkout_branch(run.workspace, run.branch)
+            remote = self._code_host(run).clone_remote(run.repo)
+            await self.git.provision_worktree(
+                remote,
+                self._mirror_dir(run.repo),
+                run.workspace,
+                run.base_branch,
+                run.branch,
+            )
 
-            if has_sentinel(issue.body):
+            if has_sentinel(task.body):
                 run.steps[0].status = "done"
-                run.steps[0].deliverable = issue.body
+                run.steps[0].deliverable = task.body
                 self._save(run)
                 await self._continue(run)
             else:
-                await self._continue(run, issue_body=issue.body)
+                await self._continue(run, issue_body=task.body)
         except _Rejected:
             run.status = "rejected"
             self._save(run)
+            # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
+            # dismissal so polling does not silently re-create the run while
+            # the ticket still qualifies; the re-trigger gesture clears it.
+            if self.dismissals is not None and run.task_ref:
+                self.dismissals.add(run.task_ref)
+            await self._teardown_workspace(run)
         except Exception as exc:  # record, do not crash the loop
             _logger.exception(
-                "workflow %s (%s#%s) failed during %s",
-                workflow_id, run.repo, run.issue_number, run.status,
+                "workflow %s (%s) failed during %s",
+                workflow_id, run.task_ref, run.status,
             )
             run.status = "failed"
             run.error = str(exc)
+            self._fail_active_steps(run)
             self._save(run)
+            await self._teardown_workspace(run)
 
     async def _continue(
         self, run: WorkflowRun, issue_body: str | None = None
     ) -> None:
-        """Run every unfinished phase, then deliver."""
+        """Run every unfinished phase, then deliver.
+
+        refine (PRD approval gate) -> design -> autonomous code<->verify loop
+        -> deliver. Everything after PRD approval is gateless (FR-014); the
+        loop may escalate instead of delivering (FR-018/FR-020).
+        """
+        # Reserve this run's artifact folder once the worktree exists —
+        # covers both the fresh drive and a resumed run (no-op if already
+        # chosen and restored from the DB).
+        self._ensure_artifact_dir(run)
         if run.steps[0].status != "done":
             await self._refine(run, issue_body)
         if run.steps[1].status != "done":
-            await self._plan(run)
-        if run.steps[2].status != "done":
-            await self._implement(run)
+            await self._design(run)
+        if run.steps[3].status != "done":
+            escalated = await self._code_and_verify(run)
+            if escalated:
+                return
         await self._deliver(run)
 
     async def _refine(
@@ -695,8 +975,10 @@ class WorkflowService:
             decision = await self._await_gate(run.id)
             if decision.approved:
                 final = decision.deliverable or (step.deliverable or "")
-                await self.github.update_issue(
-                    run.repo, run.issue_number, append_sentinel(final),
+                # Publish the approved PRD to the ticket: GitHub writes the
+                # refined body + sentinel; Jira attaches PRD.md (FR-011).
+                await self._task_source(run).publish_refined(
+                    run.task_ref, final
                 )
                 step.deliverable = final
                 step.status = "done"
@@ -1372,149 +1654,241 @@ class WorkflowService:
         )
         return extract_refined_issue(text) or text
 
-    async def _plan(self, run: WorkflowRun) -> None:
+    async def _design(self, run: WorkflowRun) -> None:
+        """Run the designer: produce a high-level design/plan. Gateless."""
         step = run.steps[1]
-        refined = run.steps[0].deliverable or ""
-        prompt: str | None
-        if step.status == "awaiting_approval":
-            prompt = None  # recovered at the gate: skip to it
-        else:
-            prompt = PLAN_PROMPT.format(issue=refined)
-        model = get_policy().model_for("plan")
+        prd = run.steps[0].deliverable or ""
+        # Persist the approved PRD as a handover artifact, then reference it
+        # (file-capable backend) or inline it (text-only) in the prompt.
+        self._write_artifact(run, "prd.md", prd)
+        model = get_policy().model_for("design")
         step.model = model
-        while True:
-            if prompt is not None:
-                run.status = "planning"
-                step.status = "running"
-                slot = StepSession(
-                    profile_id="planner", label="Planner", badge="agent"
-                )
-                step.active_sessions = [slot]
-                self._save(run)
-                result = await self._run_turn_tracked(
-                    run,
-                    self.backends.backend_for("plan"),
-                    TurnRequest(
-                        prompt=prompt, cwd=run.workspace,
-                        permission_mode="plan",
-                        model=model, resume_id=step.session_id,
-                    ),
-                    slot,
-                    _bind(step, slot),
-                )
-                text = result.final_text
-                # Prefer the tagged block; fall back to the raw
-                # text so a run still gets a reviewable
-                # deliverable if the model doesn't comply (e.g.
-                # it falls into its native Plan Mode and tries
-                # ExitPlanMode instead).
-                step.deliverable = extract_plan(text) or text
-                step.active_sessions = []
-                step.status = "awaiting_approval"
-                run.status = "awaiting_plan_approval"
-                self._save(run)
-            decision = await self._await_gate(run.id)
-            if decision.approved:
-                step.status = "done"
-                self._save(run)
-                # implement resumes this plan session via
-                # run.steps[1].session_id.
-                return
-            if decision.refinement is None:
-                raise _Rejected()
-            prompt = PLAN_FEEDBACK_PROMPT.format(
-                feedback=decision.refinement
-            )
+        run.status = "designing"
+        step.status = "running"
+        slot = StepSession(
+            profile_id="designer", label="Designer", badge="agent"
+        )
+        step.active_sessions = [slot]
+        self._save(run)
+        result = await self._run_turn_tracked(
+            run,
+            self.backends.backend_for("design"),
+            TurnRequest(
+                prompt=DESIGN_PROMPT.format(
+                    issue=self._artifact_slot("design", run, "prd.md", prd)
+                ),
+                cwd=run.workspace,
+                permission_mode="plan", model=model,
+                resume_id=step.session_id,
+            ),
+            slot,
+            _bind(step, slot),
+        )
+        design = extract_plan(result.final_text) or result.final_text
+        step.deliverable = design
+        # Persist the design as the second handover artifact for code/verify.
+        self._write_artifact(run, "design.md", design)
+        step.active_sessions = []
+        step.status = "done"
+        self._save(run)
 
-    async def _implement(self, run: WorkflowRun) -> None:
-        step = run.steps[2]
-        prompt: str | None
-        if step.status == "awaiting_approval":
-            prompt = None  # recovered at the gate: skip to it
-        elif step.status == "awaiting_input":
-            # Recovered mid-blocker: wait for the answer, then
-            # resume the persisted claude session with it.
-            prompt = await self._control[run.id].replies.get()
-        else:
-            prompt = IMPLEMENT_PROMPT
-        model = get_policy().model_for("implement")
-        step.model = model
-        while True:
-            if prompt is not None:
-                run.status = "implementing"
-                step.status = "running"
-                slot = StepSession(
-                    profile_id="builder", label="Builder", badge="agent"
-                )
-                step.active_sessions = [slot]
-                self._save(run)
-                result = await self._run_turn_tracked(
-                    run,
-                    self.backends.backend_for("implement"),
-                    TurnRequest(
-                        prompt=prompt, cwd=run.workspace,
-                        permission_mode="acceptEdits",
-                        model=model,
-                        resume_id=(
-                            step.session_id
-                            or run.steps[1].session_id
-                        ),
-                    ),
-                    slot,
-                    _bind(step, slot),
-                )
-                text = result.final_text
-                diff = await self.git.diff(run.workspace)
-                if not diff.strip():
-                    # No changes yet: treat the response as a
-                    # blocker, structured or raw-text.
-                    questionnaire = extract_questionnaire(text)
-                    step.deliverable = (
-                        questionnaire.model_dump_json()
-                        if questionnaire is not None
-                        else text
-                    )
-                    step.active_sessions = []  # human's turn: chips off
-                    step.status = "awaiting_input"
-                    run.status = "awaiting_implement_input"
-                    self._save(run)
-                    prompt = await (
-                        self._control[run.id].replies.get()
-                    )
-                    continue
-                step.deliverable = diff
-                step.active_sessions = []  # chips off at the gate
-                step.status = "awaiting_approval"
-                run.status = "awaiting_implement_approval"
-                self._save(run)
-            decision = await self._await_gate(run.id)
-            if decision.approved:
-                step.status = "done"
-                self._save(run)
-                return
-            if decision.refinement is None:
-                raise _Rejected()
-            prompt = IMPLEMENT_FEEDBACK_PROMPT.format(
-                feedback=decision.refinement
+    async def _code_and_verify(self, run: WorkflowRun) -> bool:
+        """Run the autonomous code<->verify loop.
+
+        The coder implements the design; the verifier adjudicates it against
+        the PRD/design, weighing evidence from running the project's checks in
+        the worktree (a failing observation forces a reject — the
+        failing-observation invariant). On accept the loop finishes and the run
+        proceeds to deliver; on reject the coder re-runs with feedback, bounded
+        by ``max_verify_iterations``; on exhaustion (or a coder that makes no
+        progress) the run escalates (FR-014..FR-020).
+
+        :returns: ``True`` if the run escalated (caller must not deliver).
+        """
+        code_step, verify_step = run.steps[2], run.steps[3]
+        prd = run.steps[0].deliverable or ""
+        design = run.steps[1].deliverable or ""
+        # Ensure both handover artifacts are on disk (defensive: _design
+        # wrote them earlier this drive, but this keeps code/verify correct
+        # on any resume path).
+        self._write_artifact(run, "prd.md", prd)
+        self._write_artifact(run, "design.md", design)
+        code_model = get_policy().model_for("code")
+        verify_model = get_policy().model_for("verify")
+        # The coder always needs FILE_EDITS, so it reads the artifacts from
+        # the worktree rather than carrying their full text in the prompt.
+        prompt = CODE_PROMPT.format(
+            prd=self._artifact_slot("code", run, "prd.md", prd),
+            design=self._artifact_slot("code", run, "design.md", design),
+        )
+        for _ in range(max(1, self.settings.max_verify_iterations)):
+            # ---- code (gateless) ----
+            code_step.model = code_model
+            run.status = "coding"
+            code_step.status = "running"
+            slot = StepSession(
+                profile_id="coder", label="Coder", badge="agent"
             )
+            code_step.active_sessions = [slot]
+            self._save(run)
+            # The coder inherits the designer's session for context
+            # continuity, but only when both steps resolve to the same
+            # backend: a session id is native to the backend that minted it,
+            # so handing a design backend's id (e.g. an ``llm-…`` id) to a
+            # different code backend (opencode, expecting ``ses-…``) would be
+            # rejected. On a cross-backend route the coder starts fresh.
+            same_backend = self.backends.backend_id_for(
+                "design"
+            ) == self.backends.backend_id_for("code")
+            code_resume_id = code_step.session_id or (
+                run.steps[1].session_id if same_backend else None
+            )
+            await self._run_turn_tracked(
+                run,
+                self.backends.backend_for("code"),
+                TurnRequest(
+                    prompt=prompt, cwd=run.workspace,
+                    permission_mode="acceptEdits", model=code_model,
+                    resume_id=code_resume_id,
+                ),
+                slot,
+                _bind(code_step, slot),
+            )
+            # Exclude the handover artifacts from the code diff: they are
+            # committed with the change, but must not pollute what the
+            # verifier weighs or what the code step stores as its diff.
+            diff = await self.git.diff(run.workspace, exclude=_ARTIFACT_ROOT)
+            code_step.active_sessions = []
+            code_step.deliverable = diff
+            if not diff.strip():
+                # A coder that cannot make progress escalates instead of
+                # parking on a human gate (FR-020).
+                return await self._escalate(
+                    run, "the coder produced no changes"
+                )
+            code_step.status = "done"
+            self._save(run)
+
+            # ---- verify (gateless, evidence-grounded) ----
+            verify_step.model = verify_model
+            run.status = "verifying"
+            verify_step.status = "running"
+            verify_slot = StepSession(
+                profile_id="verifier", label="Verifier", badge="agent"
+            )
+            verify_step.active_sessions = [verify_slot]
+            self._save(run)
+            evidence = await self.check_runner.run(run.workspace)
+            verify_result = await self._run_turn_tracked(
+                run,
+                self.backends.backend_for("verify"),
+                TurnRequest(
+                    # The verifier gets PRD/design INLINE, not as file
+                    # pointers. It must emit a strict <VERDICT> JSON block
+                    # (a parse miss is a hard reject, no fallback), and it
+                    # runs in plan mode — forcing a tool round-trip to read
+                    # the files pushes it into an investigate/plan flow that
+                    # stops reliably emitting the verdict. Its cwd is still
+                    # the worktree, so a future repo-reading verifier keeps
+                    # full file access regardless of this.
+                    prompt=VERIFY_PROMPT.format(
+                        prd=prd, design=design, diff=diff,
+                        evidence=_render_evidence(evidence),
+                    ),
+                    cwd=run.workspace, permission_mode="plan",
+                    model=verify_model,
+                ),
+                verify_slot,
+                _bind(verify_step, verify_slot),
+            )
+            accept, feedback = _parse_verdict(verify_result.final_text)
+            # Failing-observation invariant: a failing check never accepts.
+            if not evidence.all_passed():
+                ev_fb = _evidence_feedback(evidence)
+                feedback = f"{ev_fb}\n\n{feedback}".strip()
+                accept = False
+            verify_step.active_sessions = []
+            verify_step.deliverable = (
+                "accepted" if accept else f"rejected: {feedback}"
+            )
+            if accept:
+                verify_step.status = "done"
+                self._save(run)
+                return False
+            # Rejected: loop back to the coder with the feedback.
+            code_step.status = "pending"
+            self._save(run)
+            prompt = CODE_FEEDBACK_PROMPT.format(
+                feedback=feedback,
+                design=self._artifact_slot("code", run, "design.md", design),
+            )
+        return await self._escalate(
+            run, "verification did not pass within the iteration limit"
+        )
+
+    @staticmethod
+    def _fail_active_steps(run: WorkflowRun) -> None:
+        """Flip any in-flight step to a terminal ``failed`` state.
+
+        A terminal run status (``escalated``/``failed``) must not leave a step
+        still ``running`` (or parked on a gate): the UI keys its activity
+        indicators off step status, so a stranded ``running`` step spins
+        forever. Clears the ephemeral session chips too.
+        """
+        for step in run.steps:
+            if step.status in (
+                "running", "awaiting_input", "awaiting_approval"
+            ):
+                step.status = "failed"
+                step.active_sessions = []
+
+    async def _escalate(self, run: WorkflowRun, reason: str) -> bool:
+        """Stop the autonomous loop and flag the ticket for human attention.
+
+        :returns: ``True`` (so the caller skips delivery).
+        """
+        run.error = f"escalated: {reason}"
+        run.status = "escalated"
+        self._fail_active_steps(run)
+        self._save(run)
+        await self._teardown_workspace(run)
+        return True
 
     async def _deliver(self, run: WorkflowRun) -> None:
-        """Commit, push, open the PR, and finish the run."""
+        """Commit, push, open the change request, and finish the run."""
         run.status = "opening_pr"
         self._save(run)
-        await self.git.commit_all(
-            run.workspace, f"Implement #{run.issue_number}"
-        )
+        # Change-request metadata is source-aware: a GitHub run closes its
+        # issue (#n); a Jira run references the RFC key (the ticket is in Jira).
+        if run.issue_number is not None:
+            commit_msg = f"Implement #{run.issue_number}"
+            cr_title = f"{run.issue_title} (#{run.issue_number})"
+            cr_body = f"Closes #{run.issue_number}\n\nOpened by kestrel."
+        else:
+            commit_msg = f"Implement {run.task_ref}"
+            cr_title = f"{run.issue_title} ({run.task_ref})"
+            cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
+        await self.git.commit_all(run.workspace, commit_msg)
         await self.git.push(run.workspace, run.branch)
-        run.pr_url = await self.github.create_pull_request(
+        run.pr_url = await self._code_host(run).open_change_request(
             run.repo,
             head=run.branch,
             base=run.base_branch,
-            title=f"{run.issue_title} (#{run.issue_number})",
-            body=f"Closes #{run.issue_number}\n\nOpened by kestrel.",
+            title=cr_title,
+            body=cr_body,
         )
         run.status = "done"
         self._save(run)
+        # Post the change-request link to the ticket (best-effort — FR-019).
+        try:
+            await self._task_source(run).post_comment(
+                run.task_ref, f"Change request opened: {run.pr_url}"
+            )
+        except Exception:  # noqa: BLE001 — best-effort; run is already done
+            _logger.exception("failed to post CR link for %s", run.task_ref)
+        # Work is pushed and the CR is open — the worktree is no longer
+        # needed. Clean it up (closing the done-run leak, US3/FR-017).
+        await self._teardown_workspace(run)
 
 
 class _Rejected(Exception):
@@ -1526,15 +1900,65 @@ def get_workflow_service() -> WorkflowService:
     """Return the process-wide WorkflowService singleton."""
     settings = get_settings()
     registry = get_registry()
+    github = GitHubClient(settings.github_api_base, settings.github_token)
+    gh_source = GitHubTaskSource(github, settings.public_base_url)
+    gh_host = GitHubCodeHost(github, settings.git_base)
+    # Task Source / Code Host per run source. GitHub and manual runs collapse
+    # onto the GitHub adapters; the Jira source + its configured code host are
+    # registered below when Jira ingestion is configured (feature 003).
+    sources: dict[str, object] = {
+        "manual": gh_source, "github-issue": gh_source,
+    }
+    code_hosts: dict[str, object] = {
+        "manual": gh_host, "github-issue": gh_host,
+    }
+    if settings.jira_base_url and settings.jira_project:
+        from app.services.jira import JiraClient, JiraTaskSource
+
+        jira = JiraClient(
+            settings.jira_base_url,
+            auth=settings.jira_auth,
+            email=settings.jira_email,
+            token=settings.jira_api_token,
+        )
+        sources["jira-issue"] = JiraTaskSource(
+            jira, settings.public_base_url
+        )
+        code_hosts["jira-issue"] = _build_code_host(settings, github)
+    # In-app first (always records the durable fallback row), then the
+    # best-effort ticket comment via the run's source (feature 003).
+    notifier = CompositeNotifier(
+        [
+            InAppNotifier(get_notification_store(), get_notification_bus()),
+            TaskSourceNotifier(sources, settings.public_base_url),
+        ]
+    )
     return WorkflowService(
         settings=settings,
         sessions=registry,
         workflows=get_workflow_registry(),
         backends=get_backend_policy(),
         git=GitService(settings.github_token),
-        github=GitHubClient(settings.github_api_base, settings.github_token),
-        notifier=InAppNotifier(
-            get_notification_store(), get_notification_bus()
-        ),
+        github=github,
+        notifier=notifier,
         bus=get_workflow_bus(),
+        dismissals=get_dismissal_store(),
+        sources=sources,
+        code_hosts=code_hosts,
     )
+
+
+def _build_code_host(settings: Settings, github: GitHubClient) -> object:
+    """Build the code host for Jira-resolved repos, per ``code_host`` config.
+
+    Self-hostable (feature 003, FR-023a): ``gitlab``/``gitea`` point at an
+    on-prem instance; ``github`` reuses the GitHub client. The code-host token
+    falls back to ``github_token`` when the host is GitHub.
+    """
+    if settings.code_host in ("gitlab", "gitea"):
+        from app.services.gitlab import GitLabCodeHost
+
+        return GitLabCodeHost(
+            settings.code_host_base_url, settings.code_host_token
+        )
+    return GitHubCodeHost(github, settings.git_base)

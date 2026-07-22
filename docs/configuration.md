@@ -24,6 +24,24 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
 | `KESTREL_OTEL_SERVICE_NAME` | `kestrel` | `service.name` reported on exported spans |
+| `KESTREL_WEBHOOK_SECRET` | _(empty)_ | HMAC shared secret verifying GitHub webhook deliveries. Empty disables the webhook path. Never logged. See [GitHub workflow](setup-github-workflow.md) |
+| `KESTREL_WATCHED_REPOS` | _(empty)_ | Allow-list of `owner/name` repos to ingest/reconcile. Comma-separated or a JSON array. Anything outside is ignored |
+| `KESTREL_TRIGGER_LABEL` | `kestrel` | Issue label that flags an issue for ingestion |
+| `KESTREL_RECONCILE_INTERVAL_SECONDS` | `300` | How often reconciliation polls watched repos for missed deliveries |
+| `KESTREL_PUBLIC_BASE_URL` | _(empty)_ | Public URL of the kestrel UI, used to build clickable gate-notification deep-links. Empty ⇒ link-less comments |
+| `KESTREL_JIRA_BASE_URL` | _(empty)_ | Jira instance base URL. Empty disables Jira polling. Poll-only — no inbound endpoint. See [Jira workflow](setup-jira-workflow.md) |
+| `KESTREL_JIRA_AUTH` | `basic` | `basic` (Cloud: email + API token) or `bearer` (Server/DC: PAT) |
+| `KESTREL_JIRA_EMAIL` | _(empty)_ | Basic-auth username (Jira Cloud email) |
+| `KESTREL_JIRA_API_TOKEN` | _(empty)_ | Jira API token / PAT. Secret; never logged |
+| `KESTREL_JIRA_PROJECT` | _(empty)_ | RFC project key polled for change requests (required to poll) |
+| `KESTREL_JIRA_JQL_FILTER` | _(empty)_ | Extra JQL AND-ed onto `project = "<key>"`, e.g. `status = "Ready"` |
+| `KESTREL_JIRA_REPO_FIELD` | _(empty)_ | RFC field id/name holding the target `owner/name[@base_branch]` |
+| `KESTREL_JIRA_POLL_INTERVAL_SECONDS` | `300` | How often the Jira project is polled for qualifying RFCs |
+| `KESTREL_CODE_HOST` | `github` | Code host for Jira-resolved repos: `github`, `gitlab`, or `gitea` (self-hostable) |
+| `KESTREL_CODE_HOST_BASE_URL` | _(empty)_ | Self-hosted code-host instance URL (e.g. `https://gitlab.internal`) |
+| `KESTREL_CODE_HOST_TOKEN` | _(empty)_ | Code-host token/PAT. Secret; never logged. Falls back to `KESTREL_GITHUB_TOKEN` when `code_host=github` |
+| `KESTREL_VERIFY_CHECKS` | `[]` | JSON list of shell commands run in the worktree as verify evidence, e.g. `["uv run pytest -q"]`. Empty ⇒ model-judgment fallback |
+| `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 

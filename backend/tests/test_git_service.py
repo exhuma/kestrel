@@ -56,6 +56,39 @@ async def test_clone_branch_commit_push_roundtrip(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_diff_excludes_path_but_commit_keeps_it(tmp_path) -> None:
+    """diff(exclude=...) hides a folder from the diff yet still commits it.
+
+    The handover artifacts under ``.kestrel/`` must not pollute the code diff
+    the verifier weighs, but must still travel with the change on commit —
+    so the exclude only affects the diff view, not what gets staged.
+    """
+    bare = _seed_bare_remote(tmp_path)
+    dest = str(tmp_path / "work")
+    svc = GitService(token="unused-locally")
+    await svc.clone(str(bare), dest)
+    await svc.checkout_branch(dest, "kestrel/issue-1")
+
+    (Path(dest) / "code.py").write_text("print('hi')\n")
+    artifacts = Path(dest) / ".kestrel" / "2026-07-22-001"
+    artifacts.mkdir(parents=True)
+    (artifacts / "design.md").write_text("# design\n")
+
+    diff = await svc.diff(dest, exclude=".kestrel")
+    assert "code.py" in diff
+    assert "design.md" not in diff  # excluded from the diff view
+
+    # ...but a commit still includes the artifact (add -A staged it).
+    await svc.commit_all(dest, "work: add code + artifacts")
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=dest, check=True, capture_output=True,
+        text=True,
+    ).stdout
+    assert ".kestrel/2026-07-22-001/design.md" in tracked
+    assert "code.py" in tracked
+
+
+@pytest.mark.asyncio
 async def test_commit_all_ignores_repo_gpgsign_setting(tmp_path) -> None:
     """Ensure commit_all never attempts GPG signing, even if the repo
     (or the machine's global config) has commit.gpgsign=true — which
@@ -104,3 +137,52 @@ async def test_clone_failure_raises_giterror_without_leaking_token(
             str(tmp_path / "no-such-remote"), str(tmp_path / "dest")
         )
     assert "super-secret-token" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_worktree_isolation_and_cleanup(tmp_path) -> None:
+    """Ensure two worktrees off one mirror are isolated and clean up cleanly."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+
+    dest_a = str(tmp_path / "wtA")
+    dest_b = str(tmp_path / "wtB")
+    await svc.provision_worktree(
+        str(bare), mirror, dest_a, "main", "kestrel/issue-1"
+    )
+    await svc.provision_worktree(
+        str(bare), mirror, dest_b, "main", "kestrel/issue-2"
+    )
+
+    # Each worktree has its own branch and files; neither sees the other's.
+    (Path(dest_a) / "a.txt").write_text("A\n")
+    (Path(dest_b) / "b.txt").write_text("B\n")
+    assert not (Path(dest_a) / "b.txt").exists()
+    assert not (Path(dest_b) / "a.txt").exists()
+
+    # A run commits + pushes its branch to the remote from its worktree.
+    await svc.commit_all(dest_a, "A: work")
+    await svc.push(dest_a, "kestrel/issue-1")
+    branches = subprocess.run(
+        ["git", "branch", "--list"], cwd=bare,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "kestrel/issue-1" in branches
+
+    # Removing A's worktree leaves B's intact.
+    await svc.remove_worktree(mirror, dest_a)
+    assert not Path(dest_a).exists()
+    assert (Path(dest_b) / "b.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_ensure_mirror_is_idempotent(tmp_path) -> None:
+    """Ensure a second ensure_mirror fetches rather than re-cloning."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    await svc.ensure_mirror(str(bare), mirror)
+    # Second call must not raise (fetch path over the existing mirror).
+    await svc.ensure_mirror(str(bare), mirror)
+    assert Path(mirror).is_dir()

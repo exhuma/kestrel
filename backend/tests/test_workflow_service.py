@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
+from datetime import datetime, timezone
 
 import pytest
 
@@ -26,15 +28,22 @@ class _FakeGit:
     def __init__(self) -> None:
         self.pushed: list[str] = []
         self.diffs: list[str] = ["diff --git a/x b/x"]
+        self.diff_excludes: list[str | None] = []
 
     async def clone(self, remote_url: str, dest: str) -> None: ...
     async def checkout_branch(self, dest: str, branch: str) -> None: ...
+    async def provision_worktree(
+        self, remote_url: str, mirror_dir: str, dest: str,
+        base_branch: str, new_branch: str,
+    ) -> None: ...
+    async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
     async def commit_all(self, dest: str, message: str) -> None: ...
-    async def diff(self, dest: str) -> str:
+    async def diff(self, dest: str, exclude: str | None = None) -> str:
         # Pop while more than one entry is queued; once down to the
         # last (or default single) entry, keep returning it so
         # tests that call diff() repeatedly without pre-loading a
         # long queue still see a stable, non-empty value.
+        self.diff_excludes.append(exclude)
         if len(self.diffs) > 1:
             return self.diffs.pop(0)
         return self.diffs[0] if self.diffs else ""
@@ -52,8 +61,8 @@ class _FakeNotifier:
         self.notified: list[str] = []
 
     def notify(self, run) -> None:
-        if run.status in ("done", "failed") or run.status.startswith(
-            "awaiting_"
+        if run.status in ("done", "failed", "escalated") or (
+            run.status.startswith("awaiting_")
         ):
             self.notified.append(run.status)
 
@@ -83,15 +92,21 @@ class _FakeRunner:
 
     caps = frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
-    def __init__(self, sessions: SessionRegistry, outputs: list[str]) -> None:
+    def __init__(
+        self,
+        sessions: SessionRegistry,
+        outputs: list[str],
+        id_prefix: str = "s",
+    ) -> None:
         self.sessions = sessions
         self._outputs = list(outputs)
+        self._id_prefix = id_prefix
         self._n = 0
         self.calls: list[dict] = []
         self.terminated: list[str] = []
 
     async def run_turn(self, req, on_session_id=None):
-        sid = req.resume_id or f"s{self._n}"
+        sid = req.resume_id or f"{self._id_prefix}{self._n}"
         self._n += 1
         self.calls.append(
             {"resume_id": req.resume_id, "model": req.model,
@@ -120,8 +135,39 @@ class _FakeRunner:
     def backend_for(self, step: str):
         return self
 
+    def backend_id_for(self, step: str) -> str:
+        return "fake"
+
     def backends(self):
         return [self]
+
+
+class _RoutingPolicy:
+    """A BackendPolicy stub routing ``design`` and ``code`` to different
+    backends, so a cross-backend session handoff can be exercised.
+
+    Mirrors the real routing where ``design`` may resolve to a TEXT-only
+    LLM backend (``llm-…`` session ids) while ``code`` resolves to
+    opencode (``ses-…`` ids). Every other step uses the code backend.
+    """
+
+    def __init__(
+        self, sessions: SessionRegistry, design, code
+    ) -> None:
+        self.sessions = sessions
+        self._design = design
+        self._code = code
+
+    def backend_for(self, step: str):
+        return self._design if step.split(".", 1)[0] == "design" else (
+            self._code
+        )
+
+    def backend_id_for(self, step: str) -> str:
+        return "llm" if step.split(".", 1)[0] == "design" else "opencode"
+
+    def backends(self):
+        return [self._design, self._code]
 
 
 def _service(github, runner, git, settings=None) -> WorkflowService:
@@ -191,6 +237,12 @@ def _refined(text: str) -> str:
     return f"<REFINED_ISSUE>\n{text}\n</REFINED_ISSUE>"
 
 
+def _verdict(accept: bool = True, feedback: str = "") -> str:
+    """A verifier VERDICT block (feature 003 autonomous loop)."""
+    payload = json.dumps({"accept": accept, "feedback": feedback})
+    return f"<VERDICT>{payload}</VERDICT>"
+
+
 #: Simplest refine leg: coordinator needs nobody, writer emits the issue.
 def _refine_noquestions(text: str) -> list[str]:
     return [_coord([]), _refined(text)]
@@ -205,14 +257,16 @@ async def _wait(pred, timeout=2.0) -> None:
 
 
 @pytest.mark.asyncio
-async def test_happy_path_refine_plan_implement_pr() -> None:
-    """Ensure a run refines, plans, implements, and opens a PR."""
+async def test_happy_path_refine_design_code_verify_pr() -> None:
+    """Ensure a run refines (PRD gate) then autonomously designs, codes,
+    verifies, and opens a PR — no human gate after PRD approval (FR-014)."""
     gh = _FakeGitHub(body="vague issue")
     git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
         *_refine_noquestions("Build a clear widget"),              # refine
-        "<PLAN>\nStep 1: do X\nStep 2: do Y\n</PLAN>",              # plan
-        "Implemented X and Y",                                      # implement
+        "<PLAN>\nStep 1: do X\nStep 2: do Y\n</PLAN>",              # design
+        "Implemented X and Y",                                      # code
+        _verdict(accept=True),                                      # verify
     ])
     svc = _service(gh, runner, git)
 
@@ -220,32 +274,209 @@ async def test_happy_path_refine_plan_implement_pr() -> None:
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     assert svc.get(wid).steps[0].deliverable == "Build a clear widget"
-    svc.approve(wid)  # writes issue + sentinel, advances to plan
-
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
-    assert gh.updated is not None and "kestrel:refined" in gh.updated
-    svc.approve(wid)
-
-    await _wait(lambda: svc.get(wid).status == "awaiting_implement_approval")
-    assert "diff" in svc.get(wid).steps[2].deliverable
-    svc.approve(wid)
+    svc.approve(wid)  # PRD approved → design/code/verify run autonomously
 
     await _wait(lambda: svc.get(wid).status == "done")
+    assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
+    assert gh.updated is not None and "kestrel:refined" in gh.updated
+    assert "diff" in svc.get(wid).steps[2].deliverable
+    assert svc.get(wid).steps[3].deliverable == "accepted"
     assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
     assert git.pushed == [svc.get(wid).branch]
 
 
 @pytest.mark.asyncio
+async def test_code_step_reuses_same_backend_design_session() -> None:
+    """When design and code share a backend, the coder resumes the
+    designer's session for context continuity (the intended handoff)."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\ndo X\n</PLAN>",          # design → mints a session id
+        "Implemented X",                   # code → should resume it
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    design_sid = svc.get(wid).steps[1].session_id
+    code_call = next(
+        c for c in runner.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert design_sid is not None
+    assert code_call["resume_id"] == design_sid
+
+
+@pytest.mark.asyncio
+async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
+    """A design session id must not leak into a different code backend.
+
+    Regression: when ``design`` runs on an LLM backend (``llm-…`` ids)
+    and ``code`` on opencode (``ses-…`` ids), the coder must start a
+    fresh session rather than resume the designer's foreign id — which
+    opencode would reject with a 500 (``Expected a string starting with
+    "ses"``).
+    """
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    design = _FakeRunner(
+        sessions, outputs=["<PLAN>\ndo X\n</PLAN>"], id_prefix="llm-"
+    )
+    code = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("Build a clear widget"),  # refine substeps
+            "Implemented X",                                # code
+            _verdict(accept=True),                          # verify
+        ],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _service(gh, policy, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    # The design step really did mint an id that would have leaked...
+    assert svc.get(wid).steps[1].session_id.startswith("llm-")
+    # ...but the coder started fresh instead of resuming it.
+    code_call = next(
+        c for c in code.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert code_call["resume_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_code_handover_via_file_on_cross_backend() -> None:
+    """Cross-backend: the coder gets the design as a worktree file, not inline.
+
+    On a cross-backend route the coder starts a fresh session (no memory of
+    the designer's turn). The design is handed over as ``design.md`` in the
+    shared ``.kestrel/`` folder — which the file-capable coder reads — rather
+    than embedded verbatim in the prompt, so a large plan never bloats the
+    context window.
+    """
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    design = _FakeRunner(
+        sessions, outputs=["<PLAN>\nAdd a shiny widget\n</PLAN>"],
+        id_prefix="llm-",
+    )
+    code = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("Build a clear widget"),
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _service(gh, policy, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    code_call = next(
+        c for c in code.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert code_call["resume_id"] is None  # fresh session, no memory
+    # Handover is by file reference, not inlined plan text.
+    assert "design.md" in code_call["prompt"]
+    assert "Add a shiny widget" not in code_call["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_no_changes_escalation_fails_code_step() -> None:
+    """An empty coder diff escalates the run AND marks the code step failed.
+
+    The UI keys its activity spinner off step status, so a terminal run must
+    not leave the code step stuck ``running`` (FR: any failure stops the
+    activity indicators).
+    """
+    gh = _FakeGitHub(body="vague issue")
+    git = _FakeGit()
+    git.diffs = [""]  # coder produces no changes
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\ndo X\n</PLAN>",
+        "I looked but changed nothing",
+    ])
+    svc = _service(gh, runner, git)
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "escalated")
+
+    run = svc.get(wid)
+    assert run.error == "escalated: the coder produced no changes"
+    code_step = run.steps[2]
+    assert code_step.status == "failed"
+    assert code_step.active_sessions == []
+
+
+class _RaisingBackend:
+    """A backend whose turns always explode, to exercise the in-flight
+    step being marked failed when a step raises mid-run."""
+
+    caps = frozenset({Capability.TEXT})
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def run_turn(self, req, on_session_id=None):
+        raise RuntimeError("boom: design backend exploded")
+
+    def terminate(self, session_id: str) -> bool:
+        return True
+
+
+@pytest.mark.asyncio
+async def test_step_exception_marks_active_step_failed() -> None:
+    """An exception while a step is running fails that step, not just the run.
+
+    Otherwise the run shows ``failed`` while the design step stays
+    ``running`` and the UI keeps spinning."""
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    code = _FakeRunner(
+        sessions, outputs=[*_refine_noquestions("Build a clear widget")],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, _RaisingBackend(), code)
+    svc = _service(gh, policy, _FakeGit())
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)  # design runs next → raises
+    await _wait(lambda: svc.get(wid).status == "failed")
+
+    run = svc.get(wid)
+    assert "boom" in (run.error or "")
+    design_step = run.steps[1]
+    assert design_step.status == "failed"
+    assert design_step.active_sessions == []
+
+
+@pytest.mark.asyncio
 async def test_sentinel_skips_refine() -> None:
-    """Ensure an already-refined issue jumps straight to plan."""
+    """Ensure an already-refined issue jumps straight to autonomous design."""
     gh = _FakeGitHub(body="clear issue\n\n<!-- kestrel:refined -->")
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        "The plan", "Implemented",
+        "The plan", "coded", _verdict(accept=True),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "done")
     assert svc.get(wid).steps[0].status == "done"  # refine skipped
     # No <PLAN> tag emitted: falls back to the raw text rather than
     # leaving the deliverable empty (e.g. if the model doesn't comply).
@@ -283,12 +514,14 @@ async def test_refine_question_visible_while_awaiting_input() -> None:
 
 @pytest.mark.asyncio
 async def test_reject_ends_run() -> None:
-    """Ensure rejecting a gate ends the run as rejected."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
+    """Ensure rejecting the PRD gate ends the run as rejected."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("refined")]
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
 
@@ -350,28 +583,19 @@ async def test_steps_use_policy_models() -> None:
         "<PLAN>\nDo it\n</PLAN>",
         "Implemented",
     ])
+    runner._outputs.append(_verdict(accept=True))  # verify leg
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_approval"
     )
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_plan_approval"
-    )
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_implement_approval"
-    )
+    svc.approve(wid)  # PRD approved → design/code/verify run autonomously
+    await _wait(lambda: svc.get(wid).status == "done")
     assert {c["model"] for c in runner.calls} == {"sonnet"}
     assert [s.model for s in svc.get(wid).steps] == [
-        "sonnet", "sonnet", "sonnet",
+        "sonnet", "sonnet", "sonnet", "sonnet",
     ]
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "done")
 
 
 @pytest.mark.asyncio
@@ -413,59 +637,10 @@ async def test_reject_with_refinement_regenerates() -> None:
     assert "v1" in runner.calls[-1]["prompt"]
 
 
-@pytest.mark.asyncio
-async def test_reject_plan_with_refinement_regenerates() -> None:
-    """Ensure plan feedback resumes the plan session."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "plan v1", "plan v2",
-    ])
-    svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_plan_approval"
-    )
-    plan_sid = svc.get(wid).steps[1].session_id
-    svc.reject(wid, refinement_prompt="Split into two phases")
-    await _wait(
-        lambda: svc.get(wid).steps[1].deliverable == "plan v2"
-    )
-    assert svc.get(wid).status == "awaiting_plan_approval"
-    assert runner.calls[1]["resume_id"] == plan_sid
-    assert "Split into two phases" in runner.calls[1]["prompt"]
-
-
-@pytest.mark.asyncio
-async def test_reject_implement_with_refinement_reruns() -> None:
-    """Ensure implement feedback resumes the implement session."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "plan", "impl v1", "impl v2",
-    ])
-    git = _FakeGit()
-    svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_plan_approval"
-    )
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_implement_approval"
-    )
-    impl_sid = svc.get(wid).steps[2].session_id
-    svc.reject(wid, refinement_prompt="Add tests for X")
-    await _wait(
-        lambda: len(runner.calls) == 3
-        and svc.get(wid).status
-        == "awaiting_implement_approval"
-    )
-    assert runner.calls[2]["resume_id"] == impl_sid
-    assert "Add tests for X" in runner.calls[2]["prompt"]
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "done")
+# NOTE: the plan- and implement-approval human gates were removed by the
+# feature-003 reshape (design/code/verify run gatelessly after PRD approval).
+# The verifier's reject→re-run-coder loop replaces them and is covered by the
+# US3 verify-loop tests (test_verify_loop.py).
 
 
 @pytest.mark.asyncio
@@ -708,7 +883,9 @@ async def test_save_publishes_to_bus() -> None:
 
     bus = _Bus()
     gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=["plan", "impl", _verdict(accept=True)]
+    )
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
@@ -720,7 +897,7 @@ async def test_save_publishes_to_bus() -> None:
         bus=bus,
     )
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "done")
     assert bus.ticks  # at least one push happened
     assert all(t == wid for t in bus.ticks)
 
@@ -1063,81 +1240,19 @@ async def test_submit_answers_targets_whichever_step_is_awaiting_input() -> (
     assert "ANSWERS:" in queued
 
 
-@pytest.mark.asyncio
-async def test_implement_blocker_is_structured_and_resumable() -> None:
-    """Ensure a mid-implementation blocker pauses and resumes."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    git = _FakeGit()
-    # First implement call produces no diff (it's the blocker);
-    # the second, post-answer call produces the real change.
-    git.diffs = ["", "diff --git a/x b/x"]
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>",
-        "<QUESTIONS>"
-        '{"questions": [{"id": "q1", "prompt": "Which file name?", '
-        '"type": "single_select", "required": true, '
-        '"options": [{"value": "a", "label": "config.yaml"}, '
-        '{"value": "b", "label": "settings.yaml"}]}]}'
-        "</QUESTIONS>",
-        "Implemented using config.yaml",
-    ])
-    svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
-
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    svc.approve(wid)
-
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_input"
-    )
-    deliverable = svc.get(wid).steps[2].deliverable
-    parsed = json.loads(deliverable)
-    assert parsed["questions"][0]["id"] == "q1"
-    blocked_sid = svc.get(wid).steps[2].session_id
-    plan_sid = svc.get(wid).steps[1].session_id
-    assert blocked_sid == plan_sid  # implement resumed the plan session
-
-    svc.submit_answers(wid, {"q1": "a"})
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_approval"
-    )
-    assert "ANSWERS:" in runner.calls[2]["prompt"]
-    assert runner.calls[2]["resume_id"] == blocked_sid
-    assert "diff" in svc.get(wid).steps[2].deliverable
-
-
-@pytest.mark.asyncio
-async def test_implement_malformed_blocker_falls_back_to_text_reply() -> None:
-    """Ensure a non-compliant blocker message still allows a reply."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    git = _FakeGit()
-    git.diffs = ["", "diff --git a/x b/x"]
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>",
-        "I'm not sure which approach — thoughts?",
-        "Implemented",
-    ])
-    svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_input"
-    )
-    assert svc.get(wid).steps[2].deliverable == (
-        "I'm not sure which approach — thoughts?"
-    )
-    svc.reply(wid, "Use approach B")
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_implement_approval"
-    )
+# NOTE: the mid-implementation human blocker (awaiting_implement_input) was
+# removed by the feature-003 reshape — the autonomous coder cannot ask a human
+# mid-loop; a coder that makes no progress escalates instead (FR-020), covered
+# by test_autonomous_no_gate.py.
 
 
 @pytest.mark.asyncio
 async def test_notifier_fires_on_awaiting_and_done() -> None:
     """Ensure attention-worthy statuses reach the notifier."""
     gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["plan", "impl"])
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=["plan", "impl", _verdict(accept=True)]
+    )
     notifier = _FakeNotifier()
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
@@ -1149,23 +1264,21 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
         notifier=notifier,
     )
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "awaiting_implement_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
-    assert "awaiting_plan_approval" in notifier.notified
-    assert "awaiting_implement_approval" in notifier.notified
     assert "done" in notifier.notified
-    assert "planning" not in notifier.notified
-    assert "implementing" not in notifier.notified
+    # The gateless autonomous phases are transient and never notified.
+    assert "designing" not in notifier.notified
+    assert "coding" not in notifier.notified
+    assert "verifying" not in notifier.notified
 
 
 @pytest.mark.asyncio
 async def test_notifier_does_not_fire_on_reject() -> None:
-    """Ensure a bare reject does not produce a notification."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["The plan"])
+    """Ensure a bare reject of the PRD gate does not produce a notification."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("refined")]
+    )
     notifier = _FakeNotifier()
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
@@ -1177,7 +1290,7 @@ async def test_notifier_does_not_fire_on_reject() -> None:
         notifier=notifier,
     )
     wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_plan_approval")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
     assert "rejected" not in notifier.notified
@@ -1227,12 +1340,14 @@ async def test_delete_drops_run_without_touching_github() -> None:
 @pytest.mark.asyncio
 async def test_delete_removes_workspace_dir(tmp_path) -> None:
     """Ensure abandoning a run deletes its local workspace clone."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=["the plan"])
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("v1")]
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5)
     await _wait(
-        lambda: svc.get(wid).status == "awaiting_plan_approval"
+        lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
     workspace = tmp_path / "clone"
     workspace.mkdir()
@@ -1565,3 +1680,261 @@ async def test_empty_generator_response_recorded_as_issue() -> None:
     assert len(issues) == 1
     assert "no response" in issues[0].reason
     assert envelope.questionnaire.questions
+
+
+class _FakeDismissals:
+    """In-memory dismissal store for abandon tests (keyed by task_ref)."""
+
+    def __init__(self) -> None:
+        self.added: list[str] = []
+
+    def add(self, task_ref: str) -> None:
+        self.added.append(task_ref)
+
+    def is_dismissed(self, task_ref: str) -> bool:
+        return task_ref in self.added
+
+    def all(self) -> list[str]:
+        return list(self.added)
+
+    def clear(self, task_ref: str) -> None:
+        self.added = [p for p in self.added if p != task_ref]
+
+
+@pytest.mark.asyncio
+async def test_abandon_records_dismissal() -> None:
+    """Ensure delete() records a dismissal for the run's (repo, issue)."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    dismissals = _FakeDismissals()
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(),
+        sessions=runner.sessions,
+        workflows=reg,
+        backends=runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+        dismissals=dismissals,
+    )
+    run = WorkflowRun(
+        id="wf-abandon", repo="o/r", issue_number=9, source="github-issue"
+    )
+    reg.create(run)
+
+    await svc.delete("wf-abandon")
+
+    assert dismissals.is_dismissed("o/r#9")
+
+
+class _SpyGit(_FakeGit):
+    """FakeGit that records worktree removals."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.removed: list[tuple[str, str]] = []
+
+    async def remove_worktree(self, mirror_dir: str, dest: str) -> None:
+        self.removed.append((mirror_dir, dest))
+
+
+@pytest.mark.asyncio
+async def test_teardown_removes_worktree_and_directory(tmp_path) -> None:
+    """Ensure teardown removes the worktree via git and deletes the dir."""
+    git = _SpyGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    svc = WorkflowService(
+        settings=_settings(workspace_root=str(tmp_path)),
+        sessions=runner.sessions,
+        workflows=WorkflowRegistry(),
+        backends=runner,
+        git=git,
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+    )
+    ws = tmp_path / "wf-x"
+    ws.mkdir()
+    (ws / "f.txt").write_text("x")
+    run = WorkflowRun(
+        id="wf-x", repo="o/r", issue_number=1, workspace=str(ws)
+    )
+
+    await svc._teardown_workspace(run)
+
+    assert not ws.exists()
+    assert git.removed == [(svc._mirror_dir("o/r"), str(ws))]
+
+
+@pytest.mark.asyncio
+async def test_abandon_one_run_leaves_others_worktree_intact(tmp_path) -> None:
+    """Ensure abandoning one run does not disturb another's worktree."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(workspace_root=str(tmp_path)),
+        sessions=runner.sessions,
+        workflows=reg,
+        backends=runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+        dismissals=_FakeDismissals(),
+    )
+    ws_a = tmp_path / "a"
+    ws_a.mkdir()
+    ws_b = tmp_path / "b"
+    ws_b.mkdir()
+    reg.create(
+        WorkflowRun(id="a", repo="o/r", issue_number=1, workspace=str(ws_a))
+    )
+    reg.create(
+        WorkflowRun(id="b", repo="o/r", issue_number=2, workspace=str(ws_b))
+    )
+
+    await svc.delete("a")
+
+    assert not ws_a.exists()
+    assert ws_b.exists()
+
+
+# ---- step-handover artifacts (.kestrel/) -------------------------------
+
+
+def _artifact_service(tmp_path, policy, github=None):
+    return _service(
+        github or _FakeGitHub(body="vague issue"),
+        policy,
+        _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_artifact_dir_picks_next_free_serial(tmp_path) -> None:
+    """The run's artifact folder is the next free serial for today's date.
+
+    Scanning the worktree means a repo that already carries an earlier run's
+    committed ``.kestrel/<date>-001`` gets ``-002``, never a collision.
+    """
+    sessions = SessionRegistry()
+    runner = _FakeRunner(sessions, outputs=[])
+    svc = _service(
+        _FakeGitHub(), runner, _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+    ws = tmp_path / "wf-1"
+    ws.mkdir()
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    (ws / ".kestrel" / f"{date}-001").mkdir(parents=True)
+
+    run = WorkflowRun(id="wf-1", repo="o/r", workspace=str(ws))
+    svc.workflows.create(run)
+    svc._ensure_artifact_dir(run)
+
+    assert run.artifact_dir == os.path.join(".kestrel", f"{date}-002")
+    assert (ws / run.artifact_dir).is_dir()
+    # Idempotent: a second call keeps the same folder (restart stability).
+    svc._ensure_artifact_dir(run)
+    assert run.artifact_dir == os.path.join(".kestrel", f"{date}-002")
+
+
+@pytest.mark.asyncio
+async def test_write_artifact_persists_file(tmp_path) -> None:
+    """_write_artifact writes the content into the run's artifact folder."""
+    sessions = SessionRegistry()
+    runner = _FakeRunner(sessions, outputs=[])
+    svc = _service(
+        _FakeGitHub(), runner, _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+    ws = tmp_path / "wf-2"
+    ws.mkdir()
+    run = WorkflowRun(id="wf-2", repo="o/r", workspace=str(ws))
+    svc.workflows.create(run)
+
+    svc._write_artifact(run, "prd.md", "PRD BODY")
+
+    written = ws / run.artifact_dir / "prd.md"
+    assert written.read_text() == "PRD BODY"
+
+
+@pytest.mark.asyncio
+async def test_artifact_slot_refs_file_or_inlines_by_capability(
+    tmp_path,
+) -> None:
+    """File-capable step gets a file reference; text-only step gets inline."""
+    sessions = SessionRegistry()
+    design = _FakeRunner(sessions, outputs=[])
+    design.caps = frozenset({Capability.TEXT})  # text-only: cannot read files
+    code = _FakeRunner(sessions, outputs=[])  # file-capable (TEXT+FILE_EDITS)
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _artifact_service(tmp_path, policy)
+    ws = tmp_path / "wf-3"
+    ws.mkdir()
+    run = WorkflowRun(id="wf-3", repo="o/r", workspace=str(ws))
+    svc.workflows.create(run)
+    svc._ensure_artifact_dir(run)
+
+    text_slot = svc._artifact_slot("design", run, "prd.md", "FULL PRD TEXT")
+    file_slot = svc._artifact_slot("code", run, "prd.md", "FULL PRD TEXT")
+
+    assert text_slot == "FULL PRD TEXT"  # inlined for a text-only backend
+    assert "prd.md" in file_slot  # a file reference for a file-capable one
+    assert "FULL PRD TEXT" not in file_slot
+
+
+@pytest.mark.asyncio
+async def test_text_only_design_backend_inlines_the_prd(tmp_path) -> None:
+    """A text-only design backend still receives the PRD inlined in-prompt."""
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    design = _FakeRunner(
+        sessions, outputs=["<PLAN>the plan</PLAN>"], id_prefix="llm-"
+    )
+    design.caps = frozenset({Capability.TEXT})  # cannot read the worktree
+    code = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("UNIQUE-PRD-MARKER body"),
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+        id_prefix="ses-",
+    )
+    policy = _RoutingPolicy(sessions, design, code)
+    svc = _artifact_service(tmp_path, policy, github=gh)
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    design_call = design.calls[0]
+    assert "UNIQUE-PRD-MARKER" in design_call["prompt"]  # PRD inlined
+
+
+@pytest.mark.asyncio
+async def test_verifier_diff_excludes_artifact_folder(tmp_path) -> None:
+    """The code diff is taken with the .kestrel folder excluded."""
+    gh = _FakeGitHub(body="vague issue")
+    sessions = SessionRegistry()
+    runner = _FakeRunner(
+        sessions,
+        outputs=[
+            *_refine_noquestions("Build a widget"),
+            "<PLAN>plan</PLAN>",
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+    )
+    git = _FakeGit()
+    svc = _service(
+        gh, runner, git, settings=_settings(workspace_root=str(tmp_path))
+    )
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    assert ".kestrel" in git.diff_excludes

@@ -52,7 +52,7 @@ onMounted(() => {
 })
 onUnmounted(stop)
 
-const STEP_LABELS = ['refine', 'plan', 'implement'] as const
+const STEP_LABELS = ['refine', 'design', 'code', 'verify'] as const
 
 const activeStep = computed(() =>
   current.value?.steps.find((s) =>
@@ -65,15 +65,36 @@ const awaitingInput = computed(
 const awaitingApproval = computed(
   () => activeStep.value?.status === 'awaiting_approval',
 )
-const stepRunning = computed(() => activeStep.value?.status === 'running')
+// A terminal/failed run must never show a step activity indicator, even if a
+// step's status was left 'running' by some backend path — the run-level state
+// is authoritative here.
+const runFailed = computed(
+  () =>
+    !!current.value?.error ||
+    ['failed', 'escalated', 'rejected'].includes(current.value?.status ?? ''),
+)
+const stepRunning = computed(
+  () => activeStep.value?.status === 'running' && !runFailed.value,
+)
 const pendingInterview = computed(() =>
   awaitingInput.value && current.value
     ? parsePendingInterview(current.value.id, activeStep.value ?? null)
     : null,
 )
+// A GitHub issue URL only when the run has a numeric issue (GitHub-sourced);
+// a Jira run's ticket lives elsewhere and its ref stays internal (FR-026), so
+// there is no deep link from here.
 const issueUrl = computed(() =>
-  current.value
+  current.value && current.value.issue_number != null
     ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}`
+    : '',
+)
+// Ticket label for the header: `repo#123` for GitHub, just `repo` for Jira.
+const ticketLabel = computed(() =>
+  current.value
+    ? current.value.issue_number != null
+      ? `${current.value.repo}#${current.value.issue_number}`
+      : current.value.repo
     : '',
 )
 
@@ -253,7 +274,9 @@ function badgeColor(token: string): string | undefined {
           v-for="w in workflows"
           :key="w.id"
           :active="w.id === current?.id"
-          :title="`${w.repo}#${w.issue_number}`"
+          :title="
+            w.issue_number != null ? `${w.repo}#${w.issue_number}` : w.repo
+          "
           :subtitle="w.status"
           @click="select(w.id)"
         >
@@ -309,13 +332,15 @@ function badgeColor(token: string): string | undefined {
         <div class="d-flex align-center ga-2">
           <span class="text-overline text-medium-emphasis">Workflow</span>
           <a
+            v-if="issueUrl"
             class="stage__id text-body-1"
             :href="issueUrl"
             target="_blank"
             rel="noopener noreferrer"
           >
-            {{ current.repo }}#{{ current.issue_number }}
+            {{ ticketLabel }}
           </a>
+          <span v-else class="stage__id text-body-1">{{ ticketLabel }}</span>
         </div>
         <div class="d-flex ga-2 flex-wrap">
           <v-chip

@@ -1,17 +1,21 @@
 """Application configuration via pydantic-settings."""
 from __future__ import annotations
 
+import logging
 import tomllib
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
+    NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+_log = logging.getLogger("kestrel.config")
 
 # Backend config is file-only: these keys are resolved from the TOML file
 # named by ``KESTREL_BACKENDS_FILE`` (or left at their claude-only defaults),
@@ -175,6 +179,116 @@ class Settings(BaseSettings):
     #: unanswered (sent blank). Provided answers are still validated for
     #: well-formedness. Off by default.
     allow_incomplete_answers: bool = False
+    #: GitHub ingestion (feature 002). The webhook HMAC shared secret
+    #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
+    #: off-loopback endpoint (constitution v1.2.0). Never logged.
+    webhook_secret: str = ""
+    #: Allow-list of ``owner/name`` repos kestrel may ingest from and
+    #: reconcile against (``KESTREL_WATCHED_REPOS``). Accepts a JSON list
+    #: or a comma-separated string; anything outside the list is ignored.
+    watched_repos: Annotated[list[str], NoDecode] = []
+    #: The issue label that flags an issue for ingestion.
+    trigger_label: str = "kestrel"
+    #: Reconciliation cadence in seconds
+    #: (``KESTREL_RECONCILE_INTERVAL_SECONDS``).
+    reconcile_interval_seconds: int = 300
+    #: Public base URL of the kestrel web UI, used to build gate-notification
+    #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
+    #: a link. Operator-exposed, same posture as the webhook endpoint.
+    public_base_url: str = ""
+    #: Jira ingestion (feature 003). Base URL of the Jira instance
+    #: (``KESTREL_JIRA_BASE_URL``); empty ⇒ Jira polling disabled.
+    jira_base_url: str = ""
+    #: Jira auth mode: ``basic`` (Cloud — email + API token) or ``bearer``
+    #: (Server/DC — personal access token).
+    jira_auth: Literal["basic", "bearer"] = "basic"
+    #: Basic-auth username (Jira Cloud email); used when ``jira_auth`` is
+    #: ``basic``.
+    jira_email: str = ""
+    #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
+    jira_api_token: str = ""
+    #: RFC project key polled for change requests (required to poll).
+    jira_project: str = ""
+    #: Extra JQL AND-ed onto ``project = "<key>"`` (e.g. ``status = "Ready"``).
+    #: Keeps kestrel agnostic of company-internal workflow states.
+    jira_jql_filter: str = ""
+    #: Field id/name on the RFC holding the target ``owner/name[@base_branch]``.
+    jira_repo_field: str = ""
+    #: Jira poll cadence in seconds.
+    jira_poll_interval_seconds: int = 300
+    #: Code host for Jira-resolved repos: ``github`` | ``gitlab`` | ``gitea``.
+    #: Self-hostable — ``gitlab``/``gitea`` point at an on-prem instance.
+    code_host: Literal["github", "gitlab", "gitea"] = "github"
+    #: Self-hosted code-host instance base URL (e.g. ``https://gitlab.local``).
+    code_host_base_url: str = ""
+    #: Code-host token / PAT. Secret; never logged. Falls back to
+    #: ``github_token`` when ``code_host`` is ``github``.
+    code_host_token: str = ""
+    #: Shell commands run in the run's worktree as verify evidence (v1).
+    #: JSON list, e.g. ``["uv run pytest -q"]``. Empty ⇒ judgment-only.
+    verify_checks: list[str] = []
+    #: Max code↔verify iterations before the loop escalates (feature 003).
+    max_verify_iterations: int = 3
+
+    @field_validator("watched_repos", mode="before")
+    @classmethod
+    def _parse_watched_repos(cls, v: object) -> object:
+        """Accept a JSON list or a comma-separated string of repos."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                import json
+
+                return json.loads(s)
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
+
+    @model_validator(mode="after")
+    def _warn_incomplete_ingestion_config(self) -> Settings:
+        """Warn (not fail) when watched repos are set without a secret.
+
+        Ingestion silently doing nothing is a worse failure mode than a
+        startup warning, so surface the likely misconfiguration.
+        """
+        if self.watched_repos and not self.webhook_secret:
+            _log.warning(
+                "watched_repos is set but webhook_secret is empty; "
+                "webhook ingestion will reject every delivery until "
+                "KESTREL_WEBHOOK_SECRET is configured."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_jira_config(self) -> Settings:
+        """Warn (not fail) when Jira is half-configured.
+
+        Jira polling silently doing nothing is a worse failure mode than a
+        startup warning, so surface the likely misconfiguration.
+        """
+        if self.jira_base_url and not (
+            self.jira_project and self.jira_api_token
+        ):
+            _log.warning(
+                "jira_base_url is set but jira_project or jira_api_token is "
+                "empty; Jira polling will not start until both are configured."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_code_host_config(self) -> Settings:
+        """Warn when a self-hosted code host lacks its URL or token."""
+        if self.code_host in ("gitlab", "gitea") and not (
+            self.code_host_base_url and self.code_host_token
+        ):
+            _log.warning(
+                "code_host is %r but code_host_base_url or code_host_token is "
+                "empty; Jira-resolved repositories cannot be reached until "
+                "both are configured.",
+                self.code_host,
+            )
+        return self
 
     @model_validator(mode="after")
     def _apply_backends_file(self) -> Settings:

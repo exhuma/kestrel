@@ -51,7 +51,42 @@ the image small and lets a deploy attach or swap backends purely by config.
 ## Design trade-offs
 
 - **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool bound to loopback. Multi-user/authn is out of scope.
+  tool bound to loopback. Multi-user/authn is out of scope. One exception:
+  the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
+  face the network so GitHub can deliver events; its authenticity gate is an
+  HMAC signature, not loopback binding (see the constitution's access model).
+- **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
+  (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)**
+  both feed one source-neutral entry point (`ingestion.maybe_start_run`, on a
+  `task_ref`). The load-bearing axis — *task source* (the ticket) vs *code host*
+  (the repo) — is now realized as two protocols in `app/ports.py`: `TaskSource`
+  (read/comment/attach/publish/deep-link) and `CodeHost` (default branch, clone
+  remote, open a merge/pull request). GitHub implements both roles; **Jira**
+  implements `TaskSource` and delegates the `CodeHost` role to a configured,
+  **self-hostable** git host (GitLab reference; Gitea/Forgejo the same port) —
+  kestrel is sovereign by design, so a Jira-resolved repo can live on an on-prem
+  GitLab. The outbound `Notifier` is source-dispatching (`TaskSourceNotifier`),
+  posting thin gate/escalation comments to *the run's own* ticket. Jira is
+  poll-only, so it adds **no** off-loopback endpoint (no amendment); the entry
+  point is shaped so a future Jira webhook is one added caller.
+- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or manual
+  — traverses the identical `refine → PRD approval → design → code → verify →
+  change request` sequence (`services/workflows.py`). The single human gate is
+  PRD approval; design/code/verify run **without human gates**. The **verifier**
+  adjudicates the implementation against the PRD/design weighing measurable
+  **evidence** (the project's checks run in the isolated worktree, `services/
+  checks.py`); a failing check forces a reject, the loop is bounded by
+  `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
+  task source is only the human↔agent boundary — the process behind it is the
+  same, so the system is predictable.
+- **File-based step handover (`.kestrel/`).** The steps share one worktree, so a
+  step's artifacts pass to the next as *files* under
+  `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `design.md`) — spec-kit's
+  `.specify/` in spirit. A file-capable backend (claude, opencode) is pointed at
+  the file so a large PRD/design never bloats its prompt; a text-only LLM, which
+  cannot read the worktree, still gets the content inlined. The artifacts are
+  committed with the change (they appear in the PR/MR and accumulate in the repo
+  under dated folders) but are excluded from the code diff the verifier weighs.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

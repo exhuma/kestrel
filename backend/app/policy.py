@@ -15,8 +15,9 @@ DEFAULT_MODELS: dict[str, str] = {
     "clarify": "haiku",
     "describe": "sonnet",
     "refine": "sonnet",
-    "plan": "sonnet",
-    "implement": "sonnet",
+    "design": "sonnet",
+    "code": "sonnet",
+    "verify": "sonnet",
 }
 
 #: What each workflow step needs from its backend. Only ``implement``
@@ -28,8 +29,11 @@ STEP_REQUIREMENTS: dict[str, frozenset[Capability]] = {
     "clarify": frozenset({Capability.TEXT}),
     "describe": frozenset({Capability.TEXT}),
     "refine": frozenset({Capability.TEXT}),
-    "plan": frozenset({Capability.TEXT}),
-    "implement": frozenset({Capability.TEXT, Capability.FILE_EDITS}),
+    "design": frozenset({Capability.TEXT}),
+    # ``code`` mutates the working tree; ``verify`` runs the app / checks in
+    # the worktree and reads it, but only needs text out of the agent.
+    "code": frozenset({Capability.TEXT, Capability.FILE_EDITS}),
+    "verify": frozenset({Capability.TEXT}),
 }
 
 
