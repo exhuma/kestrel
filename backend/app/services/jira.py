@@ -117,6 +117,12 @@ class JiraClient:
             return None
         return value if isinstance(value, str) else str(value)
 
+    async def get_remote_links(self, key: str) -> list[dict]:
+        """Return the issue's remote/web links (raw ``object.url``/title)."""
+        resp = await self._request("GET", f"/issue/{key}/remotelink")
+        data = resp.json()
+        return data if isinstance(data, list) else []
+
     async def add_comment(self, key: str, body: str) -> str:
         """Post a comment; return its API URL."""
         resp = await self._request(

@@ -19,6 +19,7 @@ from typing import Callable
 
 from app.backends.base import Backend, Capability, TurnRequest, TurnResult
 from app.config import Settings, get_settings
+from app.config_models import TaskSourceConfig
 from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
@@ -1913,19 +1914,23 @@ def get_workflow_service() -> WorkflowService:
     code_hosts: dict[str, object] = {
         "manual": gh_host, "github-issue": gh_host,
     }
-    if settings.jira_base_url and settings.jira_project:
+    jira_srcs = settings.jira_sources()
+    if jira_srcs:
         from app.services.jira import JiraClient, JiraTaskSource
 
+        entry = jira_srcs[0]
         jira = JiraClient(
-            settings.jira_base_url,
-            auth=settings.jira_auth,
-            email=settings.jira_email,
-            token=settings.jira_api_token,
+            entry.base_url,
+            auth=entry.auth,
+            email=entry.email,
+            token=entry.token() or "",
         )
         sources["jira-issue"] = JiraTaskSource(
             jira, settings.public_base_url
         )
-        code_hosts["jira-issue"] = _build_code_host(settings, github)
+        code_hosts["jira-issue"] = build_code_host(
+            entry, github, settings.git_base
+        )
     # In-app first (always records the durable fallback row), then the
     # best-effort ticket comment via the run's source (feature 003).
     notifier = CompositeNotifier(
@@ -1949,17 +1954,19 @@ def get_workflow_service() -> WorkflowService:
     )
 
 
-def _build_code_host(settings: Settings, github: GitHubClient) -> object:
-    """Build the code host for Jira-resolved repos, per ``code_host`` config.
+def build_code_host(
+    source: TaskSourceConfig, github: GitHubClient, git_base: str
+) -> object:
+    """Build the code host for a Jira source's resolved repos.
 
     Self-hostable (feature 003, FR-023a): ``gitlab``/``gitea`` point at an
     on-prem instance; ``github`` reuses the GitHub client. The code-host token
     falls back to ``github_token`` when the host is GitHub.
     """
-    if settings.code_host in ("gitlab", "gitea"):
+    if source.code_host in ("gitlab", "gitea"):
         from app.services.gitlab import GitLabCodeHost
 
         return GitLabCodeHost(
-            settings.code_host_base_url, settings.code_host_token
+            source.code_host_base_url, source.code_host_token() or ""
         )
-    return GitHubCodeHost(github, settings.git_base)
+    return GitHubCodeHost(github, git_base)

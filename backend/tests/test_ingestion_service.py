@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
+from app.config_models import TaskSourceConfig
 from app.models_workflow import WorkflowRun
 from app.services.ingestion import IngestionService
 
@@ -63,7 +64,8 @@ class _FakeDismissals:
 def _service(
     wf: _FakeWorkflows, dismissals: _FakeDismissals
 ) -> IngestionService:
-    settings = Settings(_env_file=None, watched_repos=["o/r"])
+    source = TaskSourceConfig(type="github", watched_repos=["o/r"])
+    settings = Settings(_env_file=None, task_sources=[source])
     return IngestionService(settings, wf, dismissals)
 
 

@@ -57,35 +57,24 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await get_workflow_service().recover()
 
-    # Poll reconciliation (feature 002, US2): a safety net for missed webhook
-    # deliveries. Only started when repos are configured to watch; runs an
-    # initial cycle promptly, then every interval. Cancelled on shutdown.
-    reconcile_task: asyncio.Task | None = None
-    if settings.watched_repos:
-        from app.services.reconcile import get_reconcile_service
+    # Source poll loops (features 002/003/004): one background loop per
+    # configured task source — the GitHub reconcile backstop and the Jira poll
+    # (its sole transport). Each runs an initial cycle promptly, then every
+    # ``poll_interval_seconds``. All are cancelled on shutdown.
+    from app.services.poll_source import configured_poll_sources
 
-        reconcile_task = asyncio.create_task(
-            get_reconcile_service().run_forever()
-        )
-
-    # Jira poll ingestion (feature 003, US1): poll-only, started only when Jira
-    # is configured. Runs an initial cycle promptly, then every interval.
-    jira_task: asyncio.Task | None = None
-    if settings.jira_base_url and settings.jira_project:
-        from app.services.jira_poll import get_jira_poll_service
-
-        jira_task = asyncio.create_task(
-            get_jira_poll_service().run_forever()
-        )
+    poll_tasks = [
+        asyncio.create_task(src.run_forever())
+        for src in configured_poll_sources(settings)
+    ]
 
     try:
         yield
     finally:
-        for task in (reconcile_task, jira_task):
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+        for task in poll_tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 def create_app() -> FastAPI:

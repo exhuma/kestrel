@@ -31,6 +31,22 @@ class Task:
 
 
 @dataclass
+class WorkItem:
+    """A transient dry-run view of one polled item (feature 004).
+
+    Produced by a source's non-ingesting listing (``python -m app poll``);
+    persists nothing and starts no run. ``code_repo`` is ``None`` when the
+    repository could not be resolved.
+    """
+
+    source: str
+    ref: str
+    title: str
+    code_repo: str | None = None
+    base_branch: str | None = None
+
+
+@dataclass
 class Observation:
     """One measured outcome the verifier weighs.
 

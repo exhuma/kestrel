@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from app.config import BackendConfig, Settings
+from app.config import Settings
+from app.config_models import BackendConfig, TaskSourceConfig
 
 
 def test_backend_secret_prefers_inline_then_env(
@@ -93,33 +94,47 @@ def test_github_settings_read_env(
 
 
 def test_ingestion_settings_have_defaults() -> None:
-    """Ensure the feature-002 ingestion settings default sensibly."""
+    """Ensure the feature-002/004 ingestion settings default sensibly."""
     s = Settings(_env_file=None)
     assert s.webhook_secret == ""
-    assert s.watched_repos == []
-    assert s.trigger_label == "kestrel"
-    assert s.reconcile_interval_seconds == 300
+    assert s.task_sources == []
+    assert s.poll_interval_seconds == 300
     assert s.public_base_url == ""
 
 
-def test_watched_repos_parses_comma_separated() -> None:
-    """Ensure watched_repos accepts a comma-separated string."""
-    s = Settings(_env_file=None, watched_repos="a/b, c/d ,e/f")
-    assert s.watched_repos == ["a/b", "c/d", "e/f"]
+def test_github_source_for_matches_by_repo() -> None:
+    """Ensure github_source_for returns the entry watching a repo, else None."""
+    a = TaskSourceConfig(type="github", watched_repos=["o/a"])
+    b = TaskSourceConfig(
+        type="github", watched_repos=["o/b"], trigger_label="x"
+    )
+    s = Settings(_env_file=None, task_sources=[a, b])
+    assert s.github_source_for("o/b").trigger_label == "x"
+    assert s.github_source_for("o/none") is None
+    assert [g.watched_repos for g in s.github_sources()] == [["o/a"], ["o/b"]]
 
 
-def test_watched_repos_parses_json_list() -> None:
-    """Ensure watched_repos accepts a JSON array string."""
-    s = Settings(_env_file=None, watched_repos='["a/b", "c/d"]')
-    assert s.watched_repos == ["a/b", "c/d"]
+def test_task_source_validation_rejects_incomplete_entries() -> None:
+    """Ensure per-type required fields are enforced loudly."""
+    with pytest.raises(Exception):
+        TaskSourceConfig(type="github", watched_repos=[])
+    with pytest.raises(Exception):
+        TaskSourceConfig(type="jira", base_url="https://j", jql="", key="RFC")
 
 
-def test_watched_repos_reads_env(
+def test_task_source_token_resolves_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure KESTREL_WATCHED_REPOS parses a comma-separated env value."""
-    monkeypatch.setenv("KESTREL_WATCHED_REPOS", "o/one,o/two")
-    assert Settings().watched_repos == ["o/one", "o/two"]
+    """Ensure token() reads the named env var, defaulting per type."""
+    monkeypatch.setenv("KESTREL_GITHUB_TOKEN", "gh-default")
+    monkeypatch.setenv("CUSTOM_JIRA", "jira-custom")
+    gh = TaskSourceConfig(type="github", watched_repos=["o/a"])
+    jira = TaskSourceConfig(
+        type="jira", base_url="https://j", jql="project = RFC", key="RFC",
+        token_env="CUSTOM_JIRA",
+    )
+    assert gh.token() == "gh-default"
+    assert jira.token() == "jira-custom"
 
 
 def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
@@ -171,38 +186,34 @@ def test_backend_env_vars_are_ignored(
     assert s.step_backends == {}
 
 
-def test_jira_settings_have_defaults() -> None:
-    """Ensure the feature-003 Jira settings default sensibly."""
+def test_jira_source_defaults_and_verify_defaults() -> None:
+    """Ensure a Jira task source and the verify settings default sensibly."""
     s = Settings(_env_file=None)
-    assert s.jira_base_url == ""
-    assert s.jira_auth == "basic"
-    assert s.jira_email == ""
     assert s.jira_api_token == ""
-    assert s.jira_project == ""
-    assert s.jira_jql_filter == ""
-    assert s.jira_repo_field == ""
-    assert s.jira_poll_interval_seconds == 300
-
-
-def test_code_host_and_verify_defaults() -> None:
-    """Ensure code-host and verify settings default sensibly."""
-    s = Settings(_env_file=None)
-    assert s.code_host == "github"
-    assert s.code_host_base_url == ""
-    assert s.code_host_token == ""
     assert s.verify_checks == []
     assert s.max_verify_iterations == 3
+    jira = TaskSourceConfig(
+        type="jira", base_url="https://j", jql="project = RFC", key="RFC"
+    )
+    assert jira.auth == "basic"
+    assert jira.repo_link_text == "Repository"
+    assert jira.code_host == "github"
 
 
-def test_jira_auth_and_code_host_accept_literals() -> None:
-    """Ensure the literal-typed settings accept their allowed values."""
-    assert Settings(_env_file=None, jira_auth="bearer").jira_auth == "bearer"
-    assert Settings(_env_file=None, code_host="gitlab").code_host == "gitlab"
-    assert Settings(_env_file=None, code_host="gitea").code_host == "gitea"
+def test_task_source_literals_accept_allowed_values() -> None:
+    """Ensure the literal-typed source fields accept their allowed values."""
+    def _jira(**kw):
+        return TaskSourceConfig(
+            type="jira", base_url="https://j", jql="q", key="RFC", **kw
+        )
+
+    assert _jira(auth="bearer").auth == "bearer"
+    assert _jira(code_host="gitlab").code_host == "gitlab"
+    assert _jira(code_host="gitea").code_host == "gitea"
     with pytest.raises(Exception):
-        Settings(_env_file=None, jira_auth="oauth")
+        _jira(auth="oauth")
     with pytest.raises(Exception):
-        Settings(_env_file=None, code_host="bitbucket")
+        _jira(code_host="bitbucket")
 
 
 def test_verify_checks_parses_json_list(
@@ -215,52 +226,65 @@ def test_verify_checks_parses_json_list(
     assert Settings().verify_checks == ["uv run pytest -q", "npm test"]
 
 
-def test_jira_partial_config_warns_without_leaking_token(
-    caplog: pytest.LogCaptureFixture,
+def test_jira_source_without_token_warns(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A half-configured Jira setup warns, and never logs the token."""
+    """A Jira source whose token env is unset warns at startup."""
+    monkeypatch.delenv("KESTREL_JIRA_API_TOKEN", raising=False)
     with caplog.at_level("WARNING"):
         Settings(
             _env_file=None,
-            jira_base_url="https://jira.example",
-            jira_api_token="super-secret-token",
+            task_sources=[
+                TaskSourceConfig(
+                    type="jira", base_url="https://jira.example",
+                    jql="project = RFC", key="RFC",
+                )
+            ],
         )
-    text = caplog.text
-    assert "jira_project" in text
-    assert "super-secret-token" not in text
+    assert "no token" in caplog.text
 
 
 def test_code_host_partial_config_warns_without_leaking_token(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A self-hosted code host with no URL/token warns, without the token."""
+    monkeypatch.setenv("KESTREL_CODE_HOST_TOKEN", "ch-secret-token")
     with caplog.at_level("WARNING"):
         Settings(
             _env_file=None,
-            code_host="gitlab",
-            code_host_token="ch-secret-token",
+            task_sources=[
+                TaskSourceConfig(
+                    type="jira", base_url="https://jira.example",
+                    jql="q", key="RFC", token_env="KESTREL_CODE_HOST_TOKEN",
+                    code_host="gitlab",
+                )
+            ],
         )
     text = caplog.text
-    assert "code_host_base_url" in text
+    assert "base URL or" in text
     assert "ch-secret-token" not in text
 
 
 def test_full_jira_and_code_host_config_does_not_warn(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A complete config emits no ingestion/code-host warning."""
+    """A complete Jira source config emits no ingestion/code-host warning."""
+    monkeypatch.setenv("KESTREL_JIRA_API_TOKEN", "t")
+    monkeypatch.setenv("KESTREL_CODE_HOST_TOKEN", "t")
     with caplog.at_level("WARNING"):
         Settings(
             _env_file=None,
-            jira_base_url="https://jira.example",
-            jira_project="RFC",
-            jira_api_token="t",
-            code_host="gitlab",
-            code_host_base_url="https://gitlab.internal",
-            code_host_token="t",
+            task_sources=[
+                TaskSourceConfig(
+                    type="jira", base_url="https://jira.example",
+                    jql="project = RFC", key="RFC",
+                    code_host="gitlab",
+                    code_host_base_url="https://gitlab.internal",
+                )
+            ],
         )
-    assert "jira_project" not in caplog.text
-    assert "code_host_base_url is" not in caplog.text
+    assert "no token" not in caplog.text
+    assert "base URL or" not in caplog.text
 
 
 def test_backends_file_missing_fails_fast(tmp_path: Path) -> None:
@@ -298,54 +322,63 @@ def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
     assert [b.id for b in s.backends] == ["oc"]
 
 
-def test_config_file_overlays_applicative_settings(tmp_path: Path) -> None:
-    """Ensure applicative keys are read from the config file.
-
-    ``watched_repos`` (native TOML array), plus the ingestion/reconcile
-    knobs, come from the file rather than the environment.
-    """
+def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
+    """Ensure the file-only ``[[task_sources]]`` list parses two entries."""
     toml = tmp_path / "config.toml"
     toml.write_text(
+        "poll_interval_seconds = 60\n"
+        "\n"
+        "[[task_sources]]\n"
+        'type = "github"\n'
         'watched_repos = ["o/one", "o/two"]\n'
         'trigger_label = "ship-it"\n'
-        "reconcile_interval_seconds = 60\n"
-        'verify_checks = ["uv run pytest -q"]\n'
-        "max_verify_iterations = 5\n"
+        "\n"
+        "[[task_sources]]\n"
+        'type = "jira"\n'
+        'base_url = "https://jira.example"\n'
+        'jql = "project = RFC"\n'
+        'key = "RFC"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))
-    assert s.watched_repos == ["o/one", "o/two"]
-    assert s.trigger_label == "ship-it"
-    assert s.reconcile_interval_seconds == 60
-    assert s.verify_checks == ["uv run pytest -q"]
-    assert s.max_verify_iterations == 5
+    assert s.poll_interval_seconds == 60
+    gh, jira = s.github_sources()[0], s.jira_sources()[0]
+    assert gh.watched_repos == ["o/one", "o/two"]
+    assert gh.trigger_label == "ship-it"
+    assert jira.key == "RFC" and jira.jql == "project = RFC"
 
 
-def test_config_file_wins_over_env(
+def test_poll_interval_settable_via_config_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Ensure the file overrides an env value for a key it sets."""
-    monkeypatch.setenv("KESTREL_WATCHED_REPOS", "env/repo")
-    monkeypatch.setenv("KESTREL_MAX_VERIFY_ITERATIONS", "9")
+    """Ensure poll_interval_seconds is applicative: the file wins over env."""
+    monkeypatch.setenv("KESTREL_POLL_INTERVAL_SECONDS", "111")
     toml = tmp_path / "config.toml"
-    toml.write_text(
-        'watched_repos = ["file/repo"]\nmax_verify_iterations = 2\n'
-    )
-    s = Settings(config_file=str(toml))
-    assert s.watched_repos == ["file/repo"]
-    assert s.max_verify_iterations == 2
+    toml.write_text("poll_interval_seconds = 222\n")
+    assert Settings(config_file=str(toml)).poll_interval_seconds == 222
 
 
-def test_env_fallback_when_file_omits_key(
+def test_env_fallback_when_file_omits_applicative_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ensure env still applies for applicative keys the file omits."""
-    monkeypatch.setenv("KESTREL_WATCHED_REPOS", "env/repo")
+    monkeypatch.setenv("KESTREL_POLL_INTERVAL_SECONDS", "150")
     toml = tmp_path / "config.toml"
-    # File sets only trigger_label; watched_repos must fall back to env.
-    toml.write_text('trigger_label = "ship-it"\n')
+    # File sets only max_verify_iterations; the interval falls back to env.
+    toml.write_text("max_verify_iterations = 5\n")
     s = Settings(config_file=str(toml))
-    assert s.watched_repos == ["env/repo"]
-    assert s.trigger_label == "ship-it"
+    assert s.poll_interval_seconds == 150
+    assert s.max_verify_iterations == 5
+
+
+def test_legacy_interval_env_key_is_inert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure a removed interval env key no longer affects the cadence."""
+    monkeypatch.setenv("KESTREL_RECONCILE_INTERVAL_SECONDS", "99")
+    monkeypatch.setenv("KESTREL_JIRA_POLL_INTERVAL_SECONDS", "77")
+    # The old keys are gone (extra="ignore" makes them inert); the unified
+    # default governs both loops.
+    assert Settings(_env_file=None).poll_interval_seconds == 300
 
 
 def test_backends_file_is_deprecated_alias(

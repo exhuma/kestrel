@@ -30,8 +30,8 @@ class IngestionService:
         self.dismissals = dismissals
 
     def is_watched(self, repo: str) -> bool:
-        """Return whether ``repo`` is in the configured allow-list."""
-        return repo in self.settings.watched_repos
+        """Return whether ``repo`` is in a github source's allow-list."""
+        return self.settings.github_source_for(repo) is not None
 
     def has_run(self, task_ref: str) -> bool:
         """Return whether a run already exists for ``task_ref``."""

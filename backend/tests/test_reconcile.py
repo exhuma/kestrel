@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
+from app.config_models import TaskSourceConfig
 from app.models_workflow import WorkflowRun
 from app.services.exceptions import GitHubError
 from app.services.github import Issue
@@ -62,11 +63,12 @@ class _FakeGitHub:
 
 
 def _svc(github, wf, dismissals) -> ReconcileService:
-    settings = Settings(
-        _env_file=None, watched_repos=["o/r"], trigger_label="kestrel"
+    source = TaskSourceConfig(
+        type="github", watched_repos=["o/r"], trigger_label="kestrel"
     )
+    settings = Settings(_env_file=None, task_sources=[source])
     ingestion = IngestionService(settings, wf, dismissals)
-    return ReconcileService(settings, github, ingestion, dismissals)
+    return ReconcileService(source, github, ingestion, dismissals)
 
 
 @pytest.mark.asyncio

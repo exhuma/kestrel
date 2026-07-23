@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
+from app.config_models import TaskSourceConfig
 from app.models_workflow import WorkflowRun
 from app.ports import Task
 from app.services.ingestion import IngestionService
@@ -36,12 +37,13 @@ class _RecordingWorkflows:
 
 
 def _poll(jira, wf, dismissals) -> JiraPollService:
-    ingestion = IngestionService(
-        Settings(jira_project="RFC"), wf, dismissals
+    ingestion = IngestionService(Settings(_env_file=None), wf, dismissals)
+    cfg = TaskSourceConfig(
+        type="jira", base_url="https://jira.example",
+        jql='project = "RFC"', key="RFC", repo_field="cf1",
     )
     return JiraPollService(
-        Settings(jira_project="RFC", jira_repo_field="cf1"),
-        jira, _FakeSource(), _FakeCodeHost(), ingestion, dismissals,
+        cfg, jira, _FakeSource(), _FakeCodeHost(), ingestion, dismissals,
     )
 
 

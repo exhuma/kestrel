@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.config import Settings
+from app.config_models import TaskSourceConfig
 from app.ports import Task
 from app.services.jira_poll import JiraPollService
 
@@ -23,6 +23,9 @@ class _FakeJira:
 
     async def get_field(self, key, field):
         return self._fields.get(key)
+
+    async def get_remote_links(self, key):
+        return []
 
 
 class _FakeCodeHost:
@@ -63,11 +66,14 @@ class _FakeDismissals:
 
 
 def _svc(
-    jira, ingestion, dismissals, source=None, jql_filter=""
+    jira, ingestion, dismissals, source=None, jql='project = "RFC"'
 ) -> JiraPollService:
+    cfg = TaskSourceConfig(
+        type="jira", base_url="https://jira.example", jql=jql, key="RFC",
+        repo_field="cf1",
+    )
     return JiraPollService(
-        Settings(jira_project="RFC", jira_repo_field="cf1",
-                 jira_jql_filter=jql_filter),
+        cfg,
         jira,
         source or _FakeSource(),
         _FakeCodeHost(),
@@ -93,12 +99,12 @@ async def test_starts_one_run_per_qualifying_rfc() -> None:
 
 
 @pytest.mark.asyncio
-async def test_jql_filter_is_anded() -> None:
-    """Ensure the configured JQL filter is AND-ed onto the project clause."""
+async def test_whole_jql_is_passed_through() -> None:
+    """Ensure the source's whole JQL is used verbatim (no project clause)."""
     jira = _FakeJira([])
     await _svc(jira, _FakeIngestion(), _FakeDismissals(),
-               jql_filter='status = "Ready"').run_cycle()
-    assert jira.searched == ['project = "RFC" AND (status = "Ready")']
+               jql='project = "RFC" AND status = "Ready"').run_cycle()
+    assert jira.searched == ['project = "RFC" AND status = "Ready"']
 
 
 @pytest.mark.asyncio
