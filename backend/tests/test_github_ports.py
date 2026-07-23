@@ -31,6 +31,12 @@ def test_parse_github_ref() -> None:
         parse_github_ref("RFC-123")
 
 
+def test_git_credential_uses_x_access_token() -> None:
+    """Ensure GitHub git auth is x-access-token:<token>."""
+    host = GitHubCodeHost(_client(lambda r: httpx.Response(200)), "https://gh")
+    assert host.git_credential() == ("x-access-token", "tok-123")
+
+
 @pytest.mark.asyncio
 async def test_task_source_get_task_and_comment() -> None:
     """Ensure get_task/post_comment address the ref's repo and number."""

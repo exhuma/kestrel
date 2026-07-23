@@ -112,6 +112,14 @@ class CodeHost(Protocol):
         """The HTTPS git remote a worktree clones/fetches from."""
         ...
 
+    def git_credential(self) -> tuple[str, str]:
+        """The ``(username, token)`` for git-over-HTTPS Basic auth.
+
+        ``x-access-token`` for GitHub, ``oauth2`` for GitLab — the username
+        git's smart-HTTP endpoint expects alongside the code-host token.
+        """
+        ...
+
     async def open_change_request(
         self,
         repo: str,

@@ -65,6 +65,10 @@ class GitLabCodeHost:
         """The HTTPS git remote a worktree clones/fetches from."""
         return f"{self._base}/{repo}.git"
 
+    def git_credential(self) -> tuple[str, str]:
+        """``oauth2`` + the PAT — GitLab's git-over-HTTPS token scheme."""
+        return ("oauth2", self._token)
+
     async def open_change_request(
         self,
         repo: str,

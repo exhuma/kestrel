@@ -52,6 +52,9 @@ class _FakeJiraHost:
     def clone_remote(self, repo):
         return f"https://gitlab/{repo}.git"
 
+    def git_credential(self):
+        return ("oauth2", "glpat")
+
     async def open_change_request(self, repo, *, head, base, title, body,
                                   draft=True):
         return "https://gitlab/mr/1"

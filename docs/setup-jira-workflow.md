@@ -67,6 +67,12 @@ Jira entry — a self-hosted GitLab (or Gitea/Forgejo), or GitHub. A GitLab code
 host opens a **merge request**; GitHub opens a **pull request**.
 `code_host = "github"` reuses `KESTREL_GITHUB_TOKEN` / github.com.
 
+Git clone/fetch/push authenticate over HTTPS with the code-host token
+(`oauth2:<token>` for GitLab, `x-access-token:<token>` for GitHub) — no SSH and
+no interactive/OAuth browser flow, since kestrel runs headless. The GitLab token
+therefore needs **`read_repository` + `write_repository`** scope (plus `api` for
+opening merge requests).
+
 ### Test the configuration
 
 Before letting kestrel act, dry-run the poll to see what each configured source

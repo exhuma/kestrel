@@ -10,6 +10,14 @@ from app.services.exceptions import GitError
 
 LOG = logging.getLogger(__name__)
 
+
+def _redact(args: tuple[str, ...]) -> list[str]:
+    """Mask the injected auth header so the token never reaches logs/errors."""
+    return [
+        "***" if a.startswith("http.extraheader=") else a for a in args
+    ]
+
+
 class GitService:
     """Runs git commands; injects auth per-command, never into config."""
 
@@ -26,47 +34,45 @@ class GitService:
         return self._locks.setdefault(mirror_dir, asyncio.Lock())
 
     async def _git(self, *args: str, cwd: str | None = None) -> str:
-        LOG.info("git %s (cwd=%s)", " ".join(args), cwd)
+        # Headless: disable any inherited credential helper (e.g. a GitLab
+        # OAuth browser flow) and never prompt on a 401 — fail fast instead of
+        # hanging on an interactive prompt this process can never answer.
+        args = ("-c", "credential.helper=", *args)
+        LOG.info("git %s (cwd=%s)", " ".join(_redact(args)), cwd)
         proc = await asyncio.create_subprocess_exec(
             "git",
             *args,
             cwd=cwd,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         out, err = await proc.communicate()
         if proc.returncode != 0:
-            # Redact the auth header arg so the token never reaches error
-            # messages, logs, or the run's surfaced `error`.
-            safe = [
-                "***" if a.startswith("http.extraheader=") else a
-                for a in args
-            ]
             raise GitError(
-                f"git {' '.join(safe)} -> {proc.returncode}: "
+                f"git {' '.join(_redact(args))} -> {proc.returncode}: "
                 f"{err.decode('utf-8', 'replace')}"
             )
         return out.decode("utf-8", "replace")
 
-    def _auth(self, token: str | None = None) -> list[str]:
+    def _auth(self, cred: tuple[str, str] | None = None) -> list[str]:
         # Injected per-command so the token never persists in .git/config.
         # Ignored by git for non-http remotes (e.g. local bare repos).
         #
-        # GitHub's git-over-HTTPS smart endpoint requires Basic auth (base64
-        # "x-access-token:<token>"); a raw "Bearer <token>" header — which
-        # does work for the REST API — is rejected with
-        # "remote: invalid credentials" / "fatal: Authentication failed".
-        # A ``token`` override lets a per-run code host (e.g. a self-hosted
-        # GitLab) authenticate with its own credential alongside GitHub;
-        # GitLab's git-over-HTTPS accepts the same Basic scheme.
-        creds = base64.b64encode(
-            f"x-access-token:{token or self.token}".encode()
-        ).decode()
+        # git-over-HTTPS requires Basic auth (a raw "Bearer <token>" header —
+        # which works for the REST API — is rejected with "invalid
+        # credentials"). ``cred`` is the run's code-host ``(username, token)``:
+        # ``x-access-token`` for GitHub, ``oauth2`` for GitLab. It defaults to
+        # this service's own token (GitHub) when a caller passes none.
+        username, token = cred if cred else ("x-access-token", self.token)
+        creds = base64.b64encode(f"{username}:{token}".encode()).decode()
         return ["-c", f"http.extraheader=AUTHORIZATION: basic {creds}"]
 
-    async def clone(self, remote_url: str, dest: str) -> None:
+    async def clone(
+        self, remote_url: str, dest: str, cred: tuple[str, str] | None = None
+    ) -> None:
         """Clone a remote into dest."""
-        await self._git(*self._auth(), "clone", remote_url, dest)
+        await self._git(*self._auth(cred), "clone", remote_url, dest)
         # Identity for commits made in this workspace.
         await self._git("config", "user.email", "kestrel@local", cwd=dest)
         await self._git("config", "user.name", "kestrel", cwd=dest)
@@ -101,17 +107,25 @@ class GitService:
             "-c", "commit.gpgsign=false", "commit", "-m", message, cwd=dest
         )
 
-    async def push(self, dest: str, branch: str) -> None:
+    async def push(
+        self, dest: str, branch: str, cred: tuple[str, str] | None = None
+    ) -> None:
         """Push a branch to origin."""
-        await self._git(*self._auth(), "push", "origin", branch, cwd=dest)
+        await self._git(*self._auth(cred), "push", "origin", branch, cwd=dest)
 
     # ---- per-run worktree isolation (feature 002, US3) -----------------
 
-    async def ensure_mirror(self, remote_url: str, mirror_dir: str) -> None:
+    async def ensure_mirror(
+        self,
+        remote_url: str,
+        mirror_dir: str,
+        cred: tuple[str, str] | None = None,
+    ) -> None:
         """
         Ensure a per-repo bare mirror exists and is up to date.
 
-        Clones ``--bare`` on first use, else fetches heads. Serialised per
+        Clones ``--bare`` on first use, else fetches heads. ``cred`` is the
+        run's code-host ``(username, token)`` for git-over-HTTPS. Serialised per
         mirror so concurrent runs for the same repo don't race the shared
         object DB. No ``--prune`` so an in-flight run's local branch (created
         by ``add_worktree`` before it is pushed) is never deleted.
@@ -119,7 +133,7 @@ class GitService:
         async with self._lock_for(mirror_dir):
             if os.path.isdir(mirror_dir):
                 await self._git(
-                    *self._auth(), "-C", mirror_dir, "fetch", "origin",
+                    *self._auth(cred), "-C", mirror_dir, "fetch", "origin",
                     "+refs/heads/*:refs/heads/*",
                 )
             else:
@@ -127,7 +141,8 @@ class GitService:
                 if parent:
                     os.makedirs(parent, exist_ok=True)
                 await self._git(
-                    *self._auth(), "clone", "--bare", remote_url, mirror_dir
+                    *self._auth(cred), "clone", "--bare",
+                    remote_url, mirror_dir,
                 )
 
     async def add_worktree(
@@ -149,15 +164,3 @@ class GitService:
             await self._git(
                 "-C", mirror_dir, "worktree", "remove", "--force", dest
             )
-
-    async def provision_worktree(
-        self,
-        remote_url: str,
-        mirror_dir: str,
-        dest: str,
-        base_branch: str,
-        new_branch: str,
-    ) -> None:
-        """Ensure the mirror, then add the run's isolated worktree."""
-        await self.ensure_mirror(remote_url, mirror_dir)
-        await self.add_worktree(mirror_dir, dest, base_branch, new_branch)

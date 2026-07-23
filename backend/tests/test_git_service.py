@@ -126,6 +126,33 @@ def test_auth_uses_basic_scheme_github_git_http_accepts() -> None:
     assert decoded == "x-access-token:tok-123"
 
 
+def test_auth_uses_the_code_host_credential_when_given() -> None:
+    """Ensure a per-run (username, token) cred overrides the default token.
+
+    A GitLab code host authenticates as ``oauth2:<pat>``; without this the
+    clone would send GitHub's default token and GitLab would fall into an
+    interactive OAuth flow that a headless process cannot answer.
+    """
+    svc = GitService(token="github-default")
+    header = svc._auth(("oauth2", "glpat-xyz"))[1]
+    decoded = base64.b64decode(header.split("basic ", 1)[1]).decode()
+    assert decoded == "oauth2:glpat-xyz"
+
+
+@pytest.mark.asyncio
+async def test_git_disables_inherited_credential_helper() -> None:
+    """Ensure _git resets credential.helper so no inherited helper runs.
+
+    A configured helper (e.g. a GitLab OAuth browser flow) must never be
+    invoked in the headless backend. ``_git`` prepends ``-c credential.helper=``
+    (a reset), so the effective helper is empty regardless of ambient config
+    and git fails fast on a 401 instead of launching a browser/prompt.
+    """
+    svc = GitService(token="t")
+    out = await svc._git("config", "--get-all", "credential.helper")
+    assert out.strip() == ""
+
+
 @pytest.mark.asyncio
 async def test_clone_failure_raises_giterror_without_leaking_token(
     tmp_path,
@@ -148,12 +175,9 @@ async def test_worktree_isolation_and_cleanup(tmp_path) -> None:
 
     dest_a = str(tmp_path / "wtA")
     dest_b = str(tmp_path / "wtB")
-    await svc.provision_worktree(
-        str(bare), mirror, dest_a, "main", "kestrel/issue-1"
-    )
-    await svc.provision_worktree(
-        str(bare), mirror, dest_b, "main", "kestrel/issue-2"
-    )
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, dest_a, "main", "kestrel/issue-1")
+    await svc.add_worktree(mirror, dest_b, "main", "kestrel/issue-2")
 
     # Each worktree has its own branch and files; neither sees the other's.
     (Path(dest_a) / "a.txt").write_text("A\n")

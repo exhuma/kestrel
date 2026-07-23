@@ -886,13 +886,14 @@ class WorkflowService:
                     run.repo
                 )
             self._save(run)
-            remote = self._code_host(run).clone_remote(run.repo)
-            await self.git.provision_worktree(
-                remote,
-                self._mirror_dir(run.repo),
-                run.workspace,
-                run.base_branch,
-                run.branch,
+            code_host = self._code_host(run)
+            remote = code_host.clone_remote(run.repo)
+            mirror = self._mirror_dir(run.repo)
+            await self.git.ensure_mirror(
+                remote, mirror, code_host.git_credential()
+            )
+            await self.git.add_worktree(
+                mirror, run.workspace, run.base_branch, run.branch
             )
 
             if has_sentinel(task.body):
@@ -1871,7 +1872,9 @@ class WorkflowService:
             cr_title = f"{run.issue_title} ({run.task_ref})"
             cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
         await self.git.commit_all(run.workspace, commit_msg)
-        await self.git.push(run.workspace, run.branch)
+        await self.git.push(
+            run.workspace, run.branch, self._code_host(run).git_credential()
+        )
         run.pr_url = await self._code_host(run).open_change_request(
             run.repo,
             head=run.branch,

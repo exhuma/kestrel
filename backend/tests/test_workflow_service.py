@@ -33,11 +33,13 @@ class _FakeGit:
         self.diffs: list[str] = ["diff --git a/x b/x"]
         self.diff_excludes: list[str | None] = []
 
-    async def clone(self, remote_url: str, dest: str) -> None: ...
+    async def clone(self, remote_url: str, dest: str, cred=None) -> None: ...
     async def checkout_branch(self, dest: str, branch: str) -> None: ...
-    async def provision_worktree(
-        self, remote_url: str, mirror_dir: str, dest: str,
-        base_branch: str, new_branch: str,
+    async def ensure_mirror(
+        self, remote_url: str, mirror_dir: str, cred=None
+    ) -> None: ...
+    async def add_worktree(
+        self, mirror_dir: str, dest: str, base_branch: str, new_branch: str
     ) -> None: ...
     async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
     async def commit_all(self, dest: str, message: str) -> None: ...
@@ -50,7 +52,7 @@ class _FakeGit:
         if len(self.diffs) > 1:
             return self.diffs.pop(0)
         return self.diffs[0] if self.diffs else ""
-    async def push(self, dest: str, branch: str) -> None:
+    async def push(self, dest: str, branch: str, cred=None) -> None:
         self.pushed.append(branch)
 
 
@@ -74,6 +76,7 @@ class _FakeGitHub:
     def __init__(self, body: str = "Please add a widget") -> None:
         self.body = body
         self.updated: str | None = None
+        self.token = "fake-gh-token"  # read by GitHubCodeHost.git_credential
 
     async def get_issue(self, repo: str, number: int) -> Issue:
         return Issue(number=number, title="Add widget", body=self.body)

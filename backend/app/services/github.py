@@ -232,6 +232,9 @@ class GitHubCodeHost:
     def clone_remote(self, repo: str) -> str:
         return f"{self._git_base}/{repo}.git"
 
+    def git_credential(self) -> tuple[str, str]:
+        return ("x-access-token", self._client.token)
+
     async def open_change_request(
         self,
         repo: str,
