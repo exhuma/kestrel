@@ -62,3 +62,15 @@ tasks:
     dir: frontend
     cmds:
       - npm run dev
+
+  quality:
+    desc: 'Run all code-quality guardrails (structure, complexity, dead code, dupes).'
+    summary: |
+      Runs every structural guardrail across Python and JS/TS/Vue: ruff
+      (complexity/bugbear), pylint (module length), vulture + knip (dead code),
+      import-linter + dependency-cruiser (layering/cycles), eslint (size/
+      complexity/sonarjs) and jscpd (copy-paste). Exits non-zero on any
+      violation. Must pass before a task is considered done — see AGENTS.md.
+      Requires uv and a `npm install`ed frontend.
+    cmds:
+      - bash tools/quality.sh

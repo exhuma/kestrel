@@ -34,7 +34,100 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 80
 target-version = "py312"
+# .vulture_allowlist.py is a vulture whitelist (bare names marking framework
+# false positives), not real code — ruff would flag its names as undefined.
+extend-exclude = [".vulture_allowlist.py"]
 
 [tool.ruff.lint]
-# E/W pycodestyle (incl. E501 line-length), F pyflakes, I import sorting.
-select = ["E", "W", "F", "I"]
+# Style: E/W pycodestyle (incl. E501 line-length), F pyflakes, I import sorting.
+# Structural guardrails (see AGENTS.md "Code-quality guardrails"): C90 mccabe
+# complexity, PL pylint-derived (arg/branch/statement/return/local counts), B
+# bugbear, SIM simplify, ARG unused-arguments, RET return hygiene.
+select = ["E", "W", "F", "I", "C90", "PL", "B", "SIM", "ARG", "RET"]
+
+# --- Structural thresholds — HARD LIMITS. Do not raise to make a check pass.
+# When one is hit, split the module or extract a function. See AGENTS.md.
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 12
+max-statements = 40
+max-returns = 5
+max-locals = 15
+
+# FastAPI evaluates `Depends(...)`, `Query(...)`, etc. in argument defaults by
+# design. This tells bugbear's B008 to treat those calls as immutable instead of
+# flagging them. It is framework configuration — NOT a grandfather exemption —
+# so it applies to new code too.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "fastapi.Security",
+]
+
+# --- Grandfathered structural violations -------------------------------------
+# TODO(quality): refactor. Each entry lists the guardrail rules a file already
+# violated when the harness was introduced, kept so the tree stays green during
+# adoption. This is a shrinking debt list, NOT a template. Do NOT add new files
+# or codes here to make a check pass — split the module, extract a function, or
+# rename the unused argument instead (see AGENTS.md "Code-quality guardrails").
+# New files get no exemptions.
+[tool.ruff.lint.per-file-ignores]
+"app/backends/openai_compat.py" = ["C901", "PLR2004", "PLW2901"]
+"app/config.py" = ["ARG003", "C901", "PLC0415"]
+"app/logging_config.py" = ["PLC0415"]
+"app/main.py" = ["ARG001", "PLC0415", "PLR0915"]
+"app/models.py" = ["C901", "PLR0911", "PLR0912"]
+"app/ports.py" = ["PLR0913"]
+"app/questionnaire.py" = ["C901", "PLR0912", "PLR1714"]
+"app/routers/github_webhook.py" = ["C901", "PLR0911"]
+"app/services/github.py" = ["ARG002", "PLR0913", "PLR2004", "RET501"]
+"app/services/gitlab.py" = ["PLR0913", "PLR2004"]
+"app/services/jira.py" = ["ARG002", "PLR2004"]
+"app/services/jira_poll.py" = ["PLC0415", "PLR0913"]
+"app/services/runner.py" = ["C901", "PLR0913"]
+"app/services/workflow_text.py" = ["PLR0911"]
+"app/services/workflows.py" = ["ARG005", "B905", "C901", "PLC0415", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "SIM105"]
+"app/telemetry.py" = ["PLC0415", "PLW0603"]
+"tests/test_check_runner.py" = ["PLR2004"]
+"tests/test_claude_backend.py" = ["ARG001", "PLR0913"]
+"tests/test_config.py" = ["B017", "PLR2004"]
+"tests/test_github_client.py" = ["ARG001", "PLR2004"]
+"tests/test_github_ports.py" = ["ARG001", "ARG005", "PLC0415"]
+"tests/test_gitlab_code_host.py" = ["ARG005"]
+"tests/test_health.py" = ["PLC0415", "PLR2004"]
+"tests/test_ingestion_logging.py" = ["ARG002"]
+"tests/test_ingestion_service.py" = ["ARG002"]
+"tests/test_jira_client.py" = ["ARG005"]
+"tests/test_jira_ingestion_recovery.py" = ["ARG002", "PLC0415"]
+"tests/test_jira_poll.py" = ["ARG002"]
+"tests/test_jira_repo_resolution.py" = ["ARG002"]
+"tests/test_logging_config.py" = ["PLC0415"]
+"tests/test_main.py" = ["PLR2004"]
+"tests/test_models.py" = ["PLR2004"]
+"tests/test_notifications.py" = ["PLR2004"]
+"tests/test_notifications_router.py" = ["PLR2004"]
+"tests/test_openai_backend.py" = ["ARG001", "PLR2004"]
+"tests/test_opencode_backend.py" = ["PLC0415"]
+"tests/test_prd_delivery.py" = ["ARG002", "PLC0415", "PLR0913"]
+"tests/test_questionnaire.py" = ["PLC0415", "PLR2004"]
+"tests/test_reconcile.py" = ["ARG002"]
+"tests/test_runner.py" = ["PLC0415", "PLR2004", "PLW0108"]
+"tests/test_sessions_router.py" = ["ARG002", "PLR2004"]
+"tests/test_sessions_service.py" = ["PLC0415"]
+"tests/test_source_parity.py" = ["PLC0415"]
+"tests/test_verify_loop.py" = ["ARG002"]
+"tests/test_webhook_ingress.py" = ["ARG002", "PLR2004"]
+"tests/test_workflow_persistence.py" = ["PLC0415", "PLR2004"]
+"tests/test_workflow_recovery.py" = ["PLC0415"]
+"tests/test_workflow_service.py" = ["ARG002", "PLC0415", "PLR0913", "PLR2004"]
+"tests/test_workflows_router.py" = ["ARG001", "ARG002", "PLC0415", "PLR2004"]

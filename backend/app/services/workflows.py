@@ -1,4 +1,7 @@
 """Orchestrates the GitHub issue -> code workflow over sessions."""
+# TODO(quality): refactor — exceeds the 500-line module guardrail. Split this
+# module rather than growing it; grandfathered when the harness was introduced.
+# pylint: disable=too-many-lines
 from __future__ import annotations
 
 import asyncio
