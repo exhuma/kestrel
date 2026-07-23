@@ -73,12 +73,24 @@ failure, so a leftover key from a rename never crashes the service.
 
 ## Config files
 
-- **`backend/.env`** — read only when running from source. Copy
-  `backend/.env.example` and fill it in. It is gitignored; never commit it.
-- **`config.toml`** — backend routing plus applicative overrides, pointed at
-  by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker, mount it and
-  set the env var (see [Backends](backends.md)). Read once at startup — restart
-  after editing. (`KESTREL_BACKENDS_FILE` still works as a deprecated alias.)
+The recommended layout keeps the two kinds of settings apart:
+
+- **`config.toml` — the preferred home for non-secret configuration.** Backend
+  routing plus the applicative overrides (`watched_repos`, `trigger_label`,
+  `reconcile_interval_seconds`, `verify_checks`, `max_verify_iterations`),
+  pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
+  mount it and set the env var (see [Backends](backends.md)). Read once at
+  startup — restart after editing. (`KESTREL_BACKENDS_FILE` still works as a
+  deprecated alias.)
+- **`backend/.env` — secrets and the not-yet-migrated env-only settings.** Read
+  only when running from source. Copy `backend/.env.example` and fill it in; it
+  is gitignored, so never commit it. The example leads with `config.toml` and
+  comments out the settings that now belong there — put your tokens
+  (`KESTREL_GITHUB_TOKEN`, `KESTREL_WEBHOOK_SECRET`, `KESTREL_JIRA_API_TOKEN`,
+  `KESTREL_CODE_HOST_TOKEN`) here and prefer the TOML file for everything else.
+
+Any applicative key set in both places is taken from `config.toml`; the
+environment only fills in what the file omits.
 
 ## The container image defaults
 
