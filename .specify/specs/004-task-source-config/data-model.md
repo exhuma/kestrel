@@ -65,9 +65,12 @@ not source selection).
 `task_sources` (e.g. a jira entry whose `token()` is unset, or a
 gitlab/gitea entry missing `code_host_base_url`/token) and warn without failing.
 
-## `WorkItem` (dataclass, poll-time, `app/services/poll_source.py`)
+## `WorkItem` (dataclass, poll-time, `app/ports.py`)
 
 Transient view produced by the dry-run listing; persists nothing, starts no run.
+*(Implemented in `app/ports.py` rather than `poll_source.py`: both services need
+to construct it and `poll_source` imports them, so housing it in the leaf
+`ports` module avoids an import cycle without local imports.)*
 
 | Field | Type | Notes |
 |-------|------|-------|
