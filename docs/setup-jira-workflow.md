@@ -22,6 +22,7 @@ auth = "basic"                         # basic (Cloud email+API token) | bearer 
 email = "you@example.com"              # basic only
 jql = 'project = "RFC" AND status = "Ready for Kestrel"'  # the whole query, yours to write
 key = "RFC"                            # issue-key prefix; scopes dismissals only
+verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 repo_field = "customfield_10050"       # optional; holds owner/name[@base_branch]
 repo_link_text = "Repository"          # web-link title to resolve the repo (default)
 code_host = "gitlab"                   # github | gitlab | gitea (self-hostable)

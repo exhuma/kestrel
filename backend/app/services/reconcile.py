@@ -123,7 +123,11 @@ def get_reconcile_services() -> tuple[ReconcileService, ...]:
     return tuple(
         ReconcileService(
             source,
-            GitHubClient(settings.github_api_base, source.token() or ""),
+            GitHubClient(
+                settings.github_api_base,
+                source.token() or "",
+                verify=source.verify_ssl,
+            ),
             ingestion,
             dismissals,
         )

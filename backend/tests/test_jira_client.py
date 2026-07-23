@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 
 import httpx
 import pytest
@@ -18,6 +19,19 @@ def _client(handler, **kw) -> JiraClient:
         auth=client._http.auth,
     )
     return client
+
+
+def _verify_mode(client: JiraClient) -> ssl.VerifyMode:
+    """The TLS verify mode of the client's underlying httpx transport."""
+    return client._http._transport._pool._ssl_context.verify_mode
+
+
+def test_verify_flag_toggles_tls_verification() -> None:
+    """Ensure verify=False builds an httpx client that skips cert checks."""
+    secure = JiraClient("https://jira.example", token="t")
+    insecure = JiraClient("https://jira.example", token="t", verify=False)
+    assert _verify_mode(secure) == ssl.CERT_REQUIRED
+    assert _verify_mode(insecure) == ssl.CERT_NONE
 
 
 @pytest.mark.asyncio

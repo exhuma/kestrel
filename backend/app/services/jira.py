@@ -29,6 +29,7 @@ class JiraClient:
         auth: str = "basic",
         email: str = "",
         token: str = "",
+        verify: bool = True,
     ) -> None:
         self._base = base_url.rstrip("/")
         self._auth_mode = auth
@@ -40,7 +41,7 @@ class JiraClient:
             else None
         )
         self._http = httpx.AsyncClient(
-            base_url=f"{self._base}/rest/api/2", auth=http_auth
+            base_url=f"{self._base}/rest/api/2", auth=http_auth, verify=verify
         )
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:

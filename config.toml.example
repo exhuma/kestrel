@@ -57,6 +57,8 @@ trigger_label = "kestrel"
 # jql = 'project = "RFC" AND status = "Ready"'
 # key = "RFC"
 # token_env = "KESTREL_JIRA_API_TOKEN"  # optional (default)
+# verify_ssl = false                    # skip TLS cert checks on the Jira/code-host
+#                                       # REST calls (self-signed/internal CA)
 # repo_field = "customfield_10050"      # optional; else a titled web link is used
 # repo_link_text = "Repository"         # web-link title to match (default)
 # code_host = "github"                  # "github" | "gitlab" | "gitea"

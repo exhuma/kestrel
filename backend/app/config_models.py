@@ -71,6 +71,11 @@ class TaskSourceConfig(BaseModel):
     type: Literal["github", "jira"]
     #: Name of the env var holding this source's token; defaults per type.
     token_env: str | None = None
+    #: Verify TLS certificates on this source's REST/API calls (Jira and the
+    #: code host). Set ``false`` for a self-hosted instance with an internal or
+    #: self-signed CA the process does not trust. Does not affect ``git`` clone/
+    #: push (which use the system trust store).
+    verify_ssl: bool = True
     #: GitHub: allow-list of ``owner/name`` repos and the ingestion label.
     watched_repos: list[str] = []
     trigger_label: str = "kestrel"

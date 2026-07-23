@@ -1902,7 +1902,10 @@ def get_workflow_service() -> WorkflowService:
     """Return the process-wide WorkflowService singleton."""
     settings = get_settings()
     registry = get_registry()
-    github = GitHubClient(settings.github_api_base, settings.github_token)
+    gh_verify = all(s.verify_ssl for s in settings.github_sources())
+    github = GitHubClient(
+        settings.github_api_base, settings.github_token, verify=gh_verify
+    )
     gh_source = GitHubTaskSource(github, settings.public_base_url)
     gh_host = GitHubCodeHost(github, settings.git_base)
     # Task Source / Code Host per run source. GitHub and manual runs collapse
@@ -1924,12 +1927,18 @@ def get_workflow_service() -> WorkflowService:
             auth=entry.auth,
             email=entry.email,
             token=entry.token() or "",
+            verify=entry.verify_ssl,
         )
         sources["jira-issue"] = JiraTaskSource(
             jira, settings.public_base_url
         )
+        jira_github = GitHubClient(
+            settings.github_api_base,
+            settings.github_token,
+            verify=entry.verify_ssl,
+        )
         code_hosts["jira-issue"] = build_code_host(
-            entry, github, settings.git_base
+            entry, jira_github, settings.git_base
         )
     # In-app first (always records the durable fallback row), then the
     # best-effort ticket comment via the run's source (feature 003).
@@ -1967,6 +1976,8 @@ def build_code_host(
         from app.services.gitlab import GitLabCodeHost
 
         return GitLabCodeHost(
-            source.code_host_base_url, source.code_host_token() or ""
+            source.code_host_base_url,
+            source.code_host_token() or "",
+            verify=source.verify_ssl,
         )
     return GitHubCodeHost(github, git_base)

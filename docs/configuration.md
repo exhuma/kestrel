@@ -75,6 +75,7 @@ auth = "basic"                         # basic (Cloud) | bearer (Server/DC PAT)
 email = "me@acme.com"
 jql = 'project = "RFC" AND status = "Ready"'  # one whole query, you write it
 key = "RFC"                            # issue-key prefix; scopes dismissals only
+verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 # token_env = "KESTREL_JIRA_API_TOKEN" # optional (default)
 repo_field = "customfield_10050"       # optional; else a titled web link is used
 repo_link_text = "Repository"          # web-link title to match (default)
@@ -88,6 +89,13 @@ from a remote/web link on the issue whose title matches `repo_link_text`
 ("Repository" by default). Verify a source's configuration without starting runs
 with `python -m app poll`, which lists the work items each configured source
 currently matches.
+
+Set `verify_ssl = false` on a source (github or jira) to skip TLS certificate
+verification on its **REST/API** calls — for a self-hosted instance whose CA the
+process does not trust. This covers the Jira and code-host HTTP clients (which
+use their own bundled CA set, not the OS trust store). It does **not** affect
+`git` clone/fetch/push, which use the system trust store — install the internal
+CA there for git.
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 

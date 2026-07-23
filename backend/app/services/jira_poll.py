@@ -199,12 +199,17 @@ def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
     from app.services.workflows import build_code_host
 
     settings = get_settings()
-    github = GitHubClient(settings.github_api_base, settings.github_token)
+    github = GitHubClient(
+        settings.github_api_base,
+        settings.github_token,
+        verify=source.verify_ssl,
+    )
     jira = JiraClient(
         source.base_url,
         auth=source.auth,
         email=source.email,
         token=source.token() or "",
+        verify=source.verify_ssl,
     )
     return JiraPollService(
         source,

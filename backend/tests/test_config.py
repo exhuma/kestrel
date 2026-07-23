@@ -198,6 +198,7 @@ def test_jira_source_defaults_and_verify_defaults() -> None:
     assert jira.auth == "basic"
     assert jira.repo_link_text == "Repository"
     assert jira.code_host == "github"
+    assert jira.verify_ssl is True
 
 
 def test_task_source_literals_accept_allowed_values() -> None:
@@ -338,6 +339,7 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
         'base_url = "https://jira.example"\n'
         'jql = "project = RFC"\n'
         'key = "RFC"\n'
+        "verify_ssl = false\n"
     )
     s = Settings(_env_file=None, config_file=str(toml))
     assert s.poll_interval_seconds == 60
@@ -345,6 +347,8 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
     assert gh.watched_repos == ["o/one", "o/two"]
     assert gh.trigger_label == "ship-it"
     assert jira.key == "RFC" and jira.jql == "project = RFC"
+    assert jira.verify_ssl is False  # opt-out parsed from the file
+    assert gh.verify_ssl is True  # default
 
 
 def test_poll_interval_settable_via_config_file(

@@ -25,10 +25,14 @@ class GitLabCodeHost:
         logged).
     """
 
-    def __init__(self, base_url: str, token: str) -> None:
+    def __init__(
+        self, base_url: str, token: str, verify: bool = True
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._token = token
-        self._http = httpx.AsyncClient(base_url=f"{self._base}/api/v4")
+        self._http = httpx.AsyncClient(
+            base_url=f"{self._base}/api/v4", verify=verify
+        )
 
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}

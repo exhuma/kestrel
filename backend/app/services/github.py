@@ -41,14 +41,18 @@ class Issue:
 class GitHubClient:
     """Thin async wrapper over the GitHub REST API."""
 
-    def __init__(self, base_url: str, token: str) -> None:
+    def __init__(
+        self, base_url: str, token: str, verify: bool = True
+    ) -> None:
         """
         :param base_url: API base, e.g. https://api.github.com.
         :param token: Bearer token for the Authorization header.
+        :param verify: Verify TLS certificates (``False`` for a self-hosted
+            GitHub Enterprise with an untrusted CA).
         """
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self._http = httpx.AsyncClient(base_url=self.base_url)
+        self._http = httpx.AsyncClient(base_url=self.base_url, verify=verify)
 
     def _headers(self) -> dict[str, str]:
         headers = {
