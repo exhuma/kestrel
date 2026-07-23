@@ -1,10 +1,42 @@
 """Tests for the CLI entrypoint: serve dispatch and the poll dry-run (004)."""
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
 from app import cli
+from app.config_models import TaskSourceConfig
 from app.ports import WorkItem
+
+_JIRA_TOKEN = "KESTREL_JIRA_API_TOKEN"
+
+
+def test_load_env_populates_named_secret_lookups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure load_env() makes a .env-only token resolvable via token_env.
+
+    Reproduces the bug where a secret set only in backend/.env was invisible to
+    the os.environ-based token lookup (pydantic reads .env into Settings fields,
+    not into os.environ). load_dotenv writes to the real os.environ, so restore
+    it in a finally to keep other tests isolated.
+    """
+    (tmp_path / ".env").write_text(f"{_JIRA_TOKEN}=from-dotenv\n")
+    monkeypatch.chdir(tmp_path)
+    saved = os.environ.pop(_JIRA_TOKEN, None)
+    jira = TaskSourceConfig(
+        type="jira", base_url="https://j", jql="q", key="RFC"
+    )
+    try:
+        assert jira.token() is None  # not yet loaded
+        cli.load_env()
+        assert jira.token() == "from-dotenv"
+    finally:
+        os.environ.pop(_JIRA_TOKEN, None)
+        if saved is not None:
+            os.environ[_JIRA_TOKEN] = saved
 
 
 class _FakePollSource:

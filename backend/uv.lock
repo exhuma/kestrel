@@ -334,6 +334,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-logging" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -354,6 +355,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-logging", specifier = ">=0.64b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.43.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
 ]

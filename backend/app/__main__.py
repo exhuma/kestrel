@@ -8,7 +8,8 @@ sources). Host, port and the dev auto-reload toggle come from ``Settings``
 """
 from __future__ import annotations
 
-from app.cli import main
+from app.cli import load_env, main
 
 if __name__ == "__main__":
+    load_env()
     raise SystemExit(main())

@@ -128,6 +128,12 @@ The recommended layout keeps the two kinds of settings apart:
 Any applicative key set in both places is taken from `config.toml`; the
 environment only fills in what the file omits.
 
+When kestrel is started as `python -m app`, `backend/.env` is loaded into the
+process environment at startup. This matters for the **named token env vars** a
+task source references (`token_env` / `code_host_token_env`) and the standard
+`OTEL_*` vars: those are resolved from the environment, so a secret placed only
+in `.env` is picked up too (real environment values still win over `.env`).
+
 ## The container image defaults
 
 The image sets these so they normally need no changes:

@@ -11,11 +11,26 @@ import argparse
 import asyncio
 
 import uvicorn
+from dotenv import load_dotenv
 
 from app.config import Settings, get_settings
 from app.logging_config import build_log_config
 from app.ports import WorkItem
 from app.services.poll_source import configured_poll_sources
+
+
+def load_env() -> None:
+    """Load ``backend/.env`` into the process environment.
+
+    ``pydantic-settings`` reads ``.env`` into ``Settings`` fields, but the
+    dynamic named-secret lookups (a source's ``token_env`` / a backend's
+    ``api_key_env``, and the standard ``OTEL_*`` vars) resolve against
+    ``os.environ`` — which ``.env`` does not otherwise populate. Loading it
+    here, at the real entrypoint (not in library code, so tests stay isolated),
+    makes ``.env`` authoritative for the whole process. Existing environment
+    values win (``override=False``), matching pydantic's env>dotenv precedence.
+    """
+    load_dotenv(".env")
 
 
 def cmd_serve(settings: Settings) -> int:
