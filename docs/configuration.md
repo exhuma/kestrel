@@ -32,29 +32,62 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
 | `KESTREL_OTEL_SERVICE_NAME` | `kestrel` | `service.name` reported on exported spans |
 | `KESTREL_WEBHOOK_SECRET` | _(empty)_ | HMAC shared secret verifying GitHub webhook deliveries. Empty disables the webhook path. Never logged. See [GitHub workflow](setup-github-workflow.md) |
-| `KESTREL_WATCHED_REPOS` | _(empty)_ | Allow-list of `owner/name` repos to ingest/reconcile. Comma-separated or a JSON array. Anything outside is ignored |
-| `KESTREL_TRIGGER_LABEL` | `kestrel` | Issue label that flags an issue for ingestion |
-| `KESTREL_RECONCILE_INTERVAL_SECONDS` | `300` | How often reconciliation polls watched repos for missed deliveries |
+| `KESTREL_JIRA_API_TOKEN` | _(empty)_ | Default token env var for a `jira` task source. Secret; never logged |
+| `KESTREL_CODE_HOST_TOKEN` | _(empty)_ | Default code-host token for a Jira source's resolved repos. Secret; falls back to `KESTREL_GITHUB_TOKEN` when its `code_host` is github |
 | `KESTREL_PUBLIC_BASE_URL` | _(empty)_ | Public URL of the kestrel UI, used to build clickable gate-notification deep-links. Empty ⇒ link-less comments |
-| `KESTREL_JIRA_BASE_URL` | _(empty)_ | Jira instance base URL. Empty disables Jira polling. Poll-only — no inbound endpoint. See [Jira workflow](setup-jira-workflow.md) |
-| `KESTREL_JIRA_AUTH` | `basic` | `basic` (Cloud: email + API token) or `bearer` (Server/DC: PAT) |
-| `KESTREL_JIRA_EMAIL` | _(empty)_ | Basic-auth username (Jira Cloud email) |
-| `KESTREL_JIRA_API_TOKEN` | _(empty)_ | Jira API token / PAT. Secret; never logged |
-| `KESTREL_JIRA_PROJECT` | _(empty)_ | RFC project key polled for change requests (required to poll) |
-| `KESTREL_JIRA_JQL_FILTER` | _(empty)_ | Extra JQL AND-ed onto `project = "<key>"`, e.g. `status = "Ready"` |
-| `KESTREL_JIRA_REPO_FIELD` | _(empty)_ | RFC field id/name holding the target `owner/name[@base_branch]` |
-| `KESTREL_JIRA_POLL_INTERVAL_SECONDS` | `300` | How often the Jira project is polled for qualifying RFCs |
-| `KESTREL_CODE_HOST` | `github` | Code host for Jira-resolved repos: `github`, `gitlab`, or `gitea` (self-hostable) |
-| `KESTREL_CODE_HOST_BASE_URL` | _(empty)_ | Self-hosted code-host instance URL (e.g. `https://gitlab.internal`) |
-| `KESTREL_CODE_HOST_TOKEN` | _(empty)_ | Code-host token/PAT. Secret; never logged. Falls back to `KESTREL_GITHUB_TOKEN` when `code_host=github` |
+| `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
 | `KESTREL_VERIFY_CHECKS` | `[]` | JSON list of shell commands run in the worktree as verify evidence, e.g. `["uv run pytest -q"]`. Empty ⇒ model-judgment fallback |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
 
-The applicative keys `KESTREL_WATCHED_REPOS`, `KESTREL_TRIGGER_LABEL`,
-`KESTREL_RECONCILE_INTERVAL_SECONDS`, `KESTREL_VERIFY_CHECKS`, and
-`KESTREL_MAX_VERIFY_ITERATIONS` can also be set in `config.toml` (as
-`watched_repos`, `trigger_label`, …). The file wins where it sets a key; the
-environment fills in the rest. Secrets have no TOML equivalent.
+**Task sources are configured in `config.toml`, not via env vars.** Which
+GitHub repos and Jira instances kestrel pulls from — the former
+`KESTREL_WATCHED_REPOS`, `KESTREL_TRIGGER_LABEL`, `KESTREL_JIRA_*`, and
+`KESTREL_CODE_HOST*` keys — are now a file-only `[[task_sources]]` list (see
+[Task sources](#task-sources) below). Those env keys have been removed and are
+ignored if left over.
+
+The applicative keys `KESTREL_POLL_INTERVAL_SECONDS`, `KESTREL_VERIFY_CHECKS`,
+and `KESTREL_MAX_VERIFY_ITERATIONS` can also be set in `config.toml` (as
+`poll_interval_seconds`, …). The file wins where it sets a key; the environment
+fills in the rest. Secrets have no TOML equivalent.
+
+## Task sources
+
+Each origin kestrel pulls work from is one entry in the **file-only**
+`[[task_sources]]` list in `config.toml`. An entry declares its `type` and that
+source's selection criteria; **tokens stay in the environment** — an entry names
+the env var holding its token via `token_env` (defaulting per type), so the file
+stays secret-free. Add more entries (including two of the same type) as needed.
+
+```toml
+poll_interval_seconds = 300            # one cadence for every source
+
+[[task_sources]]
+type = "github"
+watched_repos = ["owner/name"]         # ingest/reconcile allow-list
+trigger_label = "kestrel"              # issue label that triggers ingestion
+# token_env = "KESTREL_GITHUB_TOKEN"   # optional (default)
+
+[[task_sources]]
+type = "jira"
+base_url = "https://acme.atlassian.net"
+auth = "basic"                         # basic (Cloud) | bearer (Server/DC PAT)
+email = "me@acme.com"
+jql = 'project = "RFC" AND status = "Ready"'  # one whole query, you write it
+key = "RFC"                            # issue-key prefix; scopes dismissals only
+# token_env = "KESTREL_JIRA_API_TOKEN" # optional (default)
+repo_field = "customfield_10050"       # optional; else a titled web link is used
+repo_link_text = "Repository"          # web-link title to match (default)
+code_host = "github"                   # github | gitlab | gitea (self-hostable)
+code_host_base_url = ""                # for a self-hosted gitlab/gitea
+# code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
+```
+
+A Jira RFC's target repository is resolved from `repo_field` when set, otherwise
+from a remote/web link on the issue whose title matches `repo_link_text`
+("Repository" by default). Verify a source's configuration without starting runs
+with `python -m app poll`, which lists the work items each configured source
+currently matches.
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 
@@ -78,9 +111,9 @@ failure, so a leftover key from a rename never crashes the service.
 
 The recommended layout keeps the two kinds of settings apart:
 
-- **`config.toml` — the preferred home for non-secret configuration.** Backend
-  routing plus the applicative overrides (`watched_repos`, `trigger_label`,
-  `reconcile_interval_seconds`, `verify_checks`, `max_verify_iterations`),
+- **`config.toml` — the preferred home for non-secret configuration.** The
+  file-only `[[task_sources]]` list and backend routing, plus the applicative
+  overrides (`poll_interval_seconds`, `verify_checks`, `max_verify_iterations`),
   pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
   mount it and set the env var (see [Backends](backends.md)). Read once at
   startup — restart after editing. (`KESTREL_BACKENDS_FILE` still works as a

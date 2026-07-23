@@ -8,44 +8,63 @@ needed and no off-loopback exception is introduced.
 
 ## Configure
 
-Set these in `backend/.env` (see [Configuration](configuration.md) for the full
-table). Tokens are secrets — never commit a filled `.env`.
+A Jira source is one `[[task_sources]]` entry in `config.toml` (see
+[Configuration → Task sources](configuration.md#task-sources)). The token stays
+in the environment — never commit a filled `.env`.
 
-```bash
-KESTREL_JIRA_BASE_URL=https://jira.internal.example.com
-KESTREL_JIRA_AUTH=basic            # basic (Cloud email+API token) | bearer (Server/DC PAT)
-KESTREL_JIRA_EMAIL=you@example.com # basic only
-KESTREL_JIRA_API_TOKEN=***         # API token (Cloud) or PAT (Server/DC)
-KESTREL_JIRA_PROJECT=RFC           # the RFC project key
-KESTREL_JIRA_JQL_FILTER=status = "Ready for Kestrel"   # optional; AND-ed onto project=RFC
-KESTREL_JIRA_REPO_FIELD=customfield_10050              # holds owner/name[@base_branch]
-KESTREL_JIRA_POLL_INTERVAL_SECONDS=300
+```toml
+poll_interval_seconds = 300            # how often every source is re-checked
+
+[[task_sources]]
+type = "jira"
+base_url = "https://jira.internal.example.com"
+auth = "basic"                         # basic (Cloud email+API token) | bearer (Server/DC PAT)
+email = "you@example.com"              # basic only
+jql = 'project = "RFC" AND status = "Ready for Kestrel"'  # the whole query, yours to write
+key = "RFC"                            # issue-key prefix; scopes dismissals only
+repo_field = "customfield_10050"       # optional; holds owner/name[@base_branch]
+repo_link_text = "Repository"          # web-link title to resolve the repo (default)
+code_host = "gitlab"                   # github | gitlab | gitea (self-hostable)
+code_host_base_url = "https://gitlab.internal.example.com"
+# token_env = "KESTREL_JIRA_API_TOKEN"           # default; the API token (Cloud) / PAT
+# code_host_token_env = "KESTREL_CODE_HOST_TOKEN"  # default; PAT for the code host
 ```
 
-Kestrel stays agnostic of your Jira conventions: the project key, the qualifying
-`JQL` filter, and the repository field name are all configuration.
+```bash
+# in backend/.env — only the tokens live in the environment:
+KESTREL_JIRA_API_TOKEN=***    # API token (Cloud) or PAT (Server/DC)
+KESTREL_CODE_HOST_TOKEN=***   # PAT for a self-hosted code host
+```
+
+Kestrel stays agnostic of your Jira conventions: the whole `jql` query and the
+repository resolution are configuration. You write the entire JQL (there is no
+separate project key); `key` is only the issue-key prefix used to scope the
+re-trigger gesture.
 
 ### Target repository resolution
 
-Each RFC names its target code repository in the configured field
-(`KESTREL_JIRA_REPO_FIELD`) as `owner/name` or `owner/name@base_branch`. On each
-poll cycle kestrel reads that field and probes the code host for reachability.
-If the field is empty or the repo is unreachable, kestrel starts no run and
-posts a comment on the RFC asking you to fix the field.
+Each RFC names its target code repository either in the configured `repo_field`
+(as `owner/name` or `owner/name@base_branch`) **or** via a web/remote link on the
+issue whose title matches `repo_link_text` (default "Repository") — the field is
+optional. On each poll cycle kestrel resolves the repo and probes the code host
+for reachability. If neither resolves or the repo is unreachable, kestrel starts
+no run and posts a comment on the RFC.
 
 ### Code host (self-hostable)
 
-The code lives in a **separate** repository on a code host you configure — a
-self-hosted GitLab (or Gitea/Forgejo), or GitHub:
+The code lives in a **separate** repository on the code host configured on the
+Jira entry — a self-hosted GitLab (or Gitea/Forgejo), or GitHub. A GitLab code
+host opens a **merge request**; GitHub opens a **pull request**.
+`code_host = "github"` reuses `KESTREL_GITHUB_TOKEN` / github.com.
+
+### Test the configuration
+
+Before letting kestrel act, dry-run the poll to see what each configured source
+matches — it lists the work items and resolved repos and starts **no** run:
 
 ```bash
-KESTREL_CODE_HOST=gitlab                                # github | gitlab | gitea
-KESTREL_CODE_HOST_BASE_URL=https://gitlab.internal.example.com
-KESTREL_CODE_HOST_TOKEN=***                             # PAT for the code host
+uv run python -m app poll
 ```
-
-A GitLab code host opens a **merge request**; GitHub opens a **pull request**.
-`KESTREL_CODE_HOST=github` reuses `KESTREL_GITHUB_TOKEN` / github.com.
 
 ### Verify grounding
 

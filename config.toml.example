@@ -23,19 +23,45 @@
 # The localhost examples below are correct when running kestrel from source.
 
 # --- applicative config -----------------------------------------------------
-# Allow-list of `owner/name` repos kestrel may ingest from and reconcile
-# against. Anything outside the list is ignored. Pair with a webhook secret in
-# the environment (KESTREL_WEBHOOK_SECRET) to actually accept deliveries.
-watched_repos = ["owner/name"]
-# The issue label that flags an issue for ingestion.
-trigger_label = "kestrel"
-# Reconciliation cadence in seconds.
-reconcile_interval_seconds = 300
+# Single cadence (seconds) governing how often every task source is re-checked
+# (the GitHub reconcile backstop and the Jira poll alike).
+poll_interval_seconds = 300
 # Shell commands run in the run's worktree as verify evidence. Empty ⇒
 # judgment-only.
 verify_checks = ["uv run pytest -q"]
 # Max code↔verify iterations before the loop escalates.
 max_verify_iterations = 3
+
+# --- task sources -----------------------------------------------------------
+# Each [[task_sources]] entry declares where kestrel pulls work from. Secrets
+# stay in the environment: an entry names the env var holding its token via
+# `token_env` (defaulting per type). Add more entries — including a second of
+# the same type — as needed.
+
+# GitHub: watch a repo allow-list for issues carrying the trigger label. Pair
+# with KESTREL_WEBHOOK_SECRET in the environment to accept webhook deliveries.
+[[task_sources]]
+type = "github"
+watched_repos = ["owner/name"]
+trigger_label = "kestrel"
+# token_env = "KESTREL_GITHUB_TOKEN"   # optional (this is the default)
+
+# Jira: poll one instance with a whole JQL query (you write the project clause
+# yourself). The target repo is resolved from `repo_field` or a web link titled
+# `repo_link_text`. `key` is the issue-key prefix, used only to scope dismissals.
+# [[task_sources]]
+# type = "jira"
+# base_url = "https://acme.atlassian.net"
+# auth = "basic"                       # "basic" (Cloud) | "bearer" (Server/DC PAT)
+# email = "me@acme.com"
+# jql = 'project = "RFC" AND status = "Ready"'
+# key = "RFC"
+# token_env = "KESTREL_JIRA_API_TOKEN"  # optional (default)
+# repo_field = "customfield_10050"      # optional; else a titled web link is used
+# repo_link_text = "Repository"         # web-link title to match (default)
+# code_host = "github"                  # "github" | "gitlab" | "gitea"
+# code_host_base_url = ""               # for a self-hosted gitlab/gitea
+# code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
 
 # --- backend routing --------------------------------------------------------
 # Backend used for ad-hoc /api/sessions dispatch.

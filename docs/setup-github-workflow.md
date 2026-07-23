@@ -45,13 +45,24 @@ the manual **Start workflow** path keeps working.
 
 ### Configure
 
+The webhook secret and the UI base URL are env vars; the watched repos and
+trigger label are a `github` [task source](configuration.md#task-sources) in
+`config.toml`.
+
 | Variable | Required | Purpose | Default |
 | --- | --- | --- | --- |
 | `KESTREL_WEBHOOK_SECRET` | Yes | HMAC shared secret verifying deliveries. Empty disables the webhook path | _(empty)_ |
-| `KESTREL_WATCHED_REPOS` | Yes | Allow-list of `owner/name` repos, comma-separated or a JSON array | _(empty)_ |
-| `KESTREL_TRIGGER_LABEL` | No | The label that flags an issue | `kestrel` |
-| `KESTREL_RECONCILE_INTERVAL_SECONDS` | No | How often to poll for missed deliveries | `300` |
+| `KESTREL_POLL_INTERVAL_SECONDS` | No | How often to reconcile for missed deliveries | `300` |
 | `KESTREL_PUBLIC_BASE_URL` | No | Public URL of the kestrel UI, used to make gate-notification links clickable | _(empty)_ |
+
+```toml
+# config.toml — the repos to watch and the trigger label:
+[[task_sources]]
+type = "github"
+watched_repos = ["owner/name"]   # required allow-list
+trigger_label = "kestrel"        # the label that flags an issue
+# token_env = "KESTREL_GITHUB_TOKEN"  # optional (default)
+```
 
 ### Expose the endpoint
 
