@@ -73,18 +73,32 @@ class JiraClient:
     async def search(
         self, jql: str, *, fields: list[str], max_results: int = 50
     ) -> list[Task]:
-        """Return the qualifying issues for ``jql`` as ``Task``s."""
-        resp = await self._request(
-            "GET",
-            "/search",
-            params={
-                "jql": jql,
-                "fields": ",".join(fields),
-                "maxResults": max_results,
-            },
-        )
-        issues = resp.json().get("issues", [])
+        """Return the qualifying issues for ``jql`` as ``Task``s.
+
+        Uses the enhanced ``/search/jql`` endpoint (Jira Cloud removed the
+        legacy ``/search``). Pagination is token-based: the old ``startAt``/
+        ``total`` model is gone, so every page is followed via
+        ``nextPageToken`` until the response reports ``isLast``. Collecting
+        every page keeps the poll's dismissal-clear logic correct.
+        """
+        body = {"jql": jql, "fields": fields, "maxResults": max_results}
+        issues: list[dict] = []
+        token: str | None = None
+        while True:
+            page = await self._search_page(body, token)
+            issues.extend(page.get("issues", []))
+            token = None if page.get("isLast") else page.get("nextPageToken")
+            if not token:
+                break
         return [self._to_task(i) for i in issues]
+
+    async def _search_page(
+        self, body: dict, token: str | None
+    ) -> dict:
+        """POST one enhanced-search page; ``token`` continues a prior page."""
+        payload = body if token is None else {**body, "nextPageToken": token}
+        resp = await self._request("POST", "/search/jql", json=payload)
+        return resp.json()
 
     async def get_issue(self, key: str) -> Task:
         """Fetch a single issue's summary/description."""

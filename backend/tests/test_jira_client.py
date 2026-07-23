@@ -1,6 +1,8 @@
 """Tests for the Jira REST client + TaskSource adapter (feature 003)."""
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -19,26 +21,44 @@ def _client(handler, **kw) -> JiraClient:
 
 
 @pytest.mark.asyncio
-async def test_search_parses_issues() -> None:
-    """Ensure search() honours jql/fields/maxResults and parses issues."""
-    seen = {}
+async def test_search_parses_issues_and_paginates() -> None:
+    """search() POSTs to /search/jql and follows nextPageToken to the end."""
+    seen: list[dict] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen["url"] = str(req.url)
-        return httpx.Response(200, json={"issues": [
-            {"key": "RFC-1", "fields": {"summary": "One", "description": "d1"}},
-            {"key": "RFC-2", "fields": {"summary": "Two", "description": None}},
-        ]})
+        body = json.loads(req.content)
+        seen.append({"path": req.url.path, "method": req.method, "body": body})
+        if body.get("nextPageToken") is None:
+            return httpx.Response(200, json={
+                "issues": [
+                    {"key": "RFC-1",
+                     "fields": {"summary": "One", "description": "d1"}},
+                ],
+                "nextPageToken": "tok2",
+                "isLast": False,
+            })
+        return httpx.Response(200, json={
+            "issues": [
+                {"key": "RFC-2",
+                 "fields": {"summary": "Two", "description": None}},
+            ],
+            "isLast": True,
+        })
 
+    page_size = 25
     tasks = await _client(handler, auth="basic", email="e", token="t").search(
-        'project = "RFC"', fields=["summary", "description"], max_results=25
+        'project = "RFC"', fields=["summary", "description"],
+        max_results=page_size,
     )
     assert tasks == [
         Task(ref="RFC-1", title="One", body="d1"),
         Task(ref="RFC-2", title="Two", body=""),
     ]
-    assert "/search" in seen["url"]
-    assert "maxResults=25" in seen["url"]
+    assert [s["method"] for s in seen] == ["POST", "POST"]
+    assert seen[0]["path"].endswith("/search/jql")
+    assert seen[0]["body"]["maxResults"] == page_size
+    assert seen[0]["body"]["fields"] == ["summary", "description"]
+    assert seen[1]["body"]["nextPageToken"] == "tok2"
 
 
 @pytest.mark.asyncio

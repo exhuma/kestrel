@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     #: ``KESTREL_VERSION`` (see the Dockerfile). The dev default makes a
     #: from-source run recognisable. Reported by ``GET /healthz``.
     version: str = "0.0.0-dev"
+    #: Uvicorn bind address / port and the dev auto-reload toggle
+    #: (``KESTREL_HOST`` / ``KESTREL_PORT`` / ``KESTREL_RELOAD``). Sourced
+    #: through Settings so a ``backend/.env`` value is honoured.
+    host: str = "0.0.0.0"
+    port: int = 8000
+    reload: bool = False
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
     permission_mode: str = "acceptEdits"

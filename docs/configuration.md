@@ -15,6 +15,9 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `KESTREL_HOST` | `0.0.0.0` | Uvicorn bind address for `python -m app` |
+| `KESTREL_PORT` | `8000` | Uvicorn bind port for `python -m app` |
+| `KESTREL_RELOAD` | `false` | Enable uvicorn dev auto-reload (`python -m app`) |
 | `KESTREL_CLAUDE_BIN` | `claude` | Path/name of the `claude` CLI to spawn |
 | `KESTREL_WORKSPACE_ROOT` | `./.kestrel-workspaces` | Where per-session git workspaces are created (image: `/workspaces`) |
 | `KESTREL_PERMISSION_MODE` | `acceptEdits` | Passed to `claude --permission-mode` for spawned sessions |

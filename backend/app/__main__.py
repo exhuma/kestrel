@@ -2,12 +2,11 @@
 
 This is the canonical entrypoint (``python -m app``): it hands a single
 logging config to uvicorn so uvicorn's own logs and the application's logs
-share one stdout stream and one format. Set ``KESTREL_RELOAD=1`` for the
-auto-reloading dev server.
+share one stdout stream and one format. Host, port and the dev auto-reload
+toggle come from ``Settings`` (``KESTREL_HOST`` / ``KESTREL_PORT`` /
+``KESTREL_RELOAD``), so a ``backend/.env`` value is honoured.
 """
 from __future__ import annotations
-
-import os
 
 import uvicorn
 
@@ -19,17 +18,12 @@ def main() -> None:
     """Start uvicorn for ``app.main:app`` with the configured logging."""
     settings = get_settings()
     log_config = build_log_config(settings.log_level, settings.log_format)
-    reload = os.environ.get("KESTREL_RELOAD", "").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
     uvicorn.run(
         "app.main:app",
-        host=os.environ.get("KESTREL_HOST", "0.0.0.0"),
-        port=int(os.environ.get("KESTREL_PORT", "8000")),
+        host=settings.host,
+        port=settings.port,
         log_config=log_config,
-        reload=reload,
+        reload=settings.reload,
     )
 
 
