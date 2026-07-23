@@ -40,6 +40,49 @@ jobs:
       - name: Type-check and build
         run: npm run build
 
+  quality:
+    # Structural guardrails (complexity, module/function size, dead code,
+    # copy-paste, layering). See AGENTS.md "Code-quality guardrails".
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: pipx install uv
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Run quality guardrails
+        run: bash tools/quality.sh
+
+  guard-quality-config:
+    # Fails if a change edits the threshold config / grandfather list without a
+    # `[quality-override]` commit trailer. See AGENTS.md.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard threshold configuration
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            base="$PR_BASE"
+          elif [ -n "$PUSH_BEFORE" ] && \
+               [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            base="$PUSH_BEFORE"
+          else
+            base="HEAD^"
+          fi
+          echo "config-guard base: $base"
+          bash tools/check-config-guard.sh "$base"
+
   docs:
     runs-on: ubuntu-latest
     steps:
