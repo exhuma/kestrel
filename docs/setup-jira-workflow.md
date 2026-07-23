@@ -50,6 +50,15 @@ optional. On each poll cycle kestrel resolves the repo and probes the code host
 for reachability. If neither resolves or the repo is unreachable, kestrel starts
 no run and posts a comment on the RFC.
 
+The web link must be an **`http(s)://`** URL (Jira rejects `git@…`/`ssh://` in
+the link field). Kestrel parses `owner/name` from it, host-aware per the
+source's `code_host`: for `github` it takes the first two path segments (so a
+deep link like `…/owner/name/issues/5` still resolves to `owner/name`); for
+`gitlab`/`gitea` it keeps the subgroup path and truncates a `/-/` tail (so
+`…/group/sub/proj/-/merge_requests/2` resolves to `group/sub/proj`). A trailing
+`.git` or slash is tolerated. The **clone** still uses the configured
+`code_host_base_url` as the host — the web link only supplies the project path.
+
 ### Code host (self-hostable)
 
 The code lives in a **separate** repository on the code host configured on the

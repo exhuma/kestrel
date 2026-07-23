@@ -30,15 +30,23 @@ _FIELDS = ["summary", "description"]
 _MIN_REPO_PARTS = 2
 
 
-def _repo_from_url(url: str) -> str | None:
-    """Parse ``owner/name`` from a hosted-repository URL, else ``None``.
+def _repo_from_url(url: str, code_host: str) -> str | None:
+    """Parse ``owner/name`` from an http(s) repository URL, else ``None``.
 
-    Handles ``github.com/owner/name`` and ``gitlab.host/group/sub/name``
-    (truncating a GitLab ``/-/`` deep-link tail); tolerates a trailing
-    ``.git``. A path without at least two segments is treated as unresolved.
+    Jira web links must be ``http(s)`` (Jira rejects ``git@``/``ssh://``), so a
+    non-http scheme is treated as unresolved. Path interpretation is host-aware:
+    ``github`` keeps the first two segments (trimming a deep link such as
+    ``/owner/name/issues/5``); ``gitlab``/``gitea`` keep the subgroup path and
+    truncate a ``/-/`` deep-link tail. A trailing ``.git`` and trailing slashes
+    are tolerated; fewer than two path segments is unresolved.
     """
-    parts = [p for p in urlparse(url).path.split("/") if p]
-    if "-" in parts:  # GitLab inserts "/-/" before tree/blob/issues/...
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    parts = [p for p in parsed.path.split("/") if p]
+    if code_host == "github":
+        parts = parts[:_MIN_REPO_PARTS]
+    elif "-" in parts:  # GitLab/Gitea insert "/-/" before tree/blob/issues/...
         parts = parts[: parts.index("-")]
     if len(parts) < _MIN_REPO_PARTS:
         return None
@@ -94,7 +102,9 @@ class JiraPollService:
         for link in links:
             obj = link.get("object") or {}
             if (obj.get("title") or "").casefold() == wanted:
-                return _repo_from_url(obj.get("url") or "")
+                return _repo_from_url(
+                    obj.get("url") or "", self.source.code_host
+                )
         return None
 
     async def _resolve_repo(self, key: str) -> tuple[str, str] | None:

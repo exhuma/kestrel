@@ -53,19 +53,26 @@ def _link(title, url):
 
 
 @pytest.mark.parametrize(
-    ("url", "expected"),
+    ("url", "code_host", "expected"),
     [
-        ("https://github.com/acme/gateway", "acme/gateway"),
-        ("https://github.com/acme/gateway.git", "acme/gateway"),
-        ("https://gitlab.host/group/sub/proj", "group/sub/proj"),
-        ("https://gitlab.host/group/proj/-/issues/3", "group/proj"),
-        ("https://example.com/", None),
-        ("not a url", None),
+        ("https://github.com/acme/gateway", "github", "acme/gateway"),
+        ("https://github.com/acme/gateway.git", "github", "acme/gateway"),
+        ("https://github.com/acme/gateway/", "github", "acme/gateway"),
+        # GitHub deep link is trimmed to owner/name.
+        ("https://github.com/acme/gateway/issues/5", "github", "acme/gateway"),
+        # GitLab keeps subgroups, truncates the /-/ deep-link tail.
+        ("https://gitlab.host/group/sub/proj", "gitlab", "group/sub/proj"),
+        ("https://gitlab.host/group/proj/-/issues/3", "gitlab", "group/proj"),
+        # Non-http(s) schemes and too-short paths are unresolved.
+        ("git@github.com:acme/gateway.git", "github", None),
+        ("ssh://git@gitlab.host/group/proj.git", "gitlab", None),
+        ("https://example.com/", "github", None),
+        ("not a url", "github", None),
     ],
 )
-def test_repo_from_url(url, expected) -> None:
-    """Ensure owner/name is parsed from common hosted URLs, else None."""
-    assert _repo_from_url(url) == expected
+def test_repo_from_url(url, code_host, expected) -> None:
+    """Ensure owner/name is parsed from http(s) URLs per host, else None."""
+    assert _repo_from_url(url, code_host) == expected
 
 
 @pytest.mark.asyncio
