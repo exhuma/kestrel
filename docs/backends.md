@@ -5,12 +5,13 @@ the bundled `claude` CLI, so no configuration is needed. To add backends
 (self-hosted LLMs, opencode), write a **TOML file** and point kestrel at it:
 
 ```bash
-KESTREL_BACKENDS_FILE=backends.toml   # relative to the working dir, or absolute
+KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
 ```
 
-Copy [`backends.toml.example`](../backends.toml.example) to `backends.toml`
-and edit. It declares the available backends, the ad-hoc-session default, and
-the per-workflow-step assignments:
+Copy [`config.toml.example`](../config.toml.example) to `config.toml` and
+edit. Alongside the applicative settings (see
+[Configuration](configuration.md)), it declares the available backends, the
+ad-hoc-session default, and the per-workflow-step assignments:
 
 ```toml
 default_session_backend = "local"
@@ -35,7 +36,7 @@ to: …`), and `GET /api/backends` reports it live. In Docker, mount the file
 and set the env var (see the commented lines in `docker-compose.yml`).
 
 > The TOML file is the **only** way to configure backends. Without
-> `KESTREL_BACKENDS_FILE` set, kestrel runs claude-only.
+> `KESTREL_CONFIG_FILE` set, kestrel runs claude-only.
 
 ## Reaching a backend from the Docker container
 
@@ -53,7 +54,7 @@ From the published image, use one of:
   the same compose network (address it as `http://service-name:PORT`).
 
 So a host-run Ollama that you'd reach at `http://localhost:11434/v1` from
-source becomes `http://host.docker.internal:11434/v1` in `backends.toml` when
+source becomes `http://host.docker.internal:11434/v1` in `config.toml` when
 running the image.
 
 ## Where backends apply

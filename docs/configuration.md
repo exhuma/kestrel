@@ -1,8 +1,12 @@
 # Configuration
 
-Kestrel is configured entirely through `KESTREL_*` environment variables (or
-a `backend/.env` file when running from source). Backends can additionally be
-configured from a TOML file — see [Backends](backends.md).
+Kestrel is configured through `KESTREL_*` environment variables (or a
+`backend/.env` file when running from source) and an optional `config.toml`
+file. **Secrets always stay in the environment**; the TOML file holds backend
+routing and applicative (non-secret) settings such as the watched-repo
+allow-list and verify knobs. Where the file sets an applicative key it wins;
+the environment fills in the rest. See [Backends](backends.md) for the backend
+side.
 
 ## Environment variables
 
@@ -19,7 +23,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
 | `KESTREL_DATABASE_URL` | `sqlite:///./kestrel.db` | SQLAlchemy database URL (image: `sqlite:////data/kestrel.db`) |
-| `KESTREL_BACKENDS_FILE` | _(empty)_ | Path to a TOML backend config — the way to add backends. See [Backends](backends.md) |
+| `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). `KESTREL_BACKENDS_FILE` is a deprecated alias |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
@@ -43,6 +47,12 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_VERIFY_CHECKS` | `[]` | JSON list of shell commands run in the worktree as verify evidence, e.g. `["uv run pytest -q"]`. Empty ⇒ model-judgment fallback |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
 
+The applicative keys `KESTREL_WATCHED_REPOS`, `KESTREL_TRIGGER_LABEL`,
+`KESTREL_RECONCILE_INTERVAL_SECONDS`, `KESTREL_VERIFY_CHECKS`, and
+`KESTREL_MAX_VERIFY_ITERATIONS` can also be set in `config.toml` (as
+`watched_repos`, `trigger_label`, …). The file wins where it sets a key; the
+environment fills in the rest. Secrets have no TOML equivalent.
+
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 
 Tracing reads the **standard** OpenTelemetry environment variables — kestrel
@@ -55,8 +65,8 @@ does not rename them under `KESTREL_`:
 
 See [Observability → Tracing](observability.md#tracing) for the full model.
 
-Backends are configured **only** through `KESTREL_BACKENDS_FILE` (or the
-`backends.toml` it points at) — see [Backends](backends.md).
+Backends are configured **only** through `KESTREL_CONFIG_FILE` (or the
+`config.toml` it points at) — see [Backends](backends.md).
 
 Unknown or stale `KESTREL_*` keys are ignored rather than causing a startup
 failure, so a leftover key from a rename never crashes the service.
@@ -65,10 +75,10 @@ failure, so a leftover key from a rename never crashes the service.
 
 - **`backend/.env`** — read only when running from source. Copy
   `backend/.env.example` and fill it in. It is gitignored; never commit it.
-- **`backends.toml`** — the backend config pointed at by
-  `KESTREL_BACKENDS_FILE`. Copy `backends.toml.example`. In Docker, mount it
-  and set the env var (see [Backends](backends.md)). Read once at startup —
-  restart after editing.
+- **`config.toml`** — backend routing plus applicative overrides, pointed at
+  by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker, mount it and
+  set the env var (see [Backends](backends.md)). Read once at startup — restart
+  after editing. (`KESTREL_BACKENDS_FILE` still works as a deprecated alias.)
 
 ## The container image defaults
 

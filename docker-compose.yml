@@ -15,7 +15,7 @@ services:
     ports:
       - "8000:8000"
     # Reach backends running on the Docker host (Ollama, `opencode serve`,
-    # ...): use http://host.docker.internal:PORT in backends.toml, NOT
+    # ...): use http://host.docker.internal:PORT in config.toml, NOT
     # localhost — inside the container localhost is the container itself.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -46,9 +46,10 @@ services:
       # separate FILE from the ~/.claude directory — both are needed.
       - ${HOME}/.claude:/seed/.claude:ro
       - ${HOME}/.claude.json:/seed/claude.json:ro
-      # Optional: mount a backends config (see backends.toml.example) to
-      # dispatch to opencode / self-hosted LLMs. Pair with the env var below.
-      # - ./backends.toml:/config/backends.toml:ro
+      # Optional: mount the config file (see config.toml.example) for backend
+      # routing and applicative settings (watched_repos, verify knobs, …).
+      # Secrets stay in the environment. Pair with the env var below.
+      # - ./config.toml:/config/config.toml:ro
     environment:
       # The repos claude works in (matches the ./workspaces bind mount above).
       KESTREL_WORKSPACE_ROOT: /workspaces
@@ -61,8 +62,8 @@ services:
       # Console logs: 'text' (default) or 'json' (one JSON per line) for a
       # log pipeline (OTEL, Logstash). See docs/observability.md.
       KESTREL_LOG_FORMAT: ${KESTREL_LOG_FORMAT:-text}
-      # Optional: point at the mounted backends config (uncomment the volume).
-      # KESTREL_BACKENDS_FILE: /config/backends.toml
+      # Optional: point at the mounted config file (uncomment the volume).
+      # KESTREL_CONFIG_FILE: /config/config.toml
 
 volumes:
   kestrel-data:

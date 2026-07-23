@@ -16,7 +16,7 @@ from typing import Callable
 
 from app.backends.base import Backend, Capability, TurnRequest, TurnResult
 from app.config import Settings, get_settings
-from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
+from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
     InAppNotifier,
@@ -622,12 +622,7 @@ class WorkflowService:
                 self.settings.workspace_root,
                 f"wf-{uuid.uuid4().hex[:8]}",
             ),
-            steps=[
-                WorkflowStep(name="refine"),
-                WorkflowStep(name="design"),
-                WorkflowStep(name="code"),
-                WorkflowStep(name="verify"),
-            ],
+            steps=[WorkflowStep(name=step) for step in Step.sequence()],
             source=source,
         )
         self.workflows.create(run)
@@ -652,7 +647,7 @@ class WorkflowService:
     def reply(self, workflow_id: str, text: str) -> None:
         run = self.get(workflow_id)
         step = self._awaiting_input_step(run)
-        if step.name == "refine":
+        if step.name == Step.REFINE:
             # The refine interview is always structured now; only the
             # implement blocker still accepts a free-text reply.
             raise InvalidWorkflowStateError(
@@ -670,7 +665,7 @@ class WorkflowService:
         """
         run = self.get(workflow_id)
         step = run.steps[0]
-        if step.name != "refine" or step.status != "awaiting_input":
+        if step.name != Step.REFINE or step.status != "awaiting_input":
             raise InvalidWorkflowStateError("not awaiting a refine reply")
         envelope = parse_envelope(step.deliverable or "")
         if envelope is None:
@@ -722,7 +717,7 @@ class WorkflowService:
         # Safety net: with the flag on, tolerate missing required answers
         # (they go through blank) while still rejecting malformed ones.
         partial = self.settings.allow_incomplete_answers
-        if step.name == "refine":
+        if step.name == Step.REFINE:
             envelope = parse_envelope(step.deliverable or "")
             if envelope is None:
                 raise InvalidWorkflowStateError("no pending questionnaire")
@@ -961,7 +956,7 @@ class WorkflowService:
         approval gate.
         """
         step = run.steps[0]
-        step.model = get_policy().model_for("refine")
+        step.model = get_policy().model_for(Step.REFINE)
         if step.status != "awaiting_approval":
             issue, accumulated = await self._run_interview(run, body)
             step.deliverable = await self._write_refined(
@@ -1661,7 +1656,7 @@ class WorkflowService:
         # Persist the approved PRD as a handover artifact, then reference it
         # (file-capable backend) or inline it (text-only) in the prompt.
         self._write_artifact(run, "prd.md", prd)
-        model = get_policy().model_for("design")
+        model = get_policy().model_for(Step.DESIGN)
         step.model = model
         run.status = "designing"
         step.status = "running"
@@ -1672,10 +1667,10 @@ class WorkflowService:
         self._save(run)
         result = await self._run_turn_tracked(
             run,
-            self.backends.backend_for("design"),
+            self.backends.backend_for(Step.DESIGN),
             TurnRequest(
                 prompt=DESIGN_PROMPT.format(
-                    issue=self._artifact_slot("design", run, "prd.md", prd)
+                    issue=self._artifact_slot(Step.DESIGN, run, "prd.md", prd)
                 ),
                 cwd=run.workspace,
                 permission_mode="plan", model=model,
@@ -1713,15 +1708,18 @@ class WorkflowService:
         # on any resume path).
         self._write_artifact(run, "prd.md", prd)
         self._write_artifact(run, "design.md", design)
-        code_model = get_policy().model_for("code")
-        verify_model = get_policy().model_for("verify")
+        code_model = get_policy().model_for(Step.CODE)
+        verify_model = get_policy().model_for(Step.VERIFY)
         # The coder always needs FILE_EDITS, so it reads the artifacts from
         # the worktree rather than carrying their full text in the prompt.
         prompt = CODE_PROMPT.format(
-            prd=self._artifact_slot("code", run, "prd.md", prd),
-            design=self._artifact_slot("code", run, "design.md", design),
+            prd=self._artifact_slot(Step.CODE, run, "prd.md", prd),
+            design=self._artifact_slot(Step.CODE, run, "design.md", design),
         )
-        for _ in range(max(1, self.settings.max_verify_iterations)):
+        for iteration in range(max(1, self.settings.max_verify_iterations)):
+            # 1-based count of verify passes entered, for the UI's
+            # remaining-runs indicator on the verify chip.
+            verify_step.verify_round = iteration + 1
             # ---- code (gateless) ----
             code_step.model = code_model
             run.status = "coding"
@@ -1738,14 +1736,14 @@ class WorkflowService:
             # different code backend (opencode, expecting ``ses-…``) would be
             # rejected. On a cross-backend route the coder starts fresh.
             same_backend = self.backends.backend_id_for(
-                "design"
-            ) == self.backends.backend_id_for("code")
+                Step.DESIGN
+            ) == self.backends.backend_id_for(Step.CODE)
             code_resume_id = code_step.session_id or (
                 run.steps[1].session_id if same_backend else None
             )
             await self._run_turn_tracked(
                 run,
-                self.backends.backend_for("code"),
+                self.backends.backend_for(Step.CODE),
                 TurnRequest(
                     prompt=prompt, cwd=run.workspace,
                     permission_mode="acceptEdits", model=code_model,
@@ -1781,7 +1779,7 @@ class WorkflowService:
             evidence = await self.check_runner.run(run.workspace)
             verify_result = await self._run_turn_tracked(
                 run,
-                self.backends.backend_for("verify"),
+                self.backends.backend_for(Step.VERIFY),
                 TurnRequest(
                     # The verifier gets PRD/design INLINE, not as file
                     # pointers. It must emit a strict <VERDICT> JSON block
@@ -1820,7 +1818,7 @@ class WorkflowService:
             self._save(run)
             prompt = CODE_FEEDBACK_PROMPT.format(
                 feedback=feedback,
-                design=self._artifact_slot("code", run, "design.md", design),
+                design=self._artifact_slot(Step.CODE, run, "design.md", design),
             )
         return await self._escalate(
             run, "verification did not pass within the iteration limit"

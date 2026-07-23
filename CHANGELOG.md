@@ -6,6 +6,25 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
 
 ## [Unreleased]
 
+### Added
+
+- Unified `config.toml` (pointed at by `KESTREL_CONFIG_FILE`) now also holds
+  applicative settings — `watched_repos`, `trigger_label`,
+  `reconcile_interval_seconds`, `verify_checks`, `max_verify_iterations` —
+  alongside backend routing. The file wins where it sets a key; the
+  environment fills in the rest. Secrets stay in the environment.
+- The running workflow stage's chip pulses; active runs in the sidebar show a
+  spinner; the verify chip shows a progress circle counting down the remaining
+  code↔verify iterations.
+- The code deliverable now renders in a proper diff viewer instead of as
+  Markdown.
+
+### Changed
+
+- `KESTREL_BACKENDS_FILE` is deprecated in favour of `KESTREL_CONFIG_FILE`
+  (still honoured, with a startup warning). `backends.toml.example` is now
+  `config.toml.example`.
+
 ## [2026.7.5-alpha.3] - 2026-07-05
 
 ### Added

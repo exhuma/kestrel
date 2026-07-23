@@ -18,11 +18,44 @@ from pydantic_settings import (
 _log = logging.getLogger("kestrel.config")
 
 # Backend config is file-only: these keys are resolved from the TOML file
-# named by ``KESTREL_BACKENDS_FILE`` (or left at their claude-only defaults),
+# named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
     {"backends", "step_backends", "default_session_backend"}
 )
+
+# Applicative (non-secret) settings the TOML config file may override. Unlike
+# the file-only backend keys, these remain readable from the environment too
+# (back-compat); the file simply wins when it sets them. Secrets
+# (tokens/passwords) are deliberately excluded — those stay in the env.
+_CONFIG_FILE_FIELDS = frozenset(
+    {
+        "watched_repos",
+        "trigger_label",
+        "reconcile_interval_seconds",
+        "verify_checks",
+        "max_verify_iterations",
+    }
+)
+
+
+def _normalize_watched_repos(v: object) -> object:
+    """Accept a JSON list or a comma-separated string of repos.
+
+    Shared by the ``watched_repos`` field validator (env/dotenv values,
+    always strings) and the TOML overlay (a native array needs no work,
+    but a string value is still tolerated).
+    """
+    if v is None or v == "":
+        return []
+    if isinstance(v, str):
+        s = v.strip()
+        if s.startswith("["):
+            import json
+
+            return json.loads(s)
+        return [item.strip() for item in s.split(",") if item.strip()]
+    return v
 
 
 class BackendConfig(BaseModel):
@@ -87,7 +120,7 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Drop the file-only backend keys from the environment sources.
 
-        Backends are configured exclusively via ``KESTREL_BACKENDS_FILE``
+        Backends are configured exclusively via ``KESTREL_CONFIG_FILE``
         (or direct construction). Filtering these keys out of the env and
         dotenv sources makes any stray ``KESTREL_BACKENDS`` /
         ``KESTREL_STEP_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND``
@@ -144,11 +177,15 @@ class Settings(BaseSettings):
     #: ``service.name`` reported on exported spans
     #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
     otel_service_name: str = "kestrel"
-    #: Path to a TOML file holding the backend config (``backends``,
-    #: ``step_backends``, ``default_session_backend``). This file is the
-    #: single way to configure backends — the recommended pattern is to
-    #: mount it as a volume in Docker. Relative paths resolve against the
-    #: working directory.
+    #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Holds the
+    #: backend config (``backends`` / ``step_backends`` /
+    #: ``default_session_backend``) and applicative overrides (see
+    #: ``_CONFIG_FILE_FIELDS``: ``watched_repos``, ``trigger_label``, …).
+    #: Secrets stay in the environment. Mount it as a volume in Docker;
+    #: relative paths resolve against the working directory.
+    config_file: str = ""
+    #: Deprecated alias for ``config_file`` (``KESTREL_BACKENDS_FILE``);
+    #: honoured only when ``config_file`` is unset, with a warning.
     backends_file: str = ""
     #: Dispatchable agent backends. File-only (see ``_FILE_ONLY_FIELDS``):
     #: resolved from ``backends_file`` or left at this claude-only default,
@@ -234,16 +271,54 @@ class Settings(BaseSettings):
     @classmethod
     def _parse_watched_repos(cls, v: object) -> object:
         """Accept a JSON list or a comma-separated string of repos."""
-        if v is None or v == "":
-            return []
-        if isinstance(v, str):
-            s = v.strip()
-            if s.startswith("["):
-                import json
+        return _normalize_watched_repos(v)
 
-                return json.loads(s)
-            return [item.strip() for item in s.split(",") if item.strip()]
-        return v
+    @model_validator(mode="after")
+    def _apply_config_file(self) -> Settings:
+        """Overlay config from the TOML file when one is set.
+
+        The file owns the backend keys (``backends`` / ``step_backends`` /
+        ``default_session_backend``) and may override the applicative keys
+        in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
+        omits keeps its env/default value, so the file wins only where it
+        speaks. Prefers ``config_file``; ``backends_file`` is a deprecated
+        alias honoured with a warning. A missing or malformed file fails
+        fast at startup. Defined before the completeness-warning validators
+        (after-validators run in definition order) so they see the file's
+        final values.
+        """
+        path_str = self.config_file
+        if not path_str:
+            if not self.backends_file:
+                return self
+            _log.warning(
+                "KESTREL_BACKENDS_FILE is deprecated; use KESTREL_CONFIG_FILE."
+            )
+            path_str = self.backends_file
+        path = Path(path_str)
+        if not path.is_file():
+            raise ValueError(f"config_file not found: {path}")
+        try:
+            data = tomllib.loads(path.read_text())
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"invalid TOML in {path}: {exc}") from exc
+        if "backends" in data:
+            self.backends = [
+                BackendConfig(**entry) for entry in data["backends"]
+            ]
+        if "step_backends" in data:
+            self.step_backends = dict(data["step_backends"])
+        if "default_session_backend" in data:
+            self.default_session_backend = data["default_session_backend"]
+        # Applicative overrides: file wins, but only for keys it sets.
+        if "watched_repos" in data:
+            self.watched_repos = _normalize_watched_repos(
+                data["watched_repos"]
+            )
+        for key in _CONFIG_FILE_FIELDS - {"watched_repos"}:
+            if key in data:
+                setattr(self, key, data[key])
+        return self
 
     @model_validator(mode="after")
     def _warn_incomplete_ingestion_config(self) -> Settings:
@@ -288,33 +363,6 @@ class Settings(BaseSettings):
                 "both are configured.",
                 self.code_host,
             )
-        return self
-
-    @model_validator(mode="after")
-    def _apply_backends_file(self) -> Settings:
-        """Overlay backend config from ``backends_file`` when set.
-
-        The file owns ``backends`` / ``step_backends`` /
-        ``default_session_backend``; any it omits keeps its default
-        value. A missing or malformed file fails fast at startup.
-        """
-        if not self.backends_file:
-            return self
-        path = Path(self.backends_file)
-        if not path.is_file():
-            raise ValueError(f"backends_file not found: {path}")
-        try:
-            data = tomllib.loads(path.read_text())
-        except tomllib.TOMLDecodeError as exc:
-            raise ValueError(f"invalid TOML in {path}: {exc}") from exc
-        if "backends" in data:
-            self.backends = [
-                BackendConfig(**entry) for entry in data["backends"]
-            ]
-        if "step_backends" in data:
-            self.step_backends = dict(data["step_backends"])
-        if "default_session_backend" in data:
-            self.default_session_backend = data["default_session_backend"]
         return self
 
 

@@ -55,9 +55,16 @@ class WorkflowStepOut(BaseModel):
     #: change; lets the frontend ignore no-op SSE updates instead of
     #: resetting in-progress form answers.
     refine_round: int
+    #: How many code↔verify iterations the verify step has entered (1-based;
+    #: 0 before it runs). Drives the verify chip's remaining-runs indicator.
+    verify_round: int = 0
     #: The backend id serving this step (e.g. "claude", "oc", "llm"), so
     #: the UI can show which agent runs each step.
     backend: str = ""
+    #: How the UI should render ``deliverable``: ``"diff"`` for the code
+    #: step's unified git diff (shown in a diff viewer), ``"markdown"``
+    #: otherwise (prose / questionnaire fall through the markdown path).
+    deliverable_format: str = "markdown"
 
 
 class WorkflowSummary(BaseModel):
@@ -91,6 +98,10 @@ class WorkflowDetail(BaseModel):
     #: Absolute ceiling on refine rounds (retries included); shown as
     #: "(max M)".
     refine_max_rounds: int
+    #: The configured cap on code↔verify iterations
+    #: (``max_verify_iterations``); with a step's ``verify_round`` this
+    #: drives the verify chip's "N runs left" progress circle.
+    verify_max_iterations: int
     #: When true, the UI lets a questionnaire be submitted incomplete
     #: (a configured safety net); unanswered questions go through blank.
     allow_incomplete_answers: bool

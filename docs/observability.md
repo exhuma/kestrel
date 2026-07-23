@@ -111,4 +111,4 @@ unreachable is gated out rather than served; see [Configuration → Health and
 version](configuration.md#health-and-version).
 
 `GET /api/backends` reports the configured backends and the ad-hoc-session
-default — useful to confirm a mounted `backends.toml` took effect.
+default — useful to confirm a mounted `config.toml` took effect.

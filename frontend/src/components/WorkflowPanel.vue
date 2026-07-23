@@ -9,6 +9,8 @@ import {
 import { renderMarkdown } from '../lib/markdown'
 import EventCard from './EventCard.vue'
 import ConsoleShell from './ConsoleShell.vue'
+import DiffView from './DiffView.vue'
+import { STEPS } from '../types/workflows'
 import { toViewModel } from '../lib/eventView'
 
 // One parser instance for the whole panel: it memoizes on
@@ -52,7 +54,9 @@ onMounted(() => {
 })
 onUnmounted(stop)
 
-const STEP_LABELS = ['refine', 'design', 'code', 'verify'] as const
+// The canonical steps come from the shared type (mirrors the backend Step
+// enum), so the chip row and the domain agree on the vocabulary.
+const STEP_LABELS = STEPS
 
 const activeStep = computed(() =>
   current.value?.steps.find((s) =>
@@ -103,10 +107,41 @@ const ticketLabel = computed(() =>
 // so we never feed it to the markdown renderer; those fall back to the raw
 // <pre> view (and, while awaiting input, to the questionnaire form).
 const deliverableHtml = computed(() => {
-  const text = activeStep.value?.deliverable
-  if (!text || parseQuestionnaire(text)) return null
+  const step = activeStep.value
+  const text = step?.deliverable
+  // A diff renders in DiffView, not the markdown path (see isDiffDeliverable).
+  if (!text || step?.deliverable_format === 'diff' || parseQuestionnaire(text))
+    return null
   return renderMarkdown(text)
 })
+// The code step's deliverable is a raw git diff: render it in a real diff
+// viewer instead of feeding it through the prose markdown renderer.
+const isDiffDeliverable = computed(
+  () =>
+    activeStep.value?.deliverable_format === 'diff' &&
+    !!activeStep.value?.deliverable,
+)
+
+// Verify-run budget for the verify chip's progress ring. The ring depletes as
+// code↔verify iterations are consumed; the centred number is how many remain.
+const verifyStep = computed(() =>
+  current.value?.steps.find((s) => s.name === 'verify'),
+)
+const verifyMax = computed(() => current.value?.verify_max_iterations ?? 0)
+const verifyRound = computed(() => verifyStep.value?.verify_round ?? 0)
+const showVerifyProgress = computed(
+  () =>
+    verifyRound.value > 0 &&
+    verifyMax.value > 0 &&
+    !runFailed.value &&
+    !current.value?.pr_url,
+)
+const verifyRemaining = computed(() =>
+  Math.max(verifyMax.value - verifyRound.value, 0),
+)
+const verifyPercent = computed(() =>
+  verifyMax.value ? (verifyRemaining.value / verifyMax.value) * 100 : 0,
+)
 
 // Named specialist sessions active right now, shown as activity chips.
 const activeSessions = computed(() => current.value?.active_sessions ?? [])
@@ -219,6 +254,27 @@ async function onDelete(id: string): Promise<void> {
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
 }
+// The active-working step's chip pulses to draw the eye to "where we are now".
+// Gates (awaiting_*) don't pulse — they surface via the warning alert — and a
+// failed/terminal run never pulses (runFailed is authoritative).
+function isStepPulsing(name: string): boolean {
+  return stepStatus(name) === 'running' && !runFailed.value
+}
+// Run statuses that mean "actively working" (transient, mid-pipeline) — used
+// to spin an activity indicator in the sidebar. Gate (awaiting_*) and terminal
+// (failed/escalated/rejected/PR-open) statuses are deliberately excluded.
+const ACTIVE_STATUSES = new Set([
+  'pending',
+  'cloning',
+  'refining',
+  'designing',
+  'coding',
+  'verifying',
+  'opening_pr',
+])
+function isActiveStatus(status: string): boolean {
+  return ACTIVE_STATUSES.has(status)
+}
 // Map a step/run status onto a Vuetify theme colour; `undefined` leaves the
 // chip in its neutral default (pending / not-yet-reached).
 function stepColor(status: string): string | undefined {
@@ -281,8 +337,16 @@ function badgeColor(token: string): string | undefined {
           @click="select(w.id)"
         >
           <template #prepend>
+            <v-progress-circular
+              v-if="isActiveStatus(w.status)"
+              indeterminate
+              size="12"
+              width="2"
+              color="primary"
+              class="me-1"
+            />
             <v-icon
-              v-if="w.status.startsWith('awaiting')"
+              v-else-if="w.status.startsWith('awaiting')"
               icon="$circle"
               color="warning"
               size="x-small"
@@ -350,7 +414,20 @@ function badgeColor(token: string): string | undefined {
             label
             :color="stepColor(stepStatus(name))"
             :variant="stepColor(stepStatus(name)) ? 'tonal' : 'outlined'"
+            :class="{ 'chip--pulse': isStepPulsing(name) }"
           >
+            <template v-if="name === 'verify' && showVerifyProgress" #prepend>
+              <v-progress-circular
+                :model-value="verifyPercent"
+                :size="20"
+                width="2"
+                color="primary"
+                class="me-1"
+                :title="`verify run ${verifyRound} of ${verifyMax} · ${verifyRemaining} left`"
+              >
+                <span class="chip__verify-count">{{ verifyRemaining }}</span>
+              </v-progress-circular>
+            </template>
             {{ name }}
           </v-chip>
           <v-chip
@@ -448,7 +525,7 @@ function badgeColor(token: string): string | undefined {
                questionnaire envelope — is JSON, so deliverableHtml is null and
                the block is hidden: the form renders it while awaiting input,
                and nothing dumps the raw JSON during the next run. -->
-        <div v-if="deliverableHtml">
+        <div v-if="isDiffDeliverable || deliverableHtml">
           <div class="text-overline text-medium-emphasis mb-1">
             {{
               awaitingInput
@@ -456,7 +533,15 @@ function badgeColor(token: string): string | undefined {
                 : `${activeStep?.name} deliverable`
             }}
           </div>
-          <div class="markdown deliverable__prose" v-html="deliverableHtml" />
+          <DiffView
+            v-if="isDiffDeliverable"
+            :diff="activeStep?.deliverable ?? ''"
+          />
+          <div
+            v-else
+            class="markdown deliverable__prose"
+            v-html="deliverableHtml"
+          />
         </div>
 
         <div v-if="awaitingApproval" class="d-flex flex-column ga-3">
@@ -599,5 +684,32 @@ function badgeColor(token: string): string | undefined {
 /* An error/activity hint on a crew chip can be long: keep the chip compact. */
 .chip__activity {
   max-width: 22ch;
+}
+/* The running stage's chip pulses to signal live activity. Colours come from
+   the Vuetify primary theme token (no hex), so it tracks light/dark. */
+.chip--pulse {
+  animation: chip-pulse 1.4s ease-in-out infinite;
+}
+@keyframes chip-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(var(--v-theme-primary), 0);
+  }
+}
+/* Respect users who prefer reduced motion: hold a static emphasis instead. */
+@media (prefers-reduced-motion: reduce) {
+  .chip--pulse {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.4);
+  }
+}
+/* The remaining-verify-runs count sits inside a 20px progress ring. */
+.chip__verify-count {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
 }
 </style>

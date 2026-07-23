@@ -247,16 +247,111 @@ def test_full_jira_and_code_host_config_does_not_warn(
 
 
 def test_backends_file_missing_fails_fast(tmp_path: Path) -> None:
-    """Ensure a bad backends_file path raises at settings load."""
+    """Ensure a bad config-file path raises at settings load."""
     with pytest.raises(Exception) as exc:
         Settings(_env_file=None, backends_file=str(tmp_path / "nope.toml"))
-    assert "backends_file not found" in str(exc.value)
+    assert "config_file not found" in str(exc.value)
 
 
 def test_backends_file_invalid_toml_fails_fast(tmp_path: Path) -> None:
-    """Ensure malformed TOML in backends_file raises a clear error."""
+    """Ensure malformed TOML in the config file raises a clear error."""
     toml = tmp_path / "bad.toml"
     toml.write_text("this is = = not valid toml")
     with pytest.raises(Exception) as exc:
         Settings(_env_file=None, backends_file=str(toml))
     assert "invalid TOML" in str(exc.value)
+
+
+def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
+    """Ensure the new config_file populates the backend settings."""
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        'default_session_backend = "oc"\n'
+        "\n"
+        "[step_backends]\n"
+        'implement = "claude"\n'
+        "\n"
+        "[[backends]]\n"
+        'id = "oc"\n'
+        'type = "opencode"\n'
+    )
+    s = Settings(_env_file=None, config_file=str(toml))
+    assert s.default_session_backend == "oc"
+    assert s.step_backends == {"implement": "claude"}
+    assert [b.id for b in s.backends] == ["oc"]
+
+
+def test_config_file_overlays_applicative_settings(tmp_path: Path) -> None:
+    """Ensure applicative keys are read from the config file.
+
+    ``watched_repos`` (native TOML array), plus the ingestion/reconcile
+    knobs, come from the file rather than the environment.
+    """
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        'watched_repos = ["o/one", "o/two"]\n'
+        'trigger_label = "ship-it"\n'
+        "reconcile_interval_seconds = 60\n"
+        'verify_checks = ["uv run pytest -q"]\n'
+        "max_verify_iterations = 5\n"
+    )
+    s = Settings(_env_file=None, config_file=str(toml))
+    assert s.watched_repos == ["o/one", "o/two"]
+    assert s.trigger_label == "ship-it"
+    assert s.reconcile_interval_seconds == 60
+    assert s.verify_checks == ["uv run pytest -q"]
+    assert s.max_verify_iterations == 5
+
+
+def test_config_file_wins_over_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure the file overrides an env value for a key it sets."""
+    monkeypatch.setenv("KESTREL_WATCHED_REPOS", "env/repo")
+    monkeypatch.setenv("KESTREL_MAX_VERIFY_ITERATIONS", "9")
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        'watched_repos = ["file/repo"]\nmax_verify_iterations = 2\n'
+    )
+    s = Settings(config_file=str(toml))
+    assert s.watched_repos == ["file/repo"]
+    assert s.max_verify_iterations == 2
+
+
+def test_env_fallback_when_file_omits_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure env still applies for applicative keys the file omits."""
+    monkeypatch.setenv("KESTREL_WATCHED_REPOS", "env/repo")
+    toml = tmp_path / "config.toml"
+    # File sets only trigger_label; watched_repos must fall back to env.
+    toml.write_text('trigger_label = "ship-it"\n')
+    s = Settings(config_file=str(toml))
+    assert s.watched_repos == ["env/repo"]
+    assert s.trigger_label == "ship-it"
+
+
+def test_backends_file_is_deprecated_alias(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ensure backends_file still works but warns as deprecated."""
+    toml = tmp_path / "backends.toml"
+    toml.write_text('default_session_backend = "oc"\n')
+    with caplog.at_level("WARNING"):
+        s = Settings(_env_file=None, backends_file=str(toml))
+    assert s.default_session_backend == "oc"
+    assert "KESTREL_BACKENDS_FILE is deprecated" in caplog.text
+
+
+def test_config_file_takes_precedence_over_backends_file(
+    tmp_path: Path,
+) -> None:
+    """Ensure config_file wins when both are set (no deprecation path)."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('default_session_backend = "cfg"\n')
+    old = tmp_path / "backends.toml"
+    old.write_text('default_session_backend = "old"\n')
+    s = Settings(
+        _env_file=None, config_file=str(cfg), backends_file=str(old)
+    )
+    assert s.default_session_backend == "cfg"

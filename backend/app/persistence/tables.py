@@ -99,6 +99,12 @@ class WorkflowStepRow(Base):
     #: Monotonic counter bumped only when the refine step's interview
     #: genuinely advances to a new round (see WorkflowStep.refine_round).
     refine_round: Mapped[int] = mapped_column(default=0)
+    #: 1-based count of code↔verify iterations the verify step has entered
+    #: (see WorkflowStep.verify_round). Server-default 0 keeps pre-existing
+    #: rows valid.
+    verify_round: Mapped[int] = mapped_column(
+        default=0, server_default="0"
+    )
 
 
 class WebhookDeliveryRow(Base):

@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from app import sse
 from app.config import get_settings
-from app.models_workflow import WorkflowRun
+from app.models_workflow import Step, WorkflowRun
 from app.policy import label_policy
 from app.questionnaire import parse_envelope
 from app.schemas import (
@@ -54,7 +54,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
     policy = label_policy()
     # The dynamic round cap lives in the refine step's interview envelope
     # (loop state), not a column; read it for the UI's "Round N / cap".
-    refine = next((s for s in run.steps if s.name == "refine"), None)
+    refine = next((s for s in run.steps if s.name == Step.REFINE), None)
     envelope = parse_envelope(refine.deliverable or "") if refine else None
     round_cap = (
         envelope.round_cap if envelope is not None else MAX_REFINE_ROUNDS
@@ -71,7 +71,13 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
                 name=s.name, session_id=s.session_id,
                 status=s.status, deliverable=s.deliverable,
                 refine_round=s.refine_round,
+                verify_round=s.verify_round,
                 backend=policy.backend_id_for(s.name),
+                # The code step's deliverable is a raw git diff; everything
+                # else is prose/questionnaire that renders as markdown.
+                deliverable_format=(
+                    "diff" if s.name == Step.CODE else "markdown"
+                ),
             )
             for s in run.steps
         ],
@@ -79,6 +85,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         active_sessions=active_sessions,
         refine_round_cap=round_cap,
         refine_max_rounds=MAX_REFINE_ROUNDS_HARD,
+        verify_max_iterations=get_settings().max_verify_iterations,
         allow_incomplete_answers=get_settings().allow_incomplete_answers,
         pr_url=run.pr_url,
         error=run.error,
