@@ -99,6 +99,12 @@ class WorkflowStepRow(Base):
     #: Monotonic counter bumped only when the refine step's interview
     #: genuinely advances to a new round (see WorkflowStep.refine_round).
     refine_round: Mapped[int] = mapped_column(default=0)
+    #: 1-based count of code↔verify iterations the verify step has entered
+    #: (see WorkflowStep.verify_round). Server-default 0 keeps pre-existing
+    #: rows valid.
+    verify_round: Mapped[int] = mapped_column(
+        default=0, server_default="0"
+    )
 
 
 class WebhookDeliveryRow(Base):
@@ -145,7 +151,9 @@ class NotificationRow(Base):
         ForeignKey("workflow_run.id")
     )
     repo: Mapped[str] = mapped_column()
-    issue_number: Mapped[int] = mapped_column()
+    #: GitHub issue number; ``NULL`` for a Jira-sourced run (feature 003),
+    #: whose ticket has no numeric id — identify the run via ``workflow_id``.
+    issue_number: Mapped[int | None] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column()
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime)

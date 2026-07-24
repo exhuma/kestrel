@@ -5,64 +5,38 @@ import logging
 import tomllib
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import (
     BaseSettings,
-    NoDecode,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
+from app.config_models import BackendConfig, TaskSourceConfig
+from app.models_workflow import Step
+
 _log = logging.getLogger("kestrel.config")
 
 # Backend config is file-only: these keys are resolved from the TOML file
-# named by ``KESTREL_BACKENDS_FILE`` (or left at their claude-only defaults),
+# named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
-    {"backends", "step_backends", "default_session_backend"}
+    {"backends", "step_backends", "default_session_backend", "task_sources"}
 )
 
-
-class BackendConfig(BaseModel):
-    """One dispatchable agent backend.
-
-    ``type`` selects the adapter; the remaining fields configure it
-    (``base_url``/``model``/``api_key_env`` are used by the HTTP-based
-    backends added in later phases). ``caps`` overrides the adapter's
-    default capabilities when set.
-    """
-
-    id: str
-    type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
-    base_url: str | None = None
-    model: str | None = None
-    #: This backend's secret, given directly (fine in a gitignored config
-    #: file): a bearer API key (``openai_compat``) or the HTTP Basic
-    #: password (``opencode``). Prefer ``api_key`` / ``password``; these
-    #: aliases are equivalent.
-    api_key: str | None = None
-    password: str | None = None
-    #: Name of an env var holding the secret instead of giving it inline
-    #: (used when the value is provided by the environment). Takes effect
-    #: only when the direct secret above is unset.
-    api_key_env: str | None = None
-    #: HTTP Basic username for a secured ``opencode`` server. Defaults to
-    #: opencode's own default ("opencode") when a password is configured.
-    username: str | None = None
-    #: Per-request timeout in seconds for HTTP backends (openai/opencode).
-    timeout: float | None = None
-    caps: list[str] | None = None
-
-    def secret(self) -> str | None:
-        """The resolved secret: an inline value, else the named env var."""
-        import os
-
-        direct = self.api_key or self.password
-        if direct:
-            return direct
-        return os.environ.get(self.api_key_env) if self.api_key_env else None
+# Applicative (non-secret) settings the TOML config file may override. Unlike
+# the file-only backend keys, these remain readable from the environment too
+# (back-compat); the file simply wins when it sets them. Secrets
+# (tokens/passwords) are deliberately excluded — those stay in the env.
+_CONFIG_FILE_FIELDS = frozenset(
+    {
+        "poll_interval_seconds",
+        "verify_checks",
+        "max_verify_iterations",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -87,7 +61,7 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Drop the file-only backend keys from the environment sources.
 
-        Backends are configured exclusively via ``KESTREL_BACKENDS_FILE``
+        Backends are configured exclusively via ``KESTREL_CONFIG_FILE``
         (or direct construction). Filtering these keys out of the env and
         dotenv sources makes any stray ``KESTREL_BACKENDS`` /
         ``KESTREL_STEP_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND``
@@ -117,6 +91,12 @@ class Settings(BaseSettings):
     #: ``KESTREL_VERSION`` (see the Dockerfile). The dev default makes a
     #: from-source run recognisable. Reported by ``GET /healthz``.
     version: str = "0.0.0-dev"
+    #: Uvicorn bind address / port and the dev auto-reload toggle
+    #: (``KESTREL_HOST`` / ``KESTREL_PORT`` / ``KESTREL_RELOAD``). Sourced
+    #: through Settings so a ``backend/.env`` value is honoured.
+    host: str = "0.0.0.0"
+    port: int = 8000
+    reload: bool = False
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
     permission_mode: str = "acceptEdits"
@@ -144,11 +124,15 @@ class Settings(BaseSettings):
     #: ``service.name`` reported on exported spans
     #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
     otel_service_name: str = "kestrel"
-    #: Path to a TOML file holding the backend config (``backends``,
-    #: ``step_backends``, ``default_session_backend``). This file is the
-    #: single way to configure backends — the recommended pattern is to
-    #: mount it as a volume in Docker. Relative paths resolve against the
-    #: working directory.
+    #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Holds the
+    #: backend config (``backends`` / ``step_backends`` /
+    #: ``default_session_backend``) and applicative overrides (see
+    #: ``_CONFIG_FILE_FIELDS``: ``watched_repos``, ``trigger_label``, …).
+    #: Secrets stay in the environment. Mount it as a volume in Docker;
+    #: relative paths resolve against the working directory.
+    config_file: str = ""
+    #: Deprecated alias for ``config_file`` (``KESTREL_BACKENDS_FILE``);
+    #: honoured only when ``config_file`` is unset, with a warning.
     backends_file: str = ""
     #: Dispatchable agent backends. File-only (see ``_FILE_ONLY_FIELDS``):
     #: resolved from ``backends_file`` or left at this claude-only default,
@@ -183,126 +167,66 @@ class Settings(BaseSettings):
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
     #: off-loopback endpoint (constitution v1.2.0). Never logged.
     webhook_secret: str = ""
-    #: Allow-list of ``owner/name`` repos kestrel may ingest from and
-    #: reconcile against (``KESTREL_WATCHED_REPOS``). Accepts a JSON list
-    #: or a comma-separated string; anything outside the list is ignored.
-    watched_repos: Annotated[list[str], NoDecode] = []
-    #: The issue label that flags an issue for ingestion.
-    trigger_label: str = "kestrel"
-    #: Reconciliation cadence in seconds
-    #: (``KESTREL_RECONCILE_INTERVAL_SECONDS``).
-    reconcile_interval_seconds: int = 300
+    #: Configured task sources (GitHub / Jira). File-only (like ``backends``);
+    #: each entry declares a ``type`` and that source's selection criteria.
+    #: See :class:`app.config_models.TaskSourceConfig`.
+    task_sources: list[TaskSourceConfig] = []
+    #: Single cadence (seconds) governing every source's re-check loop — the
+    #: GitHub reconcile backstop and the Jira poll alike.
+    poll_interval_seconds: int = 300
     #: Public base URL of the kestrel web UI, used to build gate-notification
     #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
     #: a link. Operator-exposed, same posture as the webhook endpoint.
     public_base_url: str = ""
-    #: Jira ingestion (feature 003). Base URL of the Jira instance
-    #: (``KESTREL_JIRA_BASE_URL``); empty ⇒ Jira polling disabled.
-    jira_base_url: str = ""
-    #: Jira auth mode: ``basic`` (Cloud — email + API token) or ``bearer``
-    #: (Server/DC — personal access token).
-    jira_auth: Literal["basic", "bearer"] = "basic"
-    #: Basic-auth username (Jira Cloud email); used when ``jira_auth`` is
-    #: ``basic``.
-    jira_email: str = ""
     #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
+    #: The default token env var for a ``jira`` task source.
     jira_api_token: str = ""
-    #: RFC project key polled for change requests (required to poll).
-    jira_project: str = ""
-    #: Extra JQL AND-ed onto ``project = "<key>"`` (e.g. ``status = "Ready"``).
-    #: Keeps kestrel agnostic of company-internal workflow states.
-    jira_jql_filter: str = ""
-    #: Field id/name on the RFC holding the target ``owner/name[@base_branch]``.
-    jira_repo_field: str = ""
-    #: Jira poll cadence in seconds.
-    jira_poll_interval_seconds: int = 300
-    #: Code host for Jira-resolved repos: ``github`` | ``gitlab`` | ``gitea``.
-    #: Self-hostable — ``gitlab``/``gitea`` point at an on-prem instance.
-    code_host: Literal["github", "gitlab", "gitea"] = "github"
-    #: Self-hosted code-host instance base URL (e.g. ``https://gitlab.local``).
-    code_host_base_url: str = ""
-    #: Code-host token / PAT. Secret; never logged. Falls back to
-    #: ``github_token`` when ``code_host`` is ``github``.
-    code_host_token: str = ""
     #: Shell commands run in the run's worktree as verify evidence (v1).
     #: JSON list, e.g. ``["uv run pytest -q"]``. Empty ⇒ judgment-only.
     verify_checks: list[str] = []
     #: Max code↔verify iterations before the loop escalates (feature 003).
     max_verify_iterations: int = 3
 
-    @field_validator("watched_repos", mode="before")
-    @classmethod
-    def _parse_watched_repos(cls, v: object) -> object:
-        """Accept a JSON list or a comma-separated string of repos."""
-        if v is None or v == "":
-            return []
-        if isinstance(v, str):
-            s = v.strip()
-            if s.startswith("["):
-                import json
+    def github_sources(self) -> list[TaskSourceConfig]:
+        """The configured GitHub task sources."""
+        return [s for s in self.task_sources if s.type == "github"]
 
-                return json.loads(s)
-            return [item.strip() for item in s.split(",") if item.strip()]
-        return v
+    def jira_sources(self) -> list[TaskSourceConfig]:
+        """The configured Jira task sources."""
+        return [s for s in self.task_sources if s.type == "jira"]
+
+    def github_source_for(self, repo: str) -> TaskSourceConfig | None:
+        """The GitHub source whose allow-list has ``repo`` (first match)."""
+        for source in self.github_sources():
+            if repo in source.watched_repos:
+                return source
+        return None
 
     @model_validator(mode="after")
-    def _warn_incomplete_ingestion_config(self) -> Settings:
-        """Warn (not fail) when watched repos are set without a secret.
+    def _apply_config_file(self) -> Settings:
+        """Overlay config from the TOML file when one is set.
 
-        Ingestion silently doing nothing is a worse failure mode than a
-        startup warning, so surface the likely misconfiguration.
+        The file owns the backend keys (``backends`` / ``step_backends`` /
+        ``default_session_backend``) and may override the applicative keys
+        in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
+        omits keeps its env/default value, so the file wins only where it
+        speaks. Prefers ``config_file``; ``backends_file`` is a deprecated
+        alias honoured with a warning. A missing or malformed file fails
+        fast at startup. Defined before the completeness-warning validators
+        (after-validators run in definition order) so they see the file's
+        final values.
         """
-        if self.watched_repos and not self.webhook_secret:
+        path_str = self.config_file
+        if not path_str:
+            if not self.backends_file:
+                return self
             _log.warning(
-                "watched_repos is set but webhook_secret is empty; "
-                "webhook ingestion will reject every delivery until "
-                "KESTREL_WEBHOOK_SECRET is configured."
+                "KESTREL_BACKENDS_FILE is deprecated; use KESTREL_CONFIG_FILE."
             )
-        return self
-
-    @model_validator(mode="after")
-    def _warn_incomplete_jira_config(self) -> Settings:
-        """Warn (not fail) when Jira is half-configured.
-
-        Jira polling silently doing nothing is a worse failure mode than a
-        startup warning, so surface the likely misconfiguration.
-        """
-        if self.jira_base_url and not (
-            self.jira_project and self.jira_api_token
-        ):
-            _log.warning(
-                "jira_base_url is set but jira_project or jira_api_token is "
-                "empty; Jira polling will not start until both are configured."
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _warn_incomplete_code_host_config(self) -> Settings:
-        """Warn when a self-hosted code host lacks its URL or token."""
-        if self.code_host in ("gitlab", "gitea") and not (
-            self.code_host_base_url and self.code_host_token
-        ):
-            _log.warning(
-                "code_host is %r but code_host_base_url or code_host_token is "
-                "empty; Jira-resolved repositories cannot be reached until "
-                "both are configured.",
-                self.code_host,
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _apply_backends_file(self) -> Settings:
-        """Overlay backend config from ``backends_file`` when set.
-
-        The file owns ``backends`` / ``step_backends`` /
-        ``default_session_backend``; any it omits keeps its default
-        value. A missing or malformed file fails fast at startup.
-        """
-        if not self.backends_file:
-            return self
-        path = Path(self.backends_file)
+            path_str = self.backends_file
+        path = Path(path_str)
         if not path.is_file():
-            raise ValueError(f"backends_file not found: {path}")
+            raise ValueError(f"config_file not found: {path}")
         try:
             data = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as exc:
@@ -315,6 +239,83 @@ class Settings(BaseSettings):
             self.step_backends = dict(data["step_backends"])
         if "default_session_backend" in data:
             self.default_session_backend = data["default_session_backend"]
+        if "task_sources" in data:
+            self.task_sources = [
+                TaskSourceConfig(**entry) for entry in data["task_sources"]
+            ]
+        # Applicative overrides: file wins, but only for keys it sets.
+        for key in _CONFIG_FILE_FIELDS:
+            if key in data:
+                setattr(self, key, data[key])
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_ingestion_config(self) -> Settings:
+        """Warn (not fail) when GitHub sources are set without a secret.
+
+        Ingestion silently doing nothing is a worse failure mode than a
+        startup warning, so surface the likely misconfiguration.
+        """
+        if self.github_sources() and not self.webhook_secret:
+            _log.warning(
+                "a github task source is configured but webhook_secret is "
+                "empty; webhook ingestion will reject every delivery until "
+                "KESTREL_WEBHOOK_SECRET is configured."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_source_config(self) -> Settings:
+        """Warn (not fail) when a Jira source can't authenticate or reach code.
+
+        A source silently doing nothing is a worse failure mode than a startup
+        warning, so surface the likely misconfiguration per source.
+        """
+        for source in self.jira_sources():
+            if not source.token():
+                _log.warning(
+                    "jira task source %r has no token (env %r unset); its "
+                    "polling cannot authenticate.",
+                    source.base_url,
+                    source.token_env or "KESTREL_JIRA_API_TOKEN",
+                )
+            if source.code_host in ("gitlab", "gitea") and not (
+                source.code_host_base_url and source.code_host_token()
+            ):
+                _log.warning(
+                    "jira task source %r uses code_host %r but its base URL or "
+                    "token is empty; resolved repos cannot be reached.",
+                    source.base_url,
+                    source.code_host,
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_step_backends(self) -> Settings:
+        """Validate that step_backends keys are valid workflow step names.
+
+        Fails fast if any invalid step names are configured, providing a
+        clear error message with the valid options. This prevents silent
+        fallbacks to default backends when step names don't match.
+        """
+        if not self.step_backends:
+            return self
+        valid_steps = {str(s) for s in Step.sequence()}
+        invalid_steps = set(self.step_backends.keys()) - valid_steps
+        # A dotted sub-step reference like "refine.reconcile" is valid as
+        # long as its top-level step ("refine") is itself a valid step —
+        # only flag it when that top-level prefix is not.
+        main_invalid = {
+            s.split(".")[0] for s in invalid_steps
+            if s.split(".")[0] not in valid_steps
+        }
+        if main_invalid:
+            valid_list = ", ".join(sorted(valid_steps))
+            invalid_list = ", ".join(sorted(main_invalid))
+            raise ValueError(
+                f"Invalid step names in step_backends: {invalid_list!r}. "
+                f"Valid steps are: {valid_list}."
+            )
         return self
 
 

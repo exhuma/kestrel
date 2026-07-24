@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from app.config import Settings, get_settings
+from app.config_models import TaskSourceConfig
 from app.main import create_app
 from app.persistence.dismissal_store import get_dismissal_store
 from app.persistence.webhook_delivery_store import (
@@ -79,8 +80,11 @@ def _client(deliveries, dismissals, ingestion):
     settings = Settings(
         _env_file=None,
         webhook_secret=_SECRET,
-        watched_repos=["o/r"],
-        trigger_label="kestrel",
+        task_sources=[
+            TaskSourceConfig(
+                type="github", watched_repos=["o/r"], trigger_label="kestrel"
+            )
+        ],
     )
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_webhook_delivery_store] = lambda: deliveries

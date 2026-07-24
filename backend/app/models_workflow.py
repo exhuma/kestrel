@@ -2,6 +2,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
+
+
+class Step(StrEnum):
+    """The canonical workflow steps, in pipeline order.
+
+    A :class:`~enum.StrEnum` so each member *is* its wire string
+    (``Step.CODE == "code"``, ``str(Step.CODE) == "code"``): existing
+    string comparisons, dict-key lookups (see :mod:`app.policy`), DB
+    storage, and JSON serialisation all keep working unchanged, while the
+    step vocabulary now has a single typed source of truth.
+    """
+
+    REFINE = "refine"
+    DESIGN = "design"
+    CODE = "code"
+    VERIFY = "verify"
+
+    @classmethod
+    def sequence(cls) -> list[Step]:
+        """The ordered steps a run traverses, refine → verify."""
+        return [cls.REFINE, cls.DESIGN, cls.CODE, cls.VERIFY]
 
 
 @dataclass
@@ -50,6 +72,11 @@ class WorkflowStep:
     #: for round-change detection (distinguishes a genuine
     #: questionnaire change from a no-op SSE update).
     refine_round: int = 0
+    #: How many code↔verify iterations the verify step has entered so far
+    #: (1-based, bumped at the top of each loop pass); 0 before the step
+    #: runs. Bounded by ``max_verify_iterations``; drives the verify chip's
+    #: "remaining runs" indicator. Persisted like :attr:`refine_round`.
+    verify_round: int = 0
     #: Live sessions backing this step right now (ephemeral chip state;
     #: never persisted — see :class:`StepSession`).
     active_sessions: list[StepSession] = field(default_factory=list)

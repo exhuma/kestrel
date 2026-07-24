@@ -5,18 +5,19 @@ the bundled `claude` CLI, so no configuration is needed. To add backends
 (self-hosted LLMs, opencode), write a **TOML file** and point kestrel at it:
 
 ```bash
-KESTREL_BACKENDS_FILE=backends.toml   # relative to the working dir, or absolute
+KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
 ```
 
-Copy [`backends.toml.example`](../backends.toml.example) to `backends.toml`
-and edit. It declares the available backends, the ad-hoc-session default, and
-the per-workflow-step assignments:
+Copy [`config.toml.example`](../config.toml.example) to `config.toml` and
+edit. Alongside the applicative settings (see
+[Configuration](configuration.md)), it declares the available backends, the
+ad-hoc-session default, and the per-workflow-step assignments:
 
 ```toml
 default_session_backend = "local"
 
 [step_backends]           # step -> backend id; omitted steps use the default
-implement = "claude"      # keep implement on claude (see the opencode note)
+code = "claude"           # keep code on claude (see the opencode note)
 
 [[backends]]
 id = "claude"
@@ -35,7 +36,7 @@ to: …`), and `GET /api/backends` reports it live. In Docker, mount the file
 and set the env var (see the commented lines in `docker-compose.yml`).
 
 > The TOML file is the **only** way to configure backends. Without
-> `KESTREL_BACKENDS_FILE` set, kestrel runs claude-only.
+> `KESTREL_CONFIG_FILE` set, kestrel runs claude-only.
 
 ## Reaching a backend from the Docker container
 
@@ -53,19 +54,19 @@ From the published image, use one of:
   the same compose network (address it as `http://service-name:PORT`).
 
 So a host-run Ollama that you'd reach at `http://localhost:11434/v1` from
-source becomes `http://host.docker.internal:11434/v1` in `backends.toml` when
+source becomes `http://host.docker.internal:11434/v1` in `config.toml` when
 running the image.
 
 ## Where backends apply
 
 Ad-hoc sessions (the **Sessions** panel / `POST /api/sessions`) use
-`default_session_backend`. Each GitHub-workflow step (`refine`, `plan`,
-`implement`) uses its `step_backends` entry if set, else the same default.
+`default_session_backend`. Each workflow step (`refine`, `design`, `code`,
+`verify`) uses its `step_backends` entry if set, else the same default.
 
-A step only accepts a backend that can satisfy it: `implement` needs
-file-editing (`claude`/`opencode`), while `refine`/`plan` need only text — so
+A step only accepts a backend that can satisfy it: `code` needs file-editing
+(`claude`/`opencode`), while `refine`/`design`/`verify` need only text — so
 a plain LLM may serve them (it just won't read the repo). A bad mapping (e.g.
-a text-only LLM on `implement`) fails that run with a clear capability error.
+a text-only LLM on `code`) fails that run with a clear capability error.
 
 ## Backend types
 
@@ -129,10 +130,10 @@ password = "changeme"                      # inline (gitignored file), or:
 > it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
 >
 > **opencode read-only steps and permissions.** The reasoning steps (`refine`,
-> `plan`) run read-only: kestrel disables opencode's file-mutating tools
-> (`edit`/`write`/`patch`) for those turns and rejects any edit permission the
-> agent still asks for, so they can read and run commands but cannot change the
-> workspace. `implement` runs with edits enabled. kestrel answers opencode's
+> `design`, `verify`) run read-only: kestrel disables opencode's file-mutating
+> tools (`edit`/`write`/`patch`) for those turns and rejects any edit permission
+> the agent still asks for, so they can read and run commands but cannot change
+> the workspace. `code` runs with edits enabled. kestrel answers opencode's
 > permission prompts itself — it streams the server's `/event` bus and replies
 > to each request — so a headless `opencode serve` never blocks waiting for a
 > human to click "allow"; you do **not** need to pre-configure opencode's

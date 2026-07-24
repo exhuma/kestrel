@@ -1,4 +1,7 @@
 """Orchestrates the GitHub issue -> code workflow over sessions."""
+# TODO(quality): refactor — exceeds the 500-line module guardrail. Split this
+# module rather than growing it; grandfathered when the harness was introduced.
+# pylint: disable=too-many-lines
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +19,8 @@ from typing import Callable
 
 from app.backends.base import Backend, Capability, TurnRequest, TurnResult
 from app.config import Settings, get_settings
-from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
+from app.config_models import TaskSourceConfig
+from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
     InAppNotifier,
@@ -622,12 +626,7 @@ class WorkflowService:
                 self.settings.workspace_root,
                 f"wf-{uuid.uuid4().hex[:8]}",
             ),
-            steps=[
-                WorkflowStep(name="refine"),
-                WorkflowStep(name="design"),
-                WorkflowStep(name="code"),
-                WorkflowStep(name="verify"),
-            ],
+            steps=[WorkflowStep(name=step) for step in Step.sequence()],
             source=source,
         )
         self.workflows.create(run)
@@ -652,7 +651,7 @@ class WorkflowService:
     def reply(self, workflow_id: str, text: str) -> None:
         run = self.get(workflow_id)
         step = self._awaiting_input_step(run)
-        if step.name == "refine":
+        if step.name == Step.REFINE:
             # The refine interview is always structured now; only the
             # implement blocker still accepts a free-text reply.
             raise InvalidWorkflowStateError(
@@ -670,7 +669,7 @@ class WorkflowService:
         """
         run = self.get(workflow_id)
         step = run.steps[0]
-        if step.name != "refine" or step.status != "awaiting_input":
+        if step.name != Step.REFINE or step.status != "awaiting_input":
             raise InvalidWorkflowStateError("not awaiting a refine reply")
         envelope = parse_envelope(step.deliverable or "")
         if envelope is None:
@@ -722,7 +721,7 @@ class WorkflowService:
         # Safety net: with the flag on, tolerate missing required answers
         # (they go through blank) while still rejecting malformed ones.
         partial = self.settings.allow_incomplete_answers
-        if step.name == "refine":
+        if step.name == Step.REFINE:
             envelope = parse_envelope(step.deliverable or "")
             if envelope is None:
                 raise InvalidWorkflowStateError("no pending questionnaire")
@@ -887,13 +886,14 @@ class WorkflowService:
                     run.repo
                 )
             self._save(run)
-            remote = self._code_host(run).clone_remote(run.repo)
-            await self.git.provision_worktree(
-                remote,
-                self._mirror_dir(run.repo),
-                run.workspace,
-                run.base_branch,
-                run.branch,
+            code_host = self._code_host(run)
+            remote = code_host.clone_remote(run.repo)
+            mirror = self._mirror_dir(run.repo)
+            await self.git.ensure_mirror(
+                remote, mirror, code_host.git_credential()
+            )
+            await self.git.add_worktree(
+                mirror, run.workspace, run.base_branch, run.branch
             )
 
             if has_sentinel(task.body):
@@ -961,7 +961,7 @@ class WorkflowService:
         approval gate.
         """
         step = run.steps[0]
-        step.model = get_policy().model_for("refine")
+        step.model = get_policy().model_for(Step.REFINE)
         if step.status != "awaiting_approval":
             issue, accumulated = await self._run_interview(run, body)
             step.deliverable = await self._write_refined(
@@ -1661,7 +1661,7 @@ class WorkflowService:
         # Persist the approved PRD as a handover artifact, then reference it
         # (file-capable backend) or inline it (text-only) in the prompt.
         self._write_artifact(run, "prd.md", prd)
-        model = get_policy().model_for("design")
+        model = get_policy().model_for(Step.DESIGN)
         step.model = model
         run.status = "designing"
         step.status = "running"
@@ -1672,10 +1672,10 @@ class WorkflowService:
         self._save(run)
         result = await self._run_turn_tracked(
             run,
-            self.backends.backend_for("design"),
+            self.backends.backend_for(Step.DESIGN),
             TurnRequest(
                 prompt=DESIGN_PROMPT.format(
-                    issue=self._artifact_slot("design", run, "prd.md", prd)
+                    issue=self._artifact_slot(Step.DESIGN, run, "prd.md", prd)
                 ),
                 cwd=run.workspace,
                 permission_mode="plan", model=model,
@@ -1713,15 +1713,18 @@ class WorkflowService:
         # on any resume path).
         self._write_artifact(run, "prd.md", prd)
         self._write_artifact(run, "design.md", design)
-        code_model = get_policy().model_for("code")
-        verify_model = get_policy().model_for("verify")
+        code_model = get_policy().model_for(Step.CODE)
+        verify_model = get_policy().model_for(Step.VERIFY)
         # The coder always needs FILE_EDITS, so it reads the artifacts from
         # the worktree rather than carrying their full text in the prompt.
         prompt = CODE_PROMPT.format(
-            prd=self._artifact_slot("code", run, "prd.md", prd),
-            design=self._artifact_slot("code", run, "design.md", design),
+            prd=self._artifact_slot(Step.CODE, run, "prd.md", prd),
+            design=self._artifact_slot(Step.CODE, run, "design.md", design),
         )
-        for _ in range(max(1, self.settings.max_verify_iterations)):
+        for iteration in range(max(1, self.settings.max_verify_iterations)):
+            # 1-based count of verify passes entered, for the UI's
+            # remaining-runs indicator on the verify chip.
+            verify_step.verify_round = iteration + 1
             # ---- code (gateless) ----
             code_step.model = code_model
             run.status = "coding"
@@ -1738,14 +1741,14 @@ class WorkflowService:
             # different code backend (opencode, expecting ``ses-…``) would be
             # rejected. On a cross-backend route the coder starts fresh.
             same_backend = self.backends.backend_id_for(
-                "design"
-            ) == self.backends.backend_id_for("code")
+                Step.DESIGN
+            ) == self.backends.backend_id_for(Step.CODE)
             code_resume_id = code_step.session_id or (
                 run.steps[1].session_id if same_backend else None
             )
             await self._run_turn_tracked(
                 run,
-                self.backends.backend_for("code"),
+                self.backends.backend_for(Step.CODE),
                 TurnRequest(
                     prompt=prompt, cwd=run.workspace,
                     permission_mode="acceptEdits", model=code_model,
@@ -1781,7 +1784,7 @@ class WorkflowService:
             evidence = await self.check_runner.run(run.workspace)
             verify_result = await self._run_turn_tracked(
                 run,
-                self.backends.backend_for("verify"),
+                self.backends.backend_for(Step.VERIFY),
                 TurnRequest(
                     # The verifier gets PRD/design INLINE, not as file
                     # pointers. It must emit a strict <VERDICT> JSON block
@@ -1820,7 +1823,7 @@ class WorkflowService:
             self._save(run)
             prompt = CODE_FEEDBACK_PROMPT.format(
                 feedback=feedback,
-                design=self._artifact_slot("code", run, "design.md", design),
+                design=self._artifact_slot(Step.CODE, run, "design.md", design),
             )
         return await self._escalate(
             run, "verification did not pass within the iteration limit"
@@ -1869,7 +1872,9 @@ class WorkflowService:
             cr_title = f"{run.issue_title} ({run.task_ref})"
             cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
         await self.git.commit_all(run.workspace, commit_msg)
-        await self.git.push(run.workspace, run.branch)
+        await self.git.push(
+            run.workspace, run.branch, self._code_host(run).git_credential()
+        )
         run.pr_url = await self._code_host(run).open_change_request(
             run.repo,
             head=run.branch,
@@ -1900,7 +1905,10 @@ def get_workflow_service() -> WorkflowService:
     """Return the process-wide WorkflowService singleton."""
     settings = get_settings()
     registry = get_registry()
-    github = GitHubClient(settings.github_api_base, settings.github_token)
+    gh_verify = all(s.verify_ssl for s in settings.github_sources())
+    github = GitHubClient(
+        settings.github_api_base, settings.github_token, verify=gh_verify
+    )
     gh_source = GitHubTaskSource(github, settings.public_base_url)
     gh_host = GitHubCodeHost(github, settings.git_base)
     # Task Source / Code Host per run source. GitHub and manual runs collapse
@@ -1912,19 +1920,29 @@ def get_workflow_service() -> WorkflowService:
     code_hosts: dict[str, object] = {
         "manual": gh_host, "github-issue": gh_host,
     }
-    if settings.jira_base_url and settings.jira_project:
+    jira_sources = settings.jira_sources()
+    if jira_sources:
         from app.services.jira import JiraClient, JiraTaskSource
 
+        entry = jira_sources[0]
         jira = JiraClient(
-            settings.jira_base_url,
-            auth=settings.jira_auth,
-            email=settings.jira_email,
-            token=settings.jira_api_token,
+            entry.base_url,
+            auth=entry.auth,
+            email=entry.email,
+            token=entry.token() or "",
+            verify=entry.verify_ssl,
         )
         sources["jira-issue"] = JiraTaskSource(
             jira, settings.public_base_url
         )
-        code_hosts["jira-issue"] = _build_code_host(settings, github)
+        jira_github = GitHubClient(
+            settings.github_api_base,
+            settings.github_token,
+            verify=entry.verify_ssl,
+        )
+        code_hosts["jira-issue"] = build_code_host(
+            entry, jira_github, settings.git_base
+        )
     # In-app first (always records the durable fallback row), then the
     # best-effort ticket comment via the run's source (feature 003).
     notifier = CompositeNotifier(
@@ -1948,17 +1966,21 @@ def get_workflow_service() -> WorkflowService:
     )
 
 
-def _build_code_host(settings: Settings, github: GitHubClient) -> object:
-    """Build the code host for Jira-resolved repos, per ``code_host`` config.
+def build_code_host(
+    source: TaskSourceConfig, github: GitHubClient, git_base: str
+) -> object:
+    """Build the code host for a Jira source's resolved repos.
 
     Self-hostable (feature 003, FR-023a): ``gitlab``/``gitea`` point at an
     on-prem instance; ``github`` reuses the GitHub client. The code-host token
     falls back to ``github_token`` when the host is GitHub.
     """
-    if settings.code_host in ("gitlab", "gitea"):
+    if source.code_host in ("gitlab", "gitea"):
         from app.services.gitlab import GitLabCodeHost
 
         return GitLabCodeHost(
-            settings.code_host_base_url, settings.code_host_token
+            source.code_host_base_url,
+            source.code_host_token() or "",
+            verify=source.verify_ssl,
         )
-    return GitHubCodeHost(github, settings.git_base)
+    return GitHubCodeHost(github, git_base)

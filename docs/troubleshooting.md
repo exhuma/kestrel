@@ -50,7 +50,7 @@ Supported MCP server runtimes are the ones bundled in the image: **node/npx**,
 
 Inside the container `localhost` is the container itself, not the Docker host.
 A host-run Ollama or `opencode serve` must be addressed as
-`http://host.docker.internal:PORT` in `backends.toml`, not `localhost`. See
+`http://host.docker.internal:PORT` in `config.toml`, not `localhost`. See
 [Backends → Reaching a backend from the Docker container](backends.md#reaching-a-backend-from-the-docker-container).
 
 ## Port 8000 is already in use
@@ -85,7 +85,7 @@ from-source run reports `0.0.0-dev`.
 
 ## Backend edits are not taking effect
 
-`backends.toml` is read **once at startup**. Restart after editing:
+`config.toml` is read **once at startup**. Restart after editing:
 
 ```bash
 docker compose restart kestrel

@@ -74,6 +74,23 @@ def test_in_app_notifier_records_awaiting_status(tmp_path: Path) -> None:
     assert items[0].read is False
 
 
+def test_in_app_notifier_records_jira_run_without_issue_number(
+    tmp_path: Path,
+) -> None:
+    """A Jira run (issue_number=None) persists — no NOT NULL crash (004)."""
+    store = _store(tmp_path)
+    run = WorkflowRun(
+        id="wf-j", repo="acme/gw", issue_number=None,
+        source="jira-issue", task_ref="RFC-1",
+        status="awaiting_refine_input",
+    )
+    InAppNotifier(store).notify(run)
+    items = store.list_all()
+    assert len(items) == 1
+    assert items[0].issue_number is None
+    assert items[0].workflow_id == "wf-j"
+
+
 def test_in_app_notifier_records_done_and_failed(tmp_path: Path) -> None:
     """Ensure done and failed statuses are recorded."""
     store = _store(tmp_path)

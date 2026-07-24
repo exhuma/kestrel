@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from app import sse
 from app.config import get_settings
-from app.models_workflow import WorkflowRun
+from app.models_workflow import Step, WorkflowRun
 from app.policy import label_policy
 from app.questionnaire import parse_envelope
 from app.schemas import (
@@ -54,7 +54,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
     policy = label_policy()
     # The dynamic round cap lives in the refine step's interview envelope
     # (loop state), not a column; read it for the UI's "Round N / cap".
-    refine = next((s for s in run.steps if s.name == "refine"), None)
+    refine = next((s for s in run.steps if s.name == Step.REFINE), None)
     envelope = parse_envelope(refine.deliverable or "") if refine else None
     round_cap = (
         envelope.round_cap if envelope is not None else MAX_REFINE_ROUNDS
@@ -71,7 +71,13 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
                 name=s.name, session_id=s.session_id,
                 status=s.status, deliverable=s.deliverable,
                 refine_round=s.refine_round,
+                verify_round=s.verify_round,
                 backend=policy.backend_id_for(s.name),
+                # The code step's deliverable is a raw git diff; everything
+                # else is prose/questionnaire that renders as markdown.
+                deliverable_format=(
+                    "diff" if s.name == Step.CODE else "markdown"
+                ),
             )
             for s in run.steps
         ],
@@ -79,6 +85,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         active_sessions=active_sessions,
         refine_round_cap=round_cap,
         refine_max_rounds=MAX_REFINE_ROUNDS_HARD,
+        verify_max_iterations=get_settings().max_verify_iterations,
         allow_incomplete_answers=get_settings().allow_incomplete_answers,
         pr_url=run.pr_url,
         error=run.error,
@@ -95,17 +102,53 @@ async def create_workflow(
     return {"workflow_id": wid}
 
 
-@router.get("", response_model=list[WorkflowSummary])
-async def list_workflows(
-    service: WorkflowService = Depends(get_workflow_service),
-) -> list[WorkflowSummary]:
-    """List all workflow runs."""
+def _summaries(service: WorkflowService) -> list[WorkflowSummary]:
     return [
         WorkflowSummary(
             id=r.id, repo=r.repo, issue_number=r.issue_number, status=r.status
         )
         for r in service.list()
     ]
+
+
+@router.get("", response_model=list[WorkflowSummary])
+async def list_workflows(
+    service: WorkflowService = Depends(get_workflow_service),
+) -> list[WorkflowSummary]:
+    """List all workflow runs."""
+    return _summaries(service)
+
+
+@router.get("/events")
+async def stream_workflows(
+    service: WorkflowService = Depends(get_workflow_service),
+    bus: WorkflowBus = Depends(get_workflow_bus),
+) -> StreamingResponse:
+    """
+    Stream the workflow summary list as Server-Sent Events.
+
+    Emits the current list immediately, then a fresh list on *any* run change
+    — including creation — so the sidebar live-adds runs started by background
+    ingestion (GitHub webhook / Jira poll), not only UI-created ones. Declared
+    before ``/{workflow_id}`` so the static path is not captured as an id.
+    """
+    def _snapshot() -> bytes:
+        return sse.encode(
+            [s.model_dump(mode="json") for s in _summaries(service)]
+        )
+
+    async def _frames() -> AsyncIterator[bytes]:
+        q = bus.subscribe_list()
+        try:
+            yield _snapshot()
+            async for tick in sse.with_heartbeat(q):
+                yield sse.KEEPALIVE if tick is None else _snapshot()
+        finally:
+            bus.unsubscribe_list(q)
+
+    return StreamingResponse(
+        _frames(), media_type="text/event-stream", headers=sse.HEADERS
+    )
 
 
 @router.get("/{workflow_id}", response_model=WorkflowDetail)

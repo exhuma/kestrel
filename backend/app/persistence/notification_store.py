@@ -22,7 +22,7 @@ class NotificationStore:
         self,
         workflow_id: str,
         repo: str,
-        issue_number: int,
+        issue_number: int | None,
         status: str,
         message: str,
     ) -> None:

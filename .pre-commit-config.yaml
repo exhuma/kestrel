@@ -29,6 +29,63 @@ repos:
         language: script
         files: '^(README\.md|contract\.md|docs/[^/]+\.md)$'
 
+  # Code-quality guardrails (see AGENTS.md "Code-quality guardrails"). These
+  # mirror `task quality`; CI runs the same. Tools run pinned on demand (uvx /
+  # npx), so nothing is added to the frozen backend install. Each hook is
+  # project-scoped (pass_filenames: false) but only fires when a relevant file
+  # is staged. The config-guard check is CI-only — it needs the PR commit range
+  # and the override trailer, neither of which exists pre-commit.
+  - repo: local
+    hooks:
+      - id: quality-ruff
+        name: ruff — style + complexity + bugbear (python)
+        entry: bash -c 'cd backend && exec uvx ruff@0.15.20 check .'
+        language: system
+        files: '^backend/.+\.py$'
+        pass_filenames: false
+      - id: quality-pylint-module-length
+        name: pylint — module length <= 500 (python)
+        entry: bash -c 'cd backend && exec uvx pylint@4.0.6 --disable=all --enable=too-many-lines --max-module-lines=500 app tests'
+        language: system
+        files: '^backend/(app|tests)/.+\.py$'
+        pass_filenames: false
+      - id: quality-vulture
+        name: vulture — dead code (python)
+        entry: bash -c 'cd backend && exec uvx vulture@2.16 app .vulture_allowlist.py --min-confidence 80'
+        language: system
+        files: '^backend/app/.+\.py$'
+        pass_filenames: false
+      - id: quality-import-linter
+        name: import-linter — layering + no cycles (python)
+        entry: bash -c 'cd backend && exec uvx --from import-linter==2.13 lint-imports'
+        language: system
+        files: '^backend/(app/.+\.py|\.importlinter)$'
+        pass_filenames: false
+      - id: quality-eslint
+        name: eslint — size + complexity + sonarjs (js/ts/vue)
+        entry: bash -c 'cd frontend && exec npm run --silent lint'
+        language: system
+        files: '^frontend/.+\.(ts|mts|cts|js|mjs|cjs|vue)$'
+        pass_filenames: false
+      - id: quality-dependency-cruiser
+        name: dependency-cruiser — layering + no cycles (js/ts)
+        entry: bash -c 'cd frontend && exec npm run --silent depcruise'
+        language: system
+        files: '^frontend/(src/.+|\.dependency-cruiser\.cjs)$'
+        pass_filenames: false
+      - id: quality-knip
+        name: knip — dead files + deps (js/ts)
+        entry: bash -c 'cd frontend && exec npm run --silent knip'
+        language: system
+        files: '^frontend/(src/.+|tests/.+|package\.json|knip\.json)$'
+        pass_filenames: false
+      - id: quality-jscpd
+        name: jscpd — copy/paste <= 3% (python + js/ts)
+        entry: npx jscpd@4.0.5 .
+        language: system
+        files: '\.(py|ts|mts|cts|js|mjs|cjs|vue)$'
+        pass_filenames: false
+
   # proselint is intentionally opt-in and left disabled by default: its
   # terse-imperative false positives are noisy on runbooks. Enable per-file
   # when writing longer narrative prose.

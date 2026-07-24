@@ -27,8 +27,8 @@ side on its own). The manual equivalents:
 ```bash
 # Backend — API on http://localhost:8000
 cd backend
-uv run alembic upgrade head          # apply schema migrations
-uv run uvicorn app.main:app --reload
+uv run alembic upgrade head              # apply schema migrations
+KESTREL_RELOAD=1 uv run python -m app    # unified logs + hot-reload
 
 # Frontend — Vite dev server, separate terminal
 cd frontend
@@ -40,13 +40,16 @@ In development the backend is API-only (`KESTREL_STATIC_DIR` empty) and the
 Vite dev server serves the UI; CORS already allows loopback origins. In the
 packaged image the backend serves the built SPA itself.
 
-`uvicorn app.main:app --reload` is fine for hot-reload, but its logs use
-uvicorn's own format. To get the same **unified** logging the container uses
-(uvicorn + app logs on one stream, `KESTREL_LOG_FORMAT`-aware), run the
-package launcher instead — it supports reload too:
+Prefer `python -m app` over invoking `uvicorn app.main:app --reload` directly.
+Besides **unified** logging (uvicorn + app logs on one stream,
+`KESTREL_LOG_FORMAT`-aware), it excludes the run workspace
+(`KESTREL_WORKSPACE_ROOT`, `.kestrel-workspaces` by default) from the
+auto-reloader. A run writes real `.py` files there (git clone, agent edits);
+without the exclude, `--reload` restarts the whole server mid-run and drops
+every open SSE connection (the sidebar/notification streams go blank with
+`ERR_EMPTY_RESPONSE`).
 
 ```bash
-KESTREL_RELOAD=1 uv run python -m app        # unified logs + hot-reload
 KESTREL_LOG_FORMAT=json uv run python -m app # structured logs
 ```
 

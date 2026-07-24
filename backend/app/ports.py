@@ -31,6 +31,22 @@ class Task:
 
 
 @dataclass
+class WorkItem:
+    """A transient dry-run view of one polled item (feature 004).
+
+    Produced by a source's non-ingesting listing (``python -m app poll``);
+    persists nothing and starts no run. ``code_repo`` is ``None`` when the
+    repository could not be resolved.
+    """
+
+    source: str
+    ref: str
+    title: str
+    code_repo: str | None = None
+    base_branch: str | None = None
+
+
+@dataclass
 class Observation:
     """One measured outcome the verifier weighs.
 
@@ -94,6 +110,14 @@ class CodeHost(Protocol):
 
     def clone_remote(self, repo: str) -> str:
         """The HTTPS git remote a worktree clones/fetches from."""
+        ...
+
+    def git_credential(self) -> tuple[str, str]:
+        """The ``(username, token)`` for git-over-HTTPS Basic auth.
+
+        ``x-access-token`` for GitHub, ``oauth2`` for GitLab — the username
+        git's smart-HTTP endpoint expects alongside the code-host token.
+        """
         ...
 
     async def open_change_request(

@@ -29,6 +29,7 @@ class JiraClient:
         auth: str = "basic",
         email: str = "",
         token: str = "",
+        verify: bool = True,
     ) -> None:
         self._base = base_url.rstrip("/")
         self._auth_mode = auth
@@ -40,7 +41,7 @@ class JiraClient:
             else None
         )
         self._http = httpx.AsyncClient(
-            base_url=f"{self._base}/rest/api/2", auth=http_auth
+            base_url=f"{self._base}/rest/api/2", auth=http_auth, verify=verify
         )
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -73,18 +74,32 @@ class JiraClient:
     async def search(
         self, jql: str, *, fields: list[str], max_results: int = 50
     ) -> list[Task]:
-        """Return the qualifying issues for ``jql`` as ``Task``s."""
-        resp = await self._request(
-            "GET",
-            "/search",
-            params={
-                "jql": jql,
-                "fields": ",".join(fields),
-                "maxResults": max_results,
-            },
-        )
-        issues = resp.json().get("issues", [])
+        """Return the qualifying issues for ``jql`` as ``Task``s.
+
+        Uses the enhanced ``/search/jql`` endpoint (Jira Cloud removed the
+        legacy ``/search``). Pagination is token-based: the old ``startAt``/
+        ``total`` model is gone, so every page is followed via
+        ``nextPageToken`` until the response reports ``isLast``. Collecting
+        every page keeps the poll's dismissal-clear logic correct.
+        """
+        body = {"jql": jql, "fields": fields, "maxResults": max_results}
+        issues: list[dict] = []
+        token: str | None = None
+        while True:
+            page = await self._search_page(body, token)
+            issues.extend(page.get("issues", []))
+            token = None if page.get("isLast") else page.get("nextPageToken")
+            if not token:
+                break
         return [self._to_task(i) for i in issues]
+
+    async def _search_page(
+        self, body: dict, token: str | None
+    ) -> dict:
+        """POST one enhanced-search page; ``token`` continues a prior page."""
+        payload = body if token is None else {**body, "nextPageToken": token}
+        resp = await self._request("POST", "/search/jql", json=payload)
+        return resp.json()
 
     async def get_issue(self, key: str) -> Task:
         """Fetch a single issue's summary/description."""
@@ -102,6 +117,12 @@ class JiraClient:
         if value is None:
             return None
         return value if isinstance(value, str) else str(value)
+
+    async def get_remote_links(self, key: str) -> list[dict]:
+        """Return the issue's remote/web links (raw ``object.url``/title)."""
+        resp = await self._request("GET", f"/issue/{key}/remotelink")
+        data = resp.json()
+        return data if isinstance(data, list) else []
 
     async def add_comment(self, key: str, body: str) -> str:
         """Post a comment; return its API URL."""

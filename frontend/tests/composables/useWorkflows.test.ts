@@ -84,6 +84,20 @@ describe('useWorkflows', () => {
     expect(current.value?.status).toBe('refining')
   })
 
+  it('startList streams the summary list into the sidebar', () => {
+    const { workflows, startList, stopList } = useWorkflows()
+    startList()
+    expect(esInstances).toBe(1)
+    expect(lastEs?.url).toContain('/api/workflows/events')
+    // A background-created run (Jira, null issue_number) arrives live.
+    lastEs?.emit([
+      { id: 'wf-9', repo: 'acme/gw', issue_number: null, status: 'refining' },
+    ])
+    expect(workflows.value.map((w) => w.id)).toEqual(['wf-9'])
+    stopList()
+    expect(lastEs?.close).toHaveBeenCalled()
+  })
+
   it('applies live snapshots to the sidebar list card status', async () => {
     vi.stubGlobal(
       'fetch',

@@ -123,8 +123,9 @@ async def github_webhook(
     if event != "issues":
         return _ack(200, "ignored", issue_number)
 
-    watched = repo in settings.watched_repos
-    is_trigger = label == settings.trigger_label
+    gh_source = settings.github_source_for(repo) if repo else None
+    watched = gh_source is not None
+    is_trigger = gh_source is not None and label == gh_source.trigger_label
 
     # Label removed: clear any dismissal so a later re-label starts fresh.
     if action == "unlabeled":

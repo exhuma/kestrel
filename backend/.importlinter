@@ -1,0 +1,47 @@
+# Import contracts for the backend (enforced by import-linter / `lint-imports`).
+# Encodes the constitution's Principle II: "routers -> services -> stores, with
+# calls flowing downward only." A layers contract also forbids import cycles
+# between the layers. Do not weaken these to make an import pass — restructure
+# the code (see AGENTS.md "Code-quality guardrails").
+
+[importlinter]
+root_package = app
+
+# Constitution Principle II: "routers -> services -> stores, downward only."
+# storage and persistence are coupled peers (persistence reaches storage's bus
+# via the app.notifications leaf), so they are one "stores" tier rather than an
+# ordered pair — modelled as the layer chain below plus the forbidden contract.
+[importlinter:contract:layering]
+name = Backend layering (routers -> services -> persistence, downward only)
+type = layers
+layers =
+    app.routers
+    app.services
+    app.persistence
+
+[importlinter:contract:stores-are-the-floor]
+name = Stores (storage, persistence) never import the services or routers above
+type = forbidden
+source_modules =
+    app.storage
+    app.persistence
+forbidden_modules =
+    app.routers
+    app.services
+
+# The registry (app.backends.registry) is the composition root that wires every
+# concrete adapter; it is imported widely and transitively. What we forbid is
+# any layer reaching *directly* into a concrete adapter module and bypassing the
+# Backend protocol seam. allow_indirect_imports keeps the check to direct edges.
+[importlinter:contract:backend-adapters]
+name = No direct imports of concrete backend adapters (wire them via the registry)
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    app.routers
+    app.storage
+    app.persistence
+forbidden_modules =
+    app.backends.claude_cli
+    app.backends.opencode
+    app.backends.openai_compat

@@ -61,6 +61,7 @@ class WorkflowStore:
                         deliverable=step.deliverable,
                         model=step.model,
                         refine_round=step.refine_round,
+                        verify_round=step.verify_round,
                     )
                 )
 
@@ -109,6 +110,7 @@ class WorkflowStore:
                         deliverable=s.deliverable,
                         model=s.model,
                         refine_round=s.refine_round,
+                        verify_round=s.verify_round,
                     )
                     for s in db.scalars(stmt)
                 ]

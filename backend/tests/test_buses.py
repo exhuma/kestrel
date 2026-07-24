@@ -31,6 +31,24 @@ def test_workflow_bus_unsubscribe_stops_delivery() -> None:
     assert q.empty()
 
 
+def test_workflow_bus_list_channel_ticks_on_any_change() -> None:
+    """Ensure a list subscriber is ticked on any run change (live sidebar)."""
+    bus = WorkflowBus()
+    lst = bus.subscribe_list()
+    per_run = bus.subscribe("wf-1")
+
+    bus.publish("wf-1")  # a run changed / was created
+    assert lst.get_nowait() == "wf-1"  # list channel ticked
+    assert per_run.get_nowait() == "wf-1"
+
+    bus.publish("wf-2")  # a different run — list still ticks
+    assert lst.get_nowait() == "wf-2"
+
+    bus.unsubscribe_list(lst)
+    bus.publish("wf-3")
+    assert lst.empty()  # unsubscribed: no further ticks
+
+
 def test_notification_bus_fans_out_to_all() -> None:
     """Ensure a publish reaches every notification subscriber."""
     bus = NotificationBus()

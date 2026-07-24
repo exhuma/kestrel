@@ -1,0 +1,14 @@
+{
+  "threshold": 3,
+  "gitignore": true,
+  "reporters": ["console"],
+  "absolute": true,
+  "format": ["python", "javascript", "typescript", "vue"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/.git/**"
+  ]
+}

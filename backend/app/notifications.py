@@ -85,7 +85,8 @@ class Notification:
     id: int
     workflow_id: str
     repo: str
-    issue_number: int
+    #: GitHub issue number; ``None`` for a Jira-sourced run (feature 003).
+    issue_number: int | None
     status: str
     message: str
     created_at: datetime

@@ -1,37 +1,15 @@
-"""Run the kestrel backend with unified logging.
+"""Canonical entrypoint (``python -m app``): dispatch to the CLI.
 
-This is the canonical entrypoint (``python -m app``): it hands a single
-logging config to uvicorn so uvicorn's own logs and the application's logs
-share one stdout stream and one format. Set ``KESTREL_RELOAD=1`` for the
-auto-reloading dev server.
+Subcommands live in :mod:`app.cli` — ``serve`` (default; launches uvicorn with
+unified logging) and ``poll`` (a read-only dry-run of the configured task
+sources). Host, port and the dev auto-reload toggle come from ``Settings``
+(``KESTREL_HOST`` / ``KESTREL_PORT`` / ``KESTREL_RELOAD``), so a
+``backend/.env`` value is honoured.
 """
 from __future__ import annotations
 
-import os
-
-import uvicorn
-
-from app.config import get_settings
-from app.logging_config import build_log_config
-
-
-def main() -> None:
-    """Start uvicorn for ``app.main:app`` with the configured logging."""
-    settings = get_settings()
-    log_config = build_log_config(settings.log_level, settings.log_format)
-    reload = os.environ.get("KESTREL_RELOAD", "").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    uvicorn.run(
-        "app.main:app",
-        host=os.environ.get("KESTREL_HOST", "0.0.0.0"),
-        port=int(os.environ.get("KESTREL_PORT", "8000")),
-        log_config=log_config,
-        reload=reload,
-    )
-
+from app.cli import load_env, main
 
 if __name__ == "__main__":
-    main()
+    load_env()
+    raise SystemExit(main())

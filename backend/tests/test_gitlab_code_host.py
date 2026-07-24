@@ -26,6 +26,12 @@ def test_clone_remote_uses_base_url() -> None:
     )
 
 
+def test_git_credential_uses_oauth2_scheme() -> None:
+    """Ensure GitLab git auth is oauth2:<pat> (not GitHub's x-access-token)."""
+    host = _host(lambda r: httpx.Response(200), token="glpat-secret")
+    assert host.git_credential() == ("oauth2", "glpat-secret")
+
+
 @pytest.mark.asyncio
 async def test_get_default_branch_url_encodes_project() -> None:
     """Ensure the project path is URL-encoded and default_branch parsed."""
