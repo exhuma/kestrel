@@ -12,7 +12,10 @@ import globals from 'globals'
 
 const structuralRules = {
   complexity: ['error', 10],
-  'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
+  'max-lines': [
+    'error',
+    { max: 500, skipBlankLines: true, skipComments: true },
+  ],
   'max-lines-per-function': [
     'error',
     { max: 60, skipBlankLines: true, skipComments: true },
@@ -69,7 +72,10 @@ export default [
     rules: { 'max-lines': 'off' },
   },
   {
-    files: ['src/composables/useSessions.ts', 'src/composables/useWorkflows.ts'],
+    files: [
+      'src/composables/useSessions.ts',
+      'src/composables/useWorkflows.ts',
+    ],
     rules: { 'max-lines-per-function': 'off' },
   },
   {

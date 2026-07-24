@@ -53,7 +53,6 @@ describe('api', () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PUT' })
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' })
   })
-
 })
 
 describe('api connectivity handler', () => {

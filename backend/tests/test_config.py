@@ -474,7 +474,7 @@ def test_step_backends_allows_sub_step_names(tmp_path: Path) -> None:
     toml.write_text(
         "[step_backends]\n"
         'refine = "claude"\n'
-        'refine.reconcile = "haiku"\n'
+        '"refine.reconcile" = "haiku"\n'
         'code = "sonnet"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))

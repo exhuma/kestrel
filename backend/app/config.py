@@ -302,9 +302,13 @@ class Settings(BaseSettings):
             return self
         valid_steps = {str(s) for s in Step.sequence()}
         invalid_steps = set(self.step_backends.keys()) - valid_steps
-        # Also check for sub-step references like "refine.reconcile",
-        # extracting the top-level step name.
-        main_invalid = {s.split(".")[0] for s in invalid_steps}
+        # A dotted sub-step reference like "refine.reconcile" is valid as
+        # long as its top-level step ("refine") is itself a valid step —
+        # only flag it when that top-level prefix is not.
+        main_invalid = {
+            s.split(".")[0] for s in invalid_steps
+            if s.split(".")[0] not in valid_steps
+        }
         if main_invalid:
             valid_list = ", ".join(sorted(valid_steps))
             invalid_list = ", ".join(sorted(main_invalid))

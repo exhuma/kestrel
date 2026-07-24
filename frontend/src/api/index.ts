@@ -29,9 +29,7 @@ let connectivityHandler: ((reachable: boolean) => void) | null = null
 // response proves the network path works, even if the request itself then
 // fails). Bootstrap code registers a handler to show/hide a persistent
 // "can't reach backend" banner instead of failing silently.
-export function setConnectivityHandler(
-  fn: (reachable: boolean) => void,
-): void {
+export function setConnectivityHandler(fn: (reachable: boolean) => void): void {
   connectivityHandler = fn
 }
 

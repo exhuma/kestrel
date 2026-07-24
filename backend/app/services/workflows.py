@@ -1920,11 +1920,11 @@ def get_workflow_service() -> WorkflowService:
     code_hosts: dict[str, object] = {
         "manual": gh_host, "github-issue": gh_host,
     }
-    jira_srcs = settings.jira_sources()
-    if jira_srcs:
+    jira_sources = settings.jira_sources()
+    if jira_sources:
         from app.services.jira import JiraClient, JiraTaskSource
 
-        entry = jira_srcs[0]
+        entry = jira_sources[0]
         jira = JiraClient(
             entry.base_url,
             auth=entry.auth,

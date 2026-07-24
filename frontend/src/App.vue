@@ -62,9 +62,9 @@ function toggleTheme() {
       tile
       class="connectivity-banner"
     >
-      Cannot reach the kestrel backend at <code>{{ apiBase }}</code>. Check
-      that it's running and that the frontend's configured API base matches
-      its port — this clears automatically once it's reachable again.
+      Cannot reach the kestrel backend at <code>{{ apiBase }}</code
+      >. Check that it's running and that the frontend's configured API base
+      matches its port — this clears automatically once it's reachable again.
     </v-alert>
 
     <v-app-bar flat border>
