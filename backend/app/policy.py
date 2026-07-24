@@ -20,7 +20,7 @@ DEFAULT_MODELS: dict[str, str] = {
     "verify": "sonnet",
 }
 
-#: What each workflow step needs from its backend. Only ``implement``
+#: What each workflow step needs from its backend. Only ``code``
 #: mutates the working tree; the reasoning steps need text only, so a
 #: plain LLM can serve them (it just won't read the repo). A backend
 #: serves a step when its capabilities are a superset of the requirement.
@@ -75,7 +75,7 @@ class BackendPolicy:
         parent step (``"refine"``), then the default. Its capability
         requirement is inherited from the parent step.
 
-        :param step: Workflow step name, e.g. ``"implement"`` or a
+        :param step: Workflow step name, e.g. ``"code"`` or a
             dotted sub-step like ``"refine.reconcile"``.
         :returns: A backend whose capabilities satisfy the step.
         :raises BackendCapabilityError: If the chosen backend can't serve it.
@@ -126,7 +126,7 @@ class ModelPolicy:
         override when set, otherwise falls back to the parent step's
         model (``"refine"``).
 
-        :param step: Workflow step name, e.g. ``"plan"`` or a dotted
+        :param step: Workflow step name, e.g. ``"design"`` or a dotted
             sub-step like ``"refine.reconcile"``.
         :returns: Alias to pass to ``claude --model``.
         :raises KeyError: If the (parent) step is unknown.

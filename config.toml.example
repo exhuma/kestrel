@@ -70,12 +70,14 @@ trigger_label = "kestrel"
 default_session_backend = "claude"
 
 # Per-workflow-step backend (step -> backend id); steps omitted use the
-# default above. `implement` edits a per-run workspace, so keep it on an
-# agent that honours the working directory (claude).
+# default above. The workflow sequence is: refine → design → code → verify.
+# The `code` step edits a per-run workspace, so keep it on an agent that
+# honours the working directory (claude).
 [step_backends]
-refine    = "claude"
-plan      = "claude"
-implement = "claude"
+refine  = "claude"
+design  = "claude"
+code    = "claude"
+verify  = "claude"
 
 # --- backends ---------------------------------------------------------------
 # Each [[backends]] entry: id, type (claude_cli | openai_compat | opencode),

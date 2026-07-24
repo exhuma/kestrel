@@ -17,7 +17,7 @@ ad-hoc-session default, and the per-workflow-step assignments:
 default_session_backend = "local"
 
 [step_backends]           # step -> backend id; omitted steps use the default
-implement = "claude"      # keep implement on claude (see the opencode note)
+code = "claude"           # keep code on claude (see the opencode note)
 
 [[backends]]
 id = "claude"
@@ -60,13 +60,13 @@ running the image.
 ## Where backends apply
 
 Ad-hoc sessions (the **Sessions** panel / `POST /api/sessions`) use
-`default_session_backend`. Each GitHub-workflow step (`refine`, `plan`,
-`implement`) uses its `step_backends` entry if set, else the same default.
+`default_session_backend`. Each workflow step (`refine`, `design`, `code`,
+`verify`) uses its `step_backends` entry if set, else the same default.
 
-A step only accepts a backend that can satisfy it: `implement` needs
-file-editing (`claude`/`opencode`), while `refine`/`plan` need only text — so
+A step only accepts a backend that can satisfy it: `code` needs file-editing
+(`claude`/`opencode`), while `refine`/`design`/`verify` need only text — so
 a plain LLM may serve them (it just won't read the repo). A bad mapping (e.g.
-a text-only LLM on `implement`) fails that run with a clear capability error.
+a text-only LLM on `code`) fails that run with a clear capability error.
 
 ## Backend types
 
@@ -130,10 +130,10 @@ password = "changeme"                      # inline (gitignored file), or:
 > it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
 >
 > **opencode read-only steps and permissions.** The reasoning steps (`refine`,
-> `plan`) run read-only: kestrel disables opencode's file-mutating tools
-> (`edit`/`write`/`patch`) for those turns and rejects any edit permission the
-> agent still asks for, so they can read and run commands but cannot change the
-> workspace. `implement` runs with edits enabled. kestrel answers opencode's
+> `design`, `verify`) run read-only: kestrel disables opencode's file-mutating
+> tools (`edit`/`write`/`patch`) for those turns and rejects any edit permission
+> the agent still asks for, so they can read and run commands but cannot change
+> the workspace. `code` runs with edits enabled. kestrel answers opencode's
 > permission prompts itself — it streams the server's `/event` bus and replies
 > to each request — so a headless `opencode serve` never blocks waiting for a
 > human to click "allow"; you do **not** need to pre-configure opencode's

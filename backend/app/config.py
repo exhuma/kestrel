@@ -15,6 +15,7 @@ from pydantic_settings import (
 )
 
 from app.config_models import BackendConfig, TaskSourceConfig
+from app.models_workflow import Step
 
 _log = logging.getLogger("kestrel.config")
 
@@ -287,6 +288,30 @@ class Settings(BaseSettings):
                     source.base_url,
                     source.code_host,
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_step_backends(self) -> Settings:
+        """Validate that step_backends keys are valid workflow step names.
+
+        Fails fast if any invalid step names are configured, providing a
+        clear error message with the valid options. This prevents silent
+        fallbacks to default backends when step names don't match.
+        """
+        if not self.step_backends:
+            return self
+        valid_steps = {str(s) for s in Step.sequence()}
+        invalid_steps = set(self.step_backends.keys()) - valid_steps
+        # Also check for sub-step references like "refine.reconcile",
+        # extracting the top-level step name.
+        main_invalid = {s.split(".")[0] for s in invalid_steps}
+        if main_invalid:
+            valid_list = ", ".join(sorted(valid_steps))
+            invalid_list = ", ".join(sorted(main_invalid))
+            raise ValueError(
+                f"Invalid step names in step_backends: {invalid_list!r}. "
+                f"Valid steps are: {valid_list}."
+            )
         return self
 
 
