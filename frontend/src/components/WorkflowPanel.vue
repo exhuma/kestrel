@@ -24,6 +24,7 @@ const {
   current,
   events,
   error,
+  refresh,
   select,
   ensureLive,
   streamSession,
@@ -50,6 +51,10 @@ const busy = ref<'create' | 'approve' | 'reject' | 'reply' | 'changes' | null>(
 )
 
 onMounted(() => {
+  // Reliable baseline via plain fetch, independent of the SSE stream
+  // actually connecting — a stream hiccup then degrades to a static (rather
+  // than empty) sidebar instead of hiding runs entirely.
+  void refresh()
   startList() // live sidebar (streams the current list on connect, then updates)
   ensureLive()
 })

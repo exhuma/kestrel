@@ -9,13 +9,19 @@ const {
   actionRequired,
   summaries,
   actionRequiredCount,
+  refresh,
   markRead,
   start,
   stop,
 } = useNotifications()
 const { select } = useWorkflows()
 
-onMounted(start)
+onMounted(() => {
+  // Reliable baseline via plain fetch, independent of the SSE stream
+  // actually connecting — see WorkflowPanel.vue for the same pattern.
+  void refresh()
+  start()
+})
 onUnmounted(stop)
 
 async function onClick(id: number, workflowId: string): Promise<void> {
