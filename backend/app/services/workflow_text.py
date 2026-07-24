@@ -82,6 +82,27 @@ def extract_plan(text: str) -> str | None:
     return _extract_tag(text, "PLAN")
 
 
+#: The only boundary classifications the verify step knows how to act on
+#: (feature 005). Anything else — an absent tag or an out-of-vocabulary
+#: value — is treated as unclassified.
+_BOUNDARIES = frozenset({"http", "ui", "both", "none"})
+
+
+def extract_boundary(text: str) -> str | None:
+    """Return the designer's boundary classification, if well-formed.
+
+    :param text: The designer's full response text.
+    :returns: One of ``"http"``, ``"ui"``, ``"both"``, ``"none"``, or None
+        when the ``<BOUNDARY>`` tag is missing or its content is not one of
+        those four values.
+    """
+    raw = _extract_tag(text, "BOUNDARY")
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    return value if value in _BOUNDARIES else None
+
+
 def extract_profiles(text: str) -> list[str] | None:
     """
     Return the coordinator's chosen profile ids from a PROFILES block.

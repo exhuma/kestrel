@@ -76,6 +76,10 @@ class WorkflowRunRow(Base):
     artifact_dir: Mapped[str] = mapped_column(
         Text, default="", server_default=""
     )
+    #: The project's user-facing boundary ("http" | "ui" | "both" | "none"),
+    #: set once by the design step (feature 005); NULL before design has run
+    #: (or for a run created before this column existed). Internal-only.
+    boundary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class WorkflowStepRow(Base):

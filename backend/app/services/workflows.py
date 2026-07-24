@@ -33,7 +33,7 @@ from app.persistence.dismissal_store import (
 )
 from app.persistence.notification_store import get_notification_store
 from app.policy import BackendPolicy, get_backend_policy, get_policy
-from app.ports import Evidence
+from app.ports import Evidence, Observation
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
     GenerationIssue,
@@ -61,6 +61,7 @@ from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.workflow_text import (
     activity_for,
+    extract_boundary,
     extract_coverage,
     extract_plan,
     extract_profiles,
@@ -239,33 +240,98 @@ REFINE_FEEDBACK_PROMPT = (
     "FEEDBACK:\n{feedback}"
 )
 CODE_FEEDBACK_PROMPT = (
-    "The verifier did not accept the implementation. Address this feedback by "
-    "editing the repository now, then stop.\n\nFEEDBACK:\n{feedback}\n\n"
-    "DESIGN:\n{design}"
+    "The verifier did not accept the implementation — this means the PRD/"
+    "design was not met or the evidence showed a real failure; the "
+    "feedback below may also carry incidental quality notes, but those are "
+    "not why this was rejected. Fix what actually failed first. Address "
+    "this feedback by editing the repository now, then stop."
+    "\n\nFEEDBACK:\n{feedback}\n\nDESIGN:\n{design}"
 )
 DESIGN_PROMPT = (
     "Read this approved PRD and the codebase, then produce a concise "
     "high-level design and implementation plan. Do not use the ExitPlanMode "
     "tool and do not write the plan to a file — this session is headless. "
     "Output the complete plan directly in your final response, wrapped "
-    "EXACTLY in <PLAN> and </PLAN> tags and nothing else. Do not edit any "
+    "EXACTLY in <PLAN> and </PLAN> tags. Then, on a new line, classify this "
+    "project's user-facing boundary — the surface a later verification step "
+    "will need to launch and exercise for real — wrapped EXACTLY in "
+    "<BOUNDARY> and </BOUNDARY> tags, containing ONLY one of: http (the "
+    "project exposes an HTTP API, e.g. FastAPI/Flask/Express), ui (the "
+    "project exposes a web UI, e.g. a Vite/React/Vue app with a dev or "
+    "preview server), both (it exposes both), or none (neither, e.g. a "
+    "library or CLI tool). Output nothing else. Do not edit any "
     "files.\n\nPRD:\n{issue}"
 )
 CODE_PROMPT = (
     "Implement the design below. Make all necessary code edits in this "
     "repository now. This runs autonomously — there is no human to ask, so "
-    "make the best decision you can and implement it. Once the implementation "
-    "is complete, just stop — do not wrap your final summary in any tags."
+    "make the best decision you can and implement it. Practice test-first "
+    "development: write the tests for the behaviour you are adding (or a "
+    "failing test reproducing a bug you are fixing) before or alongside the "
+    "implementation, matching the project's existing test conventions and "
+    "a sensible testing pyramid (favour fast unit/integration tests; keep "
+    "end-to-end coverage minimal). Verification later in this pipeline "
+    "checks live, observed behaviour — it is not a substitute for durable, "
+    "repo-committed tests, which are your responsibility. Once the "
+    "implementation is complete, just stop — do not wrap your final "
+    "summary in any tags."
     "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
+)
+#: permission_mode for the explore turn (feature 005, US1): the explore
+#: turn needs Bash/MCP tool execution approved without an interactive
+#: prompt, since every kestrel session runs headless (no TTY to answer
+#: one). "bypassPermissions" is the broadest unattended-execution mode the
+#: claude CLI offers — chosen over "acceptEdits" (whose documented scope is
+#: file-edit auto-approval, not general tool execution) per research.md R2.
+#: This is a best-effort default, not empirically verified against a real
+#: `claude` CLI session (unavailable in this environment); confirm it
+#: against a live operator login before relying on it, and swap it here if
+#: it proves insufficient.
+EXPLORE_PERMISSION_MODE = "bypassPermissions"
+
+EXPLORE_PROMPT = (
+    "You are verifying an implementation by observing the running, "
+    "modified project — not just reading the diff. This project's "
+    "user-facing boundary is: {boundary}. Using whatever tools you have "
+    "available (a shell, browser automation, etc.), launch the project in "
+    "this worktree and exercise it for real:\n"
+    "- If the boundary is http or both: start the modified application and "
+    "issue real HTTP requests against it that exercise what the PRD "
+    "describes.\n"
+    "- If the boundary is ui or both: start the project's dev/preview "
+    "server and drive it via browser automation, visually inspecting the "
+    "result.\n"
+    "If a tool you need for this boundary (e.g. a browser-automation tool) "
+    "is not available to you, say so EXPLICITLY and unambiguously in your "
+    "response — verification is degraded/incomplete in that case, and "
+    "that must be clear, not silently indistinguishable from a normal "
+    "pass. Stop any process you started before you finish. Describe what "
+    "you did and observed in your final response; there is no required "
+    "format for this turn.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
+    "DIFF:\n{diff}\n\nCONFIGURED-CHECK EVIDENCE:\n{evidence}"
 )
 VERIFY_PROMPT = (
     "You are the verifier. Judge whether the implementation satisfies the PRD "
-    "and design. Weigh the EVIDENCE below (results of running the project's "
-    "checks in the worktree) as the primary basis of your verdict — a failing "
-    "check is a rejection. Where evidence is absent, judge the diff against "
-    "the PRD/design. Respond with ONLY a JSON object wrapped EXACTLY in "
-    "<VERDICT> and </VERDICT> tags, matching this shape:\n"
-    '{{"accept": true, "feedback": "..."}}\n'
+    "and design, the way an end user or stakeholder would judge the result — "
+    "not a code reviewer. Weigh the EVIDENCE below (results of running the "
+    "project's checks in the worktree, plus what you just observed by "
+    "exploring the running application, if anything) as the primary basis of "
+    "your verdict — a failing check or a failing observation is a rejection. "
+    "Where evidence is absent, judge the diff against the PRD/design. "
+    "accept/reject is decided SOLELY by whether the implementation meets "
+    "the PRD/design and the evidence above — never by code quality, "
+    "maintainability, or documentation on their own. If you notice a code "
+    "quality or documentation concern, note it in feedback as an aside, but "
+    "it MUST NOT by itself set accept=false when the requirement is "
+    "otherwise met and all evidence passed. Respond "
+    "with ONLY a JSON object wrapped EXACTLY in <VERDICT> and </VERDICT> "
+    "tags, matching this shape:\n"
+    '{{"accept": true, "feedback": "...", "observations": '
+    '[{{"name": "...", "kind": "http", "passed": true, "detail": "..."}}]}}\n'
+    '"observations" is OPTIONAL — include one entry per distinct thing you '
+    "exercised while exploring the running application (kind is \"http\" or "
+    '"ui"), each with a bounded, factual "detail". Omit it entirely when '
+    "you did not explore anything this round.\n"
     "This session is headless: do not use the ExitPlanMode tool and do not "
     "stop to investigate with tools — output the verdict JSON directly in "
     "your final response and nothing else. "
@@ -303,6 +369,30 @@ def _evidence_feedback(evidence: Evidence) -> str:
     return "\n".join(parts)
 
 
+def _render_verify_report(rounds: list[dict]) -> str:
+    """Render every attempted verify round as a committed audit-trail
+    artifact (feature 005, US3).
+
+    History for a human reading the run's PR — never read back by any
+    code path, so a later run's verify step cannot be influenced by it
+    (FR-009).
+    """
+    sections = ["# Verify report", ""]
+    for entry in rounds:
+        sections.append(f"## Round {entry['round']}")
+        sections.append(f"- Boundary: {entry['boundary'] or 'none'}")
+        sections.append(
+            f"- Result: {'accepted' if entry['accept'] else 'rejected'}"
+        )
+        if entry["feedback"]:
+            sections.append(f"- Feedback: {entry['feedback']}")
+        sections.append("")
+        sections.append("### Evidence")
+        sections.append(_render_evidence(entry["evidence"]))
+        sections.append("")
+    return "\n".join(sections).rstrip() + "\n"
+
+
 def _clean_json_blob(blob: str) -> str:
     """Strip whitespace and a surrounding Markdown ``` fence from a blob."""
     blob = blob.strip()
@@ -315,7 +405,53 @@ def _clean_json_blob(blob: str) -> str:
     return blob.strip()
 
 
-def _parse_verdict(text: str) -> tuple[bool, str]:
+#: Cap on a self-reported observation's detail, matching the bound
+#: CheckRunner already applies to a configured check's captured output —
+#: keeps a verbose narrative bounded and no secret an explored request
+#: could contain fully echoed into a committed artifact.
+_MAX_OBSERVATION_DETAIL = 2000
+
+#: Recognised observation kinds a verdict may self-report (mirrors
+#: Observation.kind); anything else is dropped rather than raising.
+_OBSERVATION_KINDS = frozenset({"http", "ui", "check"})
+
+
+def _parse_observations(raw: object) -> list[Observation]:
+    """Defensively build Observations from a verdict's ``observations``.
+
+    Any entry that isn't a well-formed ``{name, kind, passed}`` object is
+    dropped rather than raising — a malformed self-reported observation
+    must not turn into a parse failure that rejects an otherwise-valid
+    verdict.
+    """
+    if not isinstance(raw, list):
+        return []
+    observations: list[Observation] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name, kind, passed = (
+            item.get("name"), item.get("kind"), item.get("passed"),
+        )
+        if not (
+            isinstance(name, str)
+            and kind in _OBSERVATION_KINDS
+            and isinstance(passed, bool)
+        ):
+            continue
+        detail = item.get("detail", "")
+        if not isinstance(detail, str):
+            detail = ""
+        observations.append(
+            Observation(
+                name=name, kind=kind, passed=passed,
+                detail=detail[:_MAX_OBSERVATION_DETAIL],
+            )
+        )
+    return observations
+
+
+def _parse_verdict(text: str) -> tuple[bool, str, list[Observation]]:
     """Parse the verifier's verdict, tolerating common formatting.
 
     Reads, in order of preference: the canonical
@@ -324,7 +460,10 @@ def _parse_verdict(text: str) -> tuple[bool, str]:
     response that carries an ``accept`` key (some models drop the tags). A
     reject-on-parse-failure is the safe default — unverified work must not
     ship autonomously — and the raw output is logged so a genuine failure is
-    diagnosable rather than silent.
+    diagnosable rather than silent. An optional ``observations`` array
+    (self-reported http/ui findings from the explore turn, feature 005) is
+    parsed defensively and returned alongside the verdict; its absence is
+    not a parse failure.
     """
     candidates: list[str] = []
     start = text.find("<VERDICT>")
@@ -345,12 +484,17 @@ def _parse_verdict(text: str) -> tuple[bool, str]:
             return (
                 bool(data.get("accept", False)),
                 str(data.get("feedback", "")),
+                _parse_observations(data.get("observations")),
             )
     _logger.warning(
         "verifier produced no parseable verdict (%d chars): %r",
         len(text), text[:800],
     )
-    return False, "The verifier response could not be parsed as a verdict."
+    return (
+        False,
+        "The verifier response could not be parsed as a verdict.",
+        [],
+    )
 
 
 @dataclass
@@ -1686,6 +1830,11 @@ class WorkflowService:
         )
         design = extract_plan(result.final_text) or result.final_text
         step.deliverable = design
+        # Classify the project's boundary for the verify step (feature 005).
+        # A missing/malformed tag leaves boundary None — verify then falls
+        # back to today's check-and-diff-judgment-only behaviour; this must
+        # never fail the design step itself.
+        run.boundary = extract_boundary(result.final_text)
         # Persist the design as the second handover artifact for code/verify.
         self._write_artifact(run, "design.md", design)
         step.active_sessions = []
@@ -1721,6 +1870,18 @@ class WorkflowService:
             prd=self._artifact_slot(Step.CODE, run, "prd.md", prd),
             design=self._artifact_slot(Step.CODE, run, "design.md", design),
         )
+        # Every attempted verify round's summary, written once the loop
+        # concludes as a committed audit-trail artifact (feature 005, US3)
+        # — history for a human reading the PR, never read back as verify
+        # input by this or any later run (FR-009).
+        rounds: list[dict] = []
+
+        def _flush_report() -> None:
+            if rounds:
+                self._write_artifact(
+                    run, "verify-report.md", _render_verify_report(rounds)
+                )
+
         for iteration in range(max(1, self.settings.max_verify_iterations)):
             # 1-based count of verify passes entered, for the UI's
             # remaining-runs indicator on the verify chip.
@@ -1766,6 +1927,7 @@ class WorkflowService:
             if not diff.strip():
                 # A coder that cannot make progress escalates instead of
                 # parking on a human gate (FR-020).
+                _flush_report()
                 return await self._escalate(
                     run, "the coder produced no changes"
                 )
@@ -1782,6 +1944,29 @@ class WorkflowService:
             verify_step.active_sessions = [verify_slot]
             self._save(run)
             evidence = await self.check_runner.run(run.workspace)
+            # When design classified a boundary (http/ui/both), an explore
+            # turn launches and exercises the running project for real
+            # before the verdict turn adjudicates (feature 005, US1). A
+            # "none"/unclassified boundary skips straight to the verdict
+            # turn, unchanged from today.
+            explore_resume_id: str | None = None
+            if run.boundary in ("http", "ui", "both"):
+                explore_result = await self._run_turn_tracked(
+                    run,
+                    self.backends.backend_for(Step.VERIFY),
+                    TurnRequest(
+                        prompt=EXPLORE_PROMPT.format(
+                            boundary=run.boundary, prd=prd, design=design,
+                            diff=diff, evidence=_render_evidence(evidence),
+                        ),
+                        cwd=run.workspace,
+                        permission_mode=EXPLORE_PERMISSION_MODE,
+                        model=verify_model,
+                    ),
+                    verify_slot,
+                    _bind(verify_step, verify_slot),
+                )
+                explore_resume_id = explore_result.session_id
             verify_result = await self._run_turn_tracked(
                 run,
                 self.backends.backend_for(Step.VERIFY),
@@ -1793,18 +1978,26 @@ class WorkflowService:
                     # the files pushes it into an investigate/plan flow that
                     # stops reliably emitting the verdict. Its cwd is still
                     # the worktree, so a future repo-reading verifier keeps
-                    # full file access regardless of this.
+                    # full file access regardless of this. This discipline is
+                    # exactly why a boundary run's exploration happens on a
+                    # SEPARATE prior turn (above) rather than in this one.
                     prompt=VERIFY_PROMPT.format(
                         prd=prd, design=design, diff=diff,
                         evidence=_render_evidence(evidence),
                     ),
                     cwd=run.workspace, permission_mode="plan",
-                    model=verify_model,
+                    model=verify_model, resume_id=explore_resume_id,
                 ),
                 verify_slot,
                 _bind(verify_step, verify_slot),
             )
-            accept, feedback = _parse_verdict(verify_result.final_text)
+            accept, feedback, observations = _parse_verdict(
+                verify_result.final_text
+            )
+            # Self-reported http/ui observations merge into the same
+            # Evidence list CheckRunner populates (feature 005, US1), so the
+            # failing-observation invariant below covers both uniformly.
+            evidence.observations.extend(observations)
             # Failing-observation invariant: a failing check never accepts.
             if not evidence.all_passed():
                 ev_fb = _evidence_feedback(evidence)
@@ -1814,8 +2007,13 @@ class WorkflowService:
             verify_step.deliverable = (
                 "accepted" if accept else f"rejected: {feedback}"
             )
+            rounds.append({
+                "round": len(rounds) + 1, "boundary": run.boundary,
+                "accept": accept, "feedback": feedback, "evidence": evidence,
+            })
             if accept:
                 verify_step.status = "done"
+                _flush_report()
                 self._save(run)
                 return False
             # Rejected: loop back to the coder with the feedback.
@@ -1825,6 +2023,7 @@ class WorkflowService:
                 feedback=feedback,
                 design=self._artifact_slot(Step.CODE, run, "design.md", design),
             )
+        _flush_report()
         return await self._escalate(
             run, "verification did not pass within the iteration limit"
         )

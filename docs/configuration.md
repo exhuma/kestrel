@@ -39,6 +39,12 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_VERIFY_CHECKS` | `[]` | JSON list of shell commands run in the worktree as verify evidence, e.g. `["uv run pytest -q"]`. Empty ⇒ model-judgment fallback |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
 
+A project's user-facing boundary (HTTP API, web UI, both, or none) is inferred
+by the `design` step from the PRD and codebase, not configured — there is no
+`KESTREL_*` setting for it. When a boundary is found, `verify` launches and
+exercises the running project using whatever tools (Bash, MCP) the configured
+backend already has available, in addition to `KESTREL_VERIFY_CHECKS`.
+
 **Task sources are configured in `config.toml`, not via env vars.** Which
 GitHub repos and Jira instances kestrel pulls from — the former
 `KESTREL_WATCHED_REPOS`, `KESTREL_TRIGGER_LABEL`, `KESTREL_JIRA_*`, and

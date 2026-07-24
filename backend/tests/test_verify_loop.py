@@ -1,11 +1,20 @@
 """Tests for the autonomous code<->verify loop (feature 003, US3)."""
 from __future__ import annotations
 
+import asyncio
+import os
+from pathlib import Path
+
 import pytest
 
 from app.config import Settings
 from app.ports import Evidence, Observation
-from app.services.workflows import WorkflowService, _parse_verdict
+from app.services.workflows import (
+    CODE_PROMPT,
+    EXPLORE_PROMPT,
+    WorkflowService,
+    _parse_verdict,
+)
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
 from tests.test_workflow_service import (
@@ -29,12 +38,22 @@ class _FakeCheckRunner:
         return self._evidence
 
 
-def _svc(gh, runner, git, *, max_iter=3, check_runner=None) -> WorkflowService:
+def _svc(gh, runner, git, **opts) -> WorkflowService:
+    """Build a test WorkflowService.
+
+    ``opts`` (all optional): ``max_iter`` (default 3), ``check_runner``,
+    ``workspace_root`` — folded into ``**opts`` rather than named keyword
+    params to stay under the 5-argument limit.
+    """
+    check_runner = opts.get("check_runner")
+    settings_kwargs = {
+        "git_base": "https://github.com", "github_token": "t",
+        "max_verify_iterations": opts.get("max_iter", 3),
+    }
+    if opts.get("workspace_root") is not None:
+        settings_kwargs["workspace_root"] = opts["workspace_root"]
     return WorkflowService(
-        settings=Settings(
-            git_base="https://github.com", github_token="t",
-            max_verify_iterations=max_iter,
-        ),
+        settings=Settings(**settings_kwargs),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
         backends=runner,
@@ -48,9 +67,9 @@ def _svc(gh, runner, git, *, max_iter=3, check_runner=None) -> WorkflowService:
 def test_parse_verdict() -> None:
     """Ensure the verdict parser reads accept/feedback and fails safe."""
     txt = '<VERDICT>{"accept": true, "feedback": ""}</VERDICT>'
-    assert _parse_verdict(txt) == (True, "")
+    assert _parse_verdict(txt) == (True, "", [])
     txt = 'x <VERDICT>{"accept": false, "feedback": "no"}</VERDICT>'
-    assert _parse_verdict(txt) == (False, "no")
+    assert _parse_verdict(txt) == (False, "no", [])
     # Unparseable ⇒ reject (never ship unverified work).
     assert _parse_verdict("no verdict here")[0] is False
 
@@ -62,13 +81,49 @@ def test_parse_verdict_tolerates_common_formats() -> None:
         '<VERDICT>\n```json\n{"accept": true, "feedback": "ok"}\n```\n'
         "</VERDICT>"
     )
-    assert _parse_verdict(fenced) == (True, "ok")
+    assert _parse_verdict(fenced) == (True, "ok", [])
     # Tags dropped entirely, bare JSON in prose.
     bare = 'Here is my verdict: {"accept": false, "feedback": "nope"}'
-    assert _parse_verdict(bare) == (False, "nope")
+    assert _parse_verdict(bare) == (False, "nope", [])
     # A fence with no explicit language tag.
     plain_fence = '```\n{"accept": true, "feedback": ""}\n```'
-    assert _parse_verdict(plain_fence) == (True, "")
+    assert _parse_verdict(plain_fence) == (True, "", [])
+
+
+def test_parse_verdict_reads_observations() -> None:
+    """Ensure a well-formed observations array parses into Observations."""
+    txt = (
+        '<VERDICT>{"accept": true, "feedback": "", "observations": '
+        '[{"name": "GET /items", "kind": "http", "passed": true, '
+        '"detail": "200 OK"}]}</VERDICT>'
+    )
+    accept, feedback, observations = _parse_verdict(txt)
+    assert accept is True
+    assert observations == [
+        Observation(name="GET /items", kind="http", passed=True,
+                    detail="200 OK")
+    ]
+
+
+def test_parse_verdict_no_observations_key_is_not_a_regression() -> None:
+    """Ensure a verdict with no observations key parses exactly as before."""
+    txt = '<VERDICT>{"accept": true, "feedback": "ok"}</VERDICT>'
+    assert _parse_verdict(txt) == (True, "ok", [])
+
+
+def test_parse_verdict_drops_malformed_observation_entries() -> None:
+    """Ensure a malformed observation entry is dropped, not a parse failure."""
+    txt = (
+        '<VERDICT>{"accept": true, "feedback": "", "observations": '
+        '[{"name": "ok one", "kind": "http", "passed": true}, '
+        '{"kind": "http", "passed": true}, '
+        '"not even an object", '
+        '{"name": "bad kind", "kind": "sql", "passed": true}]}</VERDICT>'
+    )
+    accept, _, observations = _parse_verdict(txt)
+    assert accept is True
+    assert len(observations) == 1
+    assert observations[0].name == "ok one"
 
 
 @pytest.mark.asyncio
@@ -190,3 +245,249 @@ async def test_no_awaiting_gate_during_autonomous_phases() -> None:
         "awaiting_refine_approval", "awaiting_refine_input"
     }
     assert "designing" in seen and "coding" in seen and "verifying" in seen
+
+
+@pytest.mark.asyncio
+async def test_boundary_dispatches_explore_then_verdict_turn() -> None:
+    """Ensure an http-boundary run runs a tool-enabled explore turn before
+    the verdict turn, resuming the same session (feature 005, US1)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>\n<BOUNDARY>http</BOUNDARY>",  # design
+        "coded",                                       # code
+        "explored the running app",                     # verify: explore turn
+        _verdict(accept=True),                          # verify: verdict turn
+    ])
+    svc = _svc(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    explore_call, verdict_call = runner.calls[-2], runner.calls[-1]
+    assert explore_call["permission_mode"] != "plan"
+    assert explore_call["resume_id"] is None
+    assert verdict_call["permission_mode"] == "plan"
+    explore_idx = len(runner.calls) - 2
+    assert verdict_call["resume_id"] == f"s{explore_idx}"
+
+
+@pytest.mark.asyncio
+async def test_no_boundary_skips_explore_turn() -> None:
+    """Ensure boundary=None/"none" runs today's single verdict-only turn —
+    no explore turn is ever dispatched (feature 005, US1)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    outputs = [
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",  # no <BOUNDARY> tag -> boundary stays None
+        "coded",
+        _verdict(accept=True),  # verify: single turn, exactly as today
+    ]
+    runner = _FakeRunner(SessionRegistry(), outputs=list(outputs))
+    svc = _svc(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    # One call per queued output (coordinator, writer, design, code,
+    # verdict): if an explore turn had also been dispatched, the queue
+    # above would have been exhausted early and the run would never reach
+    # "done".
+    assert len(runner.calls) == len(outputs)
+    assert runner.calls[-1]["permission_mode"] == "plan"
+
+
+@pytest.mark.asyncio
+async def test_self_reported_observation_failure_forces_reject() -> None:
+    """Ensure a failing self-reported observation rejects even though the
+    verdict's own accept field says true — the http/ui analogue of
+    test_failing_check_forces_reject (feature 005, US1)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>\n<BOUNDARY>ui</BOUNDARY>",
+        "coded",
+        "explored",  # verify: explore turn
+        _verdict(
+            accept=True,  # model says accept ...
+            observations=[
+                {"name": "login flow", "kind": "ui", "passed": False,
+                 "detail": "spinner never resolved"},
+            ],
+        ),
+    ])
+    # max_iter=1 so exhaustion escalates after the single forced reject.
+    svc = _svc(gh, runner, git, max_iter=1)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    # ... but the failing observation forces a reject -> exhaustion -> escalate.
+    await _wait(lambda: svc.get(wid).status == "escalated")
+    assert svc.get(wid).pr_url is None
+
+
+@pytest.mark.asyncio
+async def test_quality_only_feedback_does_not_block_acceptance() -> None:
+    """Ensure a code-quality concern in feedback does not block acceptance
+    when all checks/observations pass (feature 005, US2; FR-006/SC-005)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    evidence = Evidence([
+        Observation(name="uv run pytest", kind="check", passed=True,
+                    detail="3 passed"),
+    ])
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",
+        "coded",
+        _verdict(
+            accept=True,
+            feedback="Works correctly, though the new function could use "
+                     "a docstring and a shorter name.",
+        ),
+    ])
+    svc = _svc(gh, runner, git, check_runner=_FakeCheckRunner(evidence))
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    # Accepted despite the quality concern in the verdict's own feedback
+    # text — a full record of that feedback is a US3 concern (the
+    # committed verify-report.md), not something the "accepted" deliverable
+    # itself needs to carry.
+    assert svc.get(wid).steps[3].deliverable == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_failing_evidence_rejects_despite_positive_quality_feedback() -> (
+    None
+):
+    """Ensure failing evidence still rejects even when the verdict's text
+    is positive about code quality — the hard gate is never softened by
+    advisory framing (feature 005, US2)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    evidence = Evidence([
+        Observation(name="uv run pytest", kind="check", passed=False,
+                    detail="1 failed"),
+    ])
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",
+        "coded",
+        _verdict(
+            accept=True,
+            feedback="Code quality is excellent, clean, and well-documented.",
+        ),
+    ])
+    svc = _svc(gh, runner, git, max_iter=1,
+               check_runner=_FakeCheckRunner(evidence))
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "escalated")
+    assert svc.get(wid).pr_url is None
+
+
+def test_explore_prompt_requires_stating_missing_tooling() -> None:
+    """Ensure the explore-turn prompt instructs the agent to say so when
+    boundary-appropriate tooling is unavailable, rather than silently
+    degrading to diff-only judgment (FR-007)."""
+    text = EXPLORE_PROMPT.lower()
+    assert "not available" in text
+    assert "explicitly" in text
+    assert "boundary" in text
+
+
+def test_code_prompt_requires_test_first_development() -> None:
+    """Ensure the coder is explicitly told to practice TDD (FR-010): durable
+    regression coverage is the coder's job, not verify's (feature 005)."""
+    text = CODE_PROMPT.lower()
+    assert "test-first" in text
+    assert "testing pyramid" in text
+
+
+def _find_report(workspace: str) -> str:
+    """Locate and read the committed verify-report.md under a worktree."""
+    for root, _dirs, files in os.walk(os.path.join(workspace, ".kestrel")):
+        if "verify-report.md" in files:
+            return Path(root, "verify-report.md").read_text()
+    raise AssertionError("verify-report.md not found under .kestrel/")
+
+
+@pytest.mark.asyncio
+async def test_verify_report_written_on_accept(tmp_path) -> None:
+    """Ensure a committed verify-report.md exists once a run reaches
+    "done", covering every round the loop ran (feature 005, US3)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",
+        "coded v1", _verdict(accept=False, feedback="fix the edge case"),
+        "coded v2", _verdict(accept=True),
+    ])
+    svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
+    # A successful delivery tears the worktree down too (it's no longer
+    # needed); neuter that here so the workspace survives to inspect.
+    svc._teardown_workspace = lambda _run: asyncio.sleep(0)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    report = _find_report(svc.get(wid).workspace)
+    assert "fix the edge case" in report  # round 1 (rejected)
+    assert "accepted" in report.lower()  # round 2
+
+
+@pytest.mark.asyncio
+async def test_verify_report_written_on_escalate(tmp_path) -> None:
+    """Ensure the report still exists (covering every attempted round) when
+    the run escalates instead of completing (feature 005, US3)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",
+        "coded", _verdict(accept=False, feedback="nope"),
+        "coded", _verdict(accept=False, feedback="still nope"),
+    ])
+    svc = _svc(gh, runner, git, max_iter=2, workspace_root=str(tmp_path))
+    # Escalation tears the worktree down immediately, racing a test's read
+    # of the report; neuter teardown here (a spy-style override, matching
+    # this suite's existing pattern) so the workspace survives to inspect.
+    svc._teardown_workspace = lambda _run: asyncio.sleep(0)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "escalated")
+    workspace = svc.get(wid).workspace
+    report = _find_report(workspace)
+    assert "nope" in report
+    assert "still nope" in report
+
+
+@pytest.mark.asyncio
+async def test_second_run_unaffected_by_first_runs_report(tmp_path) -> None:
+    """Ensure a second, unrelated run's verify step is not influenced by a
+    prior run's committed verify-report.md (feature 005, US3, FR-009)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        # First run: rejects once, then accepts.
+        *_refine_noquestions("prd one"),
+        "<PLAN>d</PLAN>",
+        "coded v1", _verdict(accept=False, feedback="fix X"),
+        "coded v2", _verdict(accept=True),
+        # Second run: accepts immediately — no code path reads the first
+        # run's report as an obligation it must also satisfy.
+        *_refine_noquestions("prd two"),
+        "<PLAN>d2</PLAN>",
+        "coded", _verdict(accept=True),
+    ])
+    svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
+    first = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(first).status == "awaiting_refine_approval")
+    svc.approve(first)
+    await _wait(lambda: svc.get(first).status == "done")
+
+    second = await svc.create("o/r", 6)
+    await _wait(lambda: svc.get(second).status == "awaiting_refine_approval")
+    svc.approve(second)
+    await _wait(lambda: svc.get(second).status == "done")
+    assert svc.get(second).steps[3].deliverable == "accepted"

@@ -75,10 +75,31 @@ the image small and lets a deploy attach or swap backends purely by config.
   PRD approval; design/code/verify run **without human gates**. The **verifier**
   adjudicates the implementation against the PRD/design weighing measurable
   **evidence** (the project's checks run in the isolated worktree, `services/
-  checks.py`); a failing check forces a reject, the loop is bounded by
+  checks.py`); a failing observation forces a reject, the loop is bounded by
   `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
   task source is only the human↔agent boundary — the process behind it is the
   same, so the system is predictable.
+- **Behavioral verify evidence, grounded in real, observed behaviour.** The
+  `design` step classifies the project's user-facing boundary — HTTP API, web
+  UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.
+  When a boundary exists, verify runs a **tool-enabled explore turn** first,
+  instructed to launch and exercise the running, modified project for real
+  (real HTTP requests for an HTTP boundary, browser-driven interaction for a
+  UI boundary) using whatever tools the operator's own backend already
+  provides (Bash, MCP — Playwright or otherwise). Kestrel owns no HTTP client
+  or browser-automation code itself; it delegates entirely to the verifying
+  agent's own capabilities, trusting the operator's environment the same way
+  the `code` step already does. A second, disciplined **verdict turn** then
+  resumes that same session back in `plan` mode with no new tools — preserving
+  the single-shot `<VERDICT>` reliability the original design already depended
+  on — and folds any self-reported observations into the same `Evidence` list
+  `CheckRunner` populates, so the failing-observation invariant covers both
+  uniformly. Requirement conformance is the only thing that can force a
+  reject; code-quality/documentation observations are advisory feedback only.
+  Each run's verify rounds are recorded as a committed `verify-report.md`
+  audit-trail artifact (same `.kestrel/` handover mechanism as `prd.md`/
+  `design.md`) — history for a human, never a regression contract a later
+  run's verify step is obligated to satisfy.
 - **File-based step handover (`.kestrel/`).** The steps share one worktree, so a
   step's artifacts pass to the next as *files* under
   `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `design.md`) — spec-kit's

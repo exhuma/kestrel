@@ -243,10 +243,20 @@ def _refined(text: str) -> str:
     return f"<REFINED_ISSUE>\n{text}\n</REFINED_ISSUE>"
 
 
-def _verdict(accept: bool = True, feedback: str = "") -> str:
-    """A verifier VERDICT block (feature 003 autonomous loop)."""
-    payload = json.dumps({"accept": accept, "feedback": feedback})
-    return f"<VERDICT>{payload}</VERDICT>"
+def _verdict(
+    accept: bool = True,
+    feedback: str = "",
+    observations: list[dict] | None = None,
+) -> str:
+    """A verifier VERDICT block (feature 003 autonomous loop).
+
+    ``observations`` optionally carries self-reported http/ui findings
+    (feature 005) — a list of ``{name, kind, passed, detail}`` dicts.
+    """
+    payload: dict = {"accept": accept, "feedback": feedback}
+    if observations is not None:
+        payload["observations"] = observations
+    return f"<VERDICT>{json.dumps(payload)}</VERDICT>"
 
 
 #: Simplest refine leg: coordinator needs nobody, writer emits the issue.
@@ -289,6 +299,44 @@ async def test_happy_path_refine_design_code_verify_pr() -> None:
     assert svc.get(wid).steps[3].deliverable == "accepted"
     assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
     assert git.pushed == [svc.get(wid).branch]
+
+
+@pytest.mark.asyncio
+async def test_design_sets_boundary_from_tag() -> None:
+    """Ensure a well-formed <BOUNDARY> tag sets run.boundary (feature 005)."""
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\nStep 1\n</PLAN>\n<BOUNDARY>http</BOUNDARY>",
+        "Implemented",
+        "explored",  # http boundary -> an explore turn runs before verdict
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert svc.get(wid).boundary == "http"
+
+
+@pytest.mark.asyncio
+async def test_design_missing_boundary_tag_leaves_it_none() -> None:
+    """Ensure a missing/malformed tag leaves boundary None without
+    failing the design step (feature 005)."""
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\nStep 1\n</PLAN>",  # no <BOUNDARY> tag at all
+        "Implemented",
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert svc.get(wid).boundary is None
 
 
 @pytest.mark.asyncio

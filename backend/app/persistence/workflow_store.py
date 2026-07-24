@@ -48,6 +48,7 @@ class WorkflowStore:
                     source=run.source,
                     task_ref=run.task_ref,
                     artifact_dir=run.artifact_dir,
+                    boundary=run.boundary,
                 )
             )
             for i, step in enumerate(run.steps):
@@ -130,6 +131,7 @@ class WorkflowStore:
                         source=row.source,
                         task_ref=row.task_ref,
                         artifact_dir=row.artifact_dir or "",
+                        boundary=row.boundary,
                     )
                 )
             return runs

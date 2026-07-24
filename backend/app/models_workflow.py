@@ -114,3 +114,10 @@ class WorkflowRun:
     #: restart so a resumed run keeps writing to the same folder. Empty until
     #: provisioning. Internal only — never surfaced to the API/UI.
     artifact_dir: str = ""
+    #: The project's user-facing boundary, one of ``"http"``, ``"ui"``,
+    #: ``"both"``, ``"none"``, or ``None`` before ``design`` has classified
+    #: it. Set once by the design step (feature 005) and reused by every
+    #: verify round of this run; ``None``/``"none"`` keeps verify's
+    #: check-and-diff-judgment behaviour unchanged. Internal only — never
+    #: surfaced to the API/UI.
+    boundary: str | None = None

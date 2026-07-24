@@ -6,6 +6,7 @@ from app.services.workflow_text import (
     SENTINEL,
     activity_for,
     append_sentinel,
+    extract_boundary,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
@@ -83,6 +84,23 @@ def test_extract_plan_between_delimiters() -> None:
 def test_extract_plan_absent_returns_none() -> None:
     """Ensure output without the delimiter yields None."""
     assert extract_plan("no tags here") is None
+
+
+def test_extract_boundary_accepts_each_valid_value() -> None:
+    """Ensure each of the four known boundary values is accepted."""
+    for value in ("http", "ui", "both", "none"):
+        text = f"chatter\n<BOUNDARY>{value}</BOUNDARY>\nmore"
+        assert extract_boundary(text) == value
+
+
+def test_extract_boundary_missing_tag_returns_none() -> None:
+    """Ensure output without the delimiter yields None."""
+    assert extract_boundary("no boundary tag here") is None
+
+
+def test_extract_boundary_out_of_vocabulary_returns_none() -> None:
+    """Ensure an unrecognised value yields None rather than passing through."""
+    assert extract_boundary("<BOUNDARY>graphql</BOUNDARY>") is None
 
 
 def test_extract_questionnaire_parses_valid_block() -> None:
