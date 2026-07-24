@@ -150,7 +150,8 @@ class NotificationOut(BaseModel):
     id: int
     workflow_id: str
     repo: str
-    issue_number: int
+    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003).
+    issue_number: int | None
     status: str
     #: Derived from status: "action_required" gate vs terminal "summary".
     signal_class: str

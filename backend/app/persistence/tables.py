@@ -151,7 +151,9 @@ class NotificationRow(Base):
         ForeignKey("workflow_run.id")
     )
     repo: Mapped[str] = mapped_column()
-    issue_number: Mapped[int] = mapped_column()
+    #: GitHub issue number; ``NULL`` for a Jira-sourced run (feature 003),
+    #: whose ticket has no numeric id — identify the run via ``workflow_id``.
+    issue_number: Mapped[int | None] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column()
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime)
