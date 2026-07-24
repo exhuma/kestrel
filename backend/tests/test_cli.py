@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from app import cli
+from app.config import Settings
 from app.config_models import TaskSourceConfig
 from app.ports import WorkItem
 
@@ -37,6 +38,30 @@ def test_load_env_populates_named_secret_lookups(
         os.environ.pop(_JIRA_TOKEN, None)
         if saved is not None:
             os.environ[_JIRA_TOKEN] = saved
+
+
+def test_serve_excludes_the_workspace_from_dev_reload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure the dev auto-reloader never watches the run workspace.
+
+    A run writes real .py files into the workspace (git clone, agent edits);
+    without this exclude, uvicorn's --reload restarts the whole server
+    mid-run, dropping every open SSE connection (reproduced: 'WatchFiles
+    detected changes in .kestrel-workspaces/... Reloading...').
+    """
+    workspace = tmp_path / ".kestrel-workspaces"
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(_env_file=None, workspace_root=str(workspace))
+
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli.uvicorn, "run", lambda *_a, **kw: calls.update(kw)
+    )
+    cli.cmd_serve(settings)
+
+    assert workspace.is_dir()  # created so watchfiles excludes it recursively
+    assert calls["reload_excludes"] == [str(workspace.resolve())]
 
 
 class _FakePollSource:

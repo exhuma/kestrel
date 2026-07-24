@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 
 import uvicorn
 from dotenv import load_dotenv
@@ -36,12 +37,20 @@ def load_env() -> None:
 def cmd_serve(settings: Settings) -> int:
     """Start uvicorn for ``app.main:app`` with the configured logging."""
     log_config = build_log_config(settings.log_level, settings.log_format)
+    # The dev auto-reloader watches *.py changes under the cwd. The run
+    # workspace defaults there too, and a run writes real .py files into it
+    # (git clone, agent edits) — which restarted the whole server mid-run,
+    # dropping every open SSE connection (ERR_EMPTY_RESPONSE in the browser).
+    # Exclude it; create it first so watchfiles treats the entry as a
+    # directory-prefix exclude (recursive) rather than a non-matching glob.
+    os.makedirs(settings.workspace_root, exist_ok=True)
     uvicorn.run(
         "app.main:app",
         host=settings.host,
         port=settings.port,
         log_config=log_config,
         reload=settings.reload,
+        reload_excludes=[os.path.abspath(settings.workspace_root)],
     )
     return 0
 
