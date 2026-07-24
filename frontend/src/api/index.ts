@@ -21,6 +21,20 @@ export function setUnauthorizedHandler(fn: () => void): void {
   unauthorizedHandler = fn
 }
 
+let connectivityHandler: ((reachable: boolean) => void) | null = null
+
+// Global connectivity seam: fires `false` when a request fails to even reach
+// the backend (fetch() itself throws — wrong port, backend not running, DNS
+// failure) and `true` whenever one completes (any HTTP status — a resolved
+// response proves the network path works, even if the request itself then
+// fails). Bootstrap code registers a handler to show/hide a persistent
+// "can't reach backend" banner instead of failing silently.
+export function setConnectivityHandler(
+  fn: (reachable: boolean) => void,
+): void {
+  connectivityHandler = fn
+}
+
 export class ApiError extends Error {
   status: number
   data: unknown
@@ -42,11 +56,18 @@ async function request<T>(
   }
   const token = tokenProvider.getToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  const resp = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  let resp: Response
+  try {
+    resp = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch (e) {
+    connectivityHandler?.(false)
+    throw e
+  }
+  connectivityHandler?.(true)
   if (!resp.ok) {
     if (resp.status === 401) unauthorizedHandler?.()
     throw new ApiError(resp.status, await resp.text())

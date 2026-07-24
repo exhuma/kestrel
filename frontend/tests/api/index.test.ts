@@ -1,9 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { api, ApiError, setUnauthorizedHandler } from '../../src/api'
+import {
+  api,
+  ApiError,
+  setConnectivityHandler,
+  setUnauthorizedHandler,
+} from '../../src/api'
 
 afterEach(() => {
   vi.restoreAllMocks()
   setUnauthorizedHandler(() => {})
+  setConnectivityHandler(() => {})
 })
 
 describe('api', () => {
@@ -46,5 +52,32 @@ describe('api', () => {
     await api.delete('/x')
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PUT' })
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' })
+  })
+
+})
+
+describe('api connectivity handler', () => {
+  it('reports unreachable when fetch itself throws (network failure)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    )
+    const onConnectivity = vi.fn()
+    setConnectivityHandler(onConnectivity)
+    await expect(api.get('/x')).rejects.toBeInstanceOf(TypeError)
+    expect(onConnectivity).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
+  it('reports reachable on any resolved response, even a non-2xx one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 500 })),
+    )
+    const onConnectivity = vi.fn()
+    setConnectivityHandler(onConnectivity)
+    await expect(api.get('/x')).rejects.toBeInstanceOf(ApiError)
+    expect(onConnectivity).toHaveBeenCalledExactlyOnceWith(true)
   })
 })

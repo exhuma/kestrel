@@ -8,6 +8,7 @@ import PanelLoading from './components/PanelLoading.vue'
 import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
 import { useWorkflows } from './composables/useWorkflows'
+import { useConnectivity } from './composables/useConnectivity'
 
 // Workflows is the default view; the raw sessions view is a secondary
 // debugging affordance, so its code is fetched on demand (a separate chunk).
@@ -24,6 +25,12 @@ const SessionPanel = defineAsyncComponent({
 // Shared composable state: the header reflects fleet-wide status.
 const { sessions, loading: sessionsLoading } = useSessions()
 const { loading: workflowsLoading } = useWorkflows()
+
+// Registered once, here, before any child's onMounted fetch runs — every
+// api.* call anywhere in the app feeds this, so a request that can't even
+// reach the backend (wrong port, backend down) surfaces as a persistent
+// banner instead of failing silently in the console.
+const { reachable, apiBase } = useConnectivity()
 const running = computed(() =>
   sessions.value.some((s) => s.status === 'running'),
 )
@@ -47,6 +54,19 @@ function toggleTheme() {
 
 <template>
   <v-app>
+    <v-alert
+      v-if="!reachable"
+      type="error"
+      variant="flat"
+      density="compact"
+      tile
+      class="connectivity-banner"
+    >
+      Cannot reach the kestrel backend at <code>{{ apiBase }}</code>. Check
+      that it's running and that the frontend's configured API base matches
+      its port — this clears automatically once it's reachable again.
+    </v-alert>
+
     <v-app-bar flat border>
       <template #prepend>
         <!-- Theme-matched mark: the dark-outlined logo reads on the light
