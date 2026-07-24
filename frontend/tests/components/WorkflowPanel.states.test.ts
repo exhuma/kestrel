@@ -16,6 +16,8 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     events: ref([]),
     error: ref(null),
     refresh: vi.fn(),
+    startList: vi.fn(),
+    stopList: vi.fn(),
     select: vi.fn(),
     ensureLive: vi.fn(),
     streamSession: vi.fn(),

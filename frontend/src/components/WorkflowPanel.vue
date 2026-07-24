@@ -24,7 +24,6 @@ const {
   current,
   events,
   error,
-  refresh,
   select,
   ensureLive,
   streamSession,
@@ -36,6 +35,8 @@ const {
   approve,
   reject,
   stop,
+  startList,
+  stopList,
   remove,
 } = useWorkflows()
 
@@ -49,10 +50,13 @@ const busy = ref<'create' | 'approve' | 'reject' | 'reply' | 'changes' | null>(
 )
 
 onMounted(() => {
-  void refresh()
+  startList() // live sidebar (streams the current list on connect, then updates)
   ensureLive()
 })
-onUnmounted(stop)
+onUnmounted(() => {
+  stop()
+  stopList()
+})
 
 // The canonical steps come from the shared type (mirrors the backend Step
 // enum), so the chip row and the domain agree on the vocabulary.

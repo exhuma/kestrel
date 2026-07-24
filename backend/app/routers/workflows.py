@@ -102,17 +102,53 @@ async def create_workflow(
     return {"workflow_id": wid}
 
 
-@router.get("", response_model=list[WorkflowSummary])
-async def list_workflows(
-    service: WorkflowService = Depends(get_workflow_service),
-) -> list[WorkflowSummary]:
-    """List all workflow runs."""
+def _summaries(service: WorkflowService) -> list[WorkflowSummary]:
     return [
         WorkflowSummary(
             id=r.id, repo=r.repo, issue_number=r.issue_number, status=r.status
         )
         for r in service.list()
     ]
+
+
+@router.get("", response_model=list[WorkflowSummary])
+async def list_workflows(
+    service: WorkflowService = Depends(get_workflow_service),
+) -> list[WorkflowSummary]:
+    """List all workflow runs."""
+    return _summaries(service)
+
+
+@router.get("/events")
+async def stream_workflows(
+    service: WorkflowService = Depends(get_workflow_service),
+    bus: WorkflowBus = Depends(get_workflow_bus),
+) -> StreamingResponse:
+    """
+    Stream the workflow summary list as Server-Sent Events.
+
+    Emits the current list immediately, then a fresh list on *any* run change
+    — including creation — so the sidebar live-adds runs started by background
+    ingestion (GitHub webhook / Jira poll), not only UI-created ones. Declared
+    before ``/{workflow_id}`` so the static path is not captured as an id.
+    """
+    def _snapshot() -> bytes:
+        return sse.encode(
+            [s.model_dump(mode="json") for s in _summaries(service)]
+        )
+
+    async def _frames() -> AsyncIterator[bytes]:
+        q = bus.subscribe_list()
+        try:
+            yield _snapshot()
+            async for tick in sse.with_heartbeat(q):
+                yield sse.KEEPALIVE if tick is None else _snapshot()
+        finally:
+            bus.unsubscribe_list(q)
+
+    return StreamingResponse(
+        _frames(), media_type="text/event-stream", headers=sse.HEADERS
+    )
 
 
 @router.get("/{workflow_id}", response_model=WorkflowDetail)

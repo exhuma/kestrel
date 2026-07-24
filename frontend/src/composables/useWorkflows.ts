@@ -10,6 +10,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 let detailSource: EventSource | null = null
+let listSource: EventSource | null = null
 let source: EventSource | null = null
 
 function describe(e: unknown): string {
@@ -25,6 +26,24 @@ export function useWorkflows() {
       workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
     } finally {
       loading.value = false
+    }
+  }
+
+  // Live sidebar list: the server streams the full summary list on connect
+  // and again on every run change — including creation — so runs started by
+  // background ingestion (GitHub webhook / Jira poll) appear without a reload.
+  function startList(): void {
+    if (listSource) return
+    listSource = new EventSource(`${API_BASE}/api/workflows/events`)
+    listSource.onmessage = (e) => {
+      workflows.value = JSON.parse(e.data) as WorkflowSummary[]
+    }
+  }
+
+  function stopList(): void {
+    if (listSource) {
+      listSource.close()
+      listSource = null
     }
   }
 
@@ -205,6 +224,8 @@ export function useWorkflows() {
     loading,
     error,
     refresh,
+    startList,
+    stopList,
     select,
     ensureLive,
     streamSession,
