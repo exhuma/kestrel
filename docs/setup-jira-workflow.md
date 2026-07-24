@@ -44,12 +44,13 @@ re-trigger gesture.
 
 ### Target repository resolution
 
-Each RFC names its target code repository either in the configured `repo_field`
-(as `owner/name` or `owner/name@base_branch`) **or** via a web/remote link on the
-issue whose title matches `repo_link_text` (default "Repository") — the field is
-optional. On each poll cycle kestrel resolves the repo and probes the code host
-for reachability. If neither resolves or the repo is unreachable, kestrel starts
-no run and posts a comment on the RFC.
+Each RFC names its target code repository either in the configured
+`repo_field` (as `owner/name` or `owner/name@base_branch`) **or** via a
+web/remote link on the issue whose title matches `repo_link_text` (default
+"Repository") — the field is optional. On each poll cycle kestrel resolves
+the repo and probes the code host for reachability. If neither resolves or
+the repo is unreachable, kestrel starts no run and posts a comment on the
+RFC.
 
 The web link must be an **`http(s)://`** URL (Jira rejects `git@…`/`ssh://` in
 the link field). Kestrel parses `owner/name` from it, host-aware per the
