@@ -73,9 +73,9 @@ the image small and lets a deploy attach or swap backends purely by config.
   — traverses the identical `refine → PRD approval → design → code → verify →
   change request` sequence (`services/workflows.py`). The single human gate is
   PRD approval; design/code/verify run **without human gates**. The **verifier**
-  adjudicates the implementation against the PRD/design weighing measurable
-  **evidence** (the project's checks run in the isolated worktree, `services/
-  checks.py`); a failing observation forces a reject, the loop is bounded by
+  adjudicates the implementation against the PRD/design weighing **evidence**
+  it observes by exercising the running, modified project itself (see below);
+  a failing observation forces a reject, the loop is bounded by
   `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
   task source is only the human↔agent boundary — the process behind it is the
   same, so the system is predictable.
@@ -92,9 +92,14 @@ the image small and lets a deploy attach or swap backends purely by config.
   the `code` step already does. A second, disciplined **verdict turn** then
   resumes that same session back in `plan` mode with no new tools — preserving
   the single-shot `<VERDICT>` reliability the original design already depended
-  on — and folds any self-reported observations into the same `Evidence` list
-  `CheckRunner` populates, so the failing-observation invariant covers both
-  uniformly. Requirement conformance is the only thing that can force a
+  on — and self-reports its observations as part of that same verdict, so the
+  failing-observation invariant applies to whatever it found. This is
+  deliberately verify's *only* evidence source: durable, deterministic checks
+  (tests, lint) are the coder's TDD responsibility (`CODE_PROMPT`), not
+  something verify re-runs — blending the two would let a purely technical
+  failure (a coder that didn't test its own work) masquerade as a behavioral
+  one, undermining the "judge like a stakeholder, not a code reviewer"
+  principle below. Requirement conformance is the only thing that can force a
   reject; code-quality/documentation observations are advisory feedback only.
   Each run's verify rounds are recorded as a committed `verify-report.md`
   audit-trail artifact (same `.kestrel/` handover mechanism as `prd.md`/

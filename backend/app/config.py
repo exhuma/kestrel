@@ -33,7 +33,6 @@ _FILE_ONLY_FIELDS = frozenset(
 _CONFIG_FILE_FIELDS = frozenset(
     {
         "poll_interval_seconds",
-        "verify_checks",
         "max_verify_iterations",
     }
 )
@@ -181,9 +180,6 @@ class Settings(BaseSettings):
     #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
     #: The default token env var for a ``jira`` task source.
     jira_api_token: str = ""
-    #: Shell commands run in the run's worktree as verify evidence (v1).
-    #: JSON list, e.g. ``["uv run pytest -q"]``. Empty ⇒ judgment-only.
-    verify_checks: list[str] = []
     #: Max code↔verify iterations before the loop escalates (feature 003).
     max_verify_iterations: int = 3
     #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,

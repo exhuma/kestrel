@@ -85,19 +85,19 @@ uv run python -m app poll
 
 ### Verify grounding
 
-The verifier weighs measurable evidence — the project's own checks run in the
-run's isolated worktree:
+The verifier weighs evidence it observes itself by launching and exercising
+the running, modified project — real HTTP requests for an API boundary,
+browser-driven interaction for a UI boundary — rather than re-running the
+coder's own checks; durable test coverage is the coder's TDD responsibility.
+The one applicable knob is the iteration cap:
 
 ```bash
-KESTREL_VERIFY_CHECKS=["uv run pytest -q","npm --prefix frontend test"]
 KESTREL_MAX_VERIFY_ITERATIONS=3
 ```
 
-A failing check forces a reject; the failing output is fed back to the coder. On
-exhausting the iteration limit the run **escalates** — it posts a comment on the
-RFC and stops rather than shipping unverified work. (The design assumes the
-verifier will grow to run the modified app and exercise it via real HTTP
-requests or Playwright; that behavioural harness is delivered incrementally.)
+A failing observation forces a reject; the feedback is fed back to the coder.
+On exhausting the iteration limit the run **escalates** — it posts a comment
+on the RFC and stops rather than shipping unverified work.
 
 ## The flow, from a human's point of view
 

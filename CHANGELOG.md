@@ -10,20 +10,31 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
 
 - Unified `config.toml` (pointed at by `KESTREL_CONFIG_FILE`) now also holds
   applicative settings — `watched_repos`, `trigger_label`,
-  `reconcile_interval_seconds`, `verify_checks`, `max_verify_iterations` —
-  alongside backend routing. The file wins where it sets a key; the
-  environment fills in the rest. Secrets stay in the environment.
+  `reconcile_interval_seconds`, `max_verify_iterations` — alongside backend
+  routing. The file wins where it sets a key; the environment fills in the
+  rest. Secrets stay in the environment.
 - The running workflow stage's chip pulses; active runs in the sidebar show a
   spinner; the verify chip shows a progress circle counting down the remaining
   code↔verify iterations.
 - The code deliverable now renders in a proper diff viewer instead of as
   Markdown.
+- Verify now grounds its verdict in real, observed behaviour: the `design`
+  step classifies the project's HTTP/UI boundary, and verify launches and
+  exercises the running application for real before judging it, using
+  whatever tools the operator's backend already has. `KESTREL_WORKFLOW_DEBUG`
+  captures the coder↔verifier dialogue to a transcript for debugging and
+  keeps the worktree around to inspect.
 
 ### Changed
 
 - `KESTREL_BACKENDS_FILE` is deprecated in favour of `KESTREL_CONFIG_FILE`
   (still honoured, with a startup warning). `backends.toml.example` is now
   `config.toml.example`.
+- Verify no longer runs operator-configured shell checks (`verify_checks`
+  and `KESTREL_VERIFY_CHECKS` are removed): durable test/lint coverage is
+  the coder's TDD responsibility, and blending it into the same hard gate
+  as behavioral evidence let a technical failure masquerade as a behavioral
+  one. Verify's evidence is now entirely its own observed behaviour.
 
 ## [2026.7.5-alpha.3] - 2026-07-05
 

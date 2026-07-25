@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
-from app.ports import Evidence, Observation
+from app.ports import Observation
 from app.services.workflows import (
     CODE_PROMPT,
     EXPLORE_PROMPT,
@@ -28,24 +28,13 @@ from tests.test_workflow_service import (
 )
 
 
-class _FakeCheckRunner:
-    """A check runner returning a canned Evidence bundle."""
-
-    def __init__(self, evidence: Evidence) -> None:
-        self._evidence = evidence
-
-    async def run(self, workspace: str) -> Evidence:
-        return self._evidence
-
-
 def _svc(gh, runner, git, **opts) -> WorkflowService:
     """Build a test WorkflowService.
 
-    ``opts`` (all optional): ``max_iter`` (default 3), ``check_runner``,
-    ``workspace_root``, ``workflow_debug`` — folded into ``**opts`` rather
-    than named keyword params to stay under the 5-argument limit.
+    ``opts`` (all optional): ``max_iter`` (default 3), ``workspace_root``,
+    ``workflow_debug`` — folded into ``**opts`` rather than named keyword
+    params to stay under the 5-argument limit.
     """
-    check_runner = opts.get("check_runner")
     settings_kwargs = {
         "git_base": "https://github.com", "github_token": "t",
         "max_verify_iterations": opts.get("max_iter", 3),
@@ -61,7 +50,6 @@ def _svc(gh, runner, git, **opts) -> WorkflowService:
         git=git,
         github=gh,
         notifier=_FakeNotifier(),
-        check_runner=check_runner,
     )
 
 
@@ -193,30 +181,6 @@ async def test_exhaustion_escalates_without_pr() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failing_check_forces_reject() -> None:
-    """Ensure a failing observation rejects even if the model says accept."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
-    evidence = Evidence([
-        Observation(name="uv run pytest", kind="check", passed=False,
-                    detail="1 failed"),
-    ])
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
-        "<PLAN>d</PLAN>",
-        "coded", _verdict(accept=True),   # model says accept ...
-    ])
-    # max_iter=1 so exhaustion escalates after the single forced reject.
-    svc = _svc(gh, runner, git, max_iter=1,
-               check_runner=_FakeCheckRunner(evidence))
-    wid = await svc.create("o/r", 5)
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
-    # ... but the failing check forces a reject → exhaustion → escalated.
-    await _wait(lambda: svc.get(wid).status == "escalated")
-    assert svc.get(wid).pr_url is None
-
-
-@pytest.mark.asyncio
 async def test_no_awaiting_gate_during_autonomous_phases() -> None:
     """Ensure design/code/verify never enter an awaiting_* gate (FR-014)."""
     gh, git = _FakeGitHub(body="vague"), _FakeGit()
@@ -330,12 +294,8 @@ async def test_self_reported_observation_failure_forces_reject() -> None:
 @pytest.mark.asyncio
 async def test_quality_only_feedback_does_not_block_acceptance() -> None:
     """Ensure a code-quality concern in feedback does not block acceptance
-    when all checks/observations pass (feature 005, US2; FR-006/SC-005)."""
+    when nothing observed failed (feature 005, US2; FR-006/SC-005)."""
     gh, git = _FakeGitHub(body="vague"), _FakeGit()
-    evidence = Evidence([
-        Observation(name="uv run pytest", kind="check", passed=True,
-                    detail="3 passed"),
-    ])
     runner = _FakeRunner(SessionRegistry(), outputs=[
         *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
@@ -346,7 +306,7 @@ async def test_quality_only_feedback_does_not_block_acceptance() -> None:
                      "a docstring and a shorter name.",
         ),
     ])
-    svc = _svc(gh, runner, git, check_runner=_FakeCheckRunner(evidence))
+    svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
@@ -362,25 +322,25 @@ async def test_quality_only_feedback_does_not_block_acceptance() -> None:
 async def test_failing_evidence_rejects_despite_positive_quality_feedback() -> (
     None
 ):
-    """Ensure failing evidence still rejects even when the verdict's text
-    is positive about code quality — the hard gate is never softened by
-    advisory framing (feature 005, US2)."""
+    """Ensure a failing self-reported observation still rejects even when
+    the verdict's text is positive about code quality — the hard gate is
+    never softened by advisory framing (feature 005, US2)."""
     gh, git = _FakeGitHub(body="vague"), _FakeGit()
-    evidence = Evidence([
-        Observation(name="uv run pytest", kind="check", passed=False,
-                    detail="1 failed"),
-    ])
     runner = _FakeRunner(SessionRegistry(), outputs=[
         *_refine_noquestions("prd"),
-        "<PLAN>d</PLAN>",
+        "<PLAN>d</PLAN>\n<BOUNDARY>http</BOUNDARY>",
         "coded",
+        "explored",  # verify: explore turn
         _verdict(
             accept=True,
             feedback="Code quality is excellent, clean, and well-documented.",
+            observations=[
+                {"name": "GET /items", "kind": "http", "passed": False,
+                 "detail": "500 Internal Server Error"},
+            ],
         ),
     ])
-    svc = _svc(gh, runner, git, max_iter=1,
-               check_runner=_FakeCheckRunner(evidence))
+    svc = _svc(gh, runner, git, max_iter=1)
     wid = await svc.create("o/r", 5)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)

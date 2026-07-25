@@ -52,7 +52,6 @@ from app.questionnaire import (
     to_entries,
     validate_answers,
 )
-from app.services.checks import CheckRunner
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
@@ -308,24 +307,23 @@ EXPLORE_PROMPT = (
     "pass. Stop any process you started before you finish. Describe what "
     "you did and observed in your final response; there is no required "
     "format for this turn.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
-    "DIFF:\n{diff}\n\nCONFIGURED-CHECK EVIDENCE:\n{evidence}"
+    "DIFF:\n{diff}"
 )
 VERIFY_PROMPT = (
     "You are the verifier. Judge whether the implementation satisfies the PRD "
     "and design, the way an end user or stakeholder would judge the result — "
-    "not a code reviewer. Weigh the EVIDENCE below (results of running the "
-    "project's checks in the worktree, plus what you just observed by "
-    "exploring the running application, if anything) as the primary basis of "
-    "your verdict — a failing check or a failing observation is a rejection. "
-    "Where evidence is absent, judge the diff against the PRD/design. "
-    "accept/reject is decided SOLELY by whether the implementation meets "
-    "the PRD/design and the evidence above — never by code quality, "
-    "maintainability, or documentation on their own. If you notice a code "
-    "quality or documentation concern, note it in feedback as an aside, but "
-    "it MUST NOT by itself set accept=false when the requirement is "
-    "otherwise met and all evidence passed. Respond "
-    "with ONLY a JSON object wrapped EXACTLY in <VERDICT> and </VERDICT> "
-    "tags, matching this shape:\n"
+    "not a code reviewer. Weigh what you just observed by exploring the "
+    "running application (in the turn immediately before this one, if you "
+    "explored anything) as the primary basis of your verdict — a failing "
+    "observation is a rejection. Where you did not explore anything, judge "
+    "the diff against the PRD/design. accept/reject is decided SOLELY by "
+    "whether the implementation meets the PRD/design and what you observed "
+    "— never by code quality, maintainability, or documentation on their "
+    "own. If you notice a code quality or documentation concern, note it in "
+    "feedback as an aside, but it MUST NOT by itself set accept=false when "
+    "the requirement is otherwise met and nothing you observed failed. "
+    "Respond with ONLY a JSON object wrapped EXACTLY in <VERDICT> and "
+    "</VERDICT> tags, matching this shape:\n"
     '{{"accept": true, "feedback": "...", "observations": '
     '[{{"name": "...", "kind": "http", "passed": true, "detail": "..."}}]}}\n'
     '"observations" is OPTIONAL — include one entry per distinct thing you '
@@ -336,9 +334,8 @@ VERIFY_PROMPT = (
     "stop to investigate with tools — output the verdict JSON directly in "
     "your final response and nothing else. "
     "Set accept=false and give specific, actionable feedback for the coder "
-    "when the implementation is inconsistent or the evidence shows "
-    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
-    "DIFF:\n{diff}\n\nEVIDENCE:\n{evidence}"
+    "when the implementation is inconsistent or what you observed shows "
+    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\nDIFF:\n{diff}"
 )
 
 
@@ -348,9 +345,10 @@ def _slug_ref(task_ref: str) -> str:
 
 
 def _render_evidence(evidence: Evidence) -> str:
-    """Render evidence for the verifier prompt (bounded, human-readable)."""
+    """Render a round's evidence for the committed audit-trail report
+    (bounded, human-readable)."""
     if not evidence.observations:
-        return "(no automated checks configured)"
+        return "(nothing observed this round)"
     lines = []
     for obs in evidence.observations:
         mark = "PASS" if obs.passed else "FAIL"
@@ -363,7 +361,7 @@ def _evidence_feedback(evidence: Evidence) -> str:
     fails = evidence.failures()
     if not fails:
         return ""
-    parts = ["Failing checks:"]
+    parts = ["Failing observations:"]
     for obs in fails:
         parts.append(f"- {obs.name}\n{obs.detail}".rstrip())
     return "\n".join(parts)
@@ -405,15 +403,17 @@ def _clean_json_blob(blob: str) -> str:
     return blob.strip()
 
 
-#: Cap on a self-reported observation's detail, matching the bound
-#: CheckRunner already applies to a configured check's captured output —
-#: keeps a verbose narrative bounded and no secret an explored request
-#: could contain fully echoed into a committed artifact.
+#: Cap on a self-reported observation's detail — keeps a verbose narrative
+#: bounded and no secret an explored request could contain fully echoed
+#: into a committed artifact.
 _MAX_OBSERVATION_DETAIL = 2000
 
 #: Recognised observation kinds a verdict may self-report (mirrors
-#: Observation.kind); anything else is dropped rather than raising.
-_OBSERVATION_KINDS = frozenset({"http", "ui", "check"})
+#: Observation.kind); anything else is dropped rather than raising. Only
+#: behavioral kinds — a technical/structural "check" observation is
+#: deliberately not a legal self-report: durable checks are the coder's
+#: TDD responsibility (CODE_PROMPT), not something verify re-litigates.
+_OBSERVATION_KINDS = frozenset({"http", "ui"})
 
 
 def _parse_observations(raw: object) -> list[Observation]:
@@ -552,7 +552,6 @@ class WorkflowService:
         notifier: Notifier,
         bus: WorkflowBus | None = None,
         dismissals: DismissalStore | None = None,
-        check_runner: CheckRunner | None = None,
         sources: dict[str, object] | None = None,
         code_hosts: dict[str, object] | None = None,
     ) -> None:
@@ -578,14 +577,6 @@ class WorkflowService:
         }
         self._fallback_source = _gh_source
         self._fallback_host = _gh_host
-        #: Verify evidence gatherer (v1: runs configured checks in the
-        #: worktree). Defaults from settings so existing callers need not
-        #: provide one; the behavioural harness drops in later (FR-015b).
-        self.check_runner = (
-            check_runner
-            if check_runner is not None
-            else CheckRunner(settings.verify_checks)
-        )
         #: Records a dismissal on abandon so a still-labelled ingested issue
         #: is not re-ingested (feature 002, FR-008a). Optional so unit tests
         #: that don't exercise ingestion need not provide one.
@@ -1980,7 +1971,11 @@ class WorkflowService:
             )
             verify_step.active_sessions = [verify_slot]
             self._save(run)
-            evidence = await self.check_runner.run(run.workspace)
+            # Evidence for this round is built entirely from what the
+            # verifier itself self-reports below — no deterministic gatherer
+            # runs anymore; durable checks are the coder's TDD job
+            # (CODE_PROMPT), not verify's.
+            evidence = Evidence()
             # When design classified a boundary (http/ui/both), an explore
             # turn launches and exercises the running project for real
             # before the verdict turn adjudicates (feature 005, US1). A
@@ -1989,8 +1984,7 @@ class WorkflowService:
             explore_resume_id: str | None = None
             if run.boundary in ("http", "ui", "both"):
                 explore_prompt = EXPLORE_PROMPT.format(
-                    boundary=run.boundary, prd=prd, design=design,
-                    diff=diff, evidence=_render_evidence(evidence),
+                    boundary=run.boundary, prd=prd, design=design, diff=diff,
                 )
                 self._debug_log(
                     run, f"Round {iteration + 1} — EXPLORE PROMPT",
@@ -2015,7 +2009,6 @@ class WorkflowService:
                 )
             verify_prompt = VERIFY_PROMPT.format(
                 prd=prd, design=design, diff=diff,
-                evidence=_render_evidence(evidence),
             )
             self._debug_log(
                 run, f"Round {iteration + 1} — VERIFY PROMPT", verify_prompt
@@ -2048,11 +2041,12 @@ class WorkflowService:
             accept, feedback, observations = _parse_verdict(
                 verify_result.final_text
             )
-            # Self-reported http/ui observations merge into the same
-            # Evidence list CheckRunner populates (feature 005, US1), so the
-            # failing-observation invariant below covers both uniformly.
+            # Self-reported http/ui observations are this round's entire
+            # Evidence (feature 005, US1) — merge them in before applying
+            # the failing-observation invariant below.
             evidence.observations.extend(observations)
-            # Failing-observation invariant: a failing check never accepts.
+            # Failing-observation invariant: a failing observation never
+            # accepts, regardless of what the verdict's own text says.
             if not evidence.all_passed():
                 ev_fb = _evidence_feedback(evidence)
                 feedback = f"{ev_fb}\n\n{feedback}".strip()

@@ -4,9 +4,9 @@ Kestrel is configured through `KESTREL_*` environment variables (or a
 `backend/.env` file when running from source) and an optional `config.toml`
 file. **Secrets always stay in the environment**; the TOML file holds backend
 routing and applicative (non-secret) settings such as the watched-repo
-allow-list and verify knobs. Where the file sets an applicative key it wins;
-the environment fills in the rest. See [Backends](backends.md) for the backend
-side.
+allow-list and the verify iteration cap. Where the file sets an applicative
+key it wins; the environment fills in the rest. See [Backends](backends.md)
+for the backend side.
 
 ## Environment variables
 
@@ -36,15 +36,16 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_CODE_HOST_TOKEN` | _(empty)_ | Default code-host token for a Jira source's resolved repos. Secret; falls back to `KESTREL_GITHUB_TOKEN` when its `code_host` is github |
 | `KESTREL_PUBLIC_BASE_URL` | _(empty)_ | Public URL of the kestrel UI, used to build clickable gate-notification deep-links. Empty ⇒ link-less comments |
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
-| `KESTREL_VERIFY_CHECKS` | `[]` | JSON list of shell commands run in the worktree as verify evidence, e.g. `["uv run pytest -q"]`. Empty ⇒ model-judgment fallback |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
 | `KESTREL_WORKFLOW_DEBUG` | `false` | Debug the code↔verify dialogue: appends every coder/verifier prompt and result to `<workspace>-debug/dialogue.log` and skips auto-deleting the worktree (done/escalated/failed) so both stay inspectable. An explicit abandon still deletes the workspace |
 
 A project's user-facing boundary (HTTP API, web UI, both, or none) is inferred
 by the `design` step from the PRD and codebase, not configured — there is no
 `KESTREL_*` setting for it. When a boundary is found, `verify` launches and
-exercises the running project using whatever tools (Bash, MCP) the configured
-backend already has available, in addition to `KESTREL_VERIFY_CHECKS`.
+exercises the running project for real using whatever tools (Bash, MCP) the
+configured backend already has available — this is verify's only evidence
+source; durable, deterministic checks (tests, lint) are the coder's TDD
+responsibility, not something kestrel re-runs during verify.
 
 **Task sources are configured in `config.toml`, not via env vars.** Which
 GitHub repos and Jira instances kestrel pulls from — the former
@@ -53,8 +54,8 @@ GitHub repos and Jira instances kestrel pulls from — the former
 [Task sources](#task-sources) below). Those env keys have been removed and are
 ignored if left over.
 
-The applicative keys `KESTREL_POLL_INTERVAL_SECONDS`, `KESTREL_VERIFY_CHECKS`,
-and `KESTREL_MAX_VERIFY_ITERATIONS` can also be set in `config.toml` (as
+The applicative keys `KESTREL_POLL_INTERVAL_SECONDS` and
+`KESTREL_MAX_VERIFY_ITERATIONS` can also be set in `config.toml` (as
 `poll_interval_seconds`, …). The file wins where it sets a key; the environment
 fills in the rest. Secrets have no TOML equivalent.
 
@@ -128,7 +129,7 @@ The recommended layout keeps the two kinds of settings apart:
 
 - **`config.toml` — the preferred home for non-secret configuration.** The
   file-only `[[task_sources]]` list and backend routing, plus the applicative
-  overrides (`poll_interval_seconds`, `verify_checks`, `max_verify_iterations`),
+  overrides (`poll_interval_seconds`, `max_verify_iterations`),
   pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
   mount it and set the env var (see [Backends](backends.md)). Read once at
   startup — restart after editing. (`KESTREL_BACKENDS_FILE` still works as a

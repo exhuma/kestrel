@@ -187,10 +187,9 @@ def test_backend_env_vars_are_ignored(
 
 
 def test_jira_source_defaults_and_verify_defaults() -> None:
-    """Ensure a Jira task source and the verify settings default sensibly."""
+    """Ensure a Jira task source and max_verify_iterations default sensibly."""
     s = Settings(_env_file=None)
     assert s.jira_api_token == ""
-    assert s.verify_checks == []
     assert s.max_verify_iterations == 3
     jira = TaskSourceConfig(
         type="jira", base_url="https://j", jql="project = RFC", key="RFC"
@@ -224,16 +223,6 @@ def test_task_source_literals_accept_allowed_values() -> None:
         _jira(auth="oauth")
     with pytest.raises(Exception):
         _jira(code_host="bitbucket")
-
-
-def test_verify_checks_parses_json_list(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ensure KESTREL_VERIFY_CHECKS parses a JSON array from the env."""
-    monkeypatch.setenv(
-        "KESTREL_VERIFY_CHECKS", '["uv run pytest -q", "npm test"]'
-    )
-    assert Settings().verify_checks == ["uv run pytest -q", "npm test"]
 
 
 def test_jira_source_without_token_warns(

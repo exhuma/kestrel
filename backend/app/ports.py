@@ -8,10 +8,12 @@ a configured, self-hostable git host (GitLab/Gitea). Keeping these as protocols
 lets the workflow depend on roles, not on a concrete provider.
 
 The verifier's grounding is modelled generically as ``Evidence`` (a list of
-``Observation``s). v1 ships a ``kind="check"`` gatherer; the assumed behavioural
-harness (run the app, exercise it via HTTP / Playwright → ``kind="http"``/
-``"ui"`` observations) drops into the same shape without a workflow change
-(FR-015a/FR-015b).
+``Observation``s), entirely self-reported by the verifying agent while
+exercising the running app for real (HTTP requests for an API boundary,
+browser-driven interaction for a UI boundary — feature 005). Durable,
+deterministic checks (tests, lint) are deliberately not part of this: that
+coverage is the coder's TDD responsibility, not something verify
+re-measures.
 """
 from __future__ import annotations
 
@@ -48,16 +50,16 @@ class WorkItem:
 
 @dataclass
 class Observation:
-    """One measured outcome the verifier weighs.
+    """One self-reported outcome the verifier weighs.
 
-    ``kind`` distinguishes the evidence source: ``"check"`` (a configured
-    command's pass/fail — the v1 gatherer), ``"http"`` (a real request against
-    the running API), or ``"ui"`` (a browser-driven interaction). ``detail`` is
-    a bounded excerpt — never full logs, never secrets.
+    ``kind`` distinguishes the boundary exercised: ``"http"`` (a real
+    request against the running API) or ``"ui"`` (a browser-driven
+    interaction). ``detail`` is a bounded excerpt — never full logs, never
+    secrets.
     """
 
     name: str
-    kind: Literal["http", "ui", "check"]
+    kind: Literal["http", "ui"]
     passed: bool
     detail: str = ""
 
@@ -73,7 +75,7 @@ class Evidence:
         return all(o.passed for o in self.observations)
 
     def failures(self) -> list[Observation]:
-        """Return failing observations (the failing-check invariant)."""
+        """Return failing observations (the failing-observation invariant)."""
         return [o for o in self.observations if not o.passed]
 
 
