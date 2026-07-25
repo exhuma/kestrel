@@ -186,6 +186,13 @@ class Settings(BaseSettings):
     verify_checks: list[str] = []
     #: Max code↔verify iterations before the loop escalates (feature 003).
     max_verify_iterations: int = 3
+    #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,
+    #: every prompt/result exchanged between the coder and the verifier is
+    #: appended to a plain-text transcript next to the run's worktree, and
+    #: the worktree is never auto-deleted (done/escalated/failed) so both
+    #: stay inspectable — only an explicit abandon still removes them. Off
+    #: by default: a personal tool should not silently accumulate worktrees.
+    workflow_debug: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

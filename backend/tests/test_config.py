@@ -201,6 +201,15 @@ def test_jira_source_defaults_and_verify_defaults() -> None:
     assert jira.verify_ssl is True
 
 
+def test_workflow_debug_defaults_off_and_reads_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure workflow_debug defaults False and KESTREL_WORKFLOW_DEBUG works."""
+    assert Settings(_env_file=None).workflow_debug is False
+    monkeypatch.setenv("KESTREL_WORKFLOW_DEBUG", "true")
+    assert Settings().workflow_debug is True
+
+
 def test_task_source_literals_accept_allowed_values() -> None:
     """Ensure the literal-typed source fields accept their allowed values."""
     def _jira(**kw):

@@ -42,13 +42,14 @@ def _svc(gh, runner, git, **opts) -> WorkflowService:
     """Build a test WorkflowService.
 
     ``opts`` (all optional): ``max_iter`` (default 3), ``check_runner``,
-    ``workspace_root`` — folded into ``**opts`` rather than named keyword
-    params to stay under the 5-argument limit.
+    ``workspace_root``, ``workflow_debug`` — folded into ``**opts`` rather
+    than named keyword params to stay under the 5-argument limit.
     """
     check_runner = opts.get("check_runner")
     settings_kwargs = {
         "git_base": "https://github.com", "github_token": "t",
         "max_verify_iterations": opts.get("max_iter", 3),
+        "workflow_debug": opts.get("workflow_debug", False),
     }
     if opts.get("workspace_root") is not None:
         settings_kwargs["workspace_root"] = opts["workspace_root"]
@@ -491,3 +492,112 @@ async def test_second_run_unaffected_by_first_runs_report(tmp_path) -> None:
     svc.approve(second)
     await _wait(lambda: svc.get(second).status == "done")
     assert svc.get(second).steps[3].deliverable == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_workflow_debug_writes_dialogue_transcript(tmp_path) -> None:
+    """Ensure workflow_debug appends the coder<->verifier exchange to a
+    plain-text transcript next to (not inside) the worktree."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",
+        "coded v1", _verdict(accept=False, feedback="fix the edge case"),
+        "coded v2", _verdict(accept=True),
+    ])
+    svc = _svc(
+        gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    workspace = svc.get(wid).workspace
+    transcript = Path(f"{workspace}-debug", "dialogue.log").read_text()
+    assert "Round 1 — CODE PROMPT" in transcript
+    assert "Round 1 — VERIFY PROMPT" in transcript
+    assert "Round 1 — VERDICT" in transcript
+    assert "accept=False" in transcript
+    assert "fix the edge case" in transcript
+    assert "Round 2 — CODE PROMPT" in transcript
+    assert "accept=True" in transcript
+    # The transcript lives beside the worktree, not inside it — it must
+    # never be picked up by the worktree's own `git add -A`.
+    assert not Path(workspace, "dialogue.log").exists()
+
+
+@pytest.mark.asyncio
+async def test_workflow_debug_off_writes_no_transcript(tmp_path) -> None:
+    """Ensure the default (workflow_debug=False) creates no debug dir at all."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
+    ])
+    svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    workspace = svc.get(wid).workspace
+    assert not Path(f"{workspace}-debug").exists()
+
+
+@pytest.mark.asyncio
+async def test_workflow_debug_keeps_workspace_on_escalate(tmp_path) -> None:
+    """Ensure workflow_debug skips auto-teardown so the worktree survives
+    an escalation for inspection."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>",
+        "coded", _verdict(accept=False, feedback="nope"),
+    ])
+    svc = _svc(
+        gh, runner, git, max_iter=1, workspace_root=str(tmp_path),
+        workflow_debug=True,
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "escalated")
+    assert Path(svc.get(wid).workspace).exists()
+
+
+@pytest.mark.asyncio
+async def test_workflow_debug_keeps_workspace_on_done(tmp_path) -> None:
+    """Ensure workflow_debug also skips teardown after a successful run."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
+    ])
+    svc = _svc(
+        gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert Path(svc.get(wid).workspace).exists()
+
+
+@pytest.mark.asyncio
+async def test_abandon_removes_workspace_despite_workflow_debug(
+    tmp_path,
+) -> None:
+    """Ensure an explicit abandon still deletes the workspace even with
+    workflow_debug on — only *automatic* cleanup is suppressed."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("prd")]
+    )
+    svc = _svc(
+        gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
+    )
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    workspace = svc.get(wid).workspace
+    assert Path(workspace).exists()
+    await svc.delete(wid)
+    assert not Path(workspace).exists()

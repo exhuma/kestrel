@@ -21,7 +21,8 @@
     "Forgejo", "formedness", "ghlink", "gitea", "glanceable", "gpgsign",
     "grayscale", "hostable", "iconsets", "idempotently",
     "HEALTHCHECK", "healthchecks", "healthz", "HMAC", "hrefs", "httpx",
-    "infosec", "Instrumentor", "KEEPALIVE", "keepalives", "kwargs", "livez",
+    "infosec", "inspectable", "Instrumentor", "KEEPALIVE", "keepalives",
+    "kwargs", "livez",
     "multiedit",
     "nosniff", "notebookedit", "notif", "ntfy", "Okabe", "ollama",
     "opencode", "pinentry", "Planka", "PROCS", "pydantic", "pyproject",
@@ -32,6 +33,6 @@
     "todowrite", "topbar", "traceparent", "uiux", "unconfigured",
     "parseable", "unloadable", "unparseable",
     "unlabeled", "uvicorn", "viewnav", "Vite", "Vuetify", "webfetch",
-    "webhook", "worktree", "Zammad"
+    "webhook", "worktree", "worktrees", "Zammad"
   ]
 }

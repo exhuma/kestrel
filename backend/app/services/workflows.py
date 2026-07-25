@@ -722,14 +722,43 @@ class WorkflowService:
             )
         return content
 
-    async def _teardown_workspace(self, run: WorkflowRun) -> None:
+    def _debug_log(self, run: WorkflowRun, heading: str, content: str) -> None:
+        """Append one entry to the run's coder<->verifier dialogue transcript.
+
+        A no-op unless ``workflow_debug`` is on. Written to a *sibling* of
+        the worktree (``<workspace>-debug/``), not inside it, so it is never
+        staged/committed — this is a local debugging aid, not a deliverable
+        artifact. One flat, human-readable log rather than the raw session
+        stream, which buries the coder<->verifier exchange in tool-call noise.
+        """
+        if not self.settings.workflow_debug:
+            return
+        debug_dir = f"{run.workspace}-debug"
+        os.makedirs(debug_dir, exist_ok=True)
+        path = os.path.join(debug_dir, "dialogue.log")
+        rule = "=" * 78
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"\n{rule}\n{heading}\n{rule}\n{content.rstrip()}\n")
+
+    async def _teardown_workspace(
+        self, run: WorkflowRun, *, force: bool = False
+    ) -> None:
         """Remove a run's worktree and directory; best-effort, isolated.
 
         Closes the workspace leak (only abandon cleaned up before) so a
         finished/failed run does not linger. Never disturbs another run's
-        worktree (feature 002, FR-017).
+        worktree (feature 002, FR-017). Skipped when ``workflow_debug`` is on
+        — the worktree and its dialogue transcript (see ``_debug_log``) stay
+        inspectable — unless ``force``, which an explicit abandon still uses
+        to actually drop the workspace on request.
         """
         if not run.workspace:
+            return
+        if self.settings.workflow_debug and not force:
+            _logger.info(
+                "workflow_debug: keeping workspace for run %s (%s)",
+                run.id, run.workspace,
+            )
             return
         with contextlib.suppress(Exception):
             await self.git.remove_worktree(
@@ -957,7 +986,8 @@ class WorkflowService:
                 self.sessions.remove(session_id)
         self._control.pop(workflow_id, None)
         self.workflows.remove(workflow_id)
-        await self._teardown_workspace(run)
+        # Explicit user action: drop the workspace even in workflow_debug.
+        await self._teardown_workspace(run, force=True)
         # Dismiss the issue so a still-labelled ingested run is not
         # re-created by the webhook or reconciliation (feature 002,
         # FR-008a). Cleared when the trigger label is removed.
@@ -1907,6 +1937,9 @@ class WorkflowService:
             code_resume_id = code_step.session_id or (
                 run.steps[1].session_id if same_backend else None
             )
+            self._debug_log(
+                run, f"Round {iteration + 1} — CODE PROMPT", prompt
+            )
             await self._run_turn_tracked(
                 run,
                 self.backends.backend_for(Step.CODE),
@@ -1924,6 +1957,10 @@ class WorkflowService:
             diff = await self.git.diff(run.workspace, exclude=_ARTIFACT_ROOT)
             code_step.active_sessions = []
             code_step.deliverable = diff
+            self._debug_log(
+                run, f"Round {iteration + 1} — CODE RESULT (diff)",
+                diff or "(empty diff)",
+            )
             if not diff.strip():
                 # A coder that cannot make progress escalates instead of
                 # parking on a human gate (FR-020).
@@ -1951,14 +1988,19 @@ class WorkflowService:
             # turn, unchanged from today.
             explore_resume_id: str | None = None
             if run.boundary in ("http", "ui", "both"):
+                explore_prompt = EXPLORE_PROMPT.format(
+                    boundary=run.boundary, prd=prd, design=design,
+                    diff=diff, evidence=_render_evidence(evidence),
+                )
+                self._debug_log(
+                    run, f"Round {iteration + 1} — EXPLORE PROMPT",
+                    explore_prompt,
+                )
                 explore_result = await self._run_turn_tracked(
                     run,
                     self.backends.backend_for(Step.VERIFY),
                     TurnRequest(
-                        prompt=EXPLORE_PROMPT.format(
-                            boundary=run.boundary, prd=prd, design=design,
-                            diff=diff, evidence=_render_evidence(evidence),
-                        ),
+                        prompt=explore_prompt,
                         cwd=run.workspace,
                         permission_mode=EXPLORE_PERMISSION_MODE,
                         model=verify_model,
@@ -1967,6 +2009,17 @@ class WorkflowService:
                     _bind(verify_step, verify_slot),
                 )
                 explore_resume_id = explore_result.session_id
+                self._debug_log(
+                    run, f"Round {iteration + 1} — EXPLORE RESULT",
+                    explore_result.final_text,
+                )
+            verify_prompt = VERIFY_PROMPT.format(
+                prd=prd, design=design, diff=diff,
+                evidence=_render_evidence(evidence),
+            )
+            self._debug_log(
+                run, f"Round {iteration + 1} — VERIFY PROMPT", verify_prompt
+            )
             verify_result = await self._run_turn_tracked(
                 run,
                 self.backends.backend_for(Step.VERIFY),
@@ -1981,15 +2034,16 @@ class WorkflowService:
                     # full file access regardless of this. This discipline is
                     # exactly why a boundary run's exploration happens on a
                     # SEPARATE prior turn (above) rather than in this one.
-                    prompt=VERIFY_PROMPT.format(
-                        prd=prd, design=design, diff=diff,
-                        evidence=_render_evidence(evidence),
-                    ),
+                    prompt=verify_prompt,
                     cwd=run.workspace, permission_mode="plan",
                     model=verify_model, resume_id=explore_resume_id,
                 ),
                 verify_slot,
                 _bind(verify_step, verify_slot),
+            )
+            self._debug_log(
+                run, f"Round {iteration + 1} — VERIFY RESULT (raw)",
+                verify_result.final_text,
             )
             accept, feedback, observations = _parse_verdict(
                 verify_result.final_text
@@ -2006,6 +2060,10 @@ class WorkflowService:
             verify_step.active_sessions = []
             verify_step.deliverable = (
                 "accepted" if accept else f"rejected: {feedback}"
+            )
+            self._debug_log(
+                run, f"Round {iteration + 1} — VERDICT",
+                f"accept={accept}\nfeedback={feedback or '(none)'}",
             )
             rounds.append({
                 "round": len(rounds) + 1, "boundary": run.boundary,
