@@ -96,6 +96,31 @@ class TaskSourceConfig(BaseModel):
     code_host: Literal["github", "gitlab", "gitea"] = "github"
     code_host_base_url: str = ""
     code_host_token_env: str | None = None
+    #: Both: per-source operator-hooks directory (feature 006). Empty
+    #: disables hook dispatch for this source; see docs/hooks.md for the
+    #: wire format and the credential-exposure trust implication before
+    #: setting this.
+    hooks_dir: str = ""
+    #: GitHub: labels applied at each lifecycle event (feature 006). The
+    #: in-progress label is added at run start and removed at every
+    #: terminal; the matching terminal label is added on that terminal.
+    in_progress_label: str = "kestrel-in-progress"
+    failed_label: str = "kestrel-failed"
+    escalated_label: str = "kestrel-escalated"
+    rejected_label: str = "kestrel-rejected"
+    #: Jira: workflow-transition ids for each lifecycle point this
+    #: source's admin has enabled (feature 006). Unset ⇒ no-op, not an
+    #: error — not every workflow has a distinct transition for every
+    #: terminal.
+    transition_start: str = ""
+    transition_done: str = ""
+    transition_failed: str = ""
+    transition_escalated: str = ""
+    transition_rejected: str = ""
+    #: Jira: field id to write active-work seconds to (e.g. the builtin
+    #: "timespent" or a custom field id). Unset ⇒ no native write; active
+    #: time falls back to the comment footer like every other source.
+    time_spent_field: str = ""
 
     @model_validator(mode="after")
     def _check_required(self) -> TaskSourceConfig:

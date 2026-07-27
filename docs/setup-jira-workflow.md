@@ -118,3 +118,13 @@ silently re-create it. The **re-trigger gesture** is the RFC leaving and
 re-entering the qualifying filter (e.g. a status change out of and back into the
 JQL): once it no longer qualifies the dismissal is cleared, so re-qualifying it
 starts a fresh run.
+
+### Lifecycle sync
+
+As a run progresses, kestrel can apply configured workflow transitions
+(`transition_start`/`transition_done`/etc.) and write active time to a
+configured field — every Jira workflow is different, so none of this is
+guessed; unset fields fall back to a comment footer. See [Configuration →
+Task sources](configuration.md#task-sources) for the fields, and
+[Operator hooks](hooks.md) for the escape hatch when your instance needs
+a custom transition or action kestrel doesn't natively support.

@@ -79,6 +79,28 @@ class Evidence:
         return [o for o in self.observations if not o.passed]
 
 
+@dataclass
+class LifecycleEvent:
+    """One run-lifecycle transition, source-neutral (feature 006).
+
+    Built by ``LifecycleTransitioner`` from a ``WorkflowRun`` at each
+    lifecycle-worthy status change and passed to ``TaskSource.transition``
+    and the operator hooks mechanism. ``kind`` is derived from
+    ``run.status`` via a single exclusive mapping — a failed/escalated/
+    rejected run can never produce ``kind="done"``.
+    """
+
+    kind: Literal["start", "done", "failed", "escalated", "rejected"]
+    #: Cumulative active-work seconds at dispatch time, or ``None`` before
+    #: time tracking has produced a value.
+    active_seconds: float | None = None
+    #: Cumulative time parked at a human gate, or ``None``.
+    wait_seconds: float | None = None
+    #: Kestrel UI deep-link to the run, or "" when no public base URL is
+    #: configured.
+    deep_link: str = ""
+
+
 class TaskSource(Protocol):
     """The ticket role, keyed by an opaque source-native ``ref``."""
 
@@ -100,6 +122,32 @@ class TaskSource(Protocol):
 
     def deep_link_ref(self, ref: str) -> str:
         """Source-native URL to the ticket (operator logs); may return ""."""
+        ...
+
+    async def transition(self, ref: str, event: LifecycleEvent) -> bool:
+        """Best-effort native lifecycle-status transition (feature 006).
+
+        Attempts the platform's native status mechanism for
+        ``event.kind`` (e.g. a label, a workflow transition). When
+        ``event.active_seconds`` is set and this source supports a native
+        time field, also attempts that write — its outcome does not
+        affect this method's return value.
+
+        :returns: ``True`` iff the *status* aspect of this event was
+            natively applied (a mechanism was configured for this
+            ``event.kind`` and the call succeeded); ``False`` otherwise,
+            including on a failed attempt (never raises). The caller
+            then falls back to a comment-footer for whatever this
+            returned ``False``/didn't cover.
+        """
+        ...
+
+    def supports_time_spent(self) -> bool:
+        """Whether this source has a configured native field for active time.
+
+        Static per-source capability, not per-call. Time-spent support
+        never varies across invocations, unlike the status transition.
+        """
         ...
 
 

@@ -89,3 +89,13 @@ own and appears in the **Workflows** tab. Abandoning a run dismisses that issue
 so it is not re-ingested while the label remains; remove and re-add the label to
 run it again. Deliveries missed while kestrel was offline are picked up on the
 next reconciliation cycle.
+
+### Lifecycle sync
+
+As a run progresses, kestrel labels the issue `kestrel-in-progress`, then
+swaps that for a terminal label on completion or failure — and reports
+active/wait time via a comment footer (GitHub issues have no native
+time-tracking field). See [Configuration → Task
+sources](configuration.md#task-sources) for the label names, and
+[Operator hooks](hooks.md) if you need custom actions kestrel doesn't
+support natively.

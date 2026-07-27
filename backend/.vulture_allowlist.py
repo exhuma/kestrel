@@ -10,3 +10,9 @@
 # settings_cls, ...); `settings_cls` is a required positional in that hook's
 # signature even though the body does not use it.
 settings_cls
+
+# app/services/lifecycle.py imports TaskSource only under TYPE_CHECKING and
+# references it solely as a quoted forward-reference annotation
+# (`source: "TaskSource"`); vulture's static analysis does not parse string
+# annotations, so it reads as an unused import even though it is not.
+TaskSource

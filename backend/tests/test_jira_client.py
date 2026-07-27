@@ -7,7 +7,8 @@ import ssl
 import httpx
 import pytest
 
-from app.ports import Task
+from app.config_models import TaskSourceConfig
+from app.ports import LifecycleEvent, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
 
 
@@ -148,3 +149,94 @@ async def test_task_source_publishes_prd_as_attachment() -> None:
     await src.publish_refined("RFC-1", "the PRD")
     assert seen["path"].endswith("/issue/RFC-1/attachments")
     assert src.deep_link_ref("RFC-1") == "https://jira.example/browse/RFC-1"
+
+
+def _config(**overrides) -> TaskSourceConfig:
+    base = dict(
+        type="jira", base_url="https://jira.example", jql="x", key="RFC"
+    )
+    base.update(overrides)
+    return TaskSourceConfig(**base)
+
+
+@pytest.mark.asyncio
+async def test_transition_applies_configured_transition_id() -> None:
+    """Ensure a configured transition id is POSTed for the matching kind."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["path"] = req.url.path
+        seen["body"] = json.loads(req.read())
+        return httpx.Response(200, json={})
+
+    cfg = _config(transition_done="31")
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"), config=cfg
+    )
+    ok = await src.transition("RFC-1", LifecycleEvent(kind="done"))
+    assert ok is True
+    assert seen["path"].endswith("/issue/RFC-1/transitions")
+    assert seen["body"] == {"transition": {"id": "31"}}
+
+
+@pytest.mark.asyncio
+async def test_transition_is_noop_when_unconfigured() -> None:
+    """Ensure an unset transition id is a no-op, not an error."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("must not call Jira when unconfigured")
+
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"), config=_config()
+    )
+    ok = await src.transition("RFC-1", LifecycleEvent(kind="done"))
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_transition_failure_returns_false_without_raising() -> None:
+    """Ensure a failed transition call returns False, never raises."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"errorMessages": ["bad"]})
+
+    cfg = _config(transition_done="31")
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"), config=cfg
+    )
+    ok = await src.transition("RFC-1", LifecycleEvent(kind="done"))
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_transition_writes_configured_time_field_independently() -> None:
+    """Ensure the time field is written even if no transition is configured."""
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path, json.loads(req.read())))
+        return httpx.Response(200, json={})
+
+    cfg = _config(time_spent_field="timespent")
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"), config=cfg
+    )
+    ok = await src.transition(
+        "RFC-1", LifecycleEvent(kind="done", active_seconds=125.6)
+    )
+    assert ok is False  # no transition_done configured
+    method, path, body = calls[0]
+    assert len(calls) == 1
+    assert method == "PUT"
+    assert path.endswith("/issue/RFC-1")
+    assert body == {"fields": {"timespent": 126}}
+
+
+def test_supports_time_spent_reflects_configured_field() -> None:
+    """Ensure supports_time_spent() matches whether time_spent_field is set."""
+    client = _client(lambda r: httpx.Response(200), auth="basic")
+    unset = JiraTaskSource(client, config=_config())
+    assert unset.supports_time_spent() is False
+    cfg = _config(time_spent_field="timespent")
+    assert JiraTaskSource(client, config=cfg).supports_time_spent() is True
+    assert JiraTaskSource(client, config=None).supports_time_spent() is False

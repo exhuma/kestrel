@@ -385,6 +385,45 @@ async def test_happy_path_refine_design_code_verify_pr() -> None:
 
 
 @pytest.mark.asyncio
+async def test_active_and_wait_seconds_accumulate_through_both_gates() -> (
+    None
+):
+    """Ensure the run-level clock (feature 006) tracks real elapsed time
+    across an input-gate round and the approval gate, excluding both
+    waits from active_seconds and stopping entirely once the run is done.
+    """
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(prompt="Which?", options=[{"value": "a", "label": "A"}])),
+        _coord([]),
+        _refined("Build a clear widget"),
+        "<PLAN>\nStep 1: do X\n</PLAN>",
+        "Implemented X",
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git)
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    assert svc.get(wid).clock_state == "waiting"
+    await asyncio.sleep(0.05)  # simulate the operator taking a moment
+    svc.submit_answers(wid, {"developer:q0": "a"})
+
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    assert svc.get(wid).clock_state == "waiting"
+    await asyncio.sleep(0.05)  # simulate the operator taking a moment
+    svc.approve(wid)
+
+    await _wait(lambda: svc.get(wid).status == "done")
+    run = svc.get(wid)
+    assert run.clock_state is None
+    assert run.clock_since is None
+    assert run.active_seconds > 0
+    assert run.wait_seconds > 0
+
+
+@pytest.mark.asyncio
 async def test_design_sets_boundary_from_tag() -> None:
     """Ensure a well-formed <BOUNDARY> tag sets run.boundary (feature 005)."""
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()

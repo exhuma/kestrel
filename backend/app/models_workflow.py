@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 
 class Step(StrEnum):
@@ -121,3 +123,21 @@ class WorkflowRun:
     #: check-and-diff-judgment behaviour unchanged. Internal only — never
     #: surfaced to the API/UI.
     boundary: str | None = None
+    #: Cumulative time this run has spent actively being worked (feature
+    #: 006), excluding time parked at a human gate. Never decreases;
+    #: updated only via ``app.services.time_tracking._set_clock``.
+    #: Internal only — never surfaced to the API/UI.
+    active_seconds: float = 0.0
+    #: Cumulative time this run has spent parked at a human gate
+    #: (``awaiting_refine_input``/``awaiting_refine_approval``), feature
+    #: 006. Never decreases; updated only via ``_set_clock``. Internal
+    #: only — never surfaced to the API/UI.
+    wait_seconds: float = 0.0
+    #: Which clock is currently running: ``"active"`` while genuinely
+    #: being worked, ``"waiting"`` while parked at a gate, ``None``
+    #: before the run starts and after it reaches any terminal status.
+    #: Invariant: non-``None`` iff ``clock_since`` is non-``None``.
+    clock_state: Literal["active", "waiting"] | None = None
+    #: Naive UTC timestamp ``clock_state`` last changed (matches this
+    #: repo's existing naive-UTC timestamp convention).
+    clock_since: datetime | None = None

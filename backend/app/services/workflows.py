@@ -57,7 +57,14 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 from app.services.git import GitService
-from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
+from app.services.github import (
+    GitHubClient,
+    GitHubCodeHost,
+    GitHubTaskSource,
+    parse_github_ref,
+)
+from app.services.lifecycle import LifecycleTransitioner
+from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
     activity_for,
     extract_boundary,
@@ -106,6 +113,21 @@ _TRANSIENT = (
     "pending", "cloning", "refining",
     "designing", "coding", "verifying", "opening_pr",
 )
+
+#: Terminal statuses (feature 006): reaching one of these stops a run's
+#: active/wait clock for good, centralized in ``_save()`` so no terminal
+#: call site can forget to close it out.
+_TERMINAL_STATUSES = ("done", "failed", "rejected", "escalated")
+
+
+def _now_utc() -> datetime:
+    """Naive UTC now (this repo's timestamp convention — see the
+    constitution's Persistence deviation): a ``clock_since`` value that
+    round-trips through SQLite comes back naive, so every value fed to
+    ``set_clock`` must be naive too, or the elapsed-time subtraction
+    raises.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 #: Top-level folder (worktree-relative) under which a run's step-handover
 #: artifacts live, spec-kit's ``.specify`` in spirit. Each run gets a unique
@@ -666,6 +688,8 @@ class WorkflowService:
 
         :param run: The run to checkpoint.
         """
+        if run.status in _TERMINAL_STATUSES and run.clock_state is not None:
+            set_clock(run, None, _now_utc())
         self.workflows.save(run)
         self.notifier.notify(run)
         if self.bus is not None:
@@ -1130,6 +1154,7 @@ class WorkflowService:
         run = self.get(workflow_id)
         try:
             run.status = "cloning"
+            set_clock(run, "active", _now_utc())
             self._save(run)
             task = await self._task_source(run).get_task(run.task_ref)
             run.issue_title = task.title
@@ -1222,9 +1247,11 @@ class WorkflowService:
             step.active_sessions = []  # chips off at the gate
             step.status = "awaiting_approval"
             run.status = "awaiting_refine_approval"
+            set_clock(run, "waiting", _now_utc())
             self._save(run)
         while True:
             decision = await self._await_gate(run.id)
+            set_clock(run, "active", _now_utc())
             if decision.approved:
                 final = decision.deliverable or (step.deliverable or "")
                 # Publish the approved PRD to the ticket: GitHub writes the
@@ -1244,6 +1271,7 @@ class WorkflowService:
             step.active_sessions = []  # chips off at the gate
             step.status = "awaiting_approval"
             run.status = "awaiting_refine_approval"
+            set_clock(run, "waiting", _now_utc())
             self._save(run)
 
     async def _run_interview(
@@ -1290,6 +1318,7 @@ class WorkflowService:
 
         while round_no <= round_cap:
             run.status = "refining"
+            set_clock(run, "active", _now_utc())
             step.status = "running"
             self._save(run)
             # Coordinator clarification is bounded by the base cap; the extra
@@ -1339,6 +1368,7 @@ class WorkflowService:
             step.active_sessions = []  # human's turn: chips off
             step.status = "awaiting_input"
             run.status = "awaiting_refine_input"
+            set_clock(run, "waiting", _now_utc())
             self._save(run)
             answers = await self._control[run.id].replies.get()
             accumulated += to_entries(questionnaire, answers)
@@ -2282,7 +2312,9 @@ def get_workflow_service() -> WorkflowService:
     github = GitHubClient(
         settings.github_api_base, settings.github_token, verify=gh_verify
     )
-    gh_source = GitHubTaskSource(github, settings.public_base_url)
+    gh_source = GitHubTaskSource(
+        github, settings.public_base_url, config_for=settings.github_source_for
+    )
     gh_host = GitHubCodeHost(github, settings.git_base)
     # Task Source / Code Host per run source. GitHub and manual runs collapse
     # onto the GitHub adapters; the Jira source + its configured code host are
@@ -2306,7 +2338,7 @@ def get_workflow_service() -> WorkflowService:
             verify=entry.verify_ssl,
         )
         sources["jira-issue"] = JiraTaskSource(
-            jira, settings.public_base_url
+            jira, settings.public_base_url, config=entry
         )
         jira_github = GitHubClient(
             settings.github_api_base,
@@ -2316,12 +2348,28 @@ def get_workflow_service() -> WorkflowService:
         code_hosts["jira-issue"] = build_code_host(
             entry, jira_github, settings.git_base
         )
+    def hooks_dir_for(run: WorkflowRun) -> str:
+        """Resolve a run's configured hooks_dir (feature 006), if any."""
+        if run.source == "github-issue" and run.task_ref:
+            try:
+                repo, _num = parse_github_ref(run.task_ref)
+            except ValueError:
+                return ""
+            cfg = settings.github_source_for(repo)
+            return cfg.hooks_dir if cfg else ""
+        if run.source == "jira-issue" and jira_sources:
+            return jira_sources[0].hooks_dir
+        return ""
+
     # In-app first (always records the durable fallback row), then the
     # best-effort ticket comment via the run's source (feature 003).
     notifier = CompositeNotifier(
         [
             InAppNotifier(get_notification_store(), get_notification_bus()),
             TaskSourceNotifier(sources, settings.public_base_url),
+            LifecycleTransitioner(
+                sources, settings.public_base_url, hooks_dir_for
+            ),
         ]
     )
     return WorkflowService(

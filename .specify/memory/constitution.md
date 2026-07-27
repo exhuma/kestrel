@@ -1,6 +1,53 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-07-27 (1.2.0 → 1.3.0, MINOR): Record a deliberate departure for the
+new operator-hooks mechanism (feature 006-task-lifecycle-sync) in "Technology &
+Architecture Constraints". Kestrel now executes arbitrary operator-provided
+executables from a configured, per-task-source `hooks_dir` at defined workflow-run
+lifecycle points (run start, done, failed, escalated, rejected); each invocation
+inherits kestrel's full process environment, including every configured credential
+(GitHub/Jira/code-host tokens), by deliberate design — a hook can call the same
+ticket-tracker API kestrel itself uses, with kestrel's own credentials, to perform
+custom actions kestrel does not natively support. This makes `hooks_dir` and its
+contents a secret-equivalent trust boundary, not merely "the same trust as host
+access": an operator who would not let an untrusted party write to their
+`config.toml` must not let one write to (or place a file into) a configured
+`hooks_dir` either. No sandboxing is implemented beyond per-invocation failure
+isolation (a 30-second timeout, and one hook's failure never blocking another hook
+or the run) and a startup audit log of each configured `hooks_dir`'s contents (a
+nudge, not an access control). MINOR because it materially expands the recorded
+Access model constraint with a new permitted deviation and its conditions; no
+principle is removed or redefined, and every other route/mechanism keeps its
+existing trust posture. Required by Principle I ("any intentional departure … MUST
+be recorded here … before it is relied upon") so feature 006-task-lifecycle-sync's
+hooks mechanism can proceed.
+
+Modified sections:
+  - Technology & Architecture Constraints → "Access model" bullet expanded with the
+    recorded operator-hooks deviation, its credential-exposure scope, and its
+    mitigations.
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... ✅ aligned (Constitution Check gate
+    references the constitution dynamically; no edit)
+  - .specify/templates/spec-template.md ...... ✅ aligned (no mandatory section
+    changed)
+  - .specify/templates/tasks-template.md ..... ✅ aligned (no new principle-driven
+    task type)
+  - .claude/skills/speckit-*/SKILL.md ........ ✅ reviewed; generic guidance
+  - AGENTS.md / docs/next-steps.md ........... ✅ consistent (AGENTS.md defers the
+    access model to this file; next-steps unaffected)
+  - docs/architecture.md .................... ⚠ pending: should note the hooks
+    mechanism's credential-exposure trust boundary alongside the existing webhook
+    exception; update during 006 implementation to prevent drift.
+
+Follow-up TODOs:
+  - docs/hooks.md (new) and docs/setup-jira-workflow.md carry the operator-facing
+    warning in full; this amendment records the binding constraint, not the
+    step-by-step guidance.
+
+--------------------------------------------------------------------------------
 Amendment 2026-07-21 (1.1.0 → 1.2.0, MINOR): Record a deliberate deviation from
 the loopback-bound access model in "Technology & Architecture Constraints". The
 GitHub webhook ingress endpoint (`POST /api/github/webhook`, feature
@@ -197,7 +244,23 @@ section records only the non-negotiable constraints an agent must honour.
   webhook HMAC is that same shared-secret posture applied to the one endpoint that
   must face the network. Optionally, the web UI may be served at a configured
   public base URL so that notification deep-links are clickable; this is the same
-  operator-exposure posture and the link MUST carry no secret.
+  operator-exposure posture and the link MUST carry no secret. **Second recorded
+  exception** (feature 006-task-lifecycle-sync): a task source MAY configure a
+  `hooks_dir` — a filesystem directory of operator-provided executables invoked at
+  workflow-run lifecycle events (start/done/failed/escalated/rejected), git-hook
+  style, with the event as JSON on stdin. Every such invocation inherits kestrel's
+  full process environment, including every configured credential, by deliberate
+  design, so a hook can itself call a ticket tracker's API with kestrel's own
+  token. This is **not** merely "the same trust as host access" — it is a
+  secret-equivalent trust boundary: `hooks_dir` and everything placed in it MUST be
+  treated with the same care as `config.toml`/the secrets it references, and MUST
+  be documented as such wherever an operator configures it. No sandboxing is
+  implemented; the only mitigations are per-invocation isolation (a hard 30-second
+  timeout; one hook's failure, timeout, or malformed output MUST never block
+  another configured hook or the run itself) and a startup audit log listing each
+  configured `hooks_dir`'s executable contents (flagging any that are
+  group/world-writable) so an operator has a chance to notice an unexpected file —
+  a nudge, not an access control.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -238,4 +301,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21
+**Version**: 1.3.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-27

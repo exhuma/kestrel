@@ -80,6 +80,22 @@ class WorkflowRunRow(Base):
     #: set once by the design step (feature 005); NULL before design has run
     #: (or for a run created before this column existed). Internal-only.
     boundary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Cumulative active-work / gate-wait seconds (feature 006).
+    #: Server-default 0 keeps pre-existing rows valid.
+    active_seconds: Mapped[float] = mapped_column(
+        default=0.0, server_default="0"
+    )
+    wait_seconds: Mapped[float] = mapped_column(
+        default=0.0, server_default="0"
+    )
+    #: Which clock is running now ("active" | "waiting"); NULL before
+    #: start / after a terminal. Feature 006.
+    clock_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Naive UTC timestamp clock_state last changed; NULL iff
+    #: clock_state is NULL. Feature 006.
+    clock_since: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
 
 class WorkflowStepRow(Base):

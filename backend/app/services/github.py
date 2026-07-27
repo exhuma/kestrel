@@ -7,12 +7,22 @@ source-neutral ``task_ref`` ``"owner/name#123"``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
+from urllib.parse import quote
 
 import httpx
 
-from app.ports import Task
+from app.config_models import TaskSourceConfig
+from app.ports import LifecycleEvent, Task
 from app.services.exceptions import GitHubError
 from app.services.workflow_text import append_sentinel
+
+#: Which TaskSourceConfig field names a failure-terminal event's label.
+_TERMINAL_LABEL_FIELD = {
+    "failed": "failed_label",
+    "escalated": "escalated_label",
+    "rejected": "rejected_label",
+}
 
 
 def parse_github_ref(ref: str) -> tuple[str, int]:
@@ -165,6 +175,35 @@ class GitHubClient:
             "PATCH", f"/repos/{repo}/issues/{number}", json={"body": body}
         )
 
+    async def add_label(self, repo: str, number: int, label: str) -> None:
+        """Add ``label`` to an issue (a no-op if ``label`` is empty)."""
+        if not label:
+            return
+        await self._request(
+            "POST",
+            f"/repos/{repo}/issues/{number}/labels",
+            json={"labels": [label]},
+        )
+
+    async def remove_label(self, repo: str, number: int, label: str) -> None:
+        """Remove ``label`` from an issue (idempotent; empty is a no-op).
+
+        A 404 (label already absent) is treated as success, not an error
+        — removing an already-removed label is the expected steady state
+        once a run has already transitioned past it.
+        """
+        if not label:
+            return
+        resp = await self._http.request(
+            "DELETE",
+            f"/repos/{repo}/issues/{number}/labels/{quote(label, safe='')}",
+            headers=self._headers(),
+        )
+        if resp.status_code >= 300 and resp.status_code != 404:
+            raise GitHubError(
+                f"DELETE labels/{label} -> {resp.status_code}: {resp.text}"
+            )
+
     async def create_pull_request(
         self,
         repo: str,
@@ -192,9 +231,21 @@ class GitHubClient:
 class GitHubTaskSource:
     """``TaskSource`` adapter over :class:`GitHubClient` (issues)."""
 
-    def __init__(self, client: GitHubClient, public_base_url: str = "") -> None:
+    def __init__(
+        self,
+        client: GitHubClient,
+        public_base_url: str = "",
+        config_for: "Callable[[str], TaskSourceConfig | None] | None" = None,
+    ) -> None:
+        """
+        :param config_for: Resolves a repo (``owner/name``) to the
+            :class:`TaskSourceConfig` carrying its lifecycle labels
+            (feature 006). ``None`` (or no match) falls back to the
+            model's own defaults.
+        """
         self._client = client
         self._public_base_url = public_base_url.rstrip("/")
+        self._config_for = config_for
 
     async def get_task(self, ref: str) -> Task:
         repo, number = parse_github_ref(ref)
@@ -217,6 +268,46 @@ class GitHubTaskSource:
     def deep_link_ref(self, ref: str) -> str:
         repo, number = parse_github_ref(ref)
         return f"https://github.com/{repo}/issues/{number}"
+
+    def _config(self, repo: str) -> TaskSourceConfig:
+        found = self._config_for(repo) if self._config_for else None
+        return found or TaskSourceConfig(type="github", watched_repos=[repo])
+
+    async def transition(self, ref: str, event: LifecycleEvent) -> bool:
+        """Add/remove issue labels for ``event.kind`` (feature 006).
+
+        GitHub issues have no native "in progress"/"done" state — labels
+        are the closest native primitive. ``done`` only removes the
+        in-progress label (never force-closes the issue: the existing
+        ``Closes #n`` PR body already closes it on merge, and closing it
+        earlier would misrepresent an unmerged PR as resolved).
+        """
+        repo, number = parse_github_ref(ref)
+        cfg = self._config(repo)
+        try:
+            if event.kind == "start":
+                await self._client.add_label(
+                    repo, number, cfg.in_progress_label
+                )
+            elif event.kind == "done":
+                await self._client.remove_label(
+                    repo, number, cfg.in_progress_label
+                )
+            else:
+                terminal_label = getattr(
+                    cfg, _TERMINAL_LABEL_FIELD[event.kind]
+                )
+                await self._client.remove_label(
+                    repo, number, cfg.in_progress_label
+                )
+                await self._client.add_label(repo, number, terminal_label)
+            return True
+        except Exception:  # noqa: BLE001 — best-effort; footer is the fallback
+            return False
+
+    def supports_time_spent(self) -> bool:
+        """GitHub issues have no native time-tracking field."""
+        return False
 
 
 class GitHubCodeHost:

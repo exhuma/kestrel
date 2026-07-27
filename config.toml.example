@@ -42,6 +42,19 @@ type = "github"
 watched_repos = ["owner/name"]
 trigger_label = "kestrel"
 # token_env = "KESTREL_GITHUB_TOKEN"   # optional (this is the default)
+#
+# Lifecycle sync (feature 006): labels applied as a run progresses. These are
+# the defaults — override only if they clash with an existing label scheme.
+# in_progress_label = "kestrel-in-progress"
+# failed_label = "kestrel-failed"
+# escalated_label = "kestrel-escalated"
+# rejected_label = "kestrel-rejected"
+#
+# Operator hooks (feature 006): a folder of executables invoked at every
+# lifecycle event. SECURITY: a hook inherits kestrel's full environment,
+# including every configured token — only point this at a directory you trust
+# as much as this file itself. See docs/hooks.md before setting this.
+# hooks_dir = "/path/to/hooks/github"
 
 # Jira: poll one instance with a whole JQL query (you write the project clause
 # yourself). The target repo is resolved from `repo_field` or a web link titled
@@ -61,6 +74,23 @@ trigger_label = "kestrel"
 # code_host = "github"                  # "github" | "gitlab" | "gitea"
 # code_host_base_url = ""               # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
+#
+# Lifecycle sync (feature 006): Jira workflow-transition ids for each
+# lifecycle point (look these up via your instance's issue transitions
+# endpoint/admin UI — every workflow is different, so none are guessed).
+# Unset = no native transition for that point; falls back to a comment
+# footer. Optionally write active time to a field (the builtin "timespent"
+# or a custom field id) — unset = footer only.
+# transition_start = ""
+# transition_done = ""
+# transition_failed = ""
+# transition_escalated = ""
+# transition_rejected = ""
+# time_spent_field = ""
+#
+# Operator hooks (feature 006): see the GitHub entry above — same
+# SECURITY note applies (full environment/credential inheritance).
+# hooks_dir = "/path/to/hooks/jira"
 
 # --- backend routing --------------------------------------------------------
 # Backend used for ad-hoc /api/sessions dispatch.
