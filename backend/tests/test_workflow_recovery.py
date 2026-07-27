@@ -148,6 +148,58 @@ async def test_recover_fails_mid_step_runs(
     assert persisted.status == "failed"
 
 
+@pytest.mark.asyncio
+async def test_recover_isolates_one_runs_failure_from_others(
+    tmp_path: Path,
+) -> None:
+    """Ensure one run's recovery failure is logged and skipped rather than
+    aborting recovery for every other run (or the app's startup)."""
+    store = _store(tmp_path)
+    runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
+        _coord(["developer"]),
+        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
+    ])
+    svc1 = _persistent_service(
+        store, _FakeGitHub(body="vague"), runner1, _FakeGit()
+    )
+    bad_wid = await svc1.create("o/r", 5)
+    await _wait(lambda: svc1.get(bad_wid).status == "awaiting_refine_input")
+    good_wid = await svc1.create("o/r", 6)
+    await _wait(lambda: svc1.get(good_wid).status == "awaiting_refine_input")
+
+    # Force both into a mid-step snapshot, as if the process died there.
+    for wid in (bad_wid, good_wid):
+        run = svc1.get(wid)
+        run.status = "refining"
+        store.save(run)
+
+    svc2 = _persistent_service(
+        store, _FakeGitHub(body="vague"),
+        _FakeRunner(SessionRegistry(), outputs=[]), _FakeGit(),
+    )
+    original_recover_one = svc2._recover_one
+
+    def _flaky_recover_one(run):
+        if run.id == bad_wid:
+            raise RuntimeError("boom: simulated recovery failure")
+        original_recover_one(run)
+
+    svc2._recover_one = _flaky_recover_one
+
+    await svc2.recover()  # must not raise despite bad_wid's failure
+
+    good_run = svc2.get(good_wid)
+    assert good_run.status == "failed"
+    assert "restarted" in (good_run.error or "")
+    persisted_good = {r.id: r for r in store.load_all()}[good_wid]
+    assert persisted_good.status == "failed"
+
+    # The failing run's recovery was skipped — its status is untouched.
+    assert svc2.get(bad_wid).status == "refining"
+
+
 # NOTE: the mid-implementation blocker gate (awaiting_implement_input) was
 # removed by the feature-003 reshape — design/code/verify are transient and
 # fail loudly on restart (they are in _TRANSIENT), covered by

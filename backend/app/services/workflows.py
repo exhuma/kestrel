@@ -79,6 +79,27 @@ from app.storage.workflow_registry import (
 _WF_TASKS: set[asyncio.Task] = set()
 _logger = logging.getLogger(__name__)
 
+
+def _log_driver_exception(task: asyncio.Task, workflow_id: str) -> None:
+    """Log a driver task's terminal exception, if any.
+
+    Without this, a driver coroutine that raises past its own try/except
+    (e.g. a secondary failure while already handling one) dies with its
+    exception unretrieved — asyncio logs only a generic, easy-to-miss "Task
+    exception was never retrieved" warning, and neither ``run.status`` nor
+    the app's own logs ever record what happened. This is the one place
+    every driver task funnels through on completion, so it is the right
+    place to guarantee a crash is always visible.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        _logger.error(
+            "workflow %s: driver task failed unexpectedly", workflow_id,
+            exc_info=exc,
+        )
+
 #: Statuses that cannot survive a restart: their claude
 #: subprocess (or transient side-effect) died with the process.
 _TRANSIENT = (
@@ -238,12 +259,26 @@ REFINE_FEEDBACK_PROMPT = (
     "and nothing else.\n\nCURRENT REFINED ISSUE:\n{current}\n\n"
     "FEEDBACK:\n{feedback}"
 )
+#: Shared commit instruction for CODE_PROMPT/CODE_FEEDBACK_PROMPT (feature
+#: 006): the coder and verifier share the same worktree, so there is no
+#: need to serialize a diff to the verifier — the coder commits its own
+#: work instead. kestrel places no special handling on the "WIP:" prefix
+#: itself; every round still runs the full verify pass regardless of how
+#: the coder phrased its commit message.
+_COMMIT_INSTRUCTION = (
+    "Commit your changes on this branch before you finish (`git add -A "
+    "&& git commit`): use a real, descriptive commit message when you are "
+    "confident in the result, or a `WIP: ...`-prefixed message naming your "
+    "specific uncertainty when you are not and expect the verifier may "
+    "reject this round."
+)
 CODE_FEEDBACK_PROMPT = (
     "The verifier did not accept the implementation — this means the PRD/"
     "design was not met or the evidence showed a real failure; the "
     "feedback below may also carry incidental quality notes, but those are "
     "not why this was rejected. Fix what actually failed first. Address "
-    "this feedback by editing the repository now, then stop."
+    "this feedback by editing the repository now. " + _COMMIT_INSTRUCTION +
+    " Then stop."
     "\n\nFEEDBACK:\n{feedback}\n\nDESIGN:\n{design}"
 )
 DESIGN_PROMPT = (
@@ -272,8 +307,8 @@ CODE_PROMPT = (
     "end-to-end coverage minimal). Verification later in this pipeline "
     "checks live, observed behaviour — it is not a substitute for durable, "
     "repo-committed tests, which are your responsibility. Once the "
-    "implementation is complete, just stop — do not wrap your final "
-    "summary in any tags."
+    "implementation is complete, " + _COMMIT_INSTRUCTION + " Then just "
+    "stop — do not wrap your final summary in any tags."
     "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
 #: permission_mode for the explore turn (feature 005, US1): the explore
@@ -290,7 +325,7 @@ EXPLORE_PERMISSION_MODE = "bypassPermissions"
 
 EXPLORE_PROMPT = (
     "You are verifying an implementation by observing the running, "
-    "modified project — not just reading the diff. This project's "
+    "modified project — not by reading its code. This project's "
     "user-facing boundary is: {boundary}. Using whatever tools you have "
     "available (a shell, browser automation, etc.), launch the project in "
     "this worktree and exercise it for real:\n"
@@ -306,8 +341,7 @@ EXPLORE_PROMPT = (
     "that must be clear, not silently indistinguishable from a normal "
     "pass. Stop any process you started before you finish. Describe what "
     "you did and observed in your final response; there is no required "
-    "format for this turn.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
-    "DIFF:\n{diff}"
+    "format for this turn.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
 VERIFY_PROMPT = (
     "You are the verifier. Judge whether the implementation satisfies the PRD "
@@ -316,14 +350,16 @@ VERIFY_PROMPT = (
     "running application (in the turn immediately before this one, if you "
     "explored anything) as the primary basis of your verdict — a failing "
     "observation is a rejection. Where you did not explore anything, judge "
-    "the diff against the PRD/design. accept/reject is decided SOLELY by "
-    "whether the implementation meets the PRD/design and what you observed "
-    "— never by code quality, maintainability, or documentation on their "
-    "own. If you notice a code quality or documentation concern, note it in "
-    "feedback as an aside, but it MUST NOT by itself set accept=false when "
-    "the requirement is otherwise met and nothing you observed failed. "
-    "Respond with ONLY a JSON object wrapped EXACTLY in <VERDICT> and "
-    "</VERDICT> tags, matching this shape:\n"
+    "based on the PRD and design alone — you are not shown a diff and do not "
+    "need one; the codebase in this worktree is the implementation. "
+    "accept/reject is decided SOLELY by whether the implementation meets "
+    "the PRD/design and what you observed — never by code quality, "
+    "maintainability, or documentation on their own. If you notice a code "
+    "quality or documentation concern, note it in feedback as an aside, but "
+    "it MUST NOT by itself set accept=false when the requirement is "
+    "otherwise met and nothing you observed failed. Respond "
+    "with ONLY a JSON object wrapped EXACTLY in <VERDICT> and </VERDICT> "
+    "tags, matching this shape:\n"
     '{{"accept": true, "feedback": "...", "observations": '
     '[{{"name": "...", "kind": "http", "passed": true, "detail": "..."}}]}}\n'
     '"observations" is OPTIONAL — include one entry per distinct thing you '
@@ -335,7 +371,7 @@ VERIFY_PROMPT = (
     "your final response and nothing else. "
     "Set accept=false and give specific, actionable feedback for the coder "
     "when the implementation is inconsistent or what you observed shows "
-    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\nDIFF:\n{diff}"
+    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
 
 
@@ -407,6 +443,10 @@ def _clean_json_blob(blob: str) -> str:
 #: bounded and no secret an explored request could contain fully echoed
 #: into a committed artifact.
 _MAX_OBSERVATION_DETAIL = 2000
+
+#: Cap on a single ``_debug_log`` entry — defense-in-depth against any
+#: future entry (not just the diff) ballooning ``dialogue.log``.
+_MAX_DEBUG_LOG_ENTRY = 4000
 
 #: Recognised observation kinds a verdict may self-report (mirrors
 #: Observation.kind); anything else is dropped rather than raising. Only
@@ -595,6 +635,9 @@ class WorkflowService:
         task.add_done_callback(
             lambda t, wid=workflow_id: self._tasks.pop(wid, None)
         )
+        task.add_done_callback(
+            lambda t, wid=workflow_id: _log_driver_exception(t, wid)
+        )
 
     def _new_control(self) -> _Control:
         loop = asyncio.get_running_loop()
@@ -629,6 +672,25 @@ class WorkflowService:
             # Tick every SSE subscriber so the UI re-reads this run
             # (state, chips, deliverable) instead of polling.
             self.bus.publish(run.id)
+
+    def _safe_save(self, run: WorkflowRun) -> None:
+        """Persist a run, tolerating a secondary failure while already
+        handling one.
+
+        Used inside exception/cleanup handlers so a failing DB write here
+        doesn't also kill the driver task with an unretrieved exception —
+        the caller has already mutated ``run.status`` on the in-memory
+        object the registry holds, so that much survives even if this
+        persist doesn't; the failure itself is still logged loudly rather
+        than silently swallowed.
+        """
+        try:
+            self._save(run)
+        except Exception:
+            _logger.exception(
+                "workflow %s: failed to persist status %r",
+                run.id, run.status,
+            )
 
     # ---- queries -------------------------------------------------------
     def get(self, workflow_id: str) -> WorkflowRun:
@@ -721,6 +783,10 @@ class WorkflowService:
         staged/committed — this is a local debugging aid, not a deliverable
         artifact. One flat, human-readable log rather than the raw session
         stream, which buries the coder<->verifier exchange in tool-call noise.
+        Any single entry is capped at ``_MAX_DEBUG_LOG_ENTRY`` — defense in
+        depth against a future verbose entry (e.g. an explore-turn
+        narrative) ballooning the file, on top of specific entries (like the
+        diff) already being bounded at the source.
         """
         if not self.settings.workflow_debug:
             return
@@ -728,8 +794,15 @@ class WorkflowService:
         os.makedirs(debug_dir, exist_ok=True)
         path = os.path.join(debug_dir, "dialogue.log")
         rule = "=" * 78
+        body = content.rstrip()
+        if len(body) > _MAX_DEBUG_LOG_ENTRY:
+            omitted = len(body) - _MAX_DEBUG_LOG_ENTRY
+            body = (
+                f"{body[:_MAX_DEBUG_LOG_ENTRY]}\n"
+                f"...[truncated {omitted} of {len(body)} chars]"
+            )
         with open(path, "a", encoding="utf-8") as handle:
-            handle.write(f"\n{rule}\n{heading}\n{rule}\n{content.rstrip()}\n")
+            handle.write(f"\n{rule}\n{heading}\n{rule}\n{body}\n")
 
     async def _teardown_workspace(
         self, run: WorkflowRun, *, force: bool = False
@@ -1002,16 +1075,30 @@ class WorkflowService:
         fresh control and a driver task that re-enters at the
         gate. Runs that died mid-step are failed loudly —
         their subprocess is gone.
+
+        Each run's recovery is isolated: one run raising here (e.g. a
+        failing persist) is logged and skipped rather than aborting
+        recovery for every other run — and, since this runs unguarded in
+        the app's startup lifespan, rather than aborting the app's boot.
         """
         for run in self.workflows.list():
-            if run.status.startswith("awaiting_"):
-                self._control[run.id] = self._new_control()
-                self._spawn_driver(run.id, self._resume(run.id))
-            elif run.status in _TRANSIENT:
-                run.status = "failed"
-                run.error = "backend restarted mid-step"
-                self._fail_active_steps(run)
-                self._save(run)
+            try:
+                self._recover_one(run)
+            except Exception:
+                _logger.exception(
+                    "workflow %s: failed to recover, skipping", run.id
+                )
+
+    def _recover_one(self, run: WorkflowRun) -> None:
+        """Recover a single persisted run (see :meth:`recover`)."""
+        if run.status.startswith("awaiting_"):
+            self._control[run.id] = self._new_control()
+            self._spawn_driver(run.id, self._resume(run.id))
+        elif run.status in _TRANSIENT:
+            run.status = "failed"
+            run.error = "backend restarted mid-step"
+            self._fail_active_steps(run)
+            self._save(run)
 
     async def _resume(self, workflow_id: str) -> None:
         """Re-enter a gate-parked run after recovery."""
@@ -1020,7 +1107,7 @@ class WorkflowService:
             await self._continue(run)
         except _Rejected:
             run.status = "rejected"
-            self._save(run)
+            self._safe_save(run)
             # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
             # dismissal so polling does not silently re-create the run while
             # the ticket still qualifies; the re-trigger gesture clears it.
@@ -1036,7 +1123,7 @@ class WorkflowService:
             run.status = "failed"
             run.error = str(exc)
             self._fail_active_steps(run)
-            self._save(run)
+            self._safe_save(run)
             await self._teardown_workspace(run)
 
     async def _drive(self, workflow_id: str) -> None:
@@ -1070,7 +1157,7 @@ class WorkflowService:
                 await self._continue(run, issue_body=task.body)
         except _Rejected:
             run.status = "rejected"
-            self._save(run)
+            self._safe_save(run)
             # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
             # dismissal so polling does not silently re-create the run while
             # the ticket still qualifies; the re-trigger gesture clears it.
@@ -1085,7 +1172,7 @@ class WorkflowService:
             run.status = "failed"
             run.error = str(exc)
             self._fail_active_steps(run)
-            self._save(run)
+            self._safe_save(run)
             await self._teardown_workspace(run)
 
     async def _continue(
@@ -1931,6 +2018,12 @@ class WorkflowService:
             self._debug_log(
                 run, f"Round {iteration + 1} — CODE PROMPT", prompt
             )
+            # Captured before the coder's turn so the round's progress can
+            # be measured against it afterwards, regardless of whether the
+            # coder commits its own work or leaves it uncommitted (feature
+            # 006: the coder now commits each round; kestrel no longer
+            # assumes it will).
+            round_start_sha = await self.git.head_sha(run.workspace)
             await self._run_turn_tracked(
                 run,
                 self.backends.backend_for(Step.CODE),
@@ -1942,23 +2035,49 @@ class WorkflowService:
                 slot,
                 _bind(code_step, slot),
             )
-            # Exclude the handover artifacts from the code diff: they are
-            # committed with the change, but must not pollute what the
-            # verifier weighs or what the code step stores as its diff.
-            diff = await self.git.diff(run.workspace, exclude=_ARTIFACT_ROOT)
             code_step.active_sessions = []
-            code_step.deliverable = diff
-            self._debug_log(
-                run, f"Round {iteration + 1} — CODE RESULT (diff)",
-                diff or "(empty diff)",
+            # Exclude the handover artifacts: they are committed with the
+            # change, but must not pollute what the escalation check weighs.
+            # A single-ref diff against round_start_sha captures both any
+            # commit(s) the coder made this round and anything it left
+            # uncommitted.
+            round_diff = await self.git.diff(
+                run.workspace, exclude=_ARTIFACT_ROOT, ref=round_start_sha
             )
-            if not diff.strip():
+            diff_stat = await self.git.diff_stat(
+                run.workspace, exclude=_ARTIFACT_ROOT, ref=round_start_sha
+            )
+            self._debug_log(
+                run, f"Round {iteration + 1} — CODE RESULT (diff --stat)",
+                diff_stat or "(empty diff)",
+            )
+            if not round_diff.strip():
                 # A coder that cannot make progress escalates instead of
                 # parking on a human gate (FR-020).
                 _flush_report()
                 return await self._escalate(
                     run, "the coder produced no changes"
                 )
+            # Safety-net commit: never blindly trust the coder to have
+            # committed its own work (or all of it) — if the tree is still
+            # dirty, kestrel commits on its behalf so verify always
+            # inspects a stable, committed tree regardless of model
+            # compliance.
+            still_dirty = await self.git.diff(
+                run.workspace, exclude=_ARTIFACT_ROOT
+            )
+            if still_dirty.strip():
+                await self.git.commit_all(
+                    run.workspace,
+                    f"Auto-commit (round {iteration + 1}): coder did not "
+                    "commit its own changes",
+                )
+            # The operator-facing deliverable is the cumulative diff since
+            # the run's branch point, regardless of how many WIP commits
+            # happened in between.
+            code_step.deliverable = await self.git.diff(
+                run.workspace, exclude=_ARTIFACT_ROOT, ref=run.base_branch
+            )
             code_step.status = "done"
             self._save(run)
 
@@ -1984,7 +2103,7 @@ class WorkflowService:
             explore_resume_id: str | None = None
             if run.boundary in ("http", "ui", "both"):
                 explore_prompt = EXPLORE_PROMPT.format(
-                    boundary=run.boundary, prd=prd, design=design, diff=diff,
+                    boundary=run.boundary, prd=prd, design=design,
                 )
                 self._debug_log(
                     run, f"Round {iteration + 1} — EXPLORE PROMPT",
@@ -2007,9 +2126,7 @@ class WorkflowService:
                     run, f"Round {iteration + 1} — EXPLORE RESULT",
                     explore_result.final_text,
                 )
-            verify_prompt = VERIFY_PROMPT.format(
-                prd=prd, design=design, diff=diff,
-            )
+            verify_prompt = VERIFY_PROMPT.format(prd=prd, design=design)
             self._debug_log(
                 run, f"Round {iteration + 1} — VERIFY PROMPT", verify_prompt
             )
@@ -2122,7 +2239,12 @@ class WorkflowService:
             commit_msg = f"Implement {run.task_ref}"
             cr_title = f"{run.issue_title} ({run.task_ref})"
             cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
-        await self.git.commit_all(run.workspace, commit_msg)
+        # The coder (or the loop's safety net) may already have committed
+        # everything — e.g. a run accepted on its first round with no
+        # trailing artifact writes since. An empty `git commit` errors, so
+        # only commit when the tree is actually still dirty.
+        if (await self.git.diff(run.workspace)).strip():
+            await self.git.commit_all(run.workspace, commit_msg)
         await self.git.push(
             run.workspace, run.branch, self._code_host(run).git_credential()
         )

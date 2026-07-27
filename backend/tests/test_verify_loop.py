@@ -12,6 +12,7 @@ from app.ports import Observation
 from app.services.workflows import (
     CODE_PROMPT,
     EXPLORE_PROMPT,
+    VERIFY_PROMPT,
     WorkflowService,
     _parse_verdict,
 )
@@ -364,6 +365,77 @@ def test_code_prompt_requires_test_first_development() -> None:
     text = CODE_PROMPT.lower()
     assert "test-first" in text
     assert "testing pyramid" in text
+
+
+def test_verify_prompts_do_not_reference_or_require_a_diff() -> None:
+    """Ensure neither the explore nor the verdict prompt needs (or embeds)
+    a diff — the coder and verifier share the worktree directly, so there
+    is nothing to serialize (feature 006, Phase B)."""
+    assert "{diff}" not in EXPLORE_PROMPT
+    assert "{diff}" not in VERIFY_PROMPT
+    # Both format cleanly without a diff kwarg.
+    EXPLORE_PROMPT.format(boundary="http", prd="p", design="d")
+    VERIFY_PROMPT.format(prd="p", design="d")
+
+
+@pytest.mark.asyncio
+async def test_coder_no_self_commit_triggers_safety_net_commit() -> None:
+    """When the coder leaves its round uncommitted (the fake's default),
+    kestrel's safety-net commits on its behalf (feature 006, Phase C)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>", "coded but forgot to commit", _verdict(accept=True),
+    ])
+    svc = _svc(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert any(
+        m.startswith("Auto-commit (round") for m in git.commit_messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_coder_self_commit_skips_safety_net_commit() -> None:
+    """When the coder commits its own round, kestrel's safety-net
+    auto-commit must not fire (feature 006, Phase C)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    git.rounds = [("diff --git a/x b/x", True)]  # coder self-commits
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>", "coded and committed", _verdict(accept=True),
+    ])
+    svc = _svc(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert not any(
+        m.startswith("Auto-commit (round") for m in git.commit_messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_changes_escalation_fires_on_self_committed_empty_diff() -> (
+    None
+):
+    """Ensure the "no changes" escalation is based on the ref-aware round
+    diff, not on whether the coder made a commit at all — a coder that
+    "commits" an empty change must still escalate (feature 006, Phase C)."""
+    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    git.rounds = [("", True)]  # coder "commits" but changes nothing
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("prd"),
+        "<PLAN>d</PLAN>", "I looked but changed nothing",
+    ])
+    svc = _svc(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "escalated")
+    assert svc.get(wid).error == "escalated: the coder produced no changes"
 
 
 def _find_report(workspace: str) -> str:

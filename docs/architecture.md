@@ -112,7 +112,18 @@ the image small and lets a deploy attach or swap backends purely by config.
   the file so a large PRD/design never bloats its prompt; a text-only LLM, which
   cannot read the worktree, still gets the content inlined. The artifacts are
   committed with the change (they appear in the PR/MR and accumulate in the repo
-  under dated folders) but are excluded from the code diff the verifier weighs.
+  under dated folders) but are excluded from the operator-facing code diff
+  (`code_step.deliverable`).
+- **The coder commits, the verifier never sees a diff.** Coder and verifier
+  share the same worktree, so there is no need to serialize a diff between
+  them: the coder commits its own work each round (`WIP:`-prefixed when
+  unsure) via an instruction in `CODE_PROMPT`, and kestrel commits on its
+  behalf as a safety net if the tree is still dirty afterwards — never
+  blindly trusting the model to have committed correctly. The verifier judges
+  the PRD/design against the running, checked-out tree and what it observes
+  by exercising it live; it is never shown diff text. `code_step.deliverable`
+  (the UI's diff view) is instead the cumulative diff since the run's branch
+  point, computed on kestrel's side from git history.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

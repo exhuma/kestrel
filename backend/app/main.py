@@ -55,7 +55,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.default_session_backend,
     )
 
-    await get_workflow_service().recover()
+    # recover() already isolates each run's own recovery; this is a second,
+    # outer safety net so a bug in recovery itself degrades to "runs may be
+    # stuck until fixed" rather than the whole app failing to boot.
+    try:
+        await get_workflow_service().recover()
+    except Exception:
+        _logger.exception("workflow recovery failed; continuing startup")
 
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll

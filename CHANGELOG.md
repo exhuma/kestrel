@@ -35,6 +35,21 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
   the coder's TDD responsibility, and blending it into the same hard gate
   as behavioral evidence let a technical failure masquerade as a behavioral
   one. Verify's evidence is now entirely its own observed behaviour.
+- The coder now commits its own work each round (`WIP:`-prefixed when
+  unsure), with kestrel committing on its behalf as a safety net if the tree
+  is still dirty afterwards. The verifier is no longer shown a diff at all —
+  coder and verifier share the same worktree, so it judges the checked-out
+  tree and its own live observations directly. This also fixes a failure
+  mode where a large diff (e.g. a lockfile change) embedded repeatedly in
+  the verify prompts and debug transcript could grow unboundedly; the debug
+  transcript now logs a compact `git diff --stat` summary instead, and every
+  entry is truncated defensively.
+
+### Fixed
+
+- A driver task's unhandled exception is now logged instead of vanishing
+  silently, and a failure recovering one run on startup no longer blocks
+  recovery of the others (or app boot).
 
 ## [2026.7.5-alpha.3] - 2026-07-05
 
