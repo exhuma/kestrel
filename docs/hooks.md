@@ -45,6 +45,23 @@ hooks_dir = "/path/to/hooks/jira"   # only scripts you trust, see above
 Unset (the default) disables hook dispatch for that source entirely — no
 filesystem access is attempted.
 
+`hooks_dir` must be a path **inside the kestrel process's own filesystem
+view** — when running the published container, that means a path inside
+the container, not a host path. Mount your hooks directory as a volume and
+point `hooks_dir` at the container-side path (see the commented example in
+`docker-compose.yml`):
+
+```yaml
+volumes:
+  - ./hooks/jira:/hooks/jira:ro
+```
+
+```toml
+hooks_dir = "/hooks/jira"   # the container-side path above
+```
+
+Running from source, `hooks_dir` is just a normal path on the host.
+
 ## What runs, and when
 
 Every executable file directly inside `hooks_dir` is a hook (non-executable

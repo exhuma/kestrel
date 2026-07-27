@@ -38,6 +38,10 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
 | `KESTREL_WORKFLOW_DEBUG` | `false` | Debug the code↔verify dialogue: appends every coder/verifier prompt and result to `<workspace>-debug/dialogue.log` and skips auto-deleting the worktree (done/escalated/failed) so both stay inspectable. An explicit abandon still deletes the workspace |
+| `KESTREL_REFINE_SAMPLES` | `1` | Run the refine coordinator/generators N times and union the result, to reduce variance on weaker/local models |
+| `KESTREL_REFINE_CRITIC` | `false` | Add an adversarial completeness pass after refine's reconciliation step |
+| `KESTREL_RECONCILE_MODE` | `rewrite` | How refine consolidates overlapping questions: `rewrite` (LLM rewriter), `dedup` (no-LLM, coverage-safe within-audience dedup), or `off` (keep the pooled questions as-is) |
+| `KESTREL_ALLOW_INCOMPLETE_ANSWERS` | `false` | Safety net: let a questionnaire be submitted with required questions left blank. Provided answers are still validated for well-formedness |
 
 A project's user-facing boundary (HTTP API, web UI, both, or none) is inferred
 by the `design` step from the PRD and codebase, not configured — there is no
@@ -104,6 +108,25 @@ process does not trust. This covers the Jira and code-host HTTP clients (which
 use their own bundled CA set, not the OS trust store). It does **not** affect
 `git` clone/fetch/push, which use the system trust store — install the internal
 CA there for git.
+
+### Lifecycle sync and operator hooks
+
+Each source also carries fields governing how kestrel reports a run's
+status ("in progress" / "done" / a failure terminal) and its active/wait
+time back to the ticket, and an optional escape hatch for anything kestrel
+doesn't natively support:
+
+| Field | Source type | Purpose |
+| --- | --- | --- |
+| `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels applied as a run progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |
+| `transition_start`, `transition_done`, `transition_failed`, `transition_escalated`, `transition_rejected` | jira | Workflow-transition ids applied at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
+| `time_spent_field` | jira | Field to write active-work seconds to (e.g. the builtin `timespent` or a custom field id). Unset ⇒ no native write |
+| `hooks_dir` | both | A directory of operator executables invoked at every lifecycle event. **Security-sensitive** — a hook inherits kestrel's full environment/credentials. See [Operator hooks](hooks.md) before setting this |
+
+Wherever a field above doesn't apply (the platform has no such mechanism,
+none is configured, or the native call itself fails), kestrel falls back to
+a footer appended to the comment it already posts — the operator always
+sees the status/time information somewhere, on every platform.
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 

@@ -35,6 +35,8 @@ and how your host Claude config is used.
   files, and mounts.
 - [Backends](docs/backends.md) — dispatch to opencode or a self-hosted LLM.
 - [GitHub workflow](docs/setup-github-workflow.md) — the issue → PR feature.
+- [Jira workflow](docs/setup-jira-workflow.md) — the RFC → change request feature.
+- [Operator hooks](docs/hooks.md) — custom actions on lifecycle events.
 - [Troubleshooting](docs/troubleshooting.md) — common speed-bumps.
 - [Observability](docs/observability.md) — logs (text/JSON) and health.
 - [Development](docs/development.md) — run from source and run the tests.
