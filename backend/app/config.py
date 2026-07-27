@@ -33,7 +33,6 @@ _FILE_ONLY_FIELDS = frozenset(
 _CONFIG_FILE_FIELDS = frozenset(
     {
         "poll_interval_seconds",
-        "verify_checks",
         "max_verify_iterations",
     }
 )
@@ -181,11 +180,15 @@ class Settings(BaseSettings):
     #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
     #: The default token env var for a ``jira`` task source.
     jira_api_token: str = ""
-    #: Shell commands run in the run's worktree as verify evidence (v1).
-    #: JSON list, e.g. ``["uv run pytest -q"]``. Empty ⇒ judgment-only.
-    verify_checks: list[str] = []
     #: Max code↔verify iterations before the loop escalates (feature 003).
     max_verify_iterations: int = 3
+    #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,
+    #: every prompt/result exchanged between the coder and the verifier is
+    #: appended to a plain-text transcript next to the run's worktree, and
+    #: the worktree is never auto-deleted (done/escalated/failed) so both
+    #: stay inspectable — only an explicit abandon still removes them. Off
+    #: by default: a personal tool should not silently accumulate worktrees.
+    workflow_debug: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

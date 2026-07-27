@@ -85,19 +85,19 @@ uv run python -m app poll
 
 ### Verify grounding
 
-The verifier weighs measurable evidence — the project's own checks run in the
-run's isolated worktree:
+The verifier weighs evidence it observes itself by launching and exercising
+the running, modified project — real HTTP requests for an API boundary,
+browser-driven interaction for a UI boundary — rather than re-running the
+coder's own checks; durable test coverage is the coder's TDD responsibility.
+The one applicable knob is the iteration cap:
 
 ```bash
-KESTREL_VERIFY_CHECKS=["uv run pytest -q","npm --prefix frontend test"]
 KESTREL_MAX_VERIFY_ITERATIONS=3
 ```
 
-A failing check forces a reject; the failing output is fed back to the coder. On
-exhausting the iteration limit the run **escalates** — it posts a comment on the
-RFC and stops rather than shipping unverified work. (The design assumes the
-verifier will grow to run the modified app and exercise it via real HTTP
-requests or Playwright; that behavioural harness is delivered incrementally.)
+A failing observation forces a reject; the feedback is fed back to the coder.
+On exhausting the iteration limit the run **escalates** — it posts a comment
+on the RFC and stops rather than shipping unverified work.
 
 ## The flow, from a human's point of view
 
@@ -118,3 +118,13 @@ silently re-create it. The **re-trigger gesture** is the RFC leaving and
 re-entering the qualifying filter (e.g. a status change out of and back into the
 JQL): once it no longer qualifies the dismissal is cleared, so re-qualifying it
 starts a fresh run.
+
+### Lifecycle sync
+
+As a run progresses, kestrel can apply configured workflow transitions
+(`transition_start`/`transition_done`/etc.) and write active time to a
+configured field — every Jira workflow is different, so none of this is
+guessed; unset fields fall back to a comment footer. See [Configuration →
+Task sources](configuration.md#task-sources) for the fields, and
+[Operator hooks](hooks.md) for the escape hatch when your instance needs
+a custom transition or action kestrel doesn't natively support.

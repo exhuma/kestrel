@@ -10,6 +10,11 @@
 # It reads the hook payload as JSON on stdin and extracts the edited path.
 set -uo pipefail
 
+# Non-interactive shells don't source .bashrc/.zshrc, so uv/uvx (installed to
+# ~/.local/bin) aren't on PATH here even though they are in an interactive
+# shell. Extend PATH rather than relying on profile sourcing.
+PATH="$HOME/.local/bin:$PATH"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 RUFF_V=0.15.20

@@ -15,7 +15,7 @@ import pytest
 from app.backends.base import Capability, TurnResult
 from app.config import Settings
 from app.models import CanonicalEvent, EventKind, SessionRecord
-from app.models_workflow import StepSession, WorkflowRun, WorkflowStep
+from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
@@ -28,10 +28,53 @@ from app.storage.workflow_registry import WorkflowRegistry
 
 
 class _FakeGit:
+    """A git double that simulates just enough commit-history state for the
+    round-based ``head_sha``/``diff(ref=...)`` semantics in
+    ``_code_and_verify`` (feature 006, Phase C).
+
+    Configure rounds via ``self.rounds``: a list of ``(diff_text,
+    coder_self_commits)`` pairs, one per coder round. ``head_sha()`` is
+    called exactly once per round, always as the first git call of that
+    round — the natural hook this fake uses to advance to the next
+    configured round, committing it immediately when ``coder_self_commits``
+    is True, else leaving it "pending" (uncommitted) until the workflow's
+    own safety-net ``commit_all`` (or a test) commits it.
+
+    Synthetic SHAs are ``f"sha{n}"`` where ``n`` is the number of commits
+    made so far. ``diff(ref=...)`` recognises that pattern; any other ref
+    (e.g. a real base-branch name like ``"main"``) falls back to "from the
+    very beginning" (index 0) — the fake never needs to model real branch
+    names precisely.
+
+    ``self.diffs`` is kept as a backward-compatible alias over
+    ``self.rounds`` for the ~90 existing call sites that do
+    ``git.diffs = ["some diff"]`` — plain string assignment always means
+    "coder does not self-commit", preserving prior test semantics exactly.
+    """
+
     def __init__(self) -> None:
         self.pushed: list[str] = []
-        self.diffs: list[str] = ["diff --git a/x b/x"]
+        self.rounds: list[tuple[str, bool]] = [
+            ("diff --git a/x b/x", False)
+        ]
+        self._round_idx = 0
+        #: Diff text of each commit made so far, in order (the "committed
+        #: history" half of the fake's state).
+        self._committed: list[str] = []
+        #: Content not yet committed (the "working tree" half).
+        self._pending: str = ""
+        self.commit_messages: list[str] = []
         self.diff_excludes: list[str | None] = []
+
+    @property
+    def diffs(self) -> list[str]:
+        """Backward-compatible alias: the configured rounds' diff text."""
+        return [diff_text for diff_text, _self_commits in self.rounds]
+
+    @diffs.setter
+    def diffs(self, value: list[str]) -> None:
+        self.rounds = [(d, False) for d in value]
+        self._round_idx = 0
 
     async def clone(self, remote_url: str, dest: str, cred=None) -> None: ...
     async def checkout_branch(self, dest: str, branch: str) -> None: ...
@@ -42,16 +85,56 @@ class _FakeGit:
         self, mirror_dir: str, dest: str, base_branch: str, new_branch: str
     ) -> None: ...
     async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
-    async def commit_all(self, dest: str, message: str) -> None: ...
-    async def diff(self, dest: str, exclude: str | None = None) -> str:
-        # Pop while more than one entry is queued; once down to the
-        # last (or default single) entry, keep returning it so
-        # tests that call diff() repeatedly without pre-loading a
-        # long queue still see a stable, non-empty value.
+
+    def mark_dirty(self, diff_text: str) -> None:
+        """Test hook: leave the working tree "dirty", independent of the
+        round machinery — for tests exercising ``_deliver`` directly."""
+        self._pending = diff_text
+
+    async def head_sha(self, dest: str) -> str:
+        sha = f"sha{len(self._committed)}"
+        idx = self._round_idx if self._round_idx < len(self.rounds) else -1
+        diff_text, self_commits = self.rounds[idx]
+        self._round_idx += 1
+        self._pending = diff_text
+        if self_commits and diff_text.strip():
+            self._committed.append(diff_text)
+            self._pending = ""
+        return sha
+
+    async def diff(
+        self, dest: str, exclude: str | None = None, ref: str | None = None,
+    ) -> str:
         self.diff_excludes.append(exclude)
-        if len(self.diffs) > 1:
-            return self.diffs.pop(0)
-        return self.diffs[0] if self.diffs else ""
+        return self._diff_since(ref)
+
+    async def diff_stat(
+        self, dest: str, exclude: str | None = None, ref: str | None = None,
+    ) -> str:
+        self.diff_excludes.append(exclude)
+        content = self._diff_since(ref)
+        return f"{len(content.splitlines())} lines changed" if content else ""
+
+    def _diff_since(self, ref: str | None) -> str:
+        if ref is None:
+            return self._pending
+        parts = [d for d in self._committed[self._sha_index(ref):] if d]
+        if self._pending:
+            parts.append(self._pending)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _sha_index(ref: str) -> int:
+        if ref.startswith("sha") and ref[3:].isdigit():
+            return int(ref[3:])
+        return 0  # an unrecognised ref (e.g. a real base-branch name)
+
+    async def commit_all(self, dest: str, message: str) -> None:
+        self.commit_messages.append(message)
+        if self._pending:
+            self._committed.append(self._pending)
+            self._pending = ""
+
     async def push(self, dest: str, branch: str, cred=None) -> None:
         self.pushed.append(branch)
 
@@ -243,10 +326,20 @@ def _refined(text: str) -> str:
     return f"<REFINED_ISSUE>\n{text}\n</REFINED_ISSUE>"
 
 
-def _verdict(accept: bool = True, feedback: str = "") -> str:
-    """A verifier VERDICT block (feature 003 autonomous loop)."""
-    payload = json.dumps({"accept": accept, "feedback": feedback})
-    return f"<VERDICT>{payload}</VERDICT>"
+def _verdict(
+    accept: bool = True,
+    feedback: str = "",
+    observations: list[dict] | None = None,
+) -> str:
+    """A verifier VERDICT block (feature 003 autonomous loop).
+
+    ``observations`` optionally carries self-reported http/ui findings
+    (feature 005) — a list of ``{name, kind, passed, detail}`` dicts.
+    """
+    payload: dict = {"accept": accept, "feedback": feedback}
+    if observations is not None:
+        payload["observations"] = observations
+    return f"<VERDICT>{json.dumps(payload)}</VERDICT>"
 
 
 #: Simplest refine leg: coordinator needs nobody, writer emits the issue.
@@ -289,6 +382,83 @@ async def test_happy_path_refine_design_code_verify_pr() -> None:
     assert svc.get(wid).steps[3].deliverable == "accepted"
     assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
     assert git.pushed == [svc.get(wid).branch]
+
+
+@pytest.mark.asyncio
+async def test_active_and_wait_seconds_accumulate_through_both_gates() -> (
+    None
+):
+    """Ensure the run-level clock (feature 006) tracks real elapsed time
+    across an input-gate round and the approval gate, excluding both
+    waits from active_seconds and stopping entirely once the run is done.
+    """
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["developer"]),
+        _qs(_q(prompt="Which?", options=[{"value": "a", "label": "A"}])),
+        _coord([]),
+        _refined("Build a clear widget"),
+        "<PLAN>\nStep 1: do X\n</PLAN>",
+        "Implemented X",
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git)
+
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    assert svc.get(wid).clock_state == "waiting"
+    await asyncio.sleep(0.05)  # simulate the operator taking a moment
+    svc.submit_answers(wid, {"developer:q0": "a"})
+
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    assert svc.get(wid).clock_state == "waiting"
+    await asyncio.sleep(0.05)  # simulate the operator taking a moment
+    svc.approve(wid)
+
+    await _wait(lambda: svc.get(wid).status == "done")
+    run = svc.get(wid)
+    assert run.clock_state is None
+    assert run.clock_since is None
+    assert run.active_seconds > 0
+    assert run.wait_seconds > 0
+
+
+@pytest.mark.asyncio
+async def test_design_sets_boundary_from_tag() -> None:
+    """Ensure a well-formed <BOUNDARY> tag sets run.boundary (feature 005)."""
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\nStep 1\n</PLAN>\n<BOUNDARY>http</BOUNDARY>",
+        "Implemented",
+        "explored",  # http boundary -> an explore turn runs before verdict
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert svc.get(wid).boundary == "http"
+
+
+@pytest.mark.asyncio
+async def test_design_missing_boundary_tag_leaves_it_none() -> None:
+    """Ensure a missing/malformed tag leaves boundary None without
+    failing the design step (feature 005)."""
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\nStep 1\n</PLAN>",  # no <BOUNDARY> tag at all
+        "Implemented",
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git)
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+    assert svc.get(wid).boundary is None
 
 
 @pytest.mark.asyncio
@@ -530,6 +700,42 @@ async def test_reject_ends_run() -> None:
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
+
+
+class _BoomDismissals:
+    """A dismissal store that always explodes — used to force a secondary
+    failure inside ``_drive``'s own ``except _Rejected:`` block, which has
+    no try/except of its own around this call."""
+
+    def add(self, task_ref: str) -> None:
+        raise RuntimeError("boom: dismissal store exploded")
+
+
+@pytest.mark.asyncio
+async def test_driver_task_exception_is_logged_not_swallowed(caplog) -> None:
+    """A secondary failure that escapes ``_drive`` entirely (past its own
+    except block) must not vanish as asyncio's generic "never retrieved"
+    warning — the driver task's done-callback (``_log_driver_exception``)
+    must log it loudly instead."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=[*_refine_noquestions("refined")]
+    )
+    svc = _service(gh, runner, _FakeGit())
+    svc.dismissals = _BoomDismissals()
+    wid = await svc.create("o/r", 5)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+    with caplog.at_level("ERROR", logger="app.services.workflows"):
+        svc.reject(wid)  # -> _Rejected -> dismissals.add() raises uncaught
+        await _wait(lambda: wid not in svc._tasks)
+
+    assert any(
+        "driver task failed unexpectedly" in record.message
+        and record.exc_info is not None
+        and "boom: dismissal store exploded" in str(record.exc_info[1])
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
@@ -1944,3 +2150,49 @@ async def test_verifier_diff_excludes_artifact_folder(tmp_path) -> None:
     await _wait(lambda: svc.get(wid).status == "done")
 
     assert ".kestrel" in git.diff_excludes
+
+
+def _delivery_run(workspace: str) -> WorkflowRun:
+    """A minimal, already-verified run ready for ``_deliver`` directly,
+    bypassing the full refine/design/code/verify drive."""
+    return WorkflowRun(
+        id="wf-deliver", repo="o/r", issue_number=5,
+        issue_title="Add widget", task_ref="o/r#5",
+        base_branch="main", branch="kestrel/issue-5",
+        workspace=workspace,
+        steps=[WorkflowStep(name=s) for s in Step.sequence()],
+    )
+
+
+@pytest.mark.asyncio
+async def test_deliver_commits_when_tree_is_dirty(tmp_path) -> None:
+    """Ensure _deliver still commits (then pushes) when something is left
+    uncommitted at delivery time (feature 006, Phase C)."""
+    gh, git = _FakeGitHub(body="x"), _FakeGit()
+    git.mark_dirty("diff --git a/z b/z")
+    svc = _service(gh, _FakeRunner(SessionRegistry(), []), git)
+    run = _delivery_run(str(tmp_path))
+    svc.workflows.create(run)
+
+    await svc._deliver(run)
+
+    assert git.commit_messages == ["Implement #5"]
+    assert git.pushed == [run.branch]
+    assert run.status == "done"
+
+
+@pytest.mark.asyncio
+async def test_deliver_skips_commit_when_tree_is_clean(tmp_path) -> None:
+    """Ensure _deliver succeeds (and skips the commit) with nothing left to
+    commit — the coder/safety-net already committed everything, and an
+    empty `git commit` would otherwise error (feature 006, Phase C)."""
+    gh, git = _FakeGitHub(body="x"), _FakeGit()  # nothing pending
+    svc = _service(gh, _FakeRunner(SessionRegistry(), []), git)
+    run = _delivery_run(str(tmp_path))
+    svc.workflows.create(run)
+
+    await svc._deliver(run)
+
+    assert git.commit_messages == []
+    assert git.pushed == [run.branch]
+    assert run.status == "done"

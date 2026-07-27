@@ -73,12 +73,38 @@ the image small and lets a deploy attach or swap backends purely by config.
   — traverses the identical `refine → PRD approval → design → code → verify →
   change request` sequence (`services/workflows.py`). The single human gate is
   PRD approval; design/code/verify run **without human gates**. The **verifier**
-  adjudicates the implementation against the PRD/design weighing measurable
-  **evidence** (the project's checks run in the isolated worktree, `services/
-  checks.py`); a failing check forces a reject, the loop is bounded by
+  adjudicates the implementation against the PRD/design weighing **evidence**
+  it observes by exercising the running, modified project itself (see below);
+  a failing observation forces a reject, the loop is bounded by
   `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
   task source is only the human↔agent boundary — the process behind it is the
   same, so the system is predictable.
+- **Behavioral verify evidence, grounded in real, observed behaviour.** The
+  `design` step classifies the project's user-facing boundary — HTTP API, web
+  UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.
+  When a boundary exists, verify runs a **tool-enabled explore turn** first,
+  instructed to launch and exercise the running, modified project for real
+  (real HTTP requests for an HTTP boundary, browser-driven interaction for a
+  UI boundary) using whatever tools the operator's own backend already
+  provides (Bash, MCP — Playwright or otherwise). Kestrel owns no HTTP client
+  or browser-automation code itself; it delegates entirely to the verifying
+  agent's own capabilities, trusting the operator's environment the same way
+  the `code` step already does. A second, disciplined **verdict turn** then
+  resumes that same session back in `plan` mode with no new tools — preserving
+  the single-shot `<VERDICT>` reliability the original design already depended
+  on — and self-reports its observations as part of that same verdict, so the
+  failing-observation invariant applies to whatever it found. This is
+  deliberately verify's *only* evidence source: durable, deterministic checks
+  (tests, lint) are the coder's TDD responsibility (`CODE_PROMPT`), not
+  something verify re-runs — blending the two would let a purely technical
+  failure (a coder that didn't test its own work) masquerade as a behavioral
+  one, undermining the "judge like a stakeholder, not a code reviewer"
+  principle below. Requirement conformance is the only thing that can force a
+  reject; code-quality/documentation observations are advisory feedback only.
+  Each run's verify rounds are recorded as a committed `verify-report.md`
+  audit-trail artifact (same `.kestrel/` handover mechanism as `prd.md`/
+  `design.md`) — history for a human, never a regression contract a later
+  run's verify step is obligated to satisfy.
 - **File-based step handover (`.kestrel/`).** The steps share one worktree, so a
   step's artifacts pass to the next as *files* under
   `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `design.md`) — spec-kit's
@@ -86,7 +112,18 @@ the image small and lets a deploy attach or swap backends purely by config.
   the file so a large PRD/design never bloats its prompt; a text-only LLM, which
   cannot read the worktree, still gets the content inlined. The artifacts are
   committed with the change (they appear in the PR/MR and accumulate in the repo
-  under dated folders) but are excluded from the code diff the verifier weighs.
+  under dated folders) but are excluded from the operator-facing code diff
+  (`code_step.deliverable`).
+- **The coder commits, the verifier never sees a diff.** Coder and verifier
+  share the same worktree, so there is no need to serialize a diff between
+  them: the coder commits its own work each round (`WIP:`-prefixed when
+  unsure) via an instruction in `CODE_PROMPT`, and kestrel commits on its
+  behalf as a safety net if the tree is still dirty afterwards — never
+  blindly trusting the model to have committed correctly. The verifier judges
+  the PRD/design against the running, checked-out tree and what it observes
+  by exercising it live; it is never shown diff text. `code_step.deliverable`
+  (the UI's diff view) is instead the cumulative diff since the run's branch
+  point, computed on kestrel's side from git history.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

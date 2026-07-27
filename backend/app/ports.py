@@ -8,10 +8,12 @@ a configured, self-hostable git host (GitLab/Gitea). Keeping these as protocols
 lets the workflow depend on roles, not on a concrete provider.
 
 The verifier's grounding is modelled generically as ``Evidence`` (a list of
-``Observation``s). v1 ships a ``kind="check"`` gatherer; the assumed behavioural
-harness (run the app, exercise it via HTTP / Playwright → ``kind="http"``/
-``"ui"`` observations) drops into the same shape without a workflow change
-(FR-015a/FR-015b).
+``Observation``s), entirely self-reported by the verifying agent while
+exercising the running app for real (HTTP requests for an API boundary,
+browser-driven interaction for a UI boundary — feature 005). Durable,
+deterministic checks (tests, lint) are deliberately not part of this: that
+coverage is the coder's TDD responsibility, not something verify
+re-measures.
 """
 from __future__ import annotations
 
@@ -48,16 +50,16 @@ class WorkItem:
 
 @dataclass
 class Observation:
-    """One measured outcome the verifier weighs.
+    """One self-reported outcome the verifier weighs.
 
-    ``kind`` distinguishes the evidence source: ``"check"`` (a configured
-    command's pass/fail — the v1 gatherer), ``"http"`` (a real request against
-    the running API), or ``"ui"`` (a browser-driven interaction). ``detail`` is
-    a bounded excerpt — never full logs, never secrets.
+    ``kind`` distinguishes the boundary exercised: ``"http"`` (a real
+    request against the running API) or ``"ui"`` (a browser-driven
+    interaction). ``detail`` is a bounded excerpt — never full logs, never
+    secrets.
     """
 
     name: str
-    kind: Literal["http", "ui", "check"]
+    kind: Literal["http", "ui"]
     passed: bool
     detail: str = ""
 
@@ -73,8 +75,30 @@ class Evidence:
         return all(o.passed for o in self.observations)
 
     def failures(self) -> list[Observation]:
-        """Return failing observations (the failing-check invariant)."""
+        """Return failing observations (the failing-observation invariant)."""
         return [o for o in self.observations if not o.passed]
+
+
+@dataclass
+class LifecycleEvent:
+    """One run-lifecycle transition, source-neutral (feature 006).
+
+    Built by ``LifecycleTransitioner`` from a ``WorkflowRun`` at each
+    lifecycle-worthy status change and passed to ``TaskSource.transition``
+    and the operator hooks mechanism. ``kind`` is derived from
+    ``run.status`` via a single exclusive mapping — a failed/escalated/
+    rejected run can never produce ``kind="done"``.
+    """
+
+    kind: Literal["start", "done", "failed", "escalated", "rejected"]
+    #: Cumulative active-work seconds at dispatch time, or ``None`` before
+    #: time tracking has produced a value.
+    active_seconds: float | None = None
+    #: Cumulative time parked at a human gate, or ``None``.
+    wait_seconds: float | None = None
+    #: Kestrel UI deep-link to the run, or "" when no public base URL is
+    #: configured.
+    deep_link: str = ""
 
 
 class TaskSource(Protocol):
@@ -98,6 +122,32 @@ class TaskSource(Protocol):
 
     def deep_link_ref(self, ref: str) -> str:
         """Source-native URL to the ticket (operator logs); may return ""."""
+        ...
+
+    async def transition(self, ref: str, event: LifecycleEvent) -> bool:
+        """Best-effort native lifecycle-status transition (feature 006).
+
+        Attempts the platform's native status mechanism for
+        ``event.kind`` (e.g. a label, a workflow transition). When
+        ``event.active_seconds`` is set and this source supports a native
+        time field, also attempts that write — its outcome does not
+        affect this method's return value.
+
+        :returns: ``True`` iff the *status* aspect of this event was
+            natively applied (a mechanism was configured for this
+            ``event.kind`` and the call succeeded); ``False`` otherwise,
+            including on a failed attempt (never raises). The caller
+            then falls back to a comment-footer for whatever this
+            returned ``False``/didn't cover.
+        """
+        ...
+
+    def supports_time_spent(self) -> bool:
+        """Whether this source has a configured native field for active time.
+
+        Static per-source capability, not per-call. Time-spent support
+        never varies across invocations, unlike the status transition.
+        """
         ...
 
 

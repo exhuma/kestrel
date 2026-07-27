@@ -50,6 +50,12 @@ services:
       # routing and applicative settings (watched_repos, verify knobs, …).
       # Secrets stay in the environment. Pair with the env var below.
       # - ./config.toml:/config/config.toml:ro
+      # Optional: mount an operator-hooks directory for a task source's
+      # `hooks_dir` (see docs/hooks.md). SECURITY: a hook inherits kestrel's
+      # full environment/credentials — mount only a directory you trust as
+      # much as config.toml itself. Set `hooks_dir = "/hooks/github"` (the
+      # container-side path below) in config.toml to match.
+      # - ./hooks/github:/hooks/github:ro
     environment:
       # The repos claude works in (matches the ./workspaces bind mount above).
       KESTREL_WORKSPACE_ROOT: /workspaces

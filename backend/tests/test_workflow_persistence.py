@@ -273,6 +273,34 @@ def test_artifact_dir_defaults_to_empty(tmp_path: Path) -> None:
     assert store.load_all()[0].artifact_dir == ""
 
 
+def test_migrations_add_boundary_column(tmp_path: Path) -> None:
+    """Ensure the boundary column exists after migrating (0009)."""
+    url = _migrate(tmp_path / "bnd.db")
+    columns = {
+        c["name"]
+        for c in sa.inspect(sa.create_engine(url)).get_columns(
+            "workflow_run"
+        )
+    }
+    assert "boundary" in columns
+
+
+def test_boundary_round_trips(tmp_path: Path) -> None:
+    """Ensure the run's boundary classification survives a save/load cycle."""
+    store = _store(tmp_path)
+    run = _run()
+    run.boundary = "http"
+    store.save(run)
+    assert store.load_all()[0].boundary == "http"
+
+
+def test_boundary_defaults_to_none(tmp_path: Path) -> None:
+    """Ensure a run saved before design classifies it rehydrates as None."""
+    store = _store(tmp_path)
+    store.save(_run())
+    assert store.load_all()[0].boundary is None
+
+
 def test_jira_run_rehydrates_with_null_issue_number(
     tmp_path: Path,
 ) -> None:

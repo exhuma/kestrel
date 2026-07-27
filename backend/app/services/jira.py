@@ -9,10 +9,24 @@ token is a secret and is never logged.
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
 
-from app.ports import Task
+from app.config_models import TaskSourceConfig
+from app.ports import LifecycleEvent, Task
 from app.services.exceptions import GitError
+
+_log = logging.getLogger("kestrel.jira")
+
+#: Which TaskSourceConfig field names an event kind's transition id.
+_TRANSITION_FIELD = {
+    "start": "transition_start",
+    "done": "transition_done",
+    "failed": "transition_failed",
+    "escalated": "transition_escalated",
+    "rejected": "transition_rejected",
+}
 
 
 class JiraError(GitError):
@@ -140,13 +154,39 @@ class JiraClient:
             files={"file": (name, content.encode("utf-8"), "text/markdown")},
         )
 
+    async def transition_issue(self, key: str, transition_id: str) -> None:
+        """Apply a configured workflow transition (feature 006)."""
+        await self._request(
+            "POST",
+            f"/issue/{key}/transitions",
+            json={"transition": {"id": transition_id}},
+        )
+
+    async def set_field(self, key: str, field: str, value: object) -> None:
+        """Write one field's value (e.g. a time-tracking field)."""
+        await self._request(
+            "PUT", f"/issue/{key}", json={"fields": {field: value}}
+        )
+
 
 class JiraTaskSource:
     """``TaskSource`` adapter over :class:`JiraClient` (RFC tickets)."""
 
-    def __init__(self, client: JiraClient, public_base_url: str = "") -> None:
+    def __init__(
+        self,
+        client: JiraClient,
+        public_base_url: str = "",
+        config: "TaskSourceConfig | None" = None,
+    ) -> None:
+        """
+        :param config: This source's config, carrying its lifecycle
+            transition ids and time-tracking field (feature 006). ``None``
+            means no native lifecycle handling is configured — every
+            event falls back to the comment footer.
+        """
         self._client = client
         self._base = client._base
+        self._config = config
 
     async def get_task(self, ref: str) -> Task:
         return await self._client.get_issue(ref)
@@ -163,3 +203,42 @@ class JiraTaskSource:
 
     def deep_link_ref(self, ref: str) -> str:
         return f"{self._base}/browse/{ref}"
+
+    async def transition(self, ref: str, event: LifecycleEvent) -> bool:
+        """Apply the configured workflow transition and time field.
+
+        Per-instance workflows are unpredictable (feature 006's whole
+        motivation), so both are optional and no-op when unconfigured —
+        an unset transition id is not an error, it just means this
+        instance's admin hasn't enabled a distinct transition for that
+        lifecycle point.
+        """
+        status_ok = await self._apply_transition(ref, event)
+        await self._apply_time(ref, event)
+        return status_ok
+
+    async def _apply_transition(self, ref: str, event: LifecycleEvent) -> bool:
+        field = _TRANSITION_FIELD[event.kind]
+        transition_id = getattr(self._config, field, "") if self._config else ""
+        if not transition_id:
+            return False
+        try:
+            await self._client.transition_issue(ref, transition_id)
+            return True
+        except Exception:  # noqa: BLE001 — best-effort; footer is the fallback
+            return False
+
+    async def _apply_time(self, ref: str, event: LifecycleEvent) -> None:
+        if not self._config or not self._config.time_spent_field:
+            return
+        if event.active_seconds is None:
+            return
+        try:
+            await self._client.set_field(
+                ref, self._config.time_spent_field, round(event.active_seconds)
+            )
+        except Exception:  # noqa: BLE001 — best-effort; footer is the fallback
+            _log.exception("failed to write time_spent_field for %s", ref)
+
+    def supports_time_spent(self) -> bool:
+        return bool(self._config and self._config.time_spent_field)

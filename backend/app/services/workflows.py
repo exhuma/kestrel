@@ -33,7 +33,7 @@ from app.persistence.dismissal_store import (
 )
 from app.persistence.notification_store import get_notification_store
 from app.policy import BackendPolicy, get_backend_policy, get_policy
-from app.ports import Evidence
+from app.ports import Evidence, Observation
 from app.profiles import get_profile, roster_summary
 from app.questionnaire import (
     GenerationIssue,
@@ -52,15 +52,22 @@ from app.questionnaire import (
     to_entries,
     validate_answers,
 )
-from app.services.checks import CheckRunner
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     WorkflowNotFoundError,
 )
 from app.services.git import GitService
-from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
+from app.services.github import (
+    GitHubClient,
+    GitHubCodeHost,
+    GitHubTaskSource,
+    parse_github_ref,
+)
+from app.services.lifecycle import LifecycleTransitioner
+from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
     activity_for,
+    extract_boundary,
     extract_coverage,
     extract_plan,
     extract_profiles,
@@ -79,12 +86,48 @@ from app.storage.workflow_registry import (
 _WF_TASKS: set[asyncio.Task] = set()
 _logger = logging.getLogger(__name__)
 
+
+def _log_driver_exception(task: asyncio.Task, workflow_id: str) -> None:
+    """Log a driver task's terminal exception, if any.
+
+    Without this, a driver coroutine that raises past its own try/except
+    (e.g. a secondary failure while already handling one) dies with its
+    exception unretrieved — asyncio logs only a generic, easy-to-miss "Task
+    exception was never retrieved" warning, and neither ``run.status`` nor
+    the app's own logs ever record what happened. This is the one place
+    every driver task funnels through on completion, so it is the right
+    place to guarantee a crash is always visible.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        _logger.error(
+            "workflow %s: driver task failed unexpectedly", workflow_id,
+            exc_info=exc,
+        )
+
 #: Statuses that cannot survive a restart: their claude
 #: subprocess (or transient side-effect) died with the process.
 _TRANSIENT = (
     "pending", "cloning", "refining",
     "designing", "coding", "verifying", "opening_pr",
 )
+
+#: Terminal statuses (feature 006): reaching one of these stops a run's
+#: active/wait clock for good, centralized in ``_save()`` so no terminal
+#: call site can forget to close it out.
+_TERMINAL_STATUSES = ("done", "failed", "rejected", "escalated")
+
+
+def _now_utc() -> datetime:
+    """Naive UTC now (this repo's timestamp convention — see the
+    constitution's Persistence deviation): a ``clock_since`` value that
+    round-trips through SQLite comes back naive, so every value fed to
+    ``set_clock`` must be naive too, or the elapsed-time subtraction
+    raises.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 #: Top-level folder (worktree-relative) under which a run's step-handover
 #: artifacts live, spec-kit's ``.specify`` in spirit. Each run gets a unique
@@ -238,41 +281,119 @@ REFINE_FEEDBACK_PROMPT = (
     "and nothing else.\n\nCURRENT REFINED ISSUE:\n{current}\n\n"
     "FEEDBACK:\n{feedback}"
 )
+#: Shared commit instruction for CODE_PROMPT/CODE_FEEDBACK_PROMPT (feature
+#: 006): the coder and verifier share the same worktree, so there is no
+#: need to serialize a diff to the verifier — the coder commits its own
+#: work instead. kestrel places no special handling on the "WIP:" prefix
+#: itself; every round still runs the full verify pass regardless of how
+#: the coder phrased its commit message.
+_COMMIT_INSTRUCTION = (
+    "Commit your changes on this branch before you finish (`git add -A "
+    "&& git commit`): use a real, descriptive commit message when you are "
+    "confident in the result, or a `WIP: ...`-prefixed message naming your "
+    "specific uncertainty when you are not and expect the verifier may "
+    "reject this round."
+)
 CODE_FEEDBACK_PROMPT = (
-    "The verifier did not accept the implementation. Address this feedback by "
-    "editing the repository now, then stop.\n\nFEEDBACK:\n{feedback}\n\n"
-    "DESIGN:\n{design}"
+    "The verifier did not accept the implementation — this means the PRD/"
+    "design was not met or the evidence showed a real failure; the "
+    "feedback below may also carry incidental quality notes, but those are "
+    "not why this was rejected. Fix what actually failed first. Address "
+    "this feedback by editing the repository now. " + _COMMIT_INSTRUCTION +
+    " Then stop."
+    "\n\nFEEDBACK:\n{feedback}\n\nDESIGN:\n{design}"
 )
 DESIGN_PROMPT = (
     "Read this approved PRD and the codebase, then produce a concise "
     "high-level design and implementation plan. Do not use the ExitPlanMode "
     "tool and do not write the plan to a file — this session is headless. "
     "Output the complete plan directly in your final response, wrapped "
-    "EXACTLY in <PLAN> and </PLAN> tags and nothing else. Do not edit any "
+    "EXACTLY in <PLAN> and </PLAN> tags. Then, on a new line, classify this "
+    "project's user-facing boundary — the surface a later verification step "
+    "will need to launch and exercise for real — wrapped EXACTLY in "
+    "<BOUNDARY> and </BOUNDARY> tags, containing ONLY one of: http (the "
+    "project exposes an HTTP API, e.g. FastAPI/Flask/Express), ui (the "
+    "project exposes a web UI, e.g. a Vite/React/Vue app with a dev or "
+    "preview server), both (it exposes both), or none (neither, e.g. a "
+    "library or CLI tool). Output nothing else. Do not edit any "
     "files.\n\nPRD:\n{issue}"
 )
 CODE_PROMPT = (
     "Implement the design below. Make all necessary code edits in this "
     "repository now. This runs autonomously — there is no human to ask, so "
-    "make the best decision you can and implement it. Once the implementation "
-    "is complete, just stop — do not wrap your final summary in any tags."
+    "make the best decision you can and implement it. Practice test-first "
+    "development: write the tests for the behaviour you are adding (or a "
+    "failing test reproducing a bug you are fixing) before or alongside the "
+    "implementation, matching the project's existing test conventions and "
+    "a sensible testing pyramid (favour fast unit/integration tests; keep "
+    "end-to-end coverage minimal). Verification later in this pipeline "
+    "checks live, observed behaviour — it is not a substitute for durable, "
+    "repo-committed tests, which are your responsibility. Once the "
+    "implementation is complete, " + _COMMIT_INSTRUCTION + " Then just "
+    "stop — do not wrap your final summary in any tags."
     "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
+)
+#: permission_mode for the explore turn (feature 005, US1): the explore
+#: turn needs Bash/MCP tool execution approved without an interactive
+#: prompt, since every kestrel session runs headless (no TTY to answer
+#: one). "bypassPermissions" is the broadest unattended-execution mode the
+#: claude CLI offers — chosen over "acceptEdits" (whose documented scope is
+#: file-edit auto-approval, not general tool execution) per research.md R2.
+#: This is a best-effort default, not empirically verified against a real
+#: `claude` CLI session (unavailable in this environment); confirm it
+#: against a live operator login before relying on it, and swap it here if
+#: it proves insufficient.
+EXPLORE_PERMISSION_MODE = "bypassPermissions"
+
+EXPLORE_PROMPT = (
+    "You are verifying an implementation by observing the running, "
+    "modified project — not by reading its code. This project's "
+    "user-facing boundary is: {boundary}. Using whatever tools you have "
+    "available (a shell, browser automation, etc.), launch the project in "
+    "this worktree and exercise it for real:\n"
+    "- If the boundary is http or both: start the modified application and "
+    "issue real HTTP requests against it that exercise what the PRD "
+    "describes.\n"
+    "- If the boundary is ui or both: start the project's dev/preview "
+    "server and drive it via browser automation, visually inspecting the "
+    "result.\n"
+    "If a tool you need for this boundary (e.g. a browser-automation tool) "
+    "is not available to you, say so EXPLICITLY and unambiguously in your "
+    "response — verification is degraded/incomplete in that case, and "
+    "that must be clear, not silently indistinguishable from a normal "
+    "pass. Stop any process you started before you finish. Describe what "
+    "you did and observed in your final response; there is no required "
+    "format for this turn.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
 VERIFY_PROMPT = (
     "You are the verifier. Judge whether the implementation satisfies the PRD "
-    "and design. Weigh the EVIDENCE below (results of running the project's "
-    "checks in the worktree) as the primary basis of your verdict — a failing "
-    "check is a rejection. Where evidence is absent, judge the diff against "
-    "the PRD/design. Respond with ONLY a JSON object wrapped EXACTLY in "
-    "<VERDICT> and </VERDICT> tags, matching this shape:\n"
-    '{{"accept": true, "feedback": "..."}}\n'
+    "and design, the way an end user or stakeholder would judge the result — "
+    "not a code reviewer. Weigh what you just observed by exploring the "
+    "running application (in the turn immediately before this one, if you "
+    "explored anything) as the primary basis of your verdict — a failing "
+    "observation is a rejection. Where you did not explore anything, judge "
+    "based on the PRD and design alone — you are not shown a diff and do not "
+    "need one; the codebase in this worktree is the implementation. "
+    "accept/reject is decided SOLELY by whether the implementation meets "
+    "the PRD/design and what you observed — never by code quality, "
+    "maintainability, or documentation on their own. If you notice a code "
+    "quality or documentation concern, note it in feedback as an aside, but "
+    "it MUST NOT by itself set accept=false when the requirement is "
+    "otherwise met and nothing you observed failed. Respond "
+    "with ONLY a JSON object wrapped EXACTLY in <VERDICT> and </VERDICT> "
+    "tags, matching this shape:\n"
+    '{{"accept": true, "feedback": "...", "observations": '
+    '[{{"name": "...", "kind": "http", "passed": true, "detail": "..."}}]}}\n'
+    '"observations" is OPTIONAL — include one entry per distinct thing you '
+    "exercised while exploring the running application (kind is \"http\" or "
+    '"ui"), each with a bounded, factual "detail". Omit it entirely when '
+    "you did not explore anything this round.\n"
     "This session is headless: do not use the ExitPlanMode tool and do not "
     "stop to investigate with tools — output the verdict JSON directly in "
     "your final response and nothing else. "
     "Set accept=false and give specific, actionable feedback for the coder "
-    "when the implementation is inconsistent or the evidence shows "
-    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
-    "DIFF:\n{diff}\n\nEVIDENCE:\n{evidence}"
+    "when the implementation is inconsistent or what you observed shows "
+    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
 
 
@@ -282,9 +403,10 @@ def _slug_ref(task_ref: str) -> str:
 
 
 def _render_evidence(evidence: Evidence) -> str:
-    """Render evidence for the verifier prompt (bounded, human-readable)."""
+    """Render a round's evidence for the committed audit-trail report
+    (bounded, human-readable)."""
     if not evidence.observations:
-        return "(no automated checks configured)"
+        return "(nothing observed this round)"
     lines = []
     for obs in evidence.observations:
         mark = "PASS" if obs.passed else "FAIL"
@@ -297,10 +419,34 @@ def _evidence_feedback(evidence: Evidence) -> str:
     fails = evidence.failures()
     if not fails:
         return ""
-    parts = ["Failing checks:"]
+    parts = ["Failing observations:"]
     for obs in fails:
         parts.append(f"- {obs.name}\n{obs.detail}".rstrip())
     return "\n".join(parts)
+
+
+def _render_verify_report(rounds: list[dict]) -> str:
+    """Render every attempted verify round as a committed audit-trail
+    artifact (feature 005, US3).
+
+    History for a human reading the run's PR — never read back by any
+    code path, so a later run's verify step cannot be influenced by it
+    (FR-009).
+    """
+    sections = ["# Verify report", ""]
+    for entry in rounds:
+        sections.append(f"## Round {entry['round']}")
+        sections.append(f"- Boundary: {entry['boundary'] or 'none'}")
+        sections.append(
+            f"- Result: {'accepted' if entry['accept'] else 'rejected'}"
+        )
+        if entry["feedback"]:
+            sections.append(f"- Feedback: {entry['feedback']}")
+        sections.append("")
+        sections.append("### Evidence")
+        sections.append(_render_evidence(entry["evidence"]))
+        sections.append("")
+    return "\n".join(sections).rstrip() + "\n"
 
 
 def _clean_json_blob(blob: str) -> str:
@@ -315,7 +461,59 @@ def _clean_json_blob(blob: str) -> str:
     return blob.strip()
 
 
-def _parse_verdict(text: str) -> tuple[bool, str]:
+#: Cap on a self-reported observation's detail — keeps a verbose narrative
+#: bounded and no secret an explored request could contain fully echoed
+#: into a committed artifact.
+_MAX_OBSERVATION_DETAIL = 2000
+
+#: Cap on a single ``_debug_log`` entry — defense-in-depth against any
+#: future entry (not just the diff) ballooning ``dialogue.log``.
+_MAX_DEBUG_LOG_ENTRY = 4000
+
+#: Recognised observation kinds a verdict may self-report (mirrors
+#: Observation.kind); anything else is dropped rather than raising. Only
+#: behavioral kinds — a technical/structural "check" observation is
+#: deliberately not a legal self-report: durable checks are the coder's
+#: TDD responsibility (CODE_PROMPT), not something verify re-litigates.
+_OBSERVATION_KINDS = frozenset({"http", "ui"})
+
+
+def _parse_observations(raw: object) -> list[Observation]:
+    """Defensively build Observations from a verdict's ``observations``.
+
+    Any entry that isn't a well-formed ``{name, kind, passed}`` object is
+    dropped rather than raising — a malformed self-reported observation
+    must not turn into a parse failure that rejects an otherwise-valid
+    verdict.
+    """
+    if not isinstance(raw, list):
+        return []
+    observations: list[Observation] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name, kind, passed = (
+            item.get("name"), item.get("kind"), item.get("passed"),
+        )
+        if not (
+            isinstance(name, str)
+            and kind in _OBSERVATION_KINDS
+            and isinstance(passed, bool)
+        ):
+            continue
+        detail = item.get("detail", "")
+        if not isinstance(detail, str):
+            detail = ""
+        observations.append(
+            Observation(
+                name=name, kind=kind, passed=passed,
+                detail=detail[:_MAX_OBSERVATION_DETAIL],
+            )
+        )
+    return observations
+
+
+def _parse_verdict(text: str) -> tuple[bool, str, list[Observation]]:
     """Parse the verifier's verdict, tolerating common formatting.
 
     Reads, in order of preference: the canonical
@@ -324,7 +522,10 @@ def _parse_verdict(text: str) -> tuple[bool, str]:
     response that carries an ``accept`` key (some models drop the tags). A
     reject-on-parse-failure is the safe default — unverified work must not
     ship autonomously — and the raw output is logged so a genuine failure is
-    diagnosable rather than silent.
+    diagnosable rather than silent. An optional ``observations`` array
+    (self-reported http/ui findings from the explore turn, feature 005) is
+    parsed defensively and returned alongside the verdict; its absence is
+    not a parse failure.
     """
     candidates: list[str] = []
     start = text.find("<VERDICT>")
@@ -345,12 +546,17 @@ def _parse_verdict(text: str) -> tuple[bool, str]:
             return (
                 bool(data.get("accept", False)),
                 str(data.get("feedback", "")),
+                _parse_observations(data.get("observations")),
             )
     _logger.warning(
         "verifier produced no parseable verdict (%d chars): %r",
         len(text), text[:800],
     )
-    return False, "The verifier response could not be parsed as a verdict."
+    return (
+        False,
+        "The verifier response could not be parsed as a verdict.",
+        [],
+    )
 
 
 @dataclass
@@ -408,7 +614,6 @@ class WorkflowService:
         notifier: Notifier,
         bus: WorkflowBus | None = None,
         dismissals: DismissalStore | None = None,
-        check_runner: CheckRunner | None = None,
         sources: dict[str, object] | None = None,
         code_hosts: dict[str, object] | None = None,
     ) -> None:
@@ -434,14 +639,6 @@ class WorkflowService:
         }
         self._fallback_source = _gh_source
         self._fallback_host = _gh_host
-        #: Verify evidence gatherer (v1: runs configured checks in the
-        #: worktree). Defaults from settings so existing callers need not
-        #: provide one; the behavioural harness drops in later (FR-015b).
-        self.check_runner = (
-            check_runner
-            if check_runner is not None
-            else CheckRunner(settings.verify_checks)
-        )
         #: Records a dismissal on abandon so a still-labelled ingested issue
         #: is not re-ingested (feature 002, FR-008a). Optional so unit tests
         #: that don't exercise ingestion need not provide one.
@@ -459,6 +656,9 @@ class WorkflowService:
         task.add_done_callback(_WF_TASKS.discard)
         task.add_done_callback(
             lambda t, wid=workflow_id: self._tasks.pop(wid, None)
+        )
+        task.add_done_callback(
+            lambda t, wid=workflow_id: _log_driver_exception(t, wid)
         )
 
     def _new_control(self) -> _Control:
@@ -488,12 +688,33 @@ class WorkflowService:
 
         :param run: The run to checkpoint.
         """
+        if run.status in _TERMINAL_STATUSES and run.clock_state is not None:
+            set_clock(run, None, _now_utc())
         self.workflows.save(run)
         self.notifier.notify(run)
         if self.bus is not None:
             # Tick every SSE subscriber so the UI re-reads this run
             # (state, chips, deliverable) instead of polling.
             self.bus.publish(run.id)
+
+    def _safe_save(self, run: WorkflowRun) -> None:
+        """Persist a run, tolerating a secondary failure while already
+        handling one.
+
+        Used inside exception/cleanup handlers so a failing DB write here
+        doesn't also kill the driver task with an unretrieved exception —
+        the caller has already mutated ``run.status`` on the in-memory
+        object the registry holds, so that much survives even if this
+        persist doesn't; the failure itself is still logged loudly rather
+        than silently swallowed.
+        """
+        try:
+            self._save(run)
+        except Exception:
+            _logger.exception(
+                "workflow %s: failed to persist status %r",
+                run.id, run.status,
+            )
 
     # ---- queries -------------------------------------------------------
     def get(self, workflow_id: str) -> WorkflowRun:
@@ -578,14 +799,54 @@ class WorkflowService:
             )
         return content
 
-    async def _teardown_workspace(self, run: WorkflowRun) -> None:
+    def _debug_log(self, run: WorkflowRun, heading: str, content: str) -> None:
+        """Append one entry to the run's coder<->verifier dialogue transcript.
+
+        A no-op unless ``workflow_debug`` is on. Written to a *sibling* of
+        the worktree (``<workspace>-debug/``), not inside it, so it is never
+        staged/committed — this is a local debugging aid, not a deliverable
+        artifact. One flat, human-readable log rather than the raw session
+        stream, which buries the coder<->verifier exchange in tool-call noise.
+        Any single entry is capped at ``_MAX_DEBUG_LOG_ENTRY`` — defense in
+        depth against a future verbose entry (e.g. an explore-turn
+        narrative) ballooning the file, on top of specific entries (like the
+        diff) already being bounded at the source.
+        """
+        if not self.settings.workflow_debug:
+            return
+        debug_dir = f"{run.workspace}-debug"
+        os.makedirs(debug_dir, exist_ok=True)
+        path = os.path.join(debug_dir, "dialogue.log")
+        rule = "=" * 78
+        body = content.rstrip()
+        if len(body) > _MAX_DEBUG_LOG_ENTRY:
+            omitted = len(body) - _MAX_DEBUG_LOG_ENTRY
+            body = (
+                f"{body[:_MAX_DEBUG_LOG_ENTRY]}\n"
+                f"...[truncated {omitted} of {len(body)} chars]"
+            )
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"\n{rule}\n{heading}\n{rule}\n{body}\n")
+
+    async def _teardown_workspace(
+        self, run: WorkflowRun, *, force: bool = False
+    ) -> None:
         """Remove a run's worktree and directory; best-effort, isolated.
 
         Closes the workspace leak (only abandon cleaned up before) so a
         finished/failed run does not linger. Never disturbs another run's
-        worktree (feature 002, FR-017).
+        worktree (feature 002, FR-017). Skipped when ``workflow_debug`` is on
+        — the worktree and its dialogue transcript (see ``_debug_log``) stay
+        inspectable — unless ``force``, which an explicit abandon still uses
+        to actually drop the workspace on request.
         """
         if not run.workspace:
+            return
+        if self.settings.workflow_debug and not force:
+            _logger.info(
+                "workflow_debug: keeping workspace for run %s (%s)",
+                run.id, run.workspace,
+            )
             return
         with contextlib.suppress(Exception):
             await self.git.remove_worktree(
@@ -813,7 +1074,8 @@ class WorkflowService:
                 self.sessions.remove(session_id)
         self._control.pop(workflow_id, None)
         self.workflows.remove(workflow_id)
-        await self._teardown_workspace(run)
+        # Explicit user action: drop the workspace even in workflow_debug.
+        await self._teardown_workspace(run, force=True)
         # Dismiss the issue so a still-labelled ingested run is not
         # re-created by the webhook or reconciliation (feature 002,
         # FR-008a). Cleared when the trigger label is removed.
@@ -837,16 +1099,30 @@ class WorkflowService:
         fresh control and a driver task that re-enters at the
         gate. Runs that died mid-step are failed loudly —
         their subprocess is gone.
+
+        Each run's recovery is isolated: one run raising here (e.g. a
+        failing persist) is logged and skipped rather than aborting
+        recovery for every other run — and, since this runs unguarded in
+        the app's startup lifespan, rather than aborting the app's boot.
         """
         for run in self.workflows.list():
-            if run.status.startswith("awaiting_"):
-                self._control[run.id] = self._new_control()
-                self._spawn_driver(run.id, self._resume(run.id))
-            elif run.status in _TRANSIENT:
-                run.status = "failed"
-                run.error = "backend restarted mid-step"
-                self._fail_active_steps(run)
-                self._save(run)
+            try:
+                self._recover_one(run)
+            except Exception:
+                _logger.exception(
+                    "workflow %s: failed to recover, skipping", run.id
+                )
+
+    def _recover_one(self, run: WorkflowRun) -> None:
+        """Recover a single persisted run (see :meth:`recover`)."""
+        if run.status.startswith("awaiting_"):
+            self._control[run.id] = self._new_control()
+            self._spawn_driver(run.id, self._resume(run.id))
+        elif run.status in _TRANSIENT:
+            run.status = "failed"
+            run.error = "backend restarted mid-step"
+            self._fail_active_steps(run)
+            self._save(run)
 
     async def _resume(self, workflow_id: str) -> None:
         """Re-enter a gate-parked run after recovery."""
@@ -855,7 +1131,7 @@ class WorkflowService:
             await self._continue(run)
         except _Rejected:
             run.status = "rejected"
-            self._save(run)
+            self._safe_save(run)
             # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
             # dismissal so polling does not silently re-create the run while
             # the ticket still qualifies; the re-trigger gesture clears it.
@@ -871,13 +1147,14 @@ class WorkflowService:
             run.status = "failed"
             run.error = str(exc)
             self._fail_active_steps(run)
-            self._save(run)
+            self._safe_save(run)
             await self._teardown_workspace(run)
 
     async def _drive(self, workflow_id: str) -> None:
         run = self.get(workflow_id)
         try:
             run.status = "cloning"
+            set_clock(run, "active", _now_utc())
             self._save(run)
             task = await self._task_source(run).get_task(run.task_ref)
             run.issue_title = task.title
@@ -905,7 +1182,7 @@ class WorkflowService:
                 await self._continue(run, issue_body=task.body)
         except _Rejected:
             run.status = "rejected"
-            self._save(run)
+            self._safe_save(run)
             # A rejected PRD is stop-and-dismiss (FR-012/FR-033): record a
             # dismissal so polling does not silently re-create the run while
             # the ticket still qualifies; the re-trigger gesture clears it.
@@ -920,7 +1197,7 @@ class WorkflowService:
             run.status = "failed"
             run.error = str(exc)
             self._fail_active_steps(run)
-            self._save(run)
+            self._safe_save(run)
             await self._teardown_workspace(run)
 
     async def _continue(
@@ -970,9 +1247,11 @@ class WorkflowService:
             step.active_sessions = []  # chips off at the gate
             step.status = "awaiting_approval"
             run.status = "awaiting_refine_approval"
+            set_clock(run, "waiting", _now_utc())
             self._save(run)
         while True:
             decision = await self._await_gate(run.id)
+            set_clock(run, "active", _now_utc())
             if decision.approved:
                 final = decision.deliverable or (step.deliverable or "")
                 # Publish the approved PRD to the ticket: GitHub writes the
@@ -992,6 +1271,7 @@ class WorkflowService:
             step.active_sessions = []  # chips off at the gate
             step.status = "awaiting_approval"
             run.status = "awaiting_refine_approval"
+            set_clock(run, "waiting", _now_utc())
             self._save(run)
 
     async def _run_interview(
@@ -1038,6 +1318,7 @@ class WorkflowService:
 
         while round_no <= round_cap:
             run.status = "refining"
+            set_clock(run, "active", _now_utc())
             step.status = "running"
             self._save(run)
             # Coordinator clarification is bounded by the base cap; the extra
@@ -1087,6 +1368,7 @@ class WorkflowService:
             step.active_sessions = []  # human's turn: chips off
             step.status = "awaiting_input"
             run.status = "awaiting_refine_input"
+            set_clock(run, "waiting", _now_utc())
             self._save(run)
             answers = await self._control[run.id].replies.get()
             accumulated += to_entries(questionnaire, answers)
@@ -1686,6 +1968,11 @@ class WorkflowService:
         )
         design = extract_plan(result.final_text) or result.final_text
         step.deliverable = design
+        # Classify the project's boundary for the verify step (feature 005).
+        # A missing/malformed tag leaves boundary None — verify then falls
+        # back to today's check-and-diff-judgment-only behaviour; this must
+        # never fail the design step itself.
+        run.boundary = extract_boundary(result.final_text)
         # Persist the design as the second handover artifact for code/verify.
         self._write_artifact(run, "design.md", design)
         step.active_sessions = []
@@ -1721,6 +2008,18 @@ class WorkflowService:
             prd=self._artifact_slot(Step.CODE, run, "prd.md", prd),
             design=self._artifact_slot(Step.CODE, run, "design.md", design),
         )
+        # Every attempted verify round's summary, written once the loop
+        # concludes as a committed audit-trail artifact (feature 005, US3)
+        # — history for a human reading the PR, never read back as verify
+        # input by this or any later run (FR-009).
+        rounds: list[dict] = []
+
+        def _flush_report() -> None:
+            if rounds:
+                self._write_artifact(
+                    run, "verify-report.md", _render_verify_report(rounds)
+                )
+
         for iteration in range(max(1, self.settings.max_verify_iterations)):
             # 1-based count of verify passes entered, for the UI's
             # remaining-runs indicator on the verify chip.
@@ -1746,6 +2045,15 @@ class WorkflowService:
             code_resume_id = code_step.session_id or (
                 run.steps[1].session_id if same_backend else None
             )
+            self._debug_log(
+                run, f"Round {iteration + 1} — CODE PROMPT", prompt
+            )
+            # Captured before the coder's turn so the round's progress can
+            # be measured against it afterwards, regardless of whether the
+            # coder commits its own work or leaves it uncommitted (feature
+            # 006: the coder now commits each round; kestrel no longer
+            # assumes it will).
+            round_start_sha = await self.git.head_sha(run.workspace)
             await self._run_turn_tracked(
                 run,
                 self.backends.backend_for(Step.CODE),
@@ -1757,18 +2065,49 @@ class WorkflowService:
                 slot,
                 _bind(code_step, slot),
             )
-            # Exclude the handover artifacts from the code diff: they are
-            # committed with the change, but must not pollute what the
-            # verifier weighs or what the code step stores as its diff.
-            diff = await self.git.diff(run.workspace, exclude=_ARTIFACT_ROOT)
             code_step.active_sessions = []
-            code_step.deliverable = diff
-            if not diff.strip():
+            # Exclude the handover artifacts: they are committed with the
+            # change, but must not pollute what the escalation check weighs.
+            # A single-ref diff against round_start_sha captures both any
+            # commit(s) the coder made this round and anything it left
+            # uncommitted.
+            round_diff = await self.git.diff(
+                run.workspace, exclude=_ARTIFACT_ROOT, ref=round_start_sha
+            )
+            diff_stat = await self.git.diff_stat(
+                run.workspace, exclude=_ARTIFACT_ROOT, ref=round_start_sha
+            )
+            self._debug_log(
+                run, f"Round {iteration + 1} — CODE RESULT (diff --stat)",
+                diff_stat or "(empty diff)",
+            )
+            if not round_diff.strip():
                 # A coder that cannot make progress escalates instead of
                 # parking on a human gate (FR-020).
+                _flush_report()
                 return await self._escalate(
                     run, "the coder produced no changes"
                 )
+            # Safety-net commit: never blindly trust the coder to have
+            # committed its own work (or all of it) — if the tree is still
+            # dirty, kestrel commits on its behalf so verify always
+            # inspects a stable, committed tree regardless of model
+            # compliance.
+            still_dirty = await self.git.diff(
+                run.workspace, exclude=_ARTIFACT_ROOT
+            )
+            if still_dirty.strip():
+                await self.git.commit_all(
+                    run.workspace,
+                    f"Auto-commit (round {iteration + 1}): coder did not "
+                    "commit its own changes",
+                )
+            # The operator-facing deliverable is the cumulative diff since
+            # the run's branch point, regardless of how many WIP commits
+            # happened in between.
+            code_step.deliverable = await self.git.diff(
+                run.workspace, exclude=_ARTIFACT_ROOT, ref=run.base_branch
+            )
             code_step.status = "done"
             self._save(run)
 
@@ -1781,7 +2120,46 @@ class WorkflowService:
             )
             verify_step.active_sessions = [verify_slot]
             self._save(run)
-            evidence = await self.check_runner.run(run.workspace)
+            # Evidence for this round is built entirely from what the
+            # verifier itself self-reports below — no deterministic gatherer
+            # runs anymore; durable checks are the coder's TDD job
+            # (CODE_PROMPT), not verify's.
+            evidence = Evidence()
+            # When design classified a boundary (http/ui/both), an explore
+            # turn launches and exercises the running project for real
+            # before the verdict turn adjudicates (feature 005, US1). A
+            # "none"/unclassified boundary skips straight to the verdict
+            # turn, unchanged from today.
+            explore_resume_id: str | None = None
+            if run.boundary in ("http", "ui", "both"):
+                explore_prompt = EXPLORE_PROMPT.format(
+                    boundary=run.boundary, prd=prd, design=design,
+                )
+                self._debug_log(
+                    run, f"Round {iteration + 1} — EXPLORE PROMPT",
+                    explore_prompt,
+                )
+                explore_result = await self._run_turn_tracked(
+                    run,
+                    self.backends.backend_for(Step.VERIFY),
+                    TurnRequest(
+                        prompt=explore_prompt,
+                        cwd=run.workspace,
+                        permission_mode=EXPLORE_PERMISSION_MODE,
+                        model=verify_model,
+                    ),
+                    verify_slot,
+                    _bind(verify_step, verify_slot),
+                )
+                explore_resume_id = explore_result.session_id
+                self._debug_log(
+                    run, f"Round {iteration + 1} — EXPLORE RESULT",
+                    explore_result.final_text,
+                )
+            verify_prompt = VERIFY_PROMPT.format(prd=prd, design=design)
+            self._debug_log(
+                run, f"Round {iteration + 1} — VERIFY PROMPT", verify_prompt
+            )
             verify_result = await self._run_turn_tracked(
                 run,
                 self.backends.backend_for(Step.VERIFY),
@@ -1793,19 +2171,29 @@ class WorkflowService:
                     # the files pushes it into an investigate/plan flow that
                     # stops reliably emitting the verdict. Its cwd is still
                     # the worktree, so a future repo-reading verifier keeps
-                    # full file access regardless of this.
-                    prompt=VERIFY_PROMPT.format(
-                        prd=prd, design=design, diff=diff,
-                        evidence=_render_evidence(evidence),
-                    ),
+                    # full file access regardless of this. This discipline is
+                    # exactly why a boundary run's exploration happens on a
+                    # SEPARATE prior turn (above) rather than in this one.
+                    prompt=verify_prompt,
                     cwd=run.workspace, permission_mode="plan",
-                    model=verify_model,
+                    model=verify_model, resume_id=explore_resume_id,
                 ),
                 verify_slot,
                 _bind(verify_step, verify_slot),
             )
-            accept, feedback = _parse_verdict(verify_result.final_text)
-            # Failing-observation invariant: a failing check never accepts.
+            self._debug_log(
+                run, f"Round {iteration + 1} — VERIFY RESULT (raw)",
+                verify_result.final_text,
+            )
+            accept, feedback, observations = _parse_verdict(
+                verify_result.final_text
+            )
+            # Self-reported http/ui observations are this round's entire
+            # Evidence (feature 005, US1) — merge them in before applying
+            # the failing-observation invariant below.
+            evidence.observations.extend(observations)
+            # Failing-observation invariant: a failing observation never
+            # accepts, regardless of what the verdict's own text says.
             if not evidence.all_passed():
                 ev_fb = _evidence_feedback(evidence)
                 feedback = f"{ev_fb}\n\n{feedback}".strip()
@@ -1814,8 +2202,17 @@ class WorkflowService:
             verify_step.deliverable = (
                 "accepted" if accept else f"rejected: {feedback}"
             )
+            self._debug_log(
+                run, f"Round {iteration + 1} — VERDICT",
+                f"accept={accept}\nfeedback={feedback or '(none)'}",
+            )
+            rounds.append({
+                "round": len(rounds) + 1, "boundary": run.boundary,
+                "accept": accept, "feedback": feedback, "evidence": evidence,
+            })
             if accept:
                 verify_step.status = "done"
+                _flush_report()
                 self._save(run)
                 return False
             # Rejected: loop back to the coder with the feedback.
@@ -1825,6 +2222,7 @@ class WorkflowService:
                 feedback=feedback,
                 design=self._artifact_slot(Step.CODE, run, "design.md", design),
             )
+        _flush_report()
         return await self._escalate(
             run, "verification did not pass within the iteration limit"
         )
@@ -1871,7 +2269,12 @@ class WorkflowService:
             commit_msg = f"Implement {run.task_ref}"
             cr_title = f"{run.issue_title} ({run.task_ref})"
             cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
-        await self.git.commit_all(run.workspace, commit_msg)
+        # The coder (or the loop's safety net) may already have committed
+        # everything — e.g. a run accepted on its first round with no
+        # trailing artifact writes since. An empty `git commit` errors, so
+        # only commit when the tree is actually still dirty.
+        if (await self.git.diff(run.workspace)).strip():
+            await self.git.commit_all(run.workspace, commit_msg)
         await self.git.push(
             run.workspace, run.branch, self._code_host(run).git_credential()
         )
@@ -1909,7 +2312,9 @@ def get_workflow_service() -> WorkflowService:
     github = GitHubClient(
         settings.github_api_base, settings.github_token, verify=gh_verify
     )
-    gh_source = GitHubTaskSource(github, settings.public_base_url)
+    gh_source = GitHubTaskSource(
+        github, settings.public_base_url, config_for=settings.github_source_for
+    )
     gh_host = GitHubCodeHost(github, settings.git_base)
     # Task Source / Code Host per run source. GitHub and manual runs collapse
     # onto the GitHub adapters; the Jira source + its configured code host are
@@ -1933,7 +2338,7 @@ def get_workflow_service() -> WorkflowService:
             verify=entry.verify_ssl,
         )
         sources["jira-issue"] = JiraTaskSource(
-            jira, settings.public_base_url
+            jira, settings.public_base_url, config=entry
         )
         jira_github = GitHubClient(
             settings.github_api_base,
@@ -1943,12 +2348,28 @@ def get_workflow_service() -> WorkflowService:
         code_hosts["jira-issue"] = build_code_host(
             entry, jira_github, settings.git_base
         )
+    def hooks_dir_for(run: WorkflowRun) -> str:
+        """Resolve a run's configured hooks_dir (feature 006), if any."""
+        if run.source == "github-issue" and run.task_ref:
+            try:
+                repo, _num = parse_github_ref(run.task_ref)
+            except ValueError:
+                return ""
+            cfg = settings.github_source_for(repo)
+            return cfg.hooks_dir if cfg else ""
+        if run.source == "jira-issue" and jira_sources:
+            return jira_sources[0].hooks_dir
+        return ""
+
     # In-app first (always records the durable fallback row), then the
     # best-effort ticket comment via the run's source (feature 003).
     notifier = CompositeNotifier(
         [
             InAppNotifier(get_notification_store(), get_notification_bus()),
             TaskSourceNotifier(sources, settings.public_base_url),
+            LifecycleTransitioner(
+                sources, settings.public_base_url, hooks_dir_for
+            ),
         ]
     )
     return WorkflowService(

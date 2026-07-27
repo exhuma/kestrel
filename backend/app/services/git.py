@@ -81,8 +81,10 @@ class GitService:
         """Create and switch to a new branch."""
         await self._git("checkout", "-b", branch, cwd=dest)
 
-    async def diff(self, dest: str, exclude: str | None = None) -> str:
-        """Return the working-tree diff including untracked files.
+    async def diff(
+        self, dest: str, exclude: str | None = None, ref: str | None = None,
+    ) -> str:
+        """Return the diff between the working tree and ``ref``.
 
         :param dest: The worktree to diff.
         :param exclude: Optional top-level path (e.g. ``".kestrel"``) whose
@@ -90,12 +92,42 @@ class GitService:
             (so a later ``commit_all`` commits it) — only the diff view hides
             it, keeping handover artifacts out of the code diff the verifier
             weighs and the code step stores.
+        :param ref: What to diff the working tree against — a branch name or
+            commit SHA. Defaults to ``HEAD`` (today's exact behaviour:
+            uncommitted changes only). Passing an earlier ref (e.g. the run's
+            base branch, or a SHA captured before this round) captures both
+            committed-since-``ref`` and still-uncommitted changes in one
+            diff — the coder may have committed some or all of its own work.
         """
         await self._git("add", "-A", cwd=dest)
         args = ["diff", "--cached"]
+        if ref:
+            args.append(ref)
         if exclude:
             args += ["--", ".", f":(exclude){exclude}"]
         return await self._git(*args, cwd=dest)
+
+    async def diff_stat(
+        self, dest: str, exclude: str | None = None, ref: str | None = None,
+    ) -> str:
+        """Return a compact ``git diff --stat`` summary (filenames + line
+        counts, never file content) between the working tree and ``ref``.
+
+        Same semantics as :meth:`diff` otherwise — a bounded alternative for
+        contexts (e.g. a debug transcript) where the full diff content isn't
+        wanted, only a sense of what changed.
+        """
+        await self._git("add", "-A", cwd=dest)
+        args = ["diff", "--cached", "--stat"]
+        if ref:
+            args.append(ref)
+        if exclude:
+            args += ["--", ".", f":(exclude){exclude}"]
+        return await self._git(*args, cwd=dest)
+
+    async def head_sha(self, dest: str) -> str:
+        """Return the worktree's current ``HEAD`` commit SHA."""
+        return (await self._git("rev-parse", "HEAD", cwd=dest)).strip()
 
     async def commit_all(self, dest: str, message: str) -> None:
         """Stage everything and commit."""

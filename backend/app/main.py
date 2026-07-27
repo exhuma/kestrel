@@ -55,7 +55,22 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.default_session_backend,
     )
 
-    await get_workflow_service().recover()
+    # Operator-hooks audit trail (feature 006, FR-016): log what's found in
+    # each configured hooks_dir, so an operator has a chance to notice a
+    # script they didn't expect — a nudge, not an access control (a hook
+    # inherits kestrel's full environment, see docs/hooks.md).
+    from app.services.hooks import audit_hooks_dir
+
+    for source in settings.task_sources:
+        audit_hooks_dir(source.hooks_dir)
+
+    # recover() already isolates each run's own recovery; this is a second,
+    # outer safety net so a bug in recovery itself degrades to "runs may be
+    # stuck until fixed" rather than the whole app failing to boot.
+    try:
+        await get_workflow_service().recover()
+    except Exception:
+        _logger.exception("workflow recovery failed; continuing startup")
 
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
