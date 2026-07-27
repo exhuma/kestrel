@@ -1,4 +1,9 @@
 """Tests for the autonomous code<->verify loop (feature 003, US3)."""
+# TODO(quality): refactor — exceeds the 500-line module guardrail. Split this
+# module by concern rather than growing it further; grandfathered on
+# 2026-07-27 (grew past the limit in earlier feature-005 verify-loop commits,
+# uncaught until a release-tag CI run — see [quality-override] in that commit).
+# pylint: disable=too-many-lines
 from __future__ import annotations
 
 import asyncio
