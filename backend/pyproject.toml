@@ -97,7 +97,27 @@ extend-immutable-calls = [
 "app/services/jira_poll.py" = ["PLC0415", "PLR0913"]
 "app/services/runner.py" = ["C901", "PLR0913"]
 "app/services/workflow_text.py" = ["PLR0911"]
-"app/services/workflows.py" = ["ARG005", "B905", "C901", "PLC0415", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "SIM105"]
+# generate_questions/reconcile_questions retain the complexity of the
+# original monolith's fan-out/consolidation logic; extracting them into
+# their own file doesn't reduce their own control flow. Deliberately not
+# redesigned in this pass — see the workflows-package-split plan.
+"app/services/workflows/interview/questions.py" = ["C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915"]
+# run_interview retains the original monolith's round-loop statement count;
+# same rationale as questions.py above.
+"app/services/workflows/interview/__init__.py" = ["PLR0915"]
+# code_and_verify is the single largest method in the original monolith
+# (~250 lines); extracting it into its own file doesn't reduce its own
+# statement count. Same rationale as questions.py above.
+"app/services/workflows/driver/code_verify.py" = ["PLR0915"]
+# WorkflowService.__init__'s wiring surface, the unused-`t` lambda closure
+# pattern in _spawn_driver, and the cancellation try/except/pass in delete()
+# are all carried over unchanged from the original monolith. Same rationale
+# as questions.py above.
+"app/services/workflows/service.py" = ["ARG005", "PLR0913", "SIM105"]
+# Deferred imports for optional Jira/GitLab integrations, avoiding a hard
+# dependency for installs that don't configure them — same pattern already
+# exempted in jira_poll.py/telemetry.py.
+"app/services/workflows/bootstrap.py" = ["PLC0415"]
 "app/telemetry.py" = ["PLC0415", "PLW0603"]
 "tests/test_check_runner.py" = ["PLR2004"]
 "tests/test_claude_backend.py" = ["ARG001", "PLR0913"]
