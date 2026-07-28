@@ -33,6 +33,14 @@ export interface StepSession {
   error: string | null
 }
 
+/** A workflow screenshot (refine mockup or verify capture) for the gallery. */
+export interface Screenshot {
+  name: string
+  stage: 'refine' | 'verify'
+  /** Relative URL (under API_BASE) to fetch the image bytes. */
+  url: string
+}
+
 export interface WorkflowSummary {
   id: string
   repo: string

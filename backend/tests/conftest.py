@@ -241,6 +241,11 @@ class _FakeRunner:
     def backends(self):
         return [self]
 
+    def optional_backend_for(self, step, requirement):
+        # No mockup capture in the default harness; the dedicated
+        # test_workflow_mockups covers the capable/gated paths.
+        return None
+
 
 class _RoutingPolicy:
     """A BackendPolicy stub routing ``design`` and ``code`` to different
@@ -268,6 +273,9 @@ class _RoutingPolicy:
 
     def backends(self):
         return [self._design, self._code]
+
+    def optional_backend_for(self, step, requirement):
+        return None
 
 
 def _service(github, runner, git, settings=None) -> WorkflowService:

@@ -112,8 +112,15 @@ class TaskSource(Protocol):
         """Post a comment; return its URL (best-effort caller)."""
         ...
 
-    async def attach(self, ref: str, name: str, content: str) -> None:
-        """Attach a file (the PRD) to the ticket (may no-op on some sources)."""
+    async def attach(
+        self, ref: str, name: str, data: bytes, mimetype: str
+    ) -> None:
+        """Attach a binary file to the ticket (may no-op on some sources).
+
+        Carries raw ``data`` plus its ``mimetype`` so any file type (a
+        text PRD, a PNG screenshot) can be uploaded; a source without an
+        attachment API (GitHub issues) no-ops.
+        """
         ...
 
     async def publish_refined(self, ref: str, content: str) -> None:

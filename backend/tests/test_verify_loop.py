@@ -379,7 +379,9 @@ def test_verify_prompts_do_not_reference_or_require_a_diff() -> None:
     assert "{diff}" not in EXPLORE_PROMPT
     assert "{diff}" not in VERIFY_PROMPT
     # Both format cleanly without a diff kwarg.
-    EXPLORE_PROMPT.format(boundary="http", prd="p", design="d")
+    EXPLORE_PROMPT.format(
+        boundary="http", prd="p", design="d", screenshots_dir="s"
+    )
     VERIFY_PROMPT.format(prd="p", design="d")
 
 

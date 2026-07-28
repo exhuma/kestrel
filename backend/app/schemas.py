@@ -7,8 +7,20 @@ keep them in sync when the API changes (see the type contract in
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+class ScreenshotOut(BaseModel):
+    """One workflow screenshot for the gallery API."""
+
+    #: Filename within its stage folder (e.g. ``login-01.png``).
+    name: str
+    #: Which stage produced it.
+    stage: Literal["refine", "verify"]
+    #: Relative URL the frontend fetches the image bytes from.
+    url: str
 
 
 class SessionSummary(BaseModel):

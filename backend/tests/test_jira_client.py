@@ -95,19 +95,27 @@ async def test_get_field_returns_value_or_none() -> None:
 async def test_add_comment_and_attachment() -> None:
     """Ensure comment/attachment hit the right paths and headers."""
     seen = {}
+    bodies = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen[req.url.path] = req.headers.get("x-atlassian-token")
+        bodies[req.url.path] = req.content
         if req.url.path.endswith("/comment"):
             return httpx.Response(201, json={"self": "https://jira/c/1"})
         return httpx.Response(200, json=[{"id": "1"}])
 
     client = _client(handler, auth="basic", email="e", token="t")
     assert await client.add_comment("RFC-1", "hi") == "https://jira/c/1"
-    await client.add_attachment("RFC-1", "PRD.md", "content")
+    await client.add_attachment(
+        "RFC-1", "shot.png", b"\x89PNGbytes", "image/png"
+    )
     assert seen["/rest/api/2/issue/RFC-1/comment"] is None
     # Attachment carries the XSRF-bypass header.
     assert seen["/rest/api/2/issue/RFC-1/attachments"] == "no-check"
+    # The raw bytes and declared mimetype ride in the multipart body.
+    attach_body = bodies["/rest/api/2/issue/RFC-1/attachments"]
+    assert b"\x89PNGbytes" in attach_body
+    assert b"image/png" in attach_body
 
 
 @pytest.mark.asyncio

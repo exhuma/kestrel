@@ -10,6 +10,7 @@ import { renderMarkdown } from '../lib/markdown'
 import EventCard from './EventCard.vue'
 import ConsoleShell from './ConsoleShell.vue'
 import DiffView from './DiffView.vue'
+import ScreenshotGallery from './ScreenshotGallery.vue'
 import { STEPS } from '../types/workflows'
 import { toViewModel } from '../lib/eventView'
 
@@ -71,6 +72,17 @@ const activeStep = computed(() =>
   current.value?.steps.find((s) =>
     ['running', 'awaiting_input', 'awaiting_approval'].includes(s.status),
   ),
+)
+// Only the refine (mockups) and verify (real-app) steps produce
+// screenshots; other steps render no gallery.
+const screenshotStage = computed<'refine' | 'verify' | null>(() => {
+  const n = activeStep.value?.name
+  return n === 'refine' || n === 'verify' ? n : null
+})
+// Refetch shots as the run advances (status change, new verify round)
+// so late captures appear without polling.
+const screenshotRevision = computed(
+  () => `${current.value?.status ?? ''}:${activeStep.value?.verify_round ?? 0}`,
 )
 const awaitingInput = computed(
   () => activeStep.value?.status === 'awaiting_input',
@@ -552,6 +564,13 @@ function badgeColor(token: string): string | undefined {
             v-html="deliverableHtml"
           />
         </div>
+
+        <ScreenshotGallery
+          v-if="screenshotStage && current"
+          :workflow-id="current.id"
+          :stage="screenshotStage"
+          :revision="screenshotRevision"
+        />
 
         <div v-if="awaitingApproval" class="d-flex flex-column ga-3">
           <v-textarea

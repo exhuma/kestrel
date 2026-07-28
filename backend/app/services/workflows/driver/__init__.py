@@ -13,9 +13,10 @@ from app.services.workflow_text import (
     extract_plan,
     has_sentinel,
 )
-from app.services.workflows import interview
+from app.services.workflows import interview, screenshots
 from app.services.workflows.driver.code_verify import code_and_verify
 from app.services.workflows.driver.escalate import fail_active_steps
+from app.services.workflows.driver.mockups import capture_mockups
 from app.services.workflows.prompts import DESIGN_PROMPT
 from app.services.workflows.sessions import _bind
 from app.services.workflows.shared import _TRANSIENT, _now_utc
@@ -192,6 +193,10 @@ async def refine(
         step.deliverable = await interview.write_refined(
             service, run, issue, accumulated
         )
+        # First pass only: mock up the draft PRD's screens so the human
+        # sees the proposed UI at the approval gate. Optional and
+        # capability-gated — a no-op on a text-only refine backend.
+        await capture_mockups(service, run, step.deliverable)
         step.active_sessions = []  # chips off at the gate
         step.status = "awaiting_approval"
         run.status = "awaiting_refine_approval"
@@ -202,10 +207,14 @@ async def refine(
         set_clock(run, "active", _now_utc())
         if decision.approved:
             final = decision.deliverable or (step.deliverable or "")
+            source = service._task_source(run)
             # Publish the approved PRD to the ticket: GitHub writes the
             # refined body + sentinel; Jira attaches PRD.md (FR-011).
-            await service._task_source(run).publish_refined(
-                run.task_ref, final
+            await source.publish_refined(run.task_ref, final)
+            # Upload the refine mockups too (Jira attaches them; GitHub
+            # no-ops — they ride along committed in the PR). Best-effort.
+            await screenshots.upload_screenshots(
+                source, run, service.settings.screenshots_root, "refine"
             )
             step.deliverable = final
             step.status = "done"
@@ -304,6 +313,13 @@ async def deliver(service: "WorkflowService", run: WorkflowRun) -> None:
         )
     except Exception:  # noqa: BLE001 — best-effort; run is already done
         _logger.exception("failed to post CR link for %s", run.task_ref)
+    # Upload the verify screenshots to the ticket (Jira attaches them;
+    # GitHub no-ops — they rode along in the pushed PR). Best-effort,
+    # before teardown removes the worktree they live in.
+    await screenshots.upload_screenshots(
+        service._task_source(run), run,
+        service.settings.screenshots_root, "verify",
+    )
     # Work is pushed and the CR is open — the worktree is no longer
     # needed. Clean it up (closing the done-run leak, US3/FR-017).
     await service._teardown_workspace(run)

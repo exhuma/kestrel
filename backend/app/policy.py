@@ -107,6 +107,26 @@ class BackendPolicy:
         parent = step.split(".", 1)[0]
         return self._map.get(step) or self._map.get(parent, self._default)
 
+    def optional_backend_for(
+        self, step: str, requirement: frozenset[Capability]
+    ) -> Backend | None:
+        """Resolve a step's backend only if it meets ``requirement``.
+
+        The non-raising path for an *optional* capability (e.g. mockup
+        capture needs ``FILE_EDITS``+``TOOL_USE``, beyond refine's base
+        requirement): return the backend when it can serve the extra
+        capability, else ``None`` so the caller silently skips rather
+        than failing the run.
+
+        :param step: Workflow step name or dotted sub-step key.
+        :param requirement: The capabilities the backend must have.
+        :returns: The backend, or ``None`` if unavailable/insufficient.
+        """
+        if self._registry is None:
+            return None
+        backend = self._registry.get(self.backend_id_for(step))
+        return backend if requirement <= backend.caps else None
+
     def backends(self) -> list[Backend]:
         """Every configured backend (used to stop a run's sessions)."""
         return self._registry.all()

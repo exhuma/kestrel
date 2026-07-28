@@ -214,12 +214,14 @@ def create_app() -> FastAPI:
     from app.routers import (
         github_webhook,
         notifications,
+        screenshots,
         sessions,
         workflows,
     )
 
     app.include_router(sessions.router)
     app.include_router(workflows.router)
+    app.include_router(screenshots.router)
     app.include_router(notifications.router)
     app.include_router(github_webhook.router)
 

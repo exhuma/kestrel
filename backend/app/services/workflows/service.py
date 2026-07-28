@@ -20,7 +20,7 @@ from app.services.exceptions import WorkflowNotFoundError
 from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.time_tracking import set_clock
-from app.services.workflows import artifacts, driver, gate
+from app.services.workflows import artifacts, driver, gate, screenshots
 from app.services.workflows import sessions as sessions_mod
 from app.services.workflows.gate import _Control, _Decision
 from app.services.workflows.shared import (
@@ -224,6 +224,13 @@ class WorkflowService:
                 run.id, run.workspace,
             )
             return
+        # Preserve this run's screenshots to the durable dir before the
+        # worktree they live in is removed, so the gallery keeps working
+        # once the run is done/failed. Best-effort, never blocks teardown.
+        with contextlib.suppress(Exception):
+            screenshots.persist_screenshots(
+                run, self.settings.screenshots_root
+            )
         with contextlib.suppress(Exception):
             await self.git.remove_worktree(
                 self._mirror_dir(run.repo), run.workspace
