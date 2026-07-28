@@ -119,6 +119,10 @@ extend-immutable-calls = [
 # exempted in jira_poll.py/telemetry.py.
 "app/services/workflows/bootstrap.py" = ["PLC0415"]
 "app/telemetry.py" = ["PLC0415", "PLW0603"]
+# Fake/stub doubles (_FakeGit, _FakeGitHub, _RoutingPolicy, ...) mimicking
+# real interfaces intentionally ignore unused params — carried over from
+# tests/test_workflow_service.py's exemption as the doubles move here.
+"tests/conftest.py" = ["ARG002", "PLR0913"]
 "tests/test_check_runner.py" = ["PLR2004"]
 "tests/test_claude_backend.py" = ["ARG001", "PLR0913"]
 "tests/test_config.py" = ["B017", "PLR2004"]
@@ -148,7 +152,11 @@ extend-immutable-calls = [
 "tests/test_source_parity.py" = ["PLC0415"]
 "tests/test_verify_loop.py" = ["ARG002"]
 "tests/test_webhook_ingress.py" = ["ARG002", "PLR2004"]
+"tests/test_workflow_driver.py" = ["ARG002"]
+"tests/test_workflow_gate.py" = ["PLR2004"]
+"tests/test_workflow_interview.py" = ["ARG002", "PLR2004"]
+"tests/test_workflow_interview_questions.py" = ["PLR2004"]
 "tests/test_workflow_persistence.py" = ["PLC0415", "PLR2004"]
 "tests/test_workflow_recovery.py" = ["PLC0415"]
-"tests/test_workflow_service.py" = ["ARG002", "PLC0415", "PLR0913", "PLR2004"]
+"tests/test_workflow_service.py" = ["PLR0913"]
 "tests/test_workflows_router.py" = ["ARG001", "ARG002", "PLC0415", "PLR2004"]

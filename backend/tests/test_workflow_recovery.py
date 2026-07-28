@@ -9,11 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.persistence.workflow_store import WorkflowStore
 from app.storage.registry import SessionRegistry
-from tests.test_workflow_persistence import (
-    _migrate,
-    _persistent_service,
-)
-from tests.test_workflow_service import (
+from tests.conftest import (
     _coord,
     _FakeGit,
     _FakeGitHub,
@@ -22,6 +18,10 @@ from tests.test_workflow_service import (
     _qs,
     _refined,
     _wait,
+)
+from tests.test_workflow_persistence import (
+    _migrate,
+    _persistent_service,
 )
 
 

@@ -23,7 +23,7 @@ from app.services.workflows import (
 )
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
-from tests.test_workflow_service import (
+from tests.conftest import (
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,

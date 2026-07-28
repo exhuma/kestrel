@@ -7,7 +7,7 @@ from app.config import Settings
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
-from tests.test_workflow_service import (
+from tests.conftest import (
     _FakeDismissals,
     _FakeGit,
     _FakeGitHub,

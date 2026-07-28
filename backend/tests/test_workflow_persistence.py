@@ -16,7 +16,7 @@ from app.persistence.workflow_store import WorkflowStore
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
-from tests.test_workflow_service import (
+from tests.conftest import (
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
@@ -161,7 +161,7 @@ async def test_gate_state_is_checkpointed(
 ) -> None:
     """Ensure awaiting states are visible in the database."""
     from app.questionnaire import parse_envelope
-    from tests.test_workflow_service import _coord, _q, _qs
+    from tests.conftest import _coord, _q, _qs
 
     store = _store(tmp_path)
     runner = _FakeRunner(SessionRegistry(), outputs=[

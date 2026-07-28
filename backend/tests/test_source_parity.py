@@ -8,8 +8,7 @@ from app.schemas import WorkflowDetail, WorkflowSummary
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
-from tests.test_prd_delivery import _FakeJiraHost, _FakeJiraSource
-from tests.test_workflow_service import (
+from tests.conftest import (
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
@@ -18,6 +17,7 @@ from tests.test_workflow_service import (
     _verdict,
     _wait,
 )
+from tests.test_prd_delivery import _FakeJiraHost, _FakeJiraSource
 
 
 async def _drive_and_record(svc: WorkflowService, wid: str) -> list[str]:
