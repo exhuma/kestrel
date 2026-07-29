@@ -14,6 +14,7 @@
 // reference it as `$alias` in the template. The icons test guards that every
 // `$alias` used in `src/` resolves to a non-empty path.
 import {
+  mdiAccount,
   mdiAlertCircle,
   mdiArrowRight,
   mdiBell,
@@ -30,6 +31,7 @@ import {
 } from '@mdi/js'
 
 export const aliases: Record<string, string> = {
+  account: mdiAccount,
   alertCircle: mdiAlertCircle,
   arrowRight: mdiArrowRight,
   bell: mdiBell,

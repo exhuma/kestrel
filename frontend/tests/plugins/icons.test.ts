@@ -34,9 +34,10 @@ describe('icon alias registry', () => {
     }
   })
 
-  it('registers the 13 glyphs the UI references', () => {
+  it('registers the 14 glyphs the UI references', () => {
     expect(Object.keys(appAliases).sort()).toEqual(
       [
+        'account',
         'alertCircle',
         'arrowRight',
         'bell',

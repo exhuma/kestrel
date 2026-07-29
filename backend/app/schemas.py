@@ -170,3 +170,15 @@ class NotificationOut(BaseModel):
     message: str
     created_at: datetime
     read: bool
+
+
+class IdentityOut(BaseModel):
+    """The authenticated identity, as forwarded by oauth2-proxy.
+
+    All fields are ``null`` when no reverse proxy sits in front of the
+    backend (e.g. local dev) — this is not an error state.
+    """
+
+    username: str | None
+    email: str | None
+    preferred_username: str | None
