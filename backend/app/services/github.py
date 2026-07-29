@@ -256,8 +256,12 @@ class GitHubTaskSource:
         repo, number = parse_github_ref(ref)
         return await self._client.create_issue_comment(repo, number, body)
 
-    async def attach(self, ref: str, name: str, content: str) -> None:
-        """No-op: GitHub issues have no attachment API; PRD goes in the body."""
+    async def attach(
+        self, ref: str, name: str, data: bytes, mimetype: str
+    ) -> None:
+        """No-op: GitHub issues have no attachment API. The PRD goes in the
+        issue body; screenshots ride along committed in the PR's ``.kestrel``
+        folder."""
         return None
 
     async def publish_refined(self, ref: str, content: str) -> None:

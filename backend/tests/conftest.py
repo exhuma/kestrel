@@ -65,6 +65,8 @@ class _FakeGit:
 
     def __init__(self) -> None:
         self.pushed: list[str] = []
+        self.deleted_local: list[tuple[str, str]] = []
+        self.deleted_remote: list[tuple[str, str, object]] = []
         self.rounds: list[tuple[str, bool]] = [
             ("diff --git a/x b/x", False)
         ]
@@ -148,6 +150,14 @@ class _FakeGit:
 
     async def push(self, dest: str, branch: str, cred=None) -> None:
         self.pushed.append(branch)
+
+    async def delete_local_branch(self, mirror_dir: str, branch: str) -> None:
+        self.deleted_local.append((mirror_dir, branch))
+
+    async def delete_remote_branch(
+        self, mirror_dir: str, branch: str, cred=None
+    ) -> None:
+        self.deleted_remote.append((mirror_dir, branch, cred))
 
 
 class _FakeNotifier:
@@ -241,6 +251,11 @@ class _FakeRunner:
     def backends(self):
         return [self]
 
+    def optional_backend_for(self, step, requirement):
+        # No mockup capture in the default harness; the dedicated
+        # test_workflow_mockups covers the capable/gated paths.
+        return None
+
 
 class _RoutingPolicy:
     """A BackendPolicy stub routing ``design`` and ``code`` to different
@@ -268,6 +283,9 @@ class _RoutingPolicy:
 
     def backends(self):
         return [self._design, self._code]
+
+    def optional_backend_for(self, step, requirement):
+        return None
 
 
 def _service(github, runner, git, settings=None) -> WorkflowService:

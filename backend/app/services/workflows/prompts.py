@@ -223,6 +223,11 @@ EXPLORE_PROMPT = (
     "- If the boundary is ui or both: start the project's dev/preview "
     "server and drive it via browser automation, visually inspecting the "
     "result.\n"
+    "- If the boundary is ui or both AND you drove the UI, save PNG "
+    "screenshots of the key states you exercised into the worktree "
+    "directory `{screenshots_dir}` (create it if needed; name them like "
+    "`dashboard-01.png`). These are shown to the human reviewer and "
+    "attached to the ticket, so capture what best evidences the result.\n"
     "If a tool you need for this boundary (e.g. a browser-automation tool) "
     "is not available to you, say so EXPLICITLY and unambiguously in your "
     "response — verification is degraded/incomplete in that case, and "
@@ -260,4 +265,22 @@ VERIFY_PROMPT = (
     "Set accept=false and give specific, actionable feedback for the coder "
     "when the implementation is inconsistent or what you observed shows "
     "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
+)
+#: Optional refine-stage turn: mock up the PRD's screens as static HTML/CSS
+#: and screenshot them, so the human sees the proposed UI at the approval
+#: gate. Gated on a FILE_EDITS+TOOL_USE-capable refine backend; degrades
+#: (self-reports) when no browser tool is available (see driver/mockups.py).
+MOCKUP_PROMPT = (
+    "You are producing quick visual mockups for a change still being "
+    "refined, so a human reviewer can see the proposed UI before "
+    "approving the PRD below. Using static HTML and CSS only (no backend, "
+    "no framework build), mock up the key screens or states the PRD "
+    "describes. Then, using your browser-automation tool, open each mockup "
+    "and save a PNG screenshot into the worktree directory "
+    "`{screenshots_dir}` (create it if needed; name them like "
+    "`login-01.png`). Keep the mockups lightweight and throwaway — they "
+    "illustrate intent, they are not the implementation. If you have no "
+    "browser-automation tool available, say so EXPLICITLY and do not "
+    "fabricate screenshots. Describe what you produced in your final "
+    "response; there is no required format for this turn.\n\nPRD:\n{prd}"
 )

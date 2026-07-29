@@ -10,6 +10,7 @@ import { renderMarkdown } from '../lib/markdown'
 import EventCard from './EventCard.vue'
 import ConsoleShell from './ConsoleShell.vue'
 import DiffView from './DiffView.vue'
+import ScreenshotGallery from './ScreenshotGallery.vue'
 import { STEPS } from '../types/workflows'
 import { toViewModel } from '../lib/eventView'
 
@@ -39,6 +40,7 @@ const {
   startList,
   stopList,
   remove,
+  cleanup,
 } = useWorkflows()
 
 const repo = ref('owner/name')
@@ -71,6 +73,17 @@ const activeStep = computed(() =>
   current.value?.steps.find((s) =>
     ['running', 'awaiting_input', 'awaiting_approval'].includes(s.status),
   ),
+)
+// Only the refine (mockups) and verify (real-app) steps produce
+// screenshots; other steps render no gallery.
+const screenshotStage = computed<'refine' | 'verify' | null>(() => {
+  const n = activeStep.value?.name
+  return n === 'refine' || n === 'verify' ? n : null
+})
+// Refetch shots as the run advances (status change, new verify round)
+// so late captures appear without polling.
+const screenshotRevision = computed(
+  () => `${current.value?.status ?? ''}:${activeStep.value?.verify_round ?? 0}`,
 )
 const awaitingInput = computed(
   () => activeStep.value?.status === 'awaiting_input',
@@ -260,6 +273,18 @@ async function onDelete(id: string): Promise<void> {
     return
   await remove(id)
 }
+async function onCleanup(id: string): Promise<void> {
+  if (
+    !confirm(
+      'Clean up this workflow? This deletes its local work and its ' +
+        'branch — including on GitHub/GitLab if it was pushed — then ' +
+        'lets the task be picked up as a brand-new workflow on the next ' +
+        'poll. This cannot be undone.',
+    )
+  )
+    return
+  await cleanup(id)
+}
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
 }
@@ -362,6 +387,14 @@ function badgeColor(token: string): string | undefined {
             />
           </template>
           <template #append>
+            <v-btn
+              icon="$broom"
+              size="x-small"
+              variant="text"
+              title="Clean up workflow"
+              aria-label="Clean up workflow"
+              @click.stop="onCleanup(w.id)"
+            />
             <v-btn
               icon="$close"
               size="x-small"
@@ -552,6 +585,13 @@ function badgeColor(token: string): string | undefined {
             v-html="deliverableHtml"
           />
         </div>
+
+        <ScreenshotGallery
+          v-if="screenshotStage && current"
+          :workflow-id="current.id"
+          :stage="screenshotStage"
+          :revision="screenshotRevision"
+        />
 
         <div v-if="awaitingApproval" class="d-flex flex-column ga-3">
           <v-textarea

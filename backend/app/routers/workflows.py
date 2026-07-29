@@ -205,6 +205,20 @@ async def delete_workflow(
     return {"status": "ok"}
 
 
+@router.post("/{workflow_id}/cleanup")
+async def cleanup_workflow(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """
+    Fully reset a workflow: drop local work, delete its branch (local
+    mirror and remote), and clear its dismissal so the next poll picks
+    the underlying task up as a brand-new workflow.
+    """
+    await service.cleanup(workflow_id)
+    return {"status": "ok"}
+
+
 @router.post("/{workflow_id}/reply")
 async def reply_workflow(
     workflow_id: str,

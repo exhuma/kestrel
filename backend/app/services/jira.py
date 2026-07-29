@@ -145,13 +145,15 @@ class JiraClient:
         )
         return resp.json().get("self", "")
 
-    async def add_attachment(self, key: str, name: str, content: str) -> None:
-        """Attach a file to the issue (the PRD). Requires the XSRF header."""
+    async def add_attachment(
+        self, key: str, name: str, data: bytes, mimetype: str
+    ) -> None:
+        """Attach a binary file to the issue. Requires the XSRF header."""
         await self._request(
             "POST",
             f"/issue/{key}/attachments",
             headers=self._headers({"X-Atlassian-Token": "no-check"}),
-            files={"file": (name, content.encode("utf-8"), "text/markdown")},
+            files={"file": (name, data, mimetype)},
         )
 
     async def transition_issue(self, key: str, transition_id: str) -> None:
@@ -194,12 +196,16 @@ class JiraTaskSource:
     async def post_comment(self, ref: str, body: str) -> str:
         return await self._client.add_comment(ref, body)
 
-    async def attach(self, ref: str, name: str, content: str) -> None:
-        await self._client.add_attachment(ref, name, content)
+    async def attach(
+        self, ref: str, name: str, data: bytes, mimetype: str
+    ) -> None:
+        await self._client.add_attachment(ref, name, data, mimetype)
 
     async def publish_refined(self, ref: str, content: str) -> None:
         """Deliver the approved PRD as an attachment on the RFC (FR-011)."""
-        await self._client.add_attachment(ref, "PRD.md", content)
+        await self._client.add_attachment(
+            ref, "PRD.md", content.encode("utf-8"), "text/markdown"
+        )
 
     def deep_link_ref(self, ref: str) -> str:
         return f"{self._base}/browse/{ref}"

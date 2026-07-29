@@ -1,14 +1,27 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { withVuetify } from '../support/vuetify'
 import type { WorkflowDetail, WorkflowSummary } from '../../src/types/workflows'
+
+// The embedded ScreenshotGallery fetches on mount; default it to an empty
+// list so unrelated tests don't leave a pending fetch aborted at teardown.
+function stubScreenshots(data: unknown = []): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: true, status: 200, json: async () => data })),
+  )
+}
+
+beforeEach(() => stubScreenshots())
+afterEach(() => vi.restoreAllMocks())
 
 // Build a controllable useWorkflows mock so we can render a Jira vs GitHub run.
 const state = {
   current: ref<WorkflowDetail | null>(null),
   workflows: ref<WorkflowSummary[]>([]),
 }
+const mockCleanup = vi.fn()
 vi.mock('../../src/composables/useWorkflows', () => ({
   useWorkflows: () => ({
     workflows: state.workflows,
@@ -30,6 +43,7 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     reject: vi.fn(),
     stop: vi.fn(),
     remove: vi.fn(),
+    cleanup: mockCleanup,
   }),
 }))
 
@@ -71,6 +85,30 @@ describe('WorkflowPanel run identity + steps', () => {
     for (const step of ['refine', 'design', 'code', 'verify']) {
       expect(html).toContain(step)
     }
+  })
+
+  it('shows the screenshot gallery on the verify step', async () => {
+    stubScreenshots([
+      {
+        name: 'v.png',
+        stage: 'verify',
+        url: '/api/workflows/wf-1/screenshots/verify/v.png',
+      },
+    ])
+    state.current.value = detail({
+      steps: [
+        { name: 'refine', status: 'done' } as never,
+        { name: 'design', status: 'done' } as never,
+        { name: 'code', status: 'done' } as never,
+        { name: 'verify', status: 'running' } as never,
+      ],
+    })
+    const wrapper = mount(WorkflowPanel, withVuetify())
+    await flushPromises()
+    const srcs = wrapper
+      .findAllComponents({ name: 'VImg' })
+      .map((c) => String(c.props('src')))
+    expect(srcs.some((s) => s.includes('/screenshots/verify/v.png'))).toBe(true)
   })
 
   it('shows a Jira run by repo only, with no broken GitHub issue link', () => {
@@ -192,5 +230,37 @@ describe('WorkflowPanel run list activity', () => {
     // The active (coding) run spins; the awaiting run shows the warning dot.
     expect(items[0].find('.v-progress-circular').exists()).toBe(true)
     expect(items[1].find('.v-progress-circular').exists()).toBe(false)
+  })
+})
+
+describe('WorkflowPanel clean-up action', () => {
+  afterEach(() => mockCleanup.mockClear())
+
+  it('confirms then calls cleanup with the run id', async () => {
+    state.current.value = detail({})
+    state.workflows.value = [
+      { id: 'wf-1', repo: 'a/b', issue_number: null, status: 'coding' },
+    ]
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const wrapper = mount(WorkflowPanel, withVuetify())
+
+    await wrapper.find('[title="Clean up workflow"]').trigger('click')
+    await flushPromises()
+
+    expect(mockCleanup).toHaveBeenCalledWith('wf-1')
+  })
+
+  it('does not call cleanup when the confirmation is declined', async () => {
+    state.current.value = detail({})
+    state.workflows.value = [
+      { id: 'wf-1', repo: 'a/b', issue_number: null, status: 'coding' },
+    ]
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    const wrapper = mount(WorkflowPanel, withVuetify())
+
+    await wrapper.find('[title="Clean up workflow"]').trigger('click')
+    await flushPromises()
+
+    expect(mockCleanup).not.toHaveBeenCalled()
   })
 })

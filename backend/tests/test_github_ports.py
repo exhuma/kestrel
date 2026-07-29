@@ -89,7 +89,7 @@ async def test_attach_is_noop() -> None:
         raise AssertionError("attach must not call GitHub")
 
     assert await GitHubTaskSource(_client(handler)).attach(
-        "o/r#7", "PRD.md", "x"
+        "o/r#7", "shot.png", b"\x89PNG", "image/png"
     ) is None
 
 

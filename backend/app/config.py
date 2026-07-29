@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     reload: bool = False
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
+    #: Durable directory holding workflow screenshots after a run's worktree
+    #: is torn down (see ``services/workflows/screenshots.py``). Keyed by run
+    #: id; in Docker point this at the ``/data`` volume so shots survive.
+    screenshots_root: str = "./.kestrel-screenshots"
     permission_mode: str = "acceptEdits"
     # Directory of the built SPA to serve. Empty (dev default) means the
     # backend is API-only and the SPA is served by the Vite dev server; the

@@ -20,7 +20,7 @@ from app.services.exceptions import WorkflowNotFoundError
 from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.time_tracking import set_clock
-from app.services.workflows import artifacts, driver, gate
+from app.services.workflows import artifacts, driver, gate, screenshots
 from app.services.workflows import sessions as sessions_mod
 from app.services.workflows.gate import _Control, _Decision
 from app.services.workflows.shared import (
@@ -224,6 +224,13 @@ class WorkflowService:
                 run.id, run.workspace,
             )
             return
+        # Preserve this run's screenshots to the durable dir before the
+        # worktree they live in is removed, so the gallery keeps working
+        # once the run is done/failed. Best-effort, never blocks teardown.
+        with contextlib.suppress(Exception):
+            screenshots.persist_screenshots(
+                run, self.settings.screenshots_root
+            )
         with contextlib.suppress(Exception):
             await self.git.remove_worktree(
                 self._mirror_dir(run.repo), run.workspace
@@ -333,18 +340,18 @@ class WorkflowService:
         run = self.get(workflow_id)
         gate.resolve(run, self._control[workflow_id], decision)
 
-    async def delete(self, workflow_id: str) -> None:
-        """
-        Abandon a run: cancel it and drop every trace of its local work.
+    async def _abandon_common(self, workflow_id: str) -> WorkflowRun:
+        """Cancel a run and drop every trace of its local work.
 
-        Cancels the driver task, then terminates and deletes every session
-        that ran in the run's workspace (the coordinator, each specialist,
-        plan, implement) — killing any in-flight subprocess and dropping
-        the session's records, not just the latest one a step still points
-        at. Forgets the control state, removes the registry record and its
+        Shared by :meth:`delete` and :meth:`cleanup`: cancels the driver
+        task, then terminates and deletes every session that ran in the
+        run's workspace (the coordinator, each specialist, plan,
+        implement) — killing any in-flight subprocess and dropping the
+        session's records, not just the latest one a step still points at.
+        Forgets the control state, removes the registry record and its
         persisted rows, and deletes the cloned workspace. Deliberately
-        never touches GitHub — abandoning drops work only, it does not
-        close issues, comment, or open/close PRs.
+        never touches GitHub itself — callers decide separately whether to
+        reach the remote (e.g. branch deletion).
 
         :param workflow_id: Id of the run to abandon.
         :raises WorkflowNotFoundError: If the run is unknown.
@@ -380,11 +387,49 @@ class WorkflowService:
         self.workflows.remove(workflow_id)
         # Explicit user action: drop the workspace even in workflow_debug.
         await self._teardown_workspace(run, force=True)
+        return run
+
+    async def delete(self, workflow_id: str) -> None:
+        """
+        Abandon a run: cancel it and drop every trace of its local work.
+
+        Deliberately never touches GitHub — abandoning drops work only, it
+        does not close issues, comment, or open/close PRs, and it leaves
+        the branch (local mirror and remote) exactly as it was.
+
+        :param workflow_id: Id of the run to abandon.
+        :raises WorkflowNotFoundError: If the run is unknown.
+        """
+        run = await self._abandon_common(workflow_id)
         # Dismiss the issue so a still-labelled ingested run is not
         # re-created by the webhook or reconciliation (feature 002,
         # FR-008a). Cleared when the trigger label is removed.
         if self.dismissals is not None:
             self.dismissals.add(
+                run.task_ref or f"{run.repo}#{run.issue_number}"
+            )
+
+    async def cleanup(self, workflow_id: str) -> None:
+        """
+        Fully reset a run so its task is picked up as new on the next poll.
+
+        Unlike :meth:`delete`, this reaches the remote: it also force-
+        deletes the run's branch from both kestrel's local mirror and the
+        actual GitHub/GitLab remote (if it was ever pushed), and clears
+        any dismissal instead of adding one — so ingestion/reconciliation
+        treats the underlying ticket as brand new.
+
+        :param workflow_id: Id of the run to clean up.
+        :raises WorkflowNotFoundError: If the run is unknown.
+        """
+        run = await self._abandon_common(workflow_id)
+        mirror = self._mirror_dir(run.repo)
+        await self.git.delete_local_branch(mirror, run.branch)
+        await self.git.delete_remote_branch(
+            mirror, run.branch, self._code_host(run).git_credential()
+        )
+        if self.dismissals is not None:
+            self.dismissals.clear(
                 run.task_ref or f"{run.repo}#{run.issue_number}"
             )
 

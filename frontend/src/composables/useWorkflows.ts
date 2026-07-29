@@ -217,6 +217,23 @@ export function useWorkflows() {
     }
   }
 
+  // Unlike remove() (abandon), this also deletes the run's branch (local
+  // mirror and remote) and clears any dismissal, so the underlying task is
+  // picked up as a brand-new workflow on the next poll.
+  async function cleanup(id: string): Promise<void> {
+    error.value = null
+    try {
+      await api.post(`/api/workflows/${id}/cleanup`)
+      if (current.value?.id === id) {
+        stop()
+        current.value = null
+      }
+      await refresh()
+    } catch (e) {
+      error.value = describe(e)
+    }
+  }
+
   return {
     workflows,
     current,
@@ -238,5 +255,6 @@ export function useWorkflows() {
     reject,
     stop,
     remove,
+    cleanup,
   }
 }

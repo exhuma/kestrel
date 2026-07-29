@@ -196,3 +196,36 @@ class GitService:
             await self._git(
                 "-C", mirror_dir, "worktree", "remove", "--force", dest
             )
+
+    async def delete_local_branch(self, mirror_dir: str, branch: str) -> None:
+        """Force-delete a branch ref from the mirror, if it exists.
+
+        Best-effort: a run that never got past cloning/pending has no such
+        branch yet, so "not found" is an expected outcome, not a failure.
+        """
+        async with self._lock_for(mirror_dir):
+            try:
+                await self._git("-C", mirror_dir, "branch", "-D", branch)
+            except GitError as exc:
+                LOG.info("local branch %s already gone: %s", branch, exc)
+
+    async def delete_remote_branch(
+        self,
+        mirror_dir: str,
+        branch: str,
+        cred: tuple[str, str] | None = None,
+    ) -> None:
+        """Force-delete a branch on the remote, if it was ever pushed.
+
+        Best-effort: a run whose branch never reached the remote (e.g. it
+        failed before opening a PR) has no matching ref there, so "not
+        found" is an expected outcome, not a failure.
+        """
+        async with self._lock_for(mirror_dir):
+            try:
+                await self._git(
+                    *self._auth(cred), "-C", mirror_dir, "push",
+                    "--delete", "origin", branch,
+                )
+            except GitError as exc:
+                LOG.info("remote branch %s already gone: %s", branch, exc)

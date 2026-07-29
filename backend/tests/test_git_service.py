@@ -210,3 +210,57 @@ async def test_ensure_mirror_is_idempotent(tmp_path) -> None:
     # Second call must not raise (fetch path over the existing mirror).
     await svc.ensure_mirror(str(bare), mirror)
     assert Path(mirror).is_dir()
+
+
+@pytest.mark.asyncio
+async def test_delete_local_branch_removes_ref_and_tolerates_missing(
+    tmp_path,
+) -> None:
+    """delete_local_branch drops an unused branch; a repeat call is a no-op."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    dest = str(tmp_path / "wt")
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, dest, "main", "kestrel/issue-9")
+    # Branch stays in the mirror once no longer checked out by a worktree.
+    await svc.remove_worktree(mirror, dest)
+
+    await svc.delete_local_branch(mirror, "kestrel/issue-9")
+    branches = subprocess.run(
+        ["git", "branch", "--list"], cwd=mirror,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "kestrel/issue-9" not in branches
+
+    # Already gone: must not raise.
+    await svc.delete_local_branch(mirror, "kestrel/issue-9")
+
+
+@pytest.mark.asyncio
+async def test_delete_remote_branch_removes_ref_and_tolerates_missing(
+    tmp_path,
+) -> None:
+    """delete_remote_branch drops a pushed branch; never-pushed is a no-op."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    dest = str(tmp_path / "wt")
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, dest, "main", "kestrel/issue-9")
+    await svc.push(dest, "kestrel/issue-9")
+    branches = subprocess.run(
+        ["git", "branch", "--list"], cwd=bare,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "kestrel/issue-9" in branches
+
+    await svc.delete_remote_branch(mirror, "kestrel/issue-9")
+    branches = subprocess.run(
+        ["git", "branch", "--list"], cwd=bare,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "kestrel/issue-9" not in branches
+
+    # Never pushed: must not raise.
+    await svc.delete_remote_branch(mirror, "kestrel/never-pushed")

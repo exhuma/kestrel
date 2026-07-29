@@ -7,7 +7,7 @@ from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
 from app.ports import Evidence
-from app.services.workflows import artifacts
+from app.services.workflows import artifacts, screenshots
 from app.services.workflows.driver.escalate import escalate
 from app.services.workflows.prompts import (
     CODE_FEEDBACK_PROMPT,
@@ -180,6 +180,7 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
         if run.boundary in ("http", "ui", "both"):
             explore_prompt = EXPLORE_PROMPT.format(
                 boundary=run.boundary, prd=prd, design=design,
+                screenshots_dir=screenshots.stage_reldir(run, "verify"),
             )
             service._debug_log(
                 run, f"Round {iteration + 1} — EXPLORE PROMPT",

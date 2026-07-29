@@ -4,6 +4,7 @@ import { useTheme } from 'vuetify'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import GithubLink from './components/GithubLink.vue'
+import IdentityBadge from './components/IdentityBadge.vue'
 import PanelLoading from './components/PanelLoading.vue'
 import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
@@ -127,6 +128,7 @@ function toggleTheme() {
         :title="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
         @click="toggleTheme"
       />
+      <IdentityBadge />
       <GithubLink />
 
       <v-progress-linear
