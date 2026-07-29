@@ -264,3 +264,25 @@ async def test_delete_remote_branch_removes_ref_and_tolerates_missing(
 
     # Never pushed: must not raise.
     await svc.delete_remote_branch(mirror, "kestrel/never-pushed")
+
+
+@pytest.mark.asyncio
+async def test_ensure_mirror_refreshes_checked_out_branch(tmp_path) -> None:
+    """
+    Ensure a mirror refresh does not update a branch checked out in a worktree.
+
+    A prior run can have pushed its branch while retaining its worktree. A
+    later run must refresh that remote branch without modifying the local
+    branch Git marks as checked out.
+    """
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    dest = str(tmp_path / "work")
+    svc = GitService(token="unused-locally")
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, dest, "main", "kestrel/issue-1")
+    (Path(dest) / "new.txt").write_text("change\n")
+    await svc.commit_all(dest, "work: add file")
+    await svc.push(dest, "kestrel/issue-1")
+
+    await svc.ensure_mirror(str(bare), mirror)

@@ -156,17 +156,21 @@ class GitService:
         """
         Ensure a per-repo bare mirror exists and is up to date.
 
-        Clones ``--bare`` on first use, else fetches heads. ``cred`` is the
-        run's code-host ``(username, token)`` for git-over-HTTPS. Serialised per
-        mirror so concurrent runs for the same repo don't race the shared
-        object DB. No ``--prune`` so an in-flight run's local branch (created
-        by ``add_worktree`` before it is pushed) is never deleted.
+        Clones ``--bare`` on first use, then fetches remote heads into
+        ``refs/remotes/origin``. ``cred`` is the run's code-host ``(username,
+        token)`` for git-over-HTTPS. Serialised per mirror so concurrent runs
+        for the same repo don't race the shared object DB. No ``--prune`` so
+        remote-tracking refs remain available during transient remote changes.
+
+        Local heads belong to active worktrees and must never be fetch targets:
+        Git rejects updating one that is checked out, and doing so would risk
+        modifying a running workflow's branch.
         """
         async with self._lock_for(mirror_dir):
             if os.path.isdir(mirror_dir):
                 await self._git(
                     *self._auth(cred), "-C", mirror_dir, "fetch", "origin",
-                    "+refs/heads/*:refs/heads/*",
+                    "+refs/heads/*:refs/remotes/origin/*",
                 )
             else:
                 parent = os.path.dirname(mirror_dir)
@@ -176,15 +180,19 @@ class GitService:
                     *self._auth(cred), "clone", "--bare",
                     remote_url, mirror_dir,
                 )
+                await self._git(
+                    *self._auth(cred), "-C", mirror_dir, "fetch", "origin",
+                    "+refs/heads/*:refs/remotes/origin/*",
+                )
 
     async def add_worktree(
         self, mirror_dir: str, dest: str, base_branch: str, new_branch: str
     ) -> None:
-        """Add an isolated worktree on a new branch off ``base_branch``."""
+        """Add a worktree on a new branch from the current remote base."""
         async with self._lock_for(mirror_dir):
             await self._git(
                 "-C", mirror_dir, "worktree", "add", "-b", new_branch,
-                dest, base_branch,
+                dest, f"origin/{base_branch}",
             )
         # Commit identity for this worktree (writes to the shared config).
         await self._git("config", "user.email", "kestrel@local", cwd=dest)
