@@ -84,6 +84,34 @@ def _transcript_handler():
     return handler
 
 
+def _assistant_error_handler():
+    """Return a server handler whose assistant response contains an error."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/session" and request.method == "POST":
+            return httpx.Response(200, json={"id": "oc-1"})
+        if request.url.path == "/session/oc-1/message":
+            if request.method == "GET":
+                return httpx.Response(200, json=[])
+            return httpx.Response(
+                200,
+                json={
+                    "info": {
+                        "id": "a1",
+                        "role": "assistant",
+                        "error": {
+                            "name": "ProviderAuthError",
+                            "data": {"message": "provider credentials invalid"},
+                        },
+                    },
+                    "parts": [],
+                },
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
 def _sse(*events: dict) -> bytes:
     """Encode events as an opencode /event SSE body (data: <json>\\n\\n)."""
     frames = [f"data: {json.dumps(e)}\n\n" for e in events]
@@ -278,6 +306,17 @@ async def test_run_turn_maps_tool_and_text_messages() -> None:
         "modelID": "claude-sonnet-4",
     }
     assert body["parts"] == [{"type": "text", "text": "do it"}]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_reports_an_assistant_error() -> None:
+    """Ensure an error-only response does not become a blank success."""
+    backend, _, _ = _backend(_assistant_error_handler())
+
+    with pytest.raises(RuntimeError, match="provider credentials invalid"):
+        await backend.run_turn(
+            TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
+        )
 
 
 @pytest.mark.asyncio

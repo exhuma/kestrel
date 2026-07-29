@@ -207,7 +207,7 @@ class WorkflowService:
     async def _teardown_workspace(
         self, run: WorkflowRun, *, force: bool = False
     ) -> None:
-        """Remove a run's worktree and directory; best-effort, isolated.
+        """Remove a run's worktree and debug sibling; best-effort and isolated.
 
         Closes the workspace leak (only abandon cleaned up before) so a
         finished/failed run does not linger. Never disturbs another run's
@@ -236,6 +236,7 @@ class WorkflowService:
                 self._mirror_dir(run.repo), run.workspace
             )
         shutil.rmtree(run.workspace, ignore_errors=True)
+        shutil.rmtree(f"{run.workspace}-debug", ignore_errors=True)
 
     # ---- commands ------------------------------------------------------
     async def create(

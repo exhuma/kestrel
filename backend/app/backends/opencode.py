@@ -62,6 +62,23 @@ def _tool_summary(tool_input: object) -> str | None:
     return json.dumps(tool_input) if tool_input else None
 
 
+def _assistant_error(response: object) -> str | None:
+    """Extract an OpenCode assistant error message from a message response."""
+    if not isinstance(response, dict):
+        return None
+    info = response.get("info")
+    if not isinstance(info, dict):
+        return None
+    error = info.get("error")
+    if not isinstance(error, dict):
+        return None
+    data = error.get("data")
+    if isinstance(data, dict) and isinstance(data.get("message"), str):
+        return data["message"]
+    name = error.get("name")
+    return name if isinstance(name, str) else "unknown assistant error"
+
+
 class OpenCodeBackend(Backend):
     """Dispatches turns to an ``opencode serve`` HTTP endpoint."""
 
@@ -317,12 +334,15 @@ class OpenCodeBackend(Backend):
         async with self._permission_handler(
             session_id, directory, read_only
         ):
-            await self._request(
+            response = await self._request(
                 "POST",
                 f"/session/{session_id}/message",
                 json=body,
                 directory=directory,
             )
+        error = _assistant_error(response)
+        if error is not None:
+            raise RuntimeError(f"opencode assistant failed: {error}")
         texts: list[str] = []
         for message in await self._messages(session_id, directory):
             if self._msg_role(message) != "assistant":

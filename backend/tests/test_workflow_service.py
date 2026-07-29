@@ -293,7 +293,7 @@ class _SpyGit(_FakeGit):
 
 @pytest.mark.asyncio
 async def test_teardown_removes_worktree_and_directory(tmp_path) -> None:
-    """Ensure teardown removes the worktree via git and deletes the dir."""
+    """Ensure teardown removes the worktree and its debug sibling."""
     git = _SpyGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[])
     svc = WorkflowService(
@@ -308,6 +308,9 @@ async def test_teardown_removes_worktree_and_directory(tmp_path) -> None:
     ws = tmp_path / "wf-x"
     ws.mkdir()
     (ws / "f.txt").write_text("x")
+    debug = tmp_path / "wf-x-debug"
+    debug.mkdir()
+    (debug / "dialogue.log").write_text("debug")
     run = WorkflowRun(
         id="wf-x", repo="o/r", issue_number=1, workspace=str(ws)
     )
@@ -315,6 +318,7 @@ async def test_teardown_removes_worktree_and_directory(tmp_path) -> None:
     await svc._teardown_workspace(run)
 
     assert not ws.exists()
+    assert not debug.exists()
     assert git.removed == [(svc._mirror_dir("o/r"), str(ws))]
 
 
