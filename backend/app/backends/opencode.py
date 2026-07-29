@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager, suppress
@@ -39,6 +40,7 @@ _DENY_WRITE_TOOLS = frozenset({"edit", "write", "patch"})
 #: workflow passes this for the refine and plan steps; opencode maps it to a
 #: read-only turn. Anything else is treated as edit-capable.
 _READ_ONLY_MODE = "plan"
+_logger = logging.getLogger(__name__)
 
 
 def _split_model(model: str | None) -> dict[str, str] | None:
@@ -160,7 +162,7 @@ class OpenCodeBackend(Backend):
             yield
         finally:
             task.cancel()
-            with suppress(asyncio.CancelledError, Exception):
+            with suppress(asyncio.CancelledError):
                 await task
 
     async def _permission_loop(
@@ -190,17 +192,25 @@ class OpenCodeBackend(Backend):
                     props = event.get("properties") or {}
                     if props.get("sessionID") != session_id:
                         continue
-                    await self._answer_permission(props, directory, read_only)
+                    await self._answer_permission(
+                        session_id, props, directory, read_only
+                    )
         except asyncio.CancelledError:
             raise
-        except Exception:  # never let permission handling break the turn
-            pass
+        except Exception as exc:
+            _logger.exception(
+                "opencode permission handling failed for session %s", session_id
+            )
+            raise RuntimeError(
+                "opencode permission handling failed"
+            ) from exc
         finally:
             if self._client is None:
                 await client.aclose()
 
     async def _answer_permission(
         self,
+        session_id: str,
         request: dict[str, object],
         directory: str | None,
         read_only: bool,
@@ -217,13 +227,12 @@ class OpenCodeBackend(Backend):
         if not isinstance(request_id, str):
             return
         reject = read_only and tool in _DENY_WRITE_TOOLS
-        with suppress(Exception):
-            await self._request(
-                "POST",
-                f"/permission/{request_id}/reply",
-                json={"reply": "reject" if reject else "once"},
-                directory=directory,
-            )
+        await self._request(
+            "POST",
+            f"/session/{session_id}/permissions/{request_id}",
+            json={"response": "reject" if reject else "once"},
+            directory=directory,
+        )
 
     def _schedule(
         self,

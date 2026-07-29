@@ -1,6 +1,6 @@
 """Tests for the opencode backend (HTTP server mode).
 
-The request/response shapes here mirror a real ``opencode serve`` (1.15.x):
+The request/response shapes here mirror a real ``opencode serve`` (1.18.x):
 ``POST /session`` returns ``{id}``; a turn is sent with the synchronous
 ``POST /session/:id/message`` and the full transcript (including tool
 messages, which the POST response omits) is read from
@@ -106,9 +106,11 @@ def _permission_event(session_id: str, tool: str, request_id: str) -> dict:
 
 
 def _reply_for(seen: list[httpx.Request]) -> dict:
-    """Return the JSON body of the single /permission reply that was sent."""
+    """Return the JSON body of the single session permission reply."""
     replies = [
-        r for r in seen if "/permission/" in r.url.path and r.method == "POST"
+        r
+        for r in seen
+        if "/permissions/" in r.url.path and r.method == "POST"
     ]
     assert len(replies) == 1, f"expected one reply, got {len(replies)}"
     return json.loads(replies[0].content)
@@ -158,7 +160,8 @@ async def test_permission_loop_approves_a_read() -> None:
 
     backend, _, seen = _backend(handler)
     await backend._permission_loop("s1", "/tmp/s", read_only=True)
-    assert _reply_for(seen) == {"reply": "once"}
+    assert _reply_for(seen) == {"response": "once"}
+    assert seen[-1].url.path == "/session/s1/permissions/per_1"
 
 
 @pytest.mark.asyncio
@@ -174,8 +177,8 @@ async def test_permission_loop_rejects_edit_on_read_only_turn() -> None:
 
     backend, _, seen = _backend(handler)
     await backend._permission_loop("s1", "/tmp/s", read_only=True)
-    assert _reply_for(seen) == {"reply": "reject"}
-    assert seen[-1].url.path == "/permission/per_9/reply"
+    assert _reply_for(seen) == {"response": "reject"}
+    assert seen[-1].url.path == "/session/s1/permissions/per_9"
 
 
 @pytest.mark.asyncio
@@ -191,7 +194,26 @@ async def test_permission_loop_allows_edit_when_editable() -> None:
 
     backend, _, seen = _backend(handler)
     await backend._permission_loop("s1", "/tmp/s", read_only=False)
-    assert _reply_for(seen) == {"reply": "once"}
+    assert _reply_for(seen) == {"response": "once"}
+    assert seen[-1].url.path == "/session/s1/permissions/per_2"
+
+
+@pytest.mark.asyncio
+async def test_permission_reply_failure_fails_the_turn() -> None:
+    """Ensure a failed permission reply aborts the active agent turn."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/event":
+            return httpx.Response(
+                200, content=_sse(_permission_event("oc-1", "edit", "per_2"))
+            )
+        if "/permissions/" in request.url.path:
+            return httpx.Response(500, json={"error": "reply failed"})
+        return httpx.Response(200, json=True)
+
+    backend, _, _ = _backend(handler)
+    with pytest.raises(RuntimeError, match="permission handling failed"):
+        await backend._permission_loop("oc-1", "/tmp/s", read_only=False)
 
 
 @pytest.mark.asyncio
