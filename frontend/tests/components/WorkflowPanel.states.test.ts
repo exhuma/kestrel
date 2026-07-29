@@ -21,6 +21,7 @@ const state = {
   current: ref<WorkflowDetail | null>(null),
   workflows: ref<WorkflowSummary[]>([]),
 }
+const mockCleanup = vi.fn()
 vi.mock('../../src/composables/useWorkflows', () => ({
   useWorkflows: () => ({
     workflows: state.workflows,
@@ -42,6 +43,7 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     reject: vi.fn(),
     stop: vi.fn(),
     remove: vi.fn(),
+    cleanup: mockCleanup,
   }),
 }))
 
@@ -228,5 +230,37 @@ describe('WorkflowPanel run list activity', () => {
     // The active (coding) run spins; the awaiting run shows the warning dot.
     expect(items[0].find('.v-progress-circular').exists()).toBe(true)
     expect(items[1].find('.v-progress-circular').exists()).toBe(false)
+  })
+})
+
+describe('WorkflowPanel clean-up action', () => {
+  afterEach(() => mockCleanup.mockClear())
+
+  it('confirms then calls cleanup with the run id', async () => {
+    state.current.value = detail({})
+    state.workflows.value = [
+      { id: 'wf-1', repo: 'a/b', issue_number: null, status: 'coding' },
+    ]
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const wrapper = mount(WorkflowPanel, withVuetify())
+
+    await wrapper.find('[title="Clean up workflow"]').trigger('click')
+    await flushPromises()
+
+    expect(mockCleanup).toHaveBeenCalledWith('wf-1')
+  })
+
+  it('does not call cleanup when the confirmation is declined', async () => {
+    state.current.value = detail({})
+    state.workflows.value = [
+      { id: 'wf-1', repo: 'a/b', issue_number: null, status: 'coding' },
+    ]
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    const wrapper = mount(WorkflowPanel, withVuetify())
+
+    await wrapper.find('[title="Clean up workflow"]').trigger('click')
+    await flushPromises()
+
+    expect(mockCleanup).not.toHaveBeenCalled()
   })
 })

@@ -50,4 +50,19 @@ describe('abandon (delete) wiring', () => {
       calls.some((c) => c.method === 'GET' && c.url.endsWith('/api/workflows')),
     ).toBe(true)
   })
+
+  it('useWorkflows.cleanup posts to /cleanup then refreshes the list', async () => {
+    const calls = stubFetch('/api/workflows')
+    await useWorkflows().cleanup('wf-1')
+    expect(
+      calls.some(
+        (c) =>
+          c.method === 'POST' &&
+          c.url.includes('/api/workflows/wf-1/cleanup'),
+      ),
+    ).toBe(true)
+    expect(
+      calls.some((c) => c.method === 'GET' && c.url.endsWith('/api/workflows')),
+    ).toBe(true)
+  })
 })

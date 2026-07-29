@@ -40,6 +40,7 @@ const {
   startList,
   stopList,
   remove,
+  cleanup,
 } = useWorkflows()
 
 const repo = ref('owner/name')
@@ -272,6 +273,18 @@ async function onDelete(id: string): Promise<void> {
     return
   await remove(id)
 }
+async function onCleanup(id: string): Promise<void> {
+  if (
+    !confirm(
+      'Clean up this workflow? This deletes its local work and its ' +
+        'branch — including on GitHub/GitLab if it was pushed — then ' +
+        'lets the task be picked up as a brand-new workflow on the next ' +
+        'poll. This cannot be undone.',
+    )
+  )
+    return
+  await cleanup(id)
+}
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
 }
@@ -374,6 +387,14 @@ function badgeColor(token: string): string | undefined {
             />
           </template>
           <template #append>
+            <v-btn
+              icon="$broom"
+              size="x-small"
+              variant="text"
+              title="Clean up workflow"
+              aria-label="Clean up workflow"
+              @click.stop="onCleanup(w.id)"
+            />
             <v-btn
               icon="$close"
               size="x-small"
