@@ -241,7 +241,10 @@ describe('WorkflowPanel clean-up action', () => {
     state.workflows.value = [
       { id: 'wf-1', repo: 'a/b', issue_number: null, status: 'coding' },
     ]
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
     const wrapper = mount(WorkflowPanel, withVuetify())
 
     await wrapper.find('[title="Clean up workflow"]').trigger('click')
@@ -255,7 +258,10 @@ describe('WorkflowPanel clean-up action', () => {
     state.workflows.value = [
       { id: 'wf-1', repo: 'a/b', issue_number: null, status: 'coding' },
     ]
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const wrapper = mount(WorkflowPanel, withVuetify())
 
     await wrapper.find('[title="Clean up workflow"]').trigger('click')

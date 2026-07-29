@@ -57,8 +57,7 @@ describe('abandon (delete) wiring', () => {
     expect(
       calls.some(
         (c) =>
-          c.method === 'POST' &&
-          c.url.includes('/api/workflows/wf-1/cleanup'),
+          c.method === 'POST' && c.url.includes('/api/workflows/wf-1/cleanup'),
       ),
     ).toBe(true)
     expect(
