@@ -13,10 +13,7 @@ const mockups: Mockup[] = [
 ]
 
 function panel(feedback: Record<string, string> = {}) {
-  return mount(
-    MockupPanel,
-    withVuetify({ props: { mockups, feedback } }),
-  )
+  return mount(MockupPanel, withVuetify({ props: { mockups, feedback } }))
 }
 
 beforeEach(() => {
