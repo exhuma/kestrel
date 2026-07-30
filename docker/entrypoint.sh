@@ -6,7 +6,27 @@ set -e
 : "${CLAUDE_SEED_DIR:=/seed}"
 : "${KESTREL_WORKSPACE_ROOT:=/workspaces}"
 
-mkdir -p /data "$HOME" "$KESTREL_WORKSPACE_ROOT"
+# Fail fast with a clear message if a required path isn't writable by this
+# container's user, instead of a confusing mid-script crash later (a raw
+# `mkdir: Permission denied`, or alembic/sqlite failing deep in a stack
+# trace). The image runs as a non-root user by default (see Dockerfile); the
+# operator is responsible for provisioning bind-mounted paths (e.g.
+# ./workspaces) owned by that user before starting the container. Named
+# volumes (e.g. /data) don't need this — see
+# docs/configuration.md#running-as-a-non-root-user.
+require_writable() {
+  path="$1"
+  label="$2"
+  if ! mkdir -p "$path" 2>/dev/null || [ ! -w "$path" ]; then
+    echo "kestrel: FATAL: $label ($path) is not writable by uid $(id -u):$(id -g)." >&2
+    echo "kestrel: create it on the host (or fix its ownership) so uid $(id -u):$(id -g) can write to it, then restart." >&2
+    exit 1
+  fi
+}
+
+require_writable /data "the /data volume"
+require_writable "$HOME" "the Claude HOME directory"
+require_writable "$KESTREL_WORKSPACE_ROOT" "the workspace root"
 
 # Seed the spawned claude CLI's config (MCP servers, plugins, credentials) from
 # a read-only mount of the host ~/.claude + ~/.claude.json into the writable,

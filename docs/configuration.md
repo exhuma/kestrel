@@ -190,6 +190,27 @@ The image sets these so they normally need no changes:
 See [Getting started → Volumes](getting-started.md#volumes) for the full
 mount table and how the host Claude config is seeded into the container.
 
+## Running as a non-root user
+
+The image runs as a baked-in `kestrel` user, **uid/gid `1000`** — not root.
+This is standard Docker, not a kestrel-specific setting: override it at
+container-start with the native `user:` field in `docker-compose.yml` (or
+`docker run --user uid:gid`) to match a different host user, e.g. to share
+`./workspaces` with a sidecar container (such as an opencode instance) that
+needs to read/write the same files.
+
+What's automatic vs. what the operator provisions:
+
+- **`/data`** (the `kestrel-data` named volume) needs no action — a fresh
+  named volume initializes from the image's `/data` directory, which is
+  already owned by `kestrel:kestrel` at build time.
+- **`/workspaces`** (and any other bind mount) is **not** pre-populated this
+  way. It must already exist on the host, owned by the uid:gid the container
+  runs as, *before* the first `docker compose up` — see
+  [Getting started → Volumes](getting-started.md#volumes). The entrypoint
+  fails fast with a clear error if it isn't writable; see
+  [Troubleshooting](troubleshooting.md#mount-permission-errors-on-workspaces).
+
 ## Logging
 
 Logs go to stdout. `KESTREL_LOG_FORMAT` selects human-readable `text`

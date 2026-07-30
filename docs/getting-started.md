@@ -23,8 +23,15 @@ requirements are Docker and a Claude login.
 
 ```bash
 # Fetch the published compose file (or copy it from this repo), then:
+mkdir -p workspaces
 docker compose up
 ```
+
+The `mkdir -p workspaces` step matters: the container runs as a non-root
+user by default (uid/gid `1000`, see [Volumes](#volumes)), and a directory
+Docker auto-creates for a bind mount on first start would be root-owned on
+the host — which the container now rejects at startup rather than silently
+working.
 
 Open <http://localhost:8000>.
 
@@ -60,6 +67,14 @@ The published `docker-compose.yml` mounts four things:
 
 `~/.claude.json` is a separate **file** from the `~/.claude` **directory** —
 both are needed.
+
+The container runs as a non-root user by default (uid/gid `1000`) — the
+bind-mounted `./workspaces` must exist on the host, owned by that uid:gid
+(`mkdir -p workspaces` before first start is enough, since your host user
+typically gets uid `1000`). To run as a different uid:gid instead (e.g. to
+share `./workspaces` with a sidecar container), set `user:` in
+`docker-compose.yml` and own `./workspaces` accordingly — see
+[Configuration → Running as a non-root user](configuration.md#running-as-a-non-root-user).
 
 ## How your host Claude config is used
 

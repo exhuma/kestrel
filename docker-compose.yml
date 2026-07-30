@@ -12,6 +12,13 @@ services:
     #     VITE_API_BASE: ""
     #     VITE_GITHUB_REPO_URL: ""
     #     KESTREL_VERSION: dev
+    # Uncomment to run as a different uid:gid than the image default
+    # (1000:1000) — e.g. to match an existing host user so files written to
+    # ./workspaces are owned by that user (needed when sharing ./workspaces
+    # with another container, such as an opencode sidecar). Whatever uid:gid
+    # runs the container, ./workspaces must already exist on the host owned
+    # by it — see docs/getting-started.md#volumes.
+    # user: "1000:1000"
     ports:
       - "8000:8000"
     # Reach backends running on the Docker host (Ollama, `opencode serve`,
@@ -39,6 +46,10 @@ services:
       # Persist the SQLite DB and the container's Claude HOME across restarts.
       - kestrel-data:/data
       # The git repos claude clones and edits, kept browsable on the host.
+      # Must exist on the host, owned by the uid:gid the container runs as
+      # (1000:1000 by default, or your `user:` override above) — run
+      # `mkdir -p workspaces` before first `docker compose up`. See
+      # docs/getting-started.md#volumes.
       - ./workspaces:/workspaces
       # Seed (read-only): your host Claude config is copied into the container
       # at startup so the bundled CLI has your auth, MCP servers and plugins.

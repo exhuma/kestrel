@@ -71,10 +71,27 @@ ENV KESTREL_STATIC_DIR=/app/static \
     CLAUDE_SEED_DIR=/seed \
     HOME=/data/home
 
+# Run as a non-root user by default. 1000:1000 is a fixed, conventional
+# default (not a build ARG) — operators who need a different uid:gid (e.g.
+# to match a host user shared with a sidecar container such as opencode)
+# override it at container-start with the native `user:` compose field /
+# `docker run --user`, not by rebuilding this image. /data is chowned here
+# so a fresh named volume initializes with the right owner for free
+# (Docker copies image content into an empty named volume, ownership
+# included); /workspaces is a host bind mount and is NOT pre-populated this
+# way — the operator must pre-create it on the host owned by the same
+# uid:gid. See docs/configuration.md#running-as-a-non-root-user.
+RUN groupadd -g 1000 kestrel \
+    && useradd -u 1000 -g 1000 -M -N -s /usr/sbin/nologin -c "kestrel runtime user" kestrel \
+    && mkdir -p /data /workspaces \
+    && chown -R kestrel:kestrel /app /data /workspaces
+
 VOLUME ["/data", "/workspaces"]
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER kestrel
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

@@ -96,9 +96,31 @@ Confirm the effective config with `GET /api/backends` or the startup log line
 
 ## Mount permission errors on `./workspaces`
 
-The bind-mounted `./workspaces` directory must be writable by the container
-user. Create it up front and ensure your user owns it:
+The container runs as a non-root user by default (uid/gid `1000`, or
+whatever `user:` you've set in `docker-compose.yml` — see
+[Configuration → Running as a non-root user](configuration.md#running-as-a-non-root-user)).
+The bind-mounted `./workspaces` directory must already exist on the host,
+owned by that uid:gid, **before** the container starts — the entrypoint now
+fails fast with an error like:
+
+```
+kestrel: FATAL: the workspace root (/workspaces) is not writable by uid 1000:1000.
+```
+
+Fix it:
 
 ```bash
 mkdir -p workspaces
+sudo chown 1000:1000 workspaces   # match your `user:` override, if any
 ```
+
+The same applies to any other bind mount you add (e.g. `KESTREL_CONFIG_FILE`
+or a `hooks_dir`) — Docker auto-creates a missing bind-mount source owned by
+root, which this non-root default then rejects.
+
+### Sharing `./workspaces` with another container (e.g. an opencode sidecar)
+
+Both containers must agree on the same uid:gid so each can read/write files
+the other created. Set `user: "uid:gid"` on both services (or arrange for
+both images' default users to already match), and own `./workspaces` on the
+host accordingly.
