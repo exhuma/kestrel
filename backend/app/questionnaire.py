@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from app.mockups import Mockup, mockup_key
+
 QuestionType = Literal[
     "single_select", "multi_select", "boolean", "free_text"
 ]
@@ -89,6 +91,9 @@ class Questionnaire(BaseModel):
     #: Profiles that failed to contribute this round (stamped by the
     #: backend, not the model), surfaced in the review gate.
     issues: list[GenerationIssue] = Field(default_factory=list)
+    #: UI mockups captured this round (uiux only), shown in the
+    #: questionnaire with an explanation and an optional feedback field.
+    mockups: list[Mockup] = Field(default_factory=list)
 
 
 class QAEntry(BaseModel):
@@ -249,6 +254,22 @@ def _split_note(value: object) -> tuple[object, str]:
     return value, ""
 
 
+def _validate_mockup_feedback(
+    answers: dict[str, object],
+    mockup_keys: set[str],
+    errors: dict[str, str],
+) -> None:
+    """Validate per-mockup feedback: optional free text, never required.
+
+    Only a non-string value is an error; ``None``/missing means "no
+    feedback given", which is always allowed.
+    """
+    for key in mockup_keys:
+        value = answers.get(key)
+        if value is not None and not isinstance(value, str):
+            errors[key] = "mockup feedback must be text"
+
+
 def validate_answers(
     questionnaire: Questionnaire,
     answers: dict[str, object],
@@ -274,10 +295,12 @@ def validate_answers(
         message per offending question id.
     """
     errors: dict[str, str] = {}
-    by_id = {q.id: q for q in questionnaire.questions}
+    mockup_keys = {mockup_key(m.name) for m in questionnaire.mockups}
+    allowed = {q.id for q in questionnaire.questions} | mockup_keys
     for qid in answers:
-        if qid not in by_id:
+        if qid not in allowed:
             errors[qid] = "unknown question id"
+    _validate_mockup_feedback(answers, mockup_keys, errors)
     for question in questionnaire.questions:
         value = answers.get(question.id)
         if is_waiver(value):
@@ -412,6 +435,30 @@ def to_entries(
                 reason=_waiver_reason(value),
             )
         )
+    return entries + _mockup_entries(questionnaire, answers)
+
+
+def _mockup_entries(
+    questionnaire: Questionnaire, answers: dict[str, object]
+) -> list[QAEntry]:
+    """Q&A entries for any non-empty per-mockup feedback.
+
+    Carries the feedback into ``accumulated`` so it reaches the writer
+    agent via ``render_qa`` (no prompt-template change needed). Empty /
+    missing feedback contributes nothing.
+    """
+    entries: list[QAEntry] = []
+    for mockup in questionnaire.mockups:
+        value = answers.get(mockup_key(mockup.name))
+        if isinstance(value, str) and value.strip():
+            entries.append(
+                QAEntry(
+                    id=mockup_key(mockup.name),
+                    prompt=f"UX mockup feedback ({mockup.name})",
+                    audience="uiux",
+                    rendered=value.strip(),
+                )
+            )
     return entries
 
 

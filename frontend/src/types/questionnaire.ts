@@ -40,11 +40,21 @@ export interface GenerationIssue {
   severity: 'soft' | 'hard'
 }
 
+/** One UI mockup screenshot shown inside the questionnaire (uiux round). */
+export interface Mockup {
+  name: string
+  /** Relative URL (under API_BASE) serving the screenshot's bytes. */
+  url: string
+  explanation: string
+}
+
 export interface Questionnaire {
   questions: Question[]
   profiles: ProfileMeta[]
   /** Profiles that failed to respond this round; shown in the gate. */
   issues?: GenerationIssue[]
+  /** UI mockups for this round, with explanation + optional feedback. */
+  mockups?: Mockup[]
 }
 
 /** A "cannot answer — recorded reason" answer (e.g. accepted risk). */

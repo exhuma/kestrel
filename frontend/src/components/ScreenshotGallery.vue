@@ -17,9 +17,8 @@ const staged = computed(() =>
   shots.value.filter((s) => s.stage === props.stage),
 )
 
-// Images are served cross-origin from the backend (no auth in this
-// single-user tool), so a plain absolute src is enough — no blob fetch.
-function src(url: string): string {
+// Absolute src for a backend-served image (cross-origin, no auth needed).
+function imageSrc(url: string): string {
   return `${API_BASE}${url}`
 }
 
@@ -43,13 +42,13 @@ watch(
       <v-img
         v-for="shot in staged"
         :key="shot.name"
-        :src="src(shot.url)"
+        :src="imageSrc(shot.url)"
         :alt="shot.name"
         width="160"
         height="120"
         cover
         class="rounded border shot"
-        @click="lightboxSrc = src(shot.url)"
+        @click="lightboxSrc = imageSrc(shot.url)"
       />
     </div>
     <v-dialog

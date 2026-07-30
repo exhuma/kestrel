@@ -7,6 +7,7 @@ from app.services.workflow_text import (
     activity_for,
     append_sentinel,
     extract_boundary,
+    extract_mockups,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
@@ -151,3 +152,24 @@ def test_extract_profiles_absent_or_malformed_returns_none() -> None:
     assert extract_profiles("no tag here") is None
     assert extract_profiles("<PROFILES>{not json}</PROFILES>") is None
     assert extract_profiles("<PROFILES>[1, 2]</PROFILES>") is None
+
+
+def test_extract_mockups_parses_list() -> None:
+    """Ensure a <MOCKUPS> list returns [{file, explanation}]."""
+    text = (
+        'ok\n<MOCKUPS>[{"file": "a.png", "explanation": "the a"}]</MOCKUPS>'
+    )
+    assert extract_mockups(text) == [{"file": "a.png", "explanation": "the a"}]
+
+
+def test_extract_mockups_accepts_object_form_and_coerces() -> None:
+    """Ensure {"mockups": [...]} works and a missing explanation → ''."""
+    text = '<MOCKUPS>{"mockups": [{"file": "b.png"}]}</MOCKUPS>'
+    assert extract_mockups(text) == [{"file": "b.png", "explanation": ""}]
+
+
+def test_extract_mockups_absent_or_garbled_returns_empty() -> None:
+    """Ensure a missing/garbled block, or a non-string file, yields []."""
+    assert extract_mockups("no tag") == []
+    assert extract_mockups("<MOCKUPS>{not json}</MOCKUPS>") == []
+    assert extract_mockups('<MOCKUPS>[{"file": 3}]</MOCKUPS>') == []

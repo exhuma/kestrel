@@ -11,16 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from app.config import Settings, get_settings
-from app.models_workflow import WorkflowRun
 from app.schemas import ScreenshotOut
 from app.services.workflows import WorkflowService, get_workflow_service
 from app.services.workflows import screenshots as shots
 
 router = APIRouter(prefix="/api/workflows")
-
-
-def _url(run: WorkflowRun, stage: str, name: str) -> str:
-    return f"/api/workflows/{run.id}/screenshots/{stage}/{name}"
 
 
 @router.get("/{workflow_id}/screenshots", response_model=list[ScreenshotOut])
@@ -33,7 +28,8 @@ async def list_workflow_screenshots(
     run = service.get(workflow_id)  # 404 on unknown run
     return [
         ScreenshotOut(
-            name=s.name, stage=s.stage, url=_url(run, s.stage, s.name)
+            name=s.name, stage=s.stage,
+            url=shots.stage_url(run, s.stage, s.name),
         )
         for s in shots.list_screenshots(run, settings.screenshots_root)
     ]

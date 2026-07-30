@@ -185,3 +185,43 @@ def extract_questionnaire(text: str) -> Questionnaire | None:
     if raw is None:
         return None
     return parse_questionnaire_json(raw)
+
+
+def _is_mockup(item: object) -> bool:
+    """Whether a parsed item is a usable mockup entry (string ``file``)."""
+    return isinstance(item, dict) and isinstance(item.get("file"), str)
+
+
+def _mockup_entry(item: dict) -> dict[str, str]:
+    """Normalise one mockup item to ``{"file", "explanation"}`` (strings)."""
+    explanation = item.get("explanation")
+    return {
+        "file": item["file"],
+        "explanation": explanation if isinstance(explanation, str) else "",
+    }
+
+
+def extract_mockups(text: str) -> list[dict[str, str]]:
+    """Return the parsed ``<MOCKUPS>`` entries ``[{"file", "explanation"}]``.
+
+    The mockup agent wraps a JSON array of ``{"file", "explanation"}``
+    objects — or an object with a ``"mockups"`` key — in ``<MOCKUPS>``
+    tags. Best-effort metadata: returns ``[]`` when the tag is absent or
+    the JSON is missing/garbled, and keeps only entries with a string
+    ``file`` (coercing a missing/non-string ``explanation`` to ``""``).
+
+    :param text: The mockup turn's full response text.
+    :returns: A list of ``{"file", "explanation"}`` dicts (possibly empty).
+    """
+    raw = _extract_tag(text, "MOCKUPS")
+    if raw is None:
+        return []
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return []
+    if isinstance(data, dict):
+        data = data.get("mockups")
+    if not isinstance(data, list):
+        return []
+    return [_mockup_entry(item) for item in data if _is_mockup(item)]

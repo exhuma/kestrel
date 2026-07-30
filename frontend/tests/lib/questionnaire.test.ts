@@ -221,3 +221,17 @@ describe('groupByProfile', () => {
     expect(groups[0].profile.badge).toBe('sys')
   })
 })
+
+describe('mockups threading', () => {
+  it('threads mockups through the questionnaire, defaulting to []', () => {
+    const mockup = { name: 'a.png', url: '/u', explanation: 'the a' }
+    const withMockups = JSON.stringify({
+      questions: [single],
+      profiles: [],
+      mockups: [mockup],
+    })
+    expect(parseQuestionnaire(withMockups)?.mockups).toEqual([mockup])
+    const noMockups = JSON.stringify({ questions: [single], profiles: [] })
+    expect(parseQuestionnaire(noMockups)?.mockups).toEqual([])
+  })
+})

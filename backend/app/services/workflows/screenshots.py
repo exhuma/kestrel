@@ -67,6 +67,11 @@ def stage_reldir(run: WorkflowRun, stage: str) -> str:
     return os.path.join(run.artifact_dir, SCREENSHOTS_SUBDIR, stage)
 
 
+def stage_url(run: WorkflowRun, stage: str, name: str) -> str:
+    """Relative URL the frontend fetches one screenshot's bytes from."""
+    return f"/api/workflows/{run.id}/screenshots/{stage}/{name}"
+
+
 def _artifact_dir(run: WorkflowRun, stage: str) -> str:
     """Worktree path holding a stage's screenshots (live, pre-teardown)."""
     return os.path.join(run.workspace, stage_reldir(run, stage))

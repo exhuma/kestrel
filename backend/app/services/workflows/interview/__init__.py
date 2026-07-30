@@ -10,6 +10,7 @@ from app.profiles import roster_summary
 from app.questionnaire import (
     InterviewEnvelope,
     QAEntry,
+    Questionnaire,
     build_envelope,
     parse_envelope,
     render_assumptions_and_risks,
@@ -20,6 +21,7 @@ from app.services.exceptions import InvalidWorkflowStateError
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import extract_profiles, extract_refined_issue
 from app.services.workflows.interview.agent import run_refine_agent
+from app.services.workflows.interview.mockups import capture_round_mockups
 from app.services.workflows.interview.questions import (
     dedup_questions,
     generate_questions,
@@ -98,6 +100,35 @@ async def coordinator_profiles(
     return ordered
 
 
+async def _maybe_capture_mockups(
+    service: "WorkflowService",
+    run: WorkflowRun,
+    issue: str,
+    profiles: list[str],
+    questionnaire: Questionnaire,
+) -> None:
+    """Capture uiux-round mockups into ``questionnaire`` (best-effort).
+
+    Triggered on the coordinator summoning ``uiux``, not on question
+    parsing, so mockups still appear when uiux's question turn soft-failed.
+    """
+    if "uiux" in profiles:
+        await capture_round_mockups(service, run, issue, questionnaire)
+
+
+def _round_has_content(questionnaire: Questionnaire) -> bool:
+    """Whether a round is worth presenting to the human.
+
+    A uiux round can be mockups-only (no questions, no failure issues),
+    which must still be shown.
+    """
+    return bool(
+        questionnaire.questions
+        or questionnaire.issues
+        or questionnaire.mockups
+    )
+
+
 async def run_interview(
     service: "WorkflowService", run: WorkflowRun, body: str | None
 ) -> tuple[str, list[QAEntry]]:
@@ -169,14 +200,18 @@ async def run_interview(
         questionnaire = await generate_questions(
             service, run, issue, accumulated, profiles, attempts
         )
+        await _maybe_capture_mockups(
+            service, run, issue, profiles, questionnaire
+        )
         retry_targets = [
             i.profile
             for i in questionnaire.issues
             if i.severity == "soft"
         ]
-        # Present when there is anything to show — questions to answer or
-        # a failure status (so a retry can be re-triggered on submit).
-        if not questionnaire.questions and not questionnaire.issues:
+        # Present when there is anything to show — questions to answer, a
+        # failure status (so a retry can be re-triggered on submit), or
+        # mockups (a uiux round can be mockups-only).
+        if not _round_has_content(questionnaire):
             break
         step.refine_round = round_no
         step.deliverable = build_envelope(

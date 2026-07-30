@@ -2,6 +2,7 @@ import type {
   CustomAnswer,
   GenerationIssue,
   InterviewEnvelope,
+  Mockup,
   NotedAnswer,
   PendingInterview,
   ProfileMeta,
@@ -43,6 +44,7 @@ function normaliseQuestionnaire(obj: unknown): Questionnaire | null {
     questions,
     profiles: Array.isArray(o.profiles) ? (o.profiles as ProfileMeta[]) : [],
     issues: Array.isArray(o.issues) ? (o.issues as GenerationIssue[]) : [],
+    mockups: Array.isArray(o.mockups) ? (o.mockups as Mockup[]) : [],
   }
 }
 

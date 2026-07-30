@@ -16,7 +16,6 @@ from app.services.workflow_text import (
 from app.services.workflows import interview, screenshots
 from app.services.workflows.driver.code_verify import code_and_verify
 from app.services.workflows.driver.escalate import fail_active_steps
-from app.services.workflows.driver.mockups import capture_mockups
 from app.services.workflows.prompts import DESIGN_PROMPT
 from app.services.workflows.sessions import _bind
 from app.services.workflows.shared import _TRANSIENT, _now_utc
@@ -193,10 +192,6 @@ async def refine(
         step.deliverable = await interview.write_refined(
             service, run, issue, accumulated
         )
-        # First pass only: mock up the draft PRD's screens so the human
-        # sees the proposed UI at the approval gate. Optional and
-        # capability-gated — a no-op on a text-only refine backend.
-        await capture_mockups(service, run, step.deliverable)
         step.active_sessions = []  # chips off at the gate
         step.status = "awaiting_approval"
         run.status = "awaiting_refine_approval"

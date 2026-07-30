@@ -321,3 +321,61 @@ describe('QuestionnaireForm', () => {
     expect(wrapper.find('[data-testid="issues-hard"]').exists()).toBe(false)
   })
 })
+
+function withMockup(): Questionnaire {
+  return {
+    questions: [],
+    profiles: [],
+    mockups: [{ name: 'login-01.png', url: '/u', explanation: 'the login' }],
+  }
+}
+
+describe('QuestionnaireForm mockups', () => {
+  it('threads per-mockup feedback into the submit payload', async () => {
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: { questionnaire: withMockup(), draftAnswers: {}, round: 1 },
+      }),
+    )
+    // A mockups-only round has no required questions → submit is enabled.
+    const textarea = wrapper
+      .find('[data-testid="mockup-feedback"]')
+      .find('textarea')
+    await textarea.setValue('move the button left')
+    await flushPromises()
+    await wrapper.find('form').trigger('submit')
+
+    const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
+      string,
+      unknown
+    >
+    expect(submitted['mockup:login-01.png']).toBe('move the button left')
+  })
+
+  it('preserves mockup feedback across a round change', async () => {
+    const wrapper = mount(
+      QuestionnaireForm,
+      withVuetify({
+        props: { questionnaire: withMockup(), draftAnswers: {}, round: 1 },
+      }),
+    )
+    await wrapper
+      .find('[data-testid="mockup-feedback"]')
+      .find('textarea')
+      .setValue('keep me')
+    await flushPromises()
+    await wrapper.setProps({
+      questionnaire: withMockup(),
+      draftAnswers: {},
+      round: 2,
+    })
+    await flushPromises()
+    await wrapper.find('form').trigger('submit')
+    const submitted = wrapper.emitted('submit')!.at(-1)![0] as Record<
+      string,
+      unknown
+    >
+    expect(submitted['mockup:login-01.png']).toBe('keep me')
+  })
+})

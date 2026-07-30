@@ -6,15 +6,18 @@ import pytest
 from app.questionnaire import (
     AnswerValidationError,
     InterviewEnvelope,
+    Mockup,
     Question,
     Questionnaire,
     QuestionOption,
     all_required_answered,
     build_envelope,
     format_answers,
+    mockup_key,
     parse_envelope,
     render_answer,
     render_assumptions_and_risks,
+    render_qa,
     to_entries,
     validate_answers,
 )
@@ -338,3 +341,49 @@ def test_parse_envelope_rejects_non_envelope() -> None:
     """Ensure a bare questionnaire is not mistaken for an envelope."""
     assert parse_envelope('{"questions": []}') is None
     assert parse_envelope("not json") is None
+
+
+def _with_mockup() -> Questionnaire:
+    return Questionnaire(
+        questions=[],
+        mockups=[Mockup(name="login-01.png", url="/u", explanation="login")],
+    )
+
+
+def test_envelope_round_trip_preserves_mockups() -> None:
+    """Ensure a questionnaire's mockups survive build/parse of the envelope."""
+    env = InterviewEnvelope(questionnaire=_with_mockup(), issue="x")
+    restored = parse_envelope(build_envelope(env))
+    assert restored is not None
+    assert restored.questionnaire.mockups[0].name == "login-01.png"
+
+
+def test_validate_accepts_mockup_feedback_free_text() -> None:
+    """Ensure optional mockup feedback (a string) validates."""
+    qn = _with_mockup()
+    validate_answers(qn, {mockup_key("login-01.png"): "looks good"})
+    validate_answers(qn, {})  # feedback is optional
+
+
+def test_validate_rejects_non_string_mockup_feedback() -> None:
+    """Ensure a non-string mockup feedback value is rejected."""
+    qn = _with_mockup()
+    with pytest.raises(AnswerValidationError):
+        validate_answers(qn, {mockup_key("login-01.png"): 123})
+
+
+def test_validate_still_rejects_unknown_key() -> None:
+    """Ensure a key that is neither a question nor a mockup is rejected."""
+    with pytest.raises(AnswerValidationError):
+        validate_answers(_with_mockup(), {"mockup:ghost.png": "x"})
+
+
+def test_mockup_feedback_reaches_writer_via_entries() -> None:
+    """Ensure non-empty mockup feedback becomes a uiux Q&A entry, and empty
+    feedback contributes nothing."""
+    qn = _with_mockup()
+    entries = to_entries(qn, {mockup_key("login-01.png"): "move the button"})
+    feedback = [e for e in entries if e.audience == "uiux"]
+    assert len(feedback) == 1
+    assert "move the button" in render_qa(entries)
+    assert to_entries(qn, {mockup_key("login-01.png"): "  "}) == []

@@ -4,7 +4,8 @@ from __future__ import annotations
 import pytest
 
 from app.backends.base import TurnResult
-from app.questionnaire import parse_envelope
+from app.questionnaire import Mockup, Questionnaire, parse_envelope
+from app.services.workflows import interview
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
     _coord,
@@ -18,6 +19,57 @@ from tests.conftest import (
     _settings,
     _wait,
 )
+
+
+def test_round_has_content_true_for_mockups_only() -> None:
+    """Ensure a uiux round with only mockups is still presented."""
+    qn = Questionnaire(questions=[], mockups=[Mockup(name="a.png", url="/u")])
+    assert interview._round_has_content(qn) is True
+
+
+def test_round_has_content_false_when_empty() -> None:
+    """Ensure a truly empty round is not presented."""
+    assert interview._round_has_content(Questionnaire(questions=[])) is False
+
+
+@pytest.mark.asyncio
+async def test_maybe_capture_only_triggers_on_uiux(monkeypatch) -> None:
+    """Ensure mockups are captured only when uiux was summoned."""
+    calls: list[str] = []
+
+    async def _spy(_service, _run, issue, _questionnaire) -> None:
+        calls.append(issue)
+
+    monkeypatch.setattr(interview, "capture_round_mockups", _spy)
+    qn = Questionnaire(questions=[])
+    await interview._maybe_capture_mockups(None, None, "iss", ["developer"], qn)
+    assert calls == []
+    await interview._maybe_capture_mockups(None, None, "iss", ["uiux"], qn)
+    assert calls == ["iss"]
+
+
+@pytest.mark.asyncio
+async def test_uiux_round_surfaces_mockups_in_envelope(monkeypatch) -> None:
+    """Ensure captured mockups ride the interview envelope to the UI."""
+    async def _inject(_service, _run, _issue, questionnaire) -> None:
+        questionnaire.mockups = [
+            Mockup(name="login-01.png", url="/u", explanation="the login")
+        ]
+
+    monkeypatch.setattr(interview, "capture_round_mockups", _inject)
+    gh = _FakeGitHub(body="vague UI issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        _coord(["uiux"]),
+        _qs(_q(prompt="Which layout?", qtype="free_text", options=[])),
+        _coord([]),
+        _refined("Refined"),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5)
+
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
+    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    assert envelope.questionnaire.mockups[0].name == "login-01.png"
 
 
 @pytest.mark.asyncio

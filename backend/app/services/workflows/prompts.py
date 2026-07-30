@@ -266,21 +266,34 @@ VERIFY_PROMPT = (
     "when the implementation is inconsistent or what you observed shows "
     "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
 )
-#: Optional refine-stage turn: mock up the PRD's screens as static HTML/CSS
-#: and screenshot them, so the human sees the proposed UI at the approval
-#: gate. Gated on a FILE_EDITS+TOOL_USE-capable refine backend; degrades
-#: (self-reports) when no browser tool is available (see driver/mockups.py).
+#: Optional refine-stage turn (uiux round): mock up the proposed UI and
+#: screenshot it, so the human sees it inside the clarification questionnaire.
+#: Gated on a FILE_EDITS-capable refine backend; the browser is the agent's
+#: own runtime tool, self-reported when absent (see interview/mockups.py).
 MOCKUP_PROMPT = (
     "You are producing quick visual mockups for a change still being "
-    "refined, so a human reviewer can see the proposed UI before "
-    "approving the PRD below. Using static HTML and CSS only (no backend, "
-    "no framework build), mock up the key screens or states the PRD "
-    "describes. Then, using your browser-automation tool, open each mockup "
-    "and save a PNG screenshot into the worktree directory "
+    "refined, so a human reviewer can see the proposed UI while answering "
+    "clarifying questions. Work in this order:\n"
+    "1. If this change has NO user-facing UI, produce nothing, save no "
+    "files, and say so explicitly — do not invent a UI.\n"
+    "2. Prefer the EXISTING project: if it is already runnable in this "
+    "worktree with an obvious command, start it and screenshot the real, "
+    "relevant screens. Do NOT attempt to fix, install, or repair the "
+    "project's startup/build — if it does not run readily, abandon that "
+    "approach immediately (do not debug it).\n"
+    "3. Otherwise, fall back to lightweight, throwaway static HTML and CSS "
+    "(no backend, no framework build) mocking up the key screens or states "
+    "the description implies.\n"
+    "Using your browser-automation tool, open each mockup (or the running "
+    "app) and save a PNG screenshot into the worktree directory "
     "`{screenshots_dir}` (create it if needed; name them like "
-    "`login-01.png`). Keep the mockups lightweight and throwaway — they "
-    "illustrate intent, they are not the implementation. If you have no "
-    "browser-automation tool available, say so EXPLICITLY and do not "
-    "fabricate screenshots. Describe what you produced in your final "
-    "response; there is no required format for this turn.\n\nPRD:\n{prd}"
+    "`login-01.png`). If you have no browser-automation tool available, say "
+    "so EXPLICITLY and do not fabricate screenshots.\n"
+    "Finally, output a JSON block wrapped EXACTLY in <MOCKUPS> and "
+    "</MOCKUPS> associating each screenshot filename you saved with a "
+    "one-to-two sentence explanation of what it shows and the decision it "
+    "illustrates, e.g. "
+    '<MOCKUPS>[{{"file": "login-01.png", "explanation": "..."}}]</MOCKUPS>. '
+    "Emit an empty array <MOCKUPS>[]</MOCKUPS> if you produced no "
+    "screenshots.\n\nCHANGE REQUEST:\n{prd}"
 )

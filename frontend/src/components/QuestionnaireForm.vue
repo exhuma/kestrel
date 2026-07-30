@@ -16,6 +16,8 @@ import {
   primaryValue,
 } from '../lib/questionnaire'
 import { debounce } from '../lib/debounce'
+import MockupPanel from './MockupPanel.vue'
+import { mockupKey } from '../lib/mockups'
 
 const props = defineProps<{
   questionnaire: Questionnaire
@@ -45,6 +47,11 @@ watch(
   () => props.round,
   () => {
     const validIds = new Set(props.questionnaire.questions.map((q) => q.id))
+    // Keep per-mockup feedback keys too, so a round advance doesn't purge
+    // feedback for a mockup that is still present.
+    for (const m of props.questionnaire.mockups ?? []) {
+      validIds.add(mockupKey(m.name))
+    }
     const merged: Record<string, unknown> = {}
     for (const [id, value] of Object.entries(answers)) {
       if (validIds.has(id)) merged[id] = value
@@ -186,6 +193,23 @@ function isChecked(id: string, value: string): boolean {
   return Array.isArray(cur) && (cur as string[]).includes(value)
 }
 
+const mockups = computed(() => props.questionnaire.mockups ?? [])
+// Current feedback text keyed by mockup name (for MockupPanel binding).
+const mockupFeedback = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {}
+  for (const m of mockups.value) {
+    const value = answers[mockupKey(m.name)]
+    if (typeof value === 'string') out[m.name] = value
+  }
+  return out
+})
+// Write feedback into the shared answers map (empty clears the key) so it
+// rides the existing autosave + submit path as a `mockup:<name>` answer.
+function onMockupFeedback(name: string, text: string): void {
+  if (text) answers[mockupKey(name)] = text
+  else delete answers[mockupKey(name)]
+}
+
 function onSubmit(): void {
   if (canSubmit.value) emit('submit', { ...answers })
 }
@@ -202,6 +226,13 @@ function onSaveDraft(): void {
       density="compact"
       role="status"
       text="New questions arrived — your answers were kept."
+    />
+
+    <MockupPanel
+      v-if="mockups.length"
+      :mockups="mockups"
+      :feedback="mockupFeedback"
+      @update:feedback="onMockupFeedback"
     />
 
     <v-alert
