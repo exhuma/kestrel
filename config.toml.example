@@ -92,6 +92,19 @@ trigger_label = "kestrel"
 # SECURITY note applies (full environment/credential inheritance).
 # hooks_dir = "/path/to/hooks/jira"
 
+# Fixture (feature 008): local, disposable tasks for testing/retrying the
+# pipeline without touching a real GitHub issue or Jira ticket — one JSON
+# file per task under `fixtures_dir`, admin-authored and admin-edited
+# directly on disk. Rerun is available only for runs from this kind of
+# source (never for GitHub/Jira). Branches/change-requests still target a
+# real repo, via the same code_host fields Jira uses above.
+# [[task_sources]]
+# type = "fixture"
+# fixtures_dir = "/path/to/kestrel-fixtures"
+# code_host = "github"                  # "github" | "gitlab" | "gitea"
+# code_host_base_url = ""               # for a self-hosted gitlab/gitea
+# code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
+
 # --- backend routing --------------------------------------------------------
 # Backend used for ad-hoc /api/sessions dispatch.
 default_session_backend = "claude"

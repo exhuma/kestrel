@@ -202,6 +202,10 @@ class Settings(BaseSettings):
         """The configured Jira task sources."""
         return [s for s in self.task_sources if s.type == "jira"]
 
+    def fixture_sources(self) -> list[TaskSourceConfig]:
+        """The configured fixture task sources (feature 008)."""
+        return [s for s in self.task_sources if s.type == "fixture"]
+
     def github_source_for(self, repo: str) -> TaskSourceConfig | None:
         """The GitHub source whose allow-list has ``repo`` (first match)."""
         for source in self.github_sources():

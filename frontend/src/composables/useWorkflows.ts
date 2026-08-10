@@ -252,6 +252,23 @@ export function useWorkflows() {
     }
   }
 
+  // Discards the run and immediately starts a fresh one for the same task
+  // (only ever offered when the run's task source is private — see
+  // WorkflowSummary.rerunnable).
+  async function rerun(id: string): Promise<void> {
+    error.value = null
+    try {
+      await api.post(`/api/workflows/${id}/rerun`)
+      if (current.value?.id === id) {
+        stop()
+        current.value = null
+      }
+      await refresh()
+    } catch (e) {
+      error.value = describe(e)
+    }
+  }
+
   return {
     workflows,
     current,
@@ -275,5 +292,6 @@ export function useWorkflows() {
     stop,
     remove,
     cleanup,
+    rerun,
   }
 }

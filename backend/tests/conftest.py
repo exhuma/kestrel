@@ -410,3 +410,16 @@ class _FakeDismissals:
 
     def clear(self, task_ref: str) -> None:
         self.added = [p for p in self.added if p != task_ref]
+
+
+def _write_fixture_task(fixtures_dir, slug: str, **fields) -> None:
+    """Write one fixture-source task file (feature 008), for
+    FixtureTaskSource/FixturePollService tests."""
+    data = {
+        "title": "Add a hello endpoint",
+        "body": "Add GET /hello.",
+        "code_repo": "me/sandbox",
+        "base_branch": None,
+    }
+    data.update(fields)
+    (fixtures_dir / f"{slug}.json").write_text(json.dumps(data))

@@ -68,7 +68,18 @@ the image small and lets a deploy attach or swap backends purely by config.
   GitLab. The outbound `Notifier` is source-dispatching (`TaskSourceNotifier`),
   posting thin gate/escalation comments to *the run's own* ticket. Jira is
   poll-only, so it adds **no** off-loopback endpoint (no amendment); the entry
-  point is shaped so a future Jira webhook is one added caller.
+  point is shaped so a future Jira webhook is one added caller. A third
+  `TaskSource`, **fixture (feature 008)**, is file-backed: one JSON task per
+  file under a configured `fixtures_dir`, for disposable local testing/retry
+  without touching a real GitHub issue or Jira ticket — it reuses an existing
+  `CodeHost` rather than adding a fourth one. Every `TaskSource` now also
+  declares a `visibility()` capability (`"public"` | `"private"`): GitHub and
+  Jira are `"public"` — their tickets are externally shared and only ever
+  move forward in time; fixture is `"private"`. The **rerun** action (abandon
+  a run, delete its branch, and immediately restart it against the same
+  task) is permitted only when `visibility() == "private"`, so it can never
+  be exposed for a GitHub- or Jira-sourced run (see the constitution's access
+  model, amendment 1.4.0).
 - **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or manual
   — traverses the identical `refine → PRD approval → design → code → verify →
   change request` sequence (`services/workflows.py`). The single human gate is

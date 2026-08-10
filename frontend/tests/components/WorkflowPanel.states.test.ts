@@ -22,6 +22,7 @@ const state = {
   workflows: ref<WorkflowSummary[]>([]),
 }
 const mockCleanup = vi.fn()
+const mockRerun = vi.fn()
 vi.mock('../../src/composables/useWorkflows', () => ({
   useWorkflows: () => ({
     workflows: state.workflows,
@@ -45,6 +46,7 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     stop: vi.fn(),
     remove: vi.fn(),
     cleanup: mockCleanup,
+    rerun: mockRerun,
   }),
 }))
 
@@ -71,6 +73,7 @@ function detail(over: Partial<WorkflowDetail>): WorkflowDetail {
     refine_max_rounds: 3,
     verify_max_iterations: 3,
     allow_incomplete_answers: false,
+    rerunnable: false,
     pr_url: null,
     error: null,
     ...over,
@@ -133,6 +136,31 @@ describe('WorkflowPanel run identity + steps', () => {
     expect(link.exists()).toBe(true)
     expect(link.text()).toBe('o/r#5')
     expect(link.attributes('href')).toBe('https://github.com/o/r/issues/5')
+  })
+})
+
+describe('WorkflowPanel rerun control (feature 008)', () => {
+  it('shows Rerun only for a rerunnable (private-source) run', () => {
+    state.current.value = detail({})
+    state.workflows.value = [
+      {
+        id: 'wf-1',
+        repo: 'me/sandbox',
+        issue_number: null,
+        status: 'coding',
+        rerunnable: true,
+      },
+      {
+        id: 'wf-2',
+        repo: 'o/r',
+        issue_number: 5,
+        status: 'coding',
+        rerunnable: false,
+      },
+    ]
+    const wrapper = mount(WorkflowPanel, withVuetify())
+    const rerunButtons = wrapper.findAll('[title="Rerun workflow"]')
+    expect(rerunButtons).toHaveLength(1)
   })
 })
 

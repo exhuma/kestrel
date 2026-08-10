@@ -9,6 +9,7 @@ from app.models_workflow import WorkflowRun, WorkflowStep
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
+    RerunNotAllowedError,
     WorkflowNotFoundError,
 )
 from app.services.workflows import get_workflow_service
@@ -43,6 +44,9 @@ class _FakeService:
 
     def round_history(self, workflow_id: str) -> list:
         return []
+
+    def rerunnable(self, run) -> bool:
+        return False
 
     def approve(self, workflow_id: str, deliverable=None) -> None:
         if workflow_id != "wf-1":
@@ -83,6 +87,14 @@ class _FakeService:
         if workflow_id != "wf-1":
             raise WorkflowNotFoundError(workflow_id)
         self.cleaned_up = workflow_id
+
+    async def rerun(self, workflow_id: str) -> str:
+        if workflow_id == "wf-public":
+            raise RerunNotAllowedError(workflow_id)
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        self.reran = workflow_id
+        return "wf-2"
 
     async def poll_active_step(self, workflow_id: str) -> None:
         if workflow_id != "wf-1":

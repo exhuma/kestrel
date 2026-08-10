@@ -12,6 +12,7 @@ from typing import Protocol
 
 from app.config import Settings
 from app.ports import WorkItem
+from app.services.fixture_poll import get_fixture_poll_services
 from app.services.jira_poll import get_jira_poll_services
 from app.services.reconcile import get_reconcile_services
 
@@ -37,4 +38,6 @@ def configured_poll_sources(settings: Settings) -> list[PollSource]:
         sources.extend(get_reconcile_services())
     if settings.jira_sources():
         sources.extend(get_jira_poll_services())
+    if settings.fixture_sources():
+        sources.extend(get_fixture_poll_services())
     return sources

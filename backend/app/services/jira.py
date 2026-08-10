@@ -10,6 +10,7 @@ token is a secret and is never logged.
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 import httpx
 
@@ -248,3 +249,7 @@ class JiraTaskSource:
 
     def supports_time_spent(self) -> bool:
         return bool(self._config and self._config.time_spent_field)
+
+    def visibility(self) -> Literal["public", "private"]:
+        """Jira RFCs are externally visible (feature 008)."""
+        return "public"

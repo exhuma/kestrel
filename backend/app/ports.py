@@ -157,6 +157,17 @@ class TaskSource(Protocol):
         """
         ...
 
+    def visibility(self) -> Literal["public", "private"]:
+        """Whether this source's tickets are externally shared (feature 008).
+
+        Static per-source capability, not per-call. ``"public"`` sources
+        (GitHub, Jira) are externally visible and only ever move forward in
+        time; ``"private"`` sources are local/disposable and safe to reset.
+        The sole gate for the rerun action: rerun is refused unless this
+        returns ``"private"``.
+        """
+        ...
+
 
 class CodeHost(Protocol):
     """The repository role, keyed by ``owner/name`` (or a GitLab path)."""

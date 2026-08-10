@@ -43,6 +43,7 @@ const {
   stopList,
   remove,
   cleanup,
+  rerun,
 } = useWorkflows()
 
 const repo = ref('owner/name')
@@ -299,6 +300,17 @@ async function onCleanup(id: string): Promise<void> {
     return
   await cleanup(id)
 }
+async function onRerun(id: string): Promise<void> {
+  if (
+    !confirm(
+      'Rerun this workflow? This discards its local work and branch, ' +
+        'then immediately starts a fresh run for the same task. This ' +
+        'cannot be undone.',
+    )
+  )
+    return
+  await rerun(id)
+}
 function stepStatus(name: string): string {
   return current.value?.steps.find((s) => s.name === name)?.status ?? 'pending'
 }
@@ -389,6 +401,15 @@ function stepColor(status: string): string | undefined {
             />
           </template>
           <template #append>
+            <v-btn
+              v-if="w.rerunnable"
+              icon="$restart"
+              size="x-small"
+              variant="text"
+              title="Rerun workflow"
+              aria-label="Rerun workflow"
+              @click.stop="onRerun(w.id)"
+            />
             <v-btn
               icon="$broom"
               size="x-small"

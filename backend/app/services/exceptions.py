@@ -38,6 +38,19 @@ class InvalidWorkflowStateError(Exception):
     """Raised when reply/approve/reject hits the wrong phase."""
 
 
+class RerunNotAllowedError(Exception):
+    """Raised when rerun is attempted on a non-private task source."""
+
+    def __init__(self, workflow_id: str) -> None:
+        """
+        :param workflow_id: The workflow id rerun was refused for.
+        """
+        self.workflow_id = workflow_id
+        super().__init__(
+            f"rerun not allowed for workflow: {workflow_id}"
+        )
+
+
 class GitHubError(Exception):
     """Raised when a GitHub API call fails."""
 

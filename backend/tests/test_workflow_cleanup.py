@@ -8,6 +8,7 @@ import pytest
 
 from app.models_workflow import WorkflowRun
 from app.services.exceptions import WorkflowNotFoundError
+from app.services.github import GitHubCodeHost
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
@@ -120,3 +121,99 @@ async def test_cleanup_removes_workspace_dir(tmp_path) -> None:
     assert not workspace.exists()
     with pytest.raises(WorkflowNotFoundError):
         svc.get("wf-cleanup")
+
+
+class _SpyTaskSource:
+    """Records any write-back call so a test can assert none happened
+    (feature 008 regression guard: delete/cleanup must stay ticket-safe)."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def get_task(self, _ref):
+        return None
+
+    async def post_comment(self, _ref, _body):
+        self.calls.append("post_comment")
+        return ""
+
+    async def attach(self, _ref, _name, _data, _mimetype):
+        self.calls.append("attach")
+
+    async def publish_refined(self, _ref, _content):
+        self.calls.append("publish_refined")
+
+    def deep_link_ref(self, _ref):
+        return ""
+
+    async def transition(self, _ref, _event):
+        self.calls.append("transition")
+        return False
+
+    def supports_time_spent(self) -> bool:
+        return False
+
+    def visibility(self):
+        return "public"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["github-issue", "jira-issue"])
+async def test_delete_never_calls_task_source_write_back(source: str) -> None:
+    """delete() must never comment/attach/publish/transition on the ticket,
+    for any public source — pins the existing guarantee (spec FR-009)."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    spy = _SpyTaskSource()
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(),
+        sessions=runner.sessions,
+        workflows=reg,
+        backends=runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+        dismissals=_FakeDismissals(),
+        sources={source: spy},
+        code_hosts={source: _FakeGit()},
+    )
+    run = WorkflowRun(
+        id="wf-delete", repo="o/r", issue_number=9, source=source,
+    )
+    reg.create(run)
+
+    await svc.delete("wf-delete")
+
+    assert spy.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["github-issue", "jira-issue"])
+async def test_cleanup_never_calls_task_source_write_back(source: str) -> None:
+    """cleanup() must never comment/attach/publish/transition on the
+    ticket either — it reaches the code host (branch delete), never the
+    task source (spec FR-009)."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    spy = _SpyTaskSource()
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(),
+        sessions=runner.sessions,
+        workflows=reg,
+        backends=runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
+        notifier=_FakeNotifier(),
+        dismissals=_FakeDismissals(),
+        sources={source: spy},
+        code_hosts={source: GitHubCodeHost(_FakeGitHub(), "https://gh")},
+    )
+    run = WorkflowRun(
+        id="wf-cleanup2", repo="o/r", issue_number=9,
+        source=source, branch="kestrel/issue-9",
+    )
+    reg.create(run)
+
+    await svc.cleanup("wf-cleanup2")
+
+    assert spy.calls == []

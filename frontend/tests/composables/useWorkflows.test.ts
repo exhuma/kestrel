@@ -261,4 +261,63 @@ describe('useWorkflows', () => {
     const ok = await wf.pollActiveStep()
     expect(ok).toBe(false)
   })
+
+  it('rerun posts to the rerun endpoint and refreshes the list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/rerun')
+        ? new Response(JSON.stringify({ workflow_id: 'wf-2' }), {
+            status: 200,
+          })
+        : new Response(JSON.stringify([]), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wf = useWorkflows()
+    await wf.rerun('wf-1')
+    const rerunCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith('/api/workflows/wf-1/rerun'),
+    )
+    expect(rerunCall).toBeTruthy()
+    expect(rerunCall?.[1]).toMatchObject({ method: 'POST' })
+  })
+
+  it('rerun clears the selected run when it was the target', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })),
+    )
+    const wf = useWorkflows()
+    wf.current.value = {
+      id: 'wf-1',
+      repo: 'o/r',
+      issue_number: 3,
+      issue_title: 'T',
+      status: 'coding',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      round_history: [],
+      refine_round_cap: 1,
+      refine_max_rounds: 1,
+      verify_max_iterations: 1,
+      allow_incomplete_answers: false,
+      rerunnable: true,
+      pr_url: null,
+      error: null,
+    }
+
+    await wf.rerun('wf-1')
+
+    expect(wf.current.value).toBeNull()
+  })
+
+  it('rerun surfaces a request failure instead of doing nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 403 })),
+    )
+    const wf = useWorkflows()
+    await wf.rerun('wf-1')
+    expect(wf.error.value).toBeTruthy()
+  })
 })

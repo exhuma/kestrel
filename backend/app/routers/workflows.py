@@ -97,6 +97,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         refine_max_rounds=MAX_REFINE_ROUNDS_HARD,
         verify_max_iterations=get_settings().max_verify_iterations,
         allow_incomplete_answers=get_settings().allow_incomplete_answers,
+        rerunnable=service.rerunnable(run),
         pr_url=run.pr_url,
         error=run.error,
     )
@@ -115,7 +116,11 @@ async def create_workflow(
 def _summaries(service: WorkflowService) -> list[WorkflowSummary]:
     return [
         WorkflowSummary(
-            id=r.id, repo=r.repo, issue_number=r.issue_number, status=r.status
+            id=r.id,
+            repo=r.repo,
+            issue_number=r.issue_number,
+            status=r.status,
+            rerunnable=service.rerunnable(r),
         )
         for r in service.list()
     ]
@@ -237,6 +242,21 @@ async def cleanup_workflow(
     """
     await service.cleanup(workflow_id)
     return {"status": "ok"}
+
+
+@router.post("/{workflow_id}/rerun")
+async def rerun_workflow(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> dict[str, str]:
+    """
+    Discard a run and immediately start a fresh one for the same task.
+
+    Refused with HTTP 403 unless the run's task source is private
+    (feature 008) — never available for a GitHub/Jira-sourced run.
+    """
+    new_id = await service.rerun(workflow_id)
+    return {"workflow_id": new_id}
 
 
 @router.post("/{workflow_id}/reply")

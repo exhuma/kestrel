@@ -68,7 +68,7 @@ class TaskSourceConfig(BaseModel):
     lives in the file-only ``task_sources`` list.
     """
 
-    type: Literal["github", "jira"]
+    type: Literal["github", "jira", "fixture"]
     #: Name of the env var holding this source's token; defaults per type.
     token_env: str | None = None
     #: Verify TLS certificates on this source's REST/API calls (Jira and the
@@ -121,6 +121,12 @@ class TaskSourceConfig(BaseModel):
     #: "timespent" or a custom field id). Unset ⇒ no native write; active
     #: time falls back to the comment footer like every other source.
     time_spent_field: str = ""
+    #: Fixture (feature 008): directory of local, disposable task files, one
+    #: JSON file per task. Code hosting for fixture tasks reuses the
+    #: code_host/code_host_base_url/code_host_token_env fields above (the
+    #: same fields Jira uses) — a fixture entry still targets a real,
+    #: reachable repository.
+    fixtures_dir: str = ""
 
     @model_validator(mode="after")
     def _check_required(self) -> TaskSourceConfig:
@@ -133,6 +139,8 @@ class TaskSourceConfig(BaseModel):
             raise ValueError(
                 "jira task source requires base_url, jql, and key"
             )
+        if self.type == "fixture" and not self.fixtures_dir:
+            raise ValueError("fixture task source requires fixtures_dir")
         return self
 
     def token(self) -> str | None:

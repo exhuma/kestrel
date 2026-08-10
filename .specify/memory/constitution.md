@@ -1,6 +1,45 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-08-10 (1.3.0 → 1.4.0, MINOR): Record the visibility/rerun constraint
+introduced by feature 008-fixture-task-source in "Technology & Architecture
+Constraints". Every `TaskSource` implementation (`backend/app/ports.py`) now declares
+a `visibility()` capability, `"public"` or `"private"`: GitHub and Jira report
+`"public"`; the new file-backed fixture source reports `"private"`. Kestrel's rerun
+action — the one operation that discards and replaces a run's history — is permitted
+only when the run's task source reports `"private"`. Public sources were already never
+rewritten or deleted by kestrel (delete/cleanup act only on local state); this
+amendment does not change that behavior, it formalizes the guarantee as a binding
+constraint and extends it to gate the new rerun action, so a public source can never
+be misconfigured into allowing history to be discarded and replaced. MINOR because it
+adds a new permitted-deviation-adjacent constraint without redefining or removing any
+existing principle. Required by Principle I ("any intentional departure … MUST be
+recorded here … before it is relied upon") so feature 008-fixture-task-source's rerun
+action can proceed.
+
+Modified sections:
+  - Technology & Architecture Constraints → "Access model" bullet expanded with the
+    recorded `TaskSource.visibility()` / rerun-gating constraint.
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... ✅ aligned (Constitution Check gate
+    references the constitution dynamically; no edit)
+  - .specify/templates/spec-template.md ...... ✅ aligned (no mandatory section
+    changed)
+  - .specify/templates/tasks-template.md ..... ✅ aligned (no new principle-driven
+    task type)
+  - .claude/skills/speckit-*/SKILL.md ........ ✅ reviewed; generic guidance
+  - AGENTS.md / docs/next-steps.md ........... ✅ consistent (AGENTS.md defers the
+    access model to this file; next-steps unaffected)
+  - docs/architecture.md .................... ✅ updated: notes the fixture source
+    and the visibility()/rerun axis alongside the existing GitHub/Jira ports
+    description (008 implementation, Polish phase).
+
+Follow-up TODOs: none — this amendment's operator-facing guidance (the fixture
+`[[task_sources]]` entry) lives entirely in `config.toml.example`, already covered by
+008's implementation.
+
+--------------------------------------------------------------------------------
 Amendment 2026-07-27 (1.2.0 → 1.3.0, MINOR): Record a deliberate departure for the
 new operator-hooks mechanism (feature 006-task-lifecycle-sync) in "Technology &
 Architecture Constraints". Kestrel now executes arbitrary operator-provided
@@ -260,7 +299,21 @@ section records only the non-negotiable constraints an agent must honour.
   another configured hook or the run itself) and a startup audit log listing each
   configured `hooks_dir`'s executable contents (flagging any that are
   group/world-writable) so an operator has a chance to notice an unexpected file —
-  a nudge, not an access control.
+  a nudge, not an access control. **Third recorded constraint** (feature
+  008-fixture-task-source): every `TaskSource` implementation (`backend/app/ports.py`)
+  declares a `visibility()` capability, `"public"` or `"private"`, static per
+  implementation and never configurable per instance. GitHub and Jira report
+  `"public"` — their tickets are externally shared and MUST only ever move forward in
+  time, the same append-only posture git gives a published branch. The file-backed
+  fixture task source (feature 008) reports `"private"` — local, admin-only, and safe
+  to reset. Kestrel's rerun action — abandon a run, force-delete its branch, and
+  immediately restart it against the same task, discarding and replacing the run's
+  history — MUST be refused unless the run's task source reports `"private"`; this is
+  enforced once, centrally, in the service layer (never left to the frontend to
+  enforce alone, per Principle II). The existing delete/cleanup actions were already
+  safe for public sources (they act only on kestrel's local state, never on the
+  remote ticket) and this constraint does not change that; it only formalizes the
+  guarantee and extends it to gate rerun.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -301,4 +354,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.3.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-27
+**Version**: 1.4.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-08-10

@@ -66,6 +66,9 @@ export interface WorkflowSummary {
   /** GitHub issue number; null for a Jira-sourced run (feature 003). */
   issue_number: number | null
   status: string
+  /** Whether rerun is available (feature 008) — true only for a private
+   *  task source (never GitHub/Jira). */
+  rerunnable: boolean
 }
 
 export interface WorkflowDetail {
@@ -91,6 +94,9 @@ export interface WorkflowDetail {
   /** Safety net: allow submitting a questionnaire with required questions
    *  left unanswered (configured server-side). */
   allow_incomplete_answers: boolean
+  /** Whether rerun is available (feature 008) — true only for a private
+   *  task source (never GitHub/Jira). */
+  rerunnable: boolean
   pr_url: string | null
   error: string | null
 }

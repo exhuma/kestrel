@@ -20,6 +20,7 @@ from app.middleware import (
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     InvalidWorkflowStateError,
+    RerunNotAllowedError,
     SessionNotFoundError,
     SessionStartError,
     WorkflowNotFoundError,
@@ -92,13 +93,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await task
 
 
-def create_app() -> FastAPI:
-    """Build and return the configured FastAPI application."""
-    from app.config import get_settings
-
-    app = FastAPI(
-        title="kestrel", version=get_settings().version, lifespan=_lifespan
-    )
+def _register_exception_handlers(app: FastAPI) -> None:
+    """Map domain exceptions crossing the service -> router boundary to HTTP."""
 
     @app.exception_handler(SessionNotFoundError)
     async def _session_not_found(
@@ -134,6 +130,20 @@ def create_app() -> FastAPI:
         """Map an invalid workflow transition to HTTP 409."""
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    @app.exception_handler(RerunNotAllowedError)
+    async def _rerun_not_allowed(
+        request: Request, exc: RerunNotAllowedError
+    ) -> JSONResponse:
+        """Map a rerun refusal (non-private task source) to HTTP 403."""
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": (
+                    "rerun is not available for this workflow's task source"
+                )
+            },
+        )
+
     @app.exception_handler(AnswerValidationError)
     async def _invalid_answers(
         request: Request, exc: AnswerValidationError
@@ -146,6 +156,17 @@ def create_app() -> FastAPI:
                 "errors": exc.errors,
             },
         )
+
+
+def create_app() -> FastAPI:
+    """Build and return the configured FastAPI application."""
+    from app.config import get_settings
+
+    app = FastAPI(
+        title="kestrel", version=get_settings().version, lifespan=_lifespan
+    )
+
+    _register_exception_handlers(app)
 
     # Cross-cutting HTTP middleware (see module-http-middleware-hardening).
     # ORDER MATTERS: Starlette applies middleware LIFO, so the LAST

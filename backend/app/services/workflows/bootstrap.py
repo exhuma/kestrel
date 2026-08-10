@@ -75,6 +75,21 @@ def get_workflow_service() -> WorkflowService:
             entry, jira_github, settings.git_base
         )
 
+    fixture_sources = settings.fixture_sources()
+    if fixture_sources:
+        from app.services.fixture import FixtureTaskSource
+
+        entry = fixture_sources[0]
+        sources["fixture-issue"] = FixtureTaskSource(entry.fixtures_dir)
+        fixture_github = GitHubClient(
+            settings.github_api_base,
+            settings.github_token,
+            verify=entry.verify_ssl,
+        )
+        code_hosts["fixture-issue"] = build_code_host(
+            entry, fixture_github, settings.git_base
+        )
+
     def hooks_dir_for(run: WorkflowRun) -> str:
         """Resolve a run's configured hooks_dir (feature 006), if any."""
         if run.source == "github-issue" and run.task_ref:

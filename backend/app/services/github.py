@@ -7,7 +7,7 @@ source-neutral ``task_ref`` ``"owner/name#123"``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 from urllib.parse import quote
 
 import httpx
@@ -312,6 +312,10 @@ class GitHubTaskSource:
     def supports_time_spent(self) -> bool:
         """GitHub issues have no native time-tracking field."""
         return False
+
+    def visibility(self) -> Literal["public", "private"]:
+        """GitHub issues are externally visible (feature 008)."""
+        return "public"
 
 
 class GitHubCodeHost:

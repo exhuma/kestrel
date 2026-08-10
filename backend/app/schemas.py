@@ -105,6 +105,9 @@ class WorkflowSummary(BaseModel):
     #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003).
     issue_number: int | None
     status: str
+    #: Whether rerun is available for this run (feature 008) — true only
+    #: when the run's task source is private (never GitHub/Jira).
+    rerunnable: bool
 
 
 class WorkflowDetail(BaseModel):
@@ -139,6 +142,9 @@ class WorkflowDetail(BaseModel):
     #: When true, the UI lets a questionnaire be submitted incomplete
     #: (a configured safety net); unanswered questions go through blank.
     allow_incomplete_answers: bool
+    #: Whether rerun is available for this run (feature 008) — true only
+    #: when the run's task source is private (never GitHub/Jira).
+    rerunnable: bool
     pr_url: str | None
     error: str | None
 
