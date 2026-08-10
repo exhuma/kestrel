@@ -1,12 +1,21 @@
 """Filesystem artifact and debug-log helpers for a workflow run."""
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
+import shutil
 from datetime import datetime, timezone
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from app.backends.base import Capability
 from app.models_workflow import WorkflowRun
+from app.services.workflows import screenshots
+
+if TYPE_CHECKING:
+    from app.services.workflows import WorkflowService
+
+_logger = logging.getLogger(__name__)
 
 #: Top-level folder (worktree-relative) under which a run's step-handover
 #: artifacts live, spec-kit's ``.specify`` in spirit. Each run gets a unique
@@ -119,3 +128,37 @@ def debug_log(
         )
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(f"\n{rule}\n{heading}\n{rule}\n{body}\n")
+
+
+async def teardown_workspace(
+    service: "WorkflowService", run: WorkflowRun, *, force: bool = False
+) -> None:
+    """Remove a run's worktree and debug sibling; best-effort and isolated.
+
+    Closes the workspace leak (only abandon cleaned up before) so a
+    finished/failed run does not linger. Never disturbs another run's
+    worktree (feature 002, FR-017). Skipped when ``workflow_debug`` is on
+    — the worktree and its dialogue transcript (see :func:`debug_log`)
+    stay inspectable — unless ``force``, which an explicit abandon still
+    uses to actually drop the workspace on request.
+    """
+    if not run.workspace:
+        return
+    if service.settings.workflow_debug and not force:
+        _logger.info(
+            "workflow_debug: keeping workspace for run %s (%s)",
+            run.id, run.workspace,
+        )
+        return
+    # Preserve this run's screenshots to the durable dir before the
+    # worktree they live in is removed, so the gallery keeps working
+    # once the run is done/failed. Best-effort, never blocks teardown.
+    with contextlib.suppress(Exception):
+        screenshots.persist_screenshots(run, service.settings.screenshots_root)
+    with contextlib.suppress(Exception):
+        await service.git.remove_worktree(
+            mirror_dir(service.settings.workspace_root, run.repo),
+            run.workspace,
+        )
+    shutil.rmtree(run.workspace, ignore_errors=True)
+    shutil.rmtree(f"{run.workspace}-debug", ignore_errors=True)

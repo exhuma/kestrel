@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -124,22 +124,61 @@ async def delete_session(
     return {"status": "ok"}
 
 
+@router.post("/sessions/{session_id}/poll", response_model=SessionSummary)
+async def poll_session(
+    session_id: str,
+    service: SessionService = Depends(get_session_service),
+) -> SessionSummary:
+    """
+    Actively probe whether a session is still alive against its backend.
+
+    :param session_id: Id of the session to probe.
+    :param service: Session service, injected.
+    :returns: The session's (possibly now-updated) summary.
+    """
+    return await service.poll(session_id)
+
+
+def _last_event_id(request: Request) -> int:
+    """Parse the ``Last-Event-ID`` header the browser sends on reconnect.
+
+    :param request: The incoming request.
+    :returns: The last sequence number the client saw, or 0 (replay
+        everything) if the header is absent or not a valid integer.
+    """
+    raw = request.headers.get("last-event-id")
+    try:
+        return int(raw) if raw is not None else 0
+    except ValueError:
+        return 0
+
+
 @router.get("/sessions/{session_id}/events")
 async def stream_events(
     session_id: str,
+    request: Request,
     service: SessionService = Depends(get_session_service),
 ) -> StreamingResponse:
     """
     Stream session events as Server-Sent Events.
 
+    Honours ``Last-Event-ID`` so a browser reconnect only receives what
+    it missed instead of the full history again.
+
     :param session_id: Id of the session to stream events for.
+    :param request: The incoming request, for its ``Last-Event-ID``.
     :param service: Session service, injected.
     :returns: A streaming response of SSE event frames.
     """
+    resume_after = _last_event_id(request)
 
     async def _frames() -> AsyncIterator[bytes]:
-        async for payload in service.stream(session_id):
-            yield sse.KEEPALIVE if payload is None else sse.encode(payload)
+        async for item in service.stream(session_id, resume_after):
+            if item is None:
+                yield sse.KEEPALIVE
+            else:
+                sequence, payload = item
+                yield sse.encode(payload, event_id=sequence)
 
     return StreamingResponse(
         _frames(), media_type="text/event-stream", headers=sse.HEADERS

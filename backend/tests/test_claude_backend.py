@@ -68,3 +68,12 @@ async def test_run_turn_returns_text_on_ok_result() -> None:
         TurnRequest(prompt="p", cwd="/tmp", permission_mode="plan")
     )
     assert result.final_text == "all good"
+
+
+@pytest.mark.asyncio
+async def test_check_alive_is_always_alive() -> None:
+    """Ensure the claude CLI has no independent liveness signal to check."""
+    backend = _backend(SessionRegistry())
+    result = await backend.check_alive("any-session")
+    assert result.alive is True
+    assert result.reason is None

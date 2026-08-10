@@ -56,6 +56,24 @@ class StepSessionOut(BaseModel):
     error: str | None = None
 
 
+class RoundChipOut(BaseModel):
+    """One frozen chip from a completed workflow round (history)."""
+
+    step: str
+    #: 0-based group number within this step; consecutive chips sharing a
+    #: round_index render as one group, separated from the next.
+    round_index: int
+    profile_id: str
+    label: str
+    badge: str
+    session_id: str | None
+    #: Frozen terminal status: "idle" (succeeded) or "error" — never
+    #: "running".
+    status: str
+    error: str | None = None
+    retired_at: datetime
+
+
 class WorkflowStepOut(BaseModel):
     """One workflow step for the API."""
 
@@ -104,6 +122,10 @@ class WorkflowDetail(BaseModel):
     current_session_id: str | None
     #: Live session chips for the step currently working/awaiting.
     active_sessions: list[StepSessionOut]
+    #: Frozen chips from every completed round of every step, oldest
+    #: first — the durable history behind active_sessions, so a chip
+    #: stays visible (and clickable) after its round finishes.
+    round_history: list[RoundChipOut]
     #: The refine interview's current dynamic round cap (grows by one per
     #: retry round); shown as "Round N / cap".
     refine_round_cap: int

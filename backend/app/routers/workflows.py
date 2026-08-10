@@ -17,6 +17,7 @@ from app.schemas import (
     CreateWorkflowIn,
     RejectIn,
     ReplyIn,
+    RoundChipOut,
     StepSessionOut,
     WorkflowDetail,
     WorkflowStepOut,
@@ -83,6 +84,15 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         ],
         current_session_id=service.current_session_id(run),
         active_sessions=active_sessions,
+        round_history=[
+            RoundChipOut(
+                step=c.step, round_index=c.round_index,
+                profile_id=c.profile_id, label=c.label, badge=c.badge,
+                session_id=c.session_id, status=c.status, error=c.error,
+                retired_at=c.retired_at,
+            )
+            for c in service.round_history(run.id)
+        ],
         refine_round_cap=round_cap,
         refine_max_rounds=MAX_REFINE_ROUNDS_HARD,
         verify_max_iterations=get_settings().max_verify_iterations,
@@ -157,6 +167,16 @@ async def get_workflow(
     service: WorkflowService = Depends(get_workflow_service),
 ) -> WorkflowDetail:
     """Return a workflow's full detail."""
+    return _detail(service, service.get(workflow_id))
+
+
+@router.post("/{workflow_id}/poll", response_model=WorkflowDetail)
+async def poll_workflow_step(
+    workflow_id: str,
+    service: WorkflowService = Depends(get_workflow_service),
+) -> WorkflowDetail:
+    """Actively probe the run's live chips against their backend."""
+    await service.poll_active_step(workflow_id)
     return _detail(service, service.get(workflow_id))
 
 

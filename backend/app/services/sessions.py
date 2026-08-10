@@ -16,6 +16,7 @@ from app.backends.base import Backend
 from app.backends.registry import get_backend_registry
 from app.models import CanonicalEvent
 from app.schemas import SessionSummary
+from app.services import liveness
 from app.services.exceptions import SessionNotFoundError
 from app.storage.registry import SessionRegistry, get_registry
 from app.storage.workflow_registry import (
@@ -76,6 +77,16 @@ class SessionService:
         self.backend.terminate(session_id)
         self.registry.remove(session_id)
 
+    def _workflow_by_workspace(self) -> dict[str, str]:
+        wf_by_workspace: dict[str, str] = {}
+        if self.workflows is not None:
+            for run in self.workflows.list():
+                if run.workspace:
+                    wf_by_workspace[run.workspace] = (
+                        f"{run.repo}#{run.issue_number}"
+                    )
+        return wf_by_workspace
+
     def list_summaries(self) -> list[SessionSummary]:
         """
         Summarise all known sessions, each linked to its workflow.
@@ -87,13 +98,7 @@ class SessionService:
 
         :returns: One summary per session, in insertion order.
         """
-        wf_by_workspace: dict[str, str] = {}
-        if self.workflows is not None:
-            for run in self.workflows.list():
-                if run.workspace:
-                    wf_by_workspace[run.workspace] = (
-                        f"{run.repo}#{run.issue_number}"
-                    )
+        wf_by_workspace = self._workflow_by_workspace()
         return [
             SessionSummary(
                 session_id=r.session_id,
@@ -105,32 +110,67 @@ class SessionService:
             for r in self.registry.list()
         ]
 
-    async def stream(
-        self, session_id: str
-    ) -> AsyncIterator[dict[str, object] | None]:
+    async def poll(self, session_id: str) -> SessionSummary:
         """
-        Yield event payloads for a session: replay then live.
+        Actively probe whether a session is still alive against its
+        backend, recording a diagnostic error if it has silently died.
 
-        Replays already-recorded events, then streams new ones as they
-        arrive, interleaving ``None`` keepalive ticks so a session that
-        goes quiet (e.g. a slow model generating) doesn't leave the SSE
-        connection idle and drop. Unknown sessions yield nothing and
-        register no subscriber, so no queue leaks. The subscriber is
-        always removed on exit.
+        :param session_id: Id of the session to probe.
+        :returns: The session's (possibly now-updated) summary.
+        :raises SessionNotFoundError: If the session is unknown.
+        """
+        record = self.registry.get(session_id)
+        if record is None:
+            raise SessionNotFoundError(session_id)
+        await liveness.poll_session(self.backend, self.registry, session_id)
+        record = self.registry.get(session_id)
+        return SessionSummary(
+            session_id=record.session_id,
+            status=record.status,
+            event_count=len(record.events),
+            created_at=record.created_at,
+            workflow=self._workflow_by_workspace().get(record.cwd),
+        )
+
+    async def stream(
+        self, session_id: str, resume_after: int = 0
+    ) -> AsyncIterator[tuple[int, dict[str, object]] | None]:
+        """
+        Yield sequenced event payloads for a session: replay then live.
+
+        Replays only events after ``resume_after`` (0 replays everything),
+        then streams new ones as they arrive, interleaving ``None``
+        keepalive ticks so a session that goes quiet (e.g. a slow model
+        generating) doesn't leave the SSE connection idle and drop.
+        Sequence numbers are 1-based and stable across a restart (persisted
+        events reload in insertion order), so a browser reconnect carrying
+        ``Last-Event-ID`` only receives what it missed instead of the full
+        history again. Unknown sessions yield nothing and register no
+        subscriber, so no queue leaks. The subscriber is always removed on
+        exit.
 
         :param session_id: Id of the session to stream.
-        :returns: Canonical event dicts, interleaved with ``None``
+        :param resume_after: Skip replaying events at or before this
+            sequence number.
+        :returns: ``(sequence, payload)`` pairs, interleaved with ``None``
             keepalive ticks.
         """
         record = self.registry.get(session_id)
         if record is None:
             return
-        for ev in list(record.events):
-            yield _payload(ev)
+        events = list(record.events)
+        for index, ev in enumerate(events, start=1):
+            if index > resume_after:
+                yield index, _payload(ev)
         q = self.registry.subscribe(session_id)
+        next_index = len(events) + 1
         try:
             async for ev in sse.with_heartbeat(q):
-                yield None if ev is None else _payload(ev)
+                if ev is None:
+                    yield None
+                else:
+                    yield next_index, _payload(ev)
+                    next_index += 1
         finally:
             self.registry.unsubscribe(session_id, q)
 

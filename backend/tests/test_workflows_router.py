@@ -41,6 +41,9 @@ class _FakeService:
     def current_session_id(self, run) -> str:
         return "s1"
 
+    def round_history(self, workflow_id: str) -> list:
+        return []
+
     def approve(self, workflow_id: str, deliverable=None) -> None:
         if workflow_id != "wf-1":
             raise WorkflowNotFoundError(workflow_id)
@@ -81,6 +84,11 @@ class _FakeService:
             raise WorkflowNotFoundError(workflow_id)
         self.cleaned_up = workflow_id
 
+    async def poll_active_step(self, workflow_id: str) -> None:
+        if workflow_id != "wf-1":
+            raise WorkflowNotFoundError(workflow_id)
+        self.polled = workflow_id
+
 
 def _client(service):
     app = create_app()
@@ -99,6 +107,25 @@ async def test_create_returns_id() -> None:
         )
     assert r.status_code == 200
     assert r.json()["workflow_id"] == "wf-1"
+
+
+@pytest.mark.asyncio
+async def test_poll_probes_then_returns_fresh_detail() -> None:
+    """Ensure POST poll probes liveness and returns the updated detail."""
+    service = _FakeService()
+    async with _client(service) as c:
+        r = await c.post("/api/workflows/wf-1/poll")
+    assert r.status_code == 200
+    assert service.polled == "wf-1"
+    assert r.json()["id"] == "wf-1"
+
+
+@pytest.mark.asyncio
+async def test_poll_unknown_workflow_returns_404() -> None:
+    """Ensure polling an unknown workflow maps to HTTP 404."""
+    async with _client(_FakeService()) as c:
+        r = await c.post("/api/workflows/nope/poll")
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -224,6 +251,33 @@ async def test_detail_does_not_build_the_backend_registry(monkeypatch) -> None:
     assert [s["backend"] for s in r.json()["steps"]] == [
         "claude", "claude", "claude",
     ]
+
+
+@pytest.mark.asyncio
+async def test_detail_exposes_round_history() -> None:
+    """Ensure retired round chips reach the API payload, oldest first."""
+    from datetime import datetime, timezone
+
+    from app.models_workflow import RoundChip
+
+    class _HistoryService(_FakeService):
+        def round_history(self, workflow_id: str) -> list[RoundChip]:
+            return [
+                RoundChip(
+                    step="refine", round_index=0, profile_id="coordinator",
+                    label="Coordinator", badge="sys", session_id="s1",
+                    status="idle", error=None,
+                    retired_at=datetime.now(timezone.utc),
+                ),
+            ]
+
+    async with _client(_HistoryService()) as c:
+        r = await c.get("/api/workflows/wf-1")
+    body = r.json()
+    assert r.status_code == 200
+    assert len(body["round_history"]) == 1
+    assert body["round_history"][0]["profile_id"] == "coordinator"
+    assert body["round_history"][0]["status"] == "idle"
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,25 @@ export interface StepSession {
   error: string | null
 }
 
+/** One frozen chip from a completed round (history) — the durable
+ *  afterimage of a StepSession, unlike active_sessions which stays live
+ *  only. */
+export interface RoundChip {
+  step: string
+  /** 0-based group number within this step; consecutive chips sharing a
+   *  round_index render as one group, separated from the next. */
+  round_index: number
+  profile_id: string
+  label: string
+  badge: string
+  session_id: string | null
+  /** Frozen terminal status: 'idle' (succeeded) or 'error' — never 'running'. */
+  status: string
+  error: string | null
+  /** ISO timestamp of when this chip was frozen into history. */
+  retired_at: string
+}
+
 /** A workflow screenshot (refine mockup or verify capture) for the gallery. */
 export interface Screenshot {
   name: string
@@ -60,6 +79,8 @@ export interface WorkflowDetail {
   steps: WorkflowStep[]
   current_session_id: string | null
   active_sessions: StepSession[]
+  /** Frozen chips from every completed round of every step, oldest first. */
+  round_history: RoundChip[]
   /** Current dynamic refine round cap (grows per retry), for "Round N / cap". */
   refine_round_cap: number
   /** Absolute ceiling on refine rounds (retries included), for "(max M)". */

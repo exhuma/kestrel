@@ -14,6 +14,7 @@ from app.backends.base import (
     Backend,
     BackendTurnError,
     Capability,
+    LivenessResult,
     TurnRequest,
     TurnResult,
 )
@@ -46,6 +47,14 @@ class ClaudeCliBackend(Backend):
 
     def terminate(self, session_id: str) -> bool:
         return self._runner.terminate(session_id)
+
+    async def check_alive(self, _session_id: str) -> LivenessResult:
+        """No independent remote-liveness signal — always alive.
+
+        The claude CLI has no persistent server-side session to probe;
+        its own subprocess lifecycle already drives status transitions.
+        """
+        return LivenessResult(alive=True)
 
     async def run_turn(
         self,

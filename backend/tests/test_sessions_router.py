@@ -41,15 +41,27 @@ class _FakeService:
         ]
 
     async def stream(
-        self, session_id: str
-    ) -> AsyncIterator[dict[str, object]]:
-        yield {"type": "system", "session_id": session_id, "raw": {}}
-        yield {"type": "result", "session_id": session_id, "raw": {}}
+        self, session_id: str, resume_after: int = 0
+    ) -> AsyncIterator[tuple[int, dict[str, object]]]:
+        events = [
+            {"type": "system", "session_id": session_id, "raw": {}},
+            {"type": "result", "session_id": session_id, "raw": {}},
+        ]
+        for index, event in enumerate(events, start=1):
+            if index > resume_after:
+                yield index, event
 
     def delete(self, session_id: str) -> None:
         if not self._known:
             raise SessionNotFoundError(session_id)
         self.deleted = session_id
+
+    async def poll(self, session_id: str) -> SessionSummary:
+        if not self._known:
+            raise SessionNotFoundError(session_id)
+        return SessionSummary(
+            session_id=session_id, status="error", event_count=3
+        )
 
 
 def _client(service: _FakeService) -> httpx.AsyncClient:
@@ -120,6 +132,23 @@ async def test_delete_unknown_session_returns_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_poll_session_returns_updated_summary() -> None:
+    """Ensure POST /api/sessions/{id}/poll returns the probed summary."""
+    async with _client(_FakeService()) as client:
+        resp = await client.post("/api/sessions/s1/poll")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_poll_unknown_session_returns_404() -> None:
+    """Ensure polling an unknown session maps to HTTP 404."""
+    async with _client(_FakeService(known=False)) as client:
+        resp = await client.post("/api/sessions/nope/poll")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_backends_endpoint_reports_effective_config() -> None:
     """Ensure GET /api/backends surfaces the resolved backend config."""
     async with _client(_FakeService()) as client:
@@ -134,6 +163,17 @@ async def test_backends_endpoint_reports_effective_config() -> None:
 
 
 @pytest.mark.asyncio
+def _data_frames(text: str) -> list[dict]:
+    """Extract the JSON body of every ``data:`` frame in an SSE response."""
+    out = []
+    for chunk in text.split("\n\n"):
+        for line in chunk.split("\n"):
+            if line.startswith("data: "):
+                out.append(json.loads(line[len("data: ") :]))
+    return out
+
+
+@pytest.mark.asyncio
 async def test_events_stream_returns_sse_frames() -> None:
     """Ensure GET events streams SSE data frames from the service."""
     async with _client(_FakeService()) as client:
@@ -143,9 +183,31 @@ async def test_events_stream_returns_sse_frames() -> None:
     # Anti-buffering headers so intermediaries flush frames promptly.
     assert resp.headers["cache-control"] == "no-cache"
     assert resp.headers["x-accel-buffering"] == "no"
-    frames = [
-        line for line in resp.text.split("\n\n") if line.startswith("data: ")
-    ]
+    frames = _data_frames(resp.text)
     assert len(frames) == 2
-    first = json.loads(frames[0][len("data: ") :])
-    assert first == {"type": "system", "session_id": "s1", "raw": {}}
+    assert frames[0] == {"type": "system", "session_id": "s1", "raw": {}}
+
+
+@pytest.mark.asyncio
+async def test_events_stream_carries_a_resumable_id_per_frame() -> None:
+    """Ensure each frame carries an id: so a reconnect can resume from it."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/sessions/s1/events")
+    ids = [
+        line[len("id: ") :]
+        for chunk in resp.text.split("\n\n")
+        for line in chunk.split("\n")
+        if line.startswith("id: ")
+    ]
+    assert ids == ["1", "2"]
+
+
+@pytest.mark.asyncio
+async def test_events_stream_honours_last_event_id() -> None:
+    """Ensure a reconnect with Last-Event-ID only replays what's new."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get(
+            "/api/sessions/s1/events", headers={"Last-Event-ID": "1"}
+        )
+    frames = _data_frames(resp.text)
+    assert frames == [{"type": "result", "session_id": "s1", "raw": {}}]

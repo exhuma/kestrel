@@ -101,6 +101,9 @@ def _service(tmp_path, final_text):
         def _save(self, _run) -> None:
             pass
 
+        def _show_sessions(self, run, slots) -> None:
+            run.steps[0].active_sessions = slots
+
         def _debug_log(self, _run, _heading, _content) -> None:
             pass
 

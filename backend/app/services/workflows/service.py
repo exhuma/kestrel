@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
-import shutil
 import uuid
 from typing import Callable
 
 from app.backends.base import Backend, TurnRequest, TurnResult
 from app.config import Settings
-from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
+from app.models_workflow import (
+    RoundChip,
+    Step,
+    StepSession,
+    WorkflowRun,
+    WorkflowStep,
+)
 from app.notifications import Notifier
 from app.persistence.dismissal_store import DismissalStore
 from app.policy import BackendPolicy
@@ -20,7 +24,8 @@ from app.services.exceptions import WorkflowNotFoundError
 from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
 from app.services.time_tracking import set_clock
-from app.services.workflows import artifacts, driver, gate, screenshots
+from app.services.workflows import artifacts, driver, gate
+from app.services.workflows import liveness as wf_liveness
 from app.services.workflows import sessions as sessions_mod
 from app.services.workflows.gate import _Control, _Decision
 from app.services.workflows.shared import (
@@ -207,36 +212,9 @@ class WorkflowService:
     async def _teardown_workspace(
         self, run: WorkflowRun, *, force: bool = False
     ) -> None:
-        """Remove a run's worktree and debug sibling; best-effort and isolated.
-
-        Closes the workspace leak (only abandon cleaned up before) so a
-        finished/failed run does not linger. Never disturbs another run's
-        worktree (feature 002, FR-017). Skipped when ``workflow_debug`` is on
-        — the worktree and its dialogue transcript (see ``_debug_log``) stay
-        inspectable — unless ``force``, which an explicit abandon still uses
-        to actually drop the workspace on request.
-        """
-        if not run.workspace:
-            return
-        if self.settings.workflow_debug and not force:
-            _logger.info(
-                "workflow_debug: keeping workspace for run %s (%s)",
-                run.id, run.workspace,
-            )
-            return
-        # Preserve this run's screenshots to the durable dir before the
-        # worktree they live in is removed, so the gallery keeps working
-        # once the run is done/failed. Best-effort, never blocks teardown.
-        with contextlib.suppress(Exception):
-            screenshots.persist_screenshots(
-                run, self.settings.screenshots_root
-            )
-        with contextlib.suppress(Exception):
-            await self.git.remove_worktree(
-                self._mirror_dir(run.repo), run.workspace
-            )
-        shutil.rmtree(run.workspace, ignore_errors=True)
-        shutil.rmtree(f"{run.workspace}-debug", ignore_errors=True)
+        """Remove a run's worktree and debug sibling; best-effort and
+        isolated (see :func:`artifacts.teardown_workspace`)."""
+        await artifacts.teardown_workspace(self, run, force=force)
 
     # ---- commands ------------------------------------------------------
     async def create(
@@ -450,11 +428,35 @@ class WorkflowService:
         """Commit, push, open the change request, and finish the run."""
         await driver.deliver(self, run)
 
+    def _retire_sessions(
+        self, run: WorkflowRun, step: WorkflowStep
+    ) -> None:
+        """Freeze a step's live chips into durable round history, then
+        clear them.
+
+        The single choke point every "chips off" call site uses instead
+        of assigning ``step.active_sessions`` directly, so no clear
+        point can silently drop the round it's discarding. A no-op
+        (nothing persisted) when the step has no live chips right now.
+        """
+        self.workflows.save_round_chips(
+            run.id, step.name, step.active_sessions, _now_utc()
+        )
+        step.active_sessions = []
+
     def _show_sessions(
         self, run: WorkflowRun, slots: list[StepSession]
     ) -> None:
-        """Publish the sessions active on the refine step right now."""
-        sessions_mod.show_sessions(run, slots, self._save)
+        """Publish the sessions active on the refine step right now,
+        freezing whatever was showing before into history first."""
+        step = run.steps[0]
+        self._retire_sessions(run, step)
+        step.active_sessions = slots
+        self._save(run)
+
+    def round_history(self, workflow_id: str) -> list[RoundChip]:
+        """All retired (completed-round) chips for a run, oldest first."""
+        return self.workflows.load_round_chips(workflow_id)
 
     def _watch_activity(
         self, run: WorkflowRun, session_id: str, slot: StepSession
@@ -476,4 +478,11 @@ class WorkflowService:
         tracker = sessions_mod.ChipTracker(slot, bind, self._watch_activity)
         return await sessions_mod.run_turn_tracked(
             run, backend, req, tracker
+        )
+
+    async def poll_active_step(self, workflow_id: str) -> None:
+        """Actively probe every live chip on the run's running step."""
+        run = self.get(workflow_id)
+        await wf_liveness.poll_active_step(
+            self.backends.backend_for, self.sessions, self._save, run
         )

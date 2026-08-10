@@ -39,21 +39,6 @@ def _bind(step: WorkflowStep, slot: StepSession) -> Callable[[str], None]:
     return _on
 
 
-def show_sessions(
-    run: WorkflowRun,
-    slots: list[StepSession],
-    save: Callable[[WorkflowRun], None],
-) -> None:
-    """Publish the sessions active on the refine step right now.
-
-    Each ``save`` pushes the chip state to the UI (via the poll today,
-    the SSE stream in a later phase). The slots are the ephemeral,
-    non-persisted telemetry the workflow view animates.
-    """
-    run.steps[0].active_sessions = slots
-    save(run)
-
-
 def watch_activity(
     sessions_registry: SessionRegistry,
     save: Callable[[WorkflowRun], None],

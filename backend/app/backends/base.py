@@ -56,6 +56,20 @@ class TurnResult:
     final_text: str
 
 
+@dataclass
+class LivenessResult:
+    """Outcome of an active liveness probe against a backend session.
+
+    A backend with no independent remote-liveness signal to check (no
+    persistent server-side session) always reports ``alive=True`` — see
+    :meth:`Backend.check_alive`.
+    """
+
+    alive: bool
+    #: A short diagnostic reason, present only when ``alive`` is False.
+    reason: str | None = None
+
+
 @runtime_checkable
 class Backend(Protocol):
     """A dispatch target. Adapters implement this for each tool/LLM."""
@@ -81,4 +95,14 @@ class Backend(Protocol):
 
     def terminate(self, session_id: str) -> bool:
         """Stop a running session; return True if one was stopped."""
+        ...
+
+    async def check_alive(self, session_id: str) -> LivenessResult:
+        """Actively probe whether this session is still alive server-side.
+
+        Used by the "force poll now" action to detect a session that has
+        silently crashed (e.g. its remote process died with no terminal
+        event ever recorded). Returns ``alive=True`` when this backend has
+        no independent liveness signal to check.
+        """
         ...

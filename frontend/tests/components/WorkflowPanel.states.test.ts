@@ -33,6 +33,7 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     stopList: vi.fn(),
     select: vi.fn(),
     ensureLive: vi.fn(),
+    pollActiveStep: vi.fn(),
     streamSession: vi.fn(),
     closeSession: vi.fn(),
     createWorkflow: vi.fn(),
@@ -65,6 +66,7 @@ function detail(over: Partial<WorkflowDetail>): WorkflowDetail {
     ],
     current_session_id: null,
     active_sessions: [],
+    round_history: [],
     refine_round_cap: 1,
     refine_max_rounds: 3,
     verify_max_iterations: 3,
@@ -268,5 +270,32 @@ describe('WorkflowPanel clean-up action', () => {
     await flushPromises()
 
     expect(mockCleanup).not.toHaveBeenCalled()
+  })
+})
+
+describe('WorkflowPanel round chip history', () => {
+  // Regression: retired chips must stay visible once the view moves to a
+  // questionnaire/PRD preview/next round, not just while the step is
+  // actively 'running' — see RoundChips.vue.
+  it('keeps retired chips visible while awaiting input or approval', () => {
+    for (const status of ['awaiting_input', 'awaiting_approval']) {
+      state.current.value = detail({
+        steps: [
+          { name: 'refine', status } as never,
+          { name: 'design', status: 'pending' } as never,
+          { name: 'code', status: 'pending' } as never,
+          { name: 'verify', status: 'pending' } as never,
+        ],
+        round_history: [
+          {
+            step: 'refine', round_index: 0, profile_id: 'coordinator',
+            label: 'Coordinator', badge: 'sys', session_id: 's1',
+            status: 'idle', error: null, retired_at: '2026-01-01T00:00:00Z',
+          },
+        ],
+      })
+      const html = mount(WorkflowPanel, withVuetify()).html()
+      expect(html).toContain('Coordinator')
+    }
   })
 })

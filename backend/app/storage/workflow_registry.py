@@ -1,9 +1,10 @@
 """Registry of workflow runs with optional persistence."""
 from __future__ import annotations
 
+from datetime import datetime
 from functools import lru_cache
 
-from app.models_workflow import WorkflowRun
+from app.models_workflow import RoundChip, StepSession, WorkflowRun
 from app.persistence.workflow_store import (
     WorkflowStore,
     get_workflow_store,
@@ -71,6 +72,41 @@ class WorkflowRegistry:
         """
         if self._store is not None:
             self._store.save(run)
+
+    def save_round_chips(
+        self,
+        workflow_id: str,
+        step_name: str,
+        chips: list[StepSession],
+        retired_at: datetime,
+    ) -> None:
+        """
+        Freeze a step's live chips into durable round history.
+
+        A no-op when the registry has no store (unit tests).
+
+        :param workflow_id: Id of the run the chips belong to.
+        :param step_name: Name of the step being retired.
+        :param chips: The step's live chip set at the moment of retiring.
+        :param retired_at: Timestamp to stamp every chip in this group.
+        """
+        if self._store is not None:
+            self._store.save_round_chips(
+                workflow_id, step_name, chips, retired_at
+            )
+
+    def load_round_chips(self, workflow_id: str) -> list[RoundChip]:
+        """
+        Load a run's retired round-chip history, oldest first.
+
+        Empty when the registry has no store (unit tests).
+
+        :param workflow_id: Id of the run to load history for.
+        :returns: Frozen chips ordered by step, round, then insertion.
+        """
+        if self._store is None:
+            return []
+        return self._store.load_round_chips(workflow_id)
 
     def preload(self, runs: list[WorkflowRun]) -> None:
         """

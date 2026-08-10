@@ -5,6 +5,7 @@ import asyncio
 
 import pytest
 
+from app.backends.base import LivenessResult
 from app.models import CanonicalEvent, EventKind, map_claude_line
 from app.services.exceptions import SessionNotFoundError
 from app.services.sessions import SessionService
@@ -16,6 +17,9 @@ class _FakeRunner:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, ...]] = []
+        #: Controls what check_alive reports for the liveness-poll tests.
+        self.alive = True
+        self.reason = "gone"
 
     async def start(self, prompt: str) -> str:
         self.calls.append(("start", prompt))
@@ -28,6 +32,12 @@ class _FakeRunner:
     def terminate(self, session_id: str) -> bool:
         self.calls.append(("terminate", session_id))
         return True
+
+    async def check_alive(self, session_id: str) -> LivenessResult:
+        self.calls.append(("check_alive", session_id))
+        return LivenessResult(
+            alive=self.alive, reason=None if self.alive else self.reason
+        )
 
 
 def _service() -> tuple[SessionService, SessionRegistry, _FakeRunner]:
@@ -119,6 +129,40 @@ def test_list_summaries_shape() -> None:
 
 
 @pytest.mark.asyncio
+async def test_poll_unknown_raises_not_found() -> None:
+    """Ensure polling an unknown session raises the domain error."""
+    service, _, _ = _service()
+    with pytest.raises(SessionNotFoundError):
+        await service.poll("missing")
+
+
+@pytest.mark.asyncio
+async def test_poll_alive_session_is_a_noop() -> None:
+    """Ensure polling a healthy session leaves its status untouched."""
+    service, registry, runner = _service()
+    registry.create("s1", "/tmp/s1")
+    summary = await service.poll("s1")
+    assert summary.status == "running"
+    assert ("check_alive", "s1") in runner.calls
+
+
+@pytest.mark.asyncio
+async def test_poll_dead_session_flips_to_error() -> None:
+    """Ensure a session the backend reports as gone is escalated visibly."""
+    service, registry, runner = _service()
+    registry.create("s1", "/tmp/s1")
+    runner.alive = False
+    runner.reason = "opencode session no longer exists"
+
+    summary = await service.poll("s1")
+
+    assert summary.status == "error"
+    rec = registry.get("s1")
+    assert rec.events[-1].is_error is True
+    assert rec.events[-1].text == "opencode session no longer exists"
+
+
+@pytest.mark.asyncio
 async def test_stream_replays_then_streams_live_and_unsubscribes() -> None:
     """Ensure stream replays stored events, yields live ones, cleans up."""
     service, registry, _ = _service()
@@ -131,8 +175,9 @@ async def test_stream_replays_then_streams_live_and_unsubscribes() -> None:
     )
 
     gen = service.stream("s1")
-    first = await gen.__anext__()
-    second = await gen.__anext__()
+    seq1, first = await gen.__anext__()
+    seq2, second = await gen.__anext__()
+    assert (seq1, seq2) == (1, 2)
     assert first["kind"] == "system"
     assert first["session_id"] == "s1"
     assert first["native"] == {"n": 1}
@@ -147,11 +192,34 @@ async def test_stream_replays_then_streams_live_and_unsubscribes() -> None:
     registry.append_event(
         "s1", CanonicalEvent(EventKind.RESULT, "s1", text="done")
     )
-    third = await asyncio.wait_for(task, timeout=1.0)
-    assert third["kind"] == "result"
+    seq3, third = await asyncio.wait_for(task, timeout=1.0)
+    assert (seq3, third["kind"]) == (3, "result")
 
     await gen.aclose()
     assert registry._subs.get("s1") == []
+
+
+@pytest.mark.asyncio
+async def test_stream_resume_after_skips_already_seen_events() -> None:
+    """Ensure resume_after replays only events after that sequence number."""
+    service, registry, _ = _service()
+    registry.create("s1", "/tmp/s1")
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.SYSTEM, "s1", native={"n": 1})
+    )
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.ASSISTANT_TEXT, "s1", native={"n": 2})
+    )
+    registry.append_event(
+        "s1", CanonicalEvent(EventKind.RESULT, "s1", native={"n": 3})
+    )
+
+    gen = service.stream("s1", resume_after=1)
+    seq, payload = await gen.__anext__()
+    assert (seq, payload["native"]) == (2, {"n": 2})
+    seq, payload = await gen.__anext__()
+    assert (seq, payload["native"]) == (3, {"n": 3})
+    await gen.aclose()
 
 
 @pytest.mark.asyncio
@@ -174,7 +242,7 @@ async def test_stream_payload_carries_canonical_fields_for_a_claude_line() -> (
     registry.append_event("s1", event)
 
     gen = service.stream("s1")
-    frame = await gen.__anext__()
+    _, frame = await gen.__anext__()
     await gen.aclose()
 
     assert frame["kind"] == "assistant_text"

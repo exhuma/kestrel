@@ -49,11 +49,20 @@ async def with_heartbeat(
             yield None
 
 
-def encode(data: dict[str, object]) -> bytes:
+def encode(data: dict[str, object], event_id: int | None = None) -> bytes:
     """
-    Encode a payload dict as one SSE ``data:`` frame.
+    Encode a payload dict as one SSE frame, optionally with an ``id:``.
+
+    An ``id:`` frame lets the browser's native ``EventSource`` resume from
+    where it left off (via ``Last-Event-ID``) instead of a caller having
+    to replay everything from scratch on every reconnect.
 
     :param data: The JSON-serialisable payload to send.
-    :returns: A UTF-8 ``data: <json>\\n\\n`` SSE frame.
+    :param event_id: A monotonic per-stream sequence number, or None for
+        a stream that has nothing to resume (e.g. the workflow list/detail
+        streams, which always send a full current snapshot anyway).
+    :returns: A UTF-8 SSE frame: ``id: <n>\\ndata: <json>\\n\\n`` when
+        ``event_id`` is given, else ``data: <json>\\n\\n``.
     """
-    return ("data: " + json.dumps(data) + "\n\n").encode("utf-8")
+    prefix = f"id: {event_id}\n" if event_id is not None else ""
+    return (prefix + "data: " + json.dumps(data) + "\n\n").encode("utf-8")

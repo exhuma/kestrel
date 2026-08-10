@@ -9,18 +9,18 @@ if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
 
 
-def fail_active_steps(run: WorkflowRun) -> None:
+def fail_active_steps(service: "WorkflowService", run: WorkflowRun) -> None:
     """Flip any in-flight step to a terminal ``failed`` state.
 
     A terminal run status (``escalated``/``failed``) must not leave a step
     still ``running`` (or parked on a gate): the UI keys its activity
     indicators off step status, so a stranded ``running`` step spins
-    forever. Clears the ephemeral session chips too.
+    forever. Retires the live session chips into round history too.
     """
     for step in run.steps:
         if step.status in ("running", "awaiting_input", "awaiting_approval"):
             step.status = "failed"
-            step.active_sessions = []
+            service._retire_sessions(run, step)
 
 
 async def escalate(
@@ -32,7 +32,7 @@ async def escalate(
     """
     run.error = f"escalated: {reason}"
     run.status = "escalated"
-    fail_active_steps(run)
+    fail_active_steps(service, run)
     service._save(run)
     await service._teardown_workspace(run)
     return True

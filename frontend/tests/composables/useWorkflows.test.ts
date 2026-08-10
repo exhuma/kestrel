@@ -211,4 +211,54 @@ describe('useWorkflows', () => {
     expect(ok).toBe(false)
     expect(wf.error.value).toBeTruthy()
   })
+
+  it('pollActiveStep posts to the poll endpoint and applies the response', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/api/workflows/wf-1/poll')
+        ? new Response(
+            JSON.stringify({
+              id: 'wf-1',
+              repo: 'o/r',
+              issue_number: 1,
+              issue_title: 't',
+              status: 'coding',
+              branch: 'b',
+              steps: [],
+              current_session_id: null,
+              active_sessions: [],
+              pr_url: null,
+              error: null,
+            }),
+            { status: 200 },
+          )
+        : new Response(JSON.stringify([]), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const wf = useWorkflows()
+    wf.current.value = {
+      id: 'wf-1',
+      repo: 'o/r',
+      issue_number: 1,
+      issue_title: 't',
+      status: 'designing',
+      branch: 'b',
+      steps: [],
+      current_session_id: null,
+      active_sessions: [],
+      pr_url: null,
+      error: null,
+    }
+
+    const ok = await wf.pollActiveStep()
+
+    expect(ok).toBe(true)
+    expect(wf.current.value?.status).toBe('coding')
+  })
+
+  it('pollActiveStep is a no-op with nothing selected', async () => {
+    const wf = useWorkflows()
+    wf.current.value = null
+    const ok = await wf.pollActiveStep()
+    expect(ok).toBe(false)
+  })
 })

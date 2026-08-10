@@ -213,6 +213,15 @@ async def test_streaming_surfaces_tool_calls() -> None:
     assert result.final_text == "done"
 
 
+@pytest.mark.asyncio
+async def test_check_alive_is_always_alive() -> None:
+    """Ensure this text-only endpoint has no independent liveness signal."""
+    backend, _ = _backend(lambda _request: httpx.Response(200))
+    result = await backend.check_alive("any-session")
+    assert result.alive is True
+    assert result.reason is None
+
+
 def test_registry_builds_an_openai_backend() -> None:
     """Ensure a configured openai_compat backend is resolvable."""
     settings = Settings(

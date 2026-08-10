@@ -1,5 +1,7 @@
 import { ref } from 'vue'
 import { api, API_BASE, ApiError } from '../api'
+import { openSessionEventStream } from '../lib/sessionEventStream'
+import type { SessionEventStreamHandle } from '../lib/sessionEventStream'
 import type { SessionEvent } from '../types/sessions'
 import type { WorkflowDetail, WorkflowSummary } from '../types/workflows'
 
@@ -11,7 +13,7 @@ const error = ref<string | null>(null)
 
 let detailSource: EventSource | null = null
 let listSource: EventSource | null = null
-let source: EventSource | null = null
+let stream: SessionEventStreamHandle | null = null
 
 function describe(e: unknown): string {
   if (e instanceof ApiError) return `Request failed (${e.status})`
@@ -66,17 +68,17 @@ export function useWorkflows() {
   // streams a session's raw events when the user opens its chip.
   function streamSession(sessionId: string): void {
     events.value = []
-    if (source) source.close()
-    source = new EventSource(`${API_BASE}/api/sessions/${sessionId}/events`)
-    source.onmessage = (e) => {
-      events.value.push(JSON.parse(e.data) as SessionEvent)
-    }
+    if (stream) stream.close()
+    const url = `${API_BASE}/api/sessions/${sessionId}/events`
+    stream = openSessionEventStream(url, (event) => {
+      events.value.push(event)
+    })
   }
 
   function closeSession(): void {
-    if (source) {
-      source.close()
-      source = null
+    if (stream) {
+      stream.close()
+      stream = null
     }
     events.value = []
   }
@@ -188,6 +190,22 @@ export function useWorkflows() {
     )
   }
 
+  // Force-poll: everything else here is push-based (SSE), so this is the
+  // one action that actively asks the backend to re-check a stalled run's
+  // live chips against their backend right now, instead of waiting.
+  async function pollActiveStep(): Promise<boolean> {
+    const id = current.value?.id
+    if (!id) return false
+    error.value = null
+    try {
+      applyDetail(await api.post<WorkflowDetail>(`/api/workflows/${id}/poll`))
+      return true
+    } catch (e) {
+      error.value = describe(e)
+      return false
+    }
+  }
+
   function stopDetail(): void {
     if (detailSource) {
       detailSource.close()
@@ -197,9 +215,9 @@ export function useWorkflows() {
 
   function stop(): void {
     stopDetail()
-    if (source) {
-      source.close()
-      source = null
+    if (stream) {
+      stream.close()
+      stream = null
     }
   }
 
@@ -245,6 +263,7 @@ export function useWorkflows() {
     stopList,
     select,
     ensureLive,
+    pollActiveStep,
     streamSession,
     closeSession,
     createWorkflow,

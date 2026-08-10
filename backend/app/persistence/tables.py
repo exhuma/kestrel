@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -125,6 +125,38 @@ class WorkflowStepRow(Base):
     verify_round: Mapped[int] = mapped_column(
         default=0, server_default="0"
     )
+
+
+class WorkflowRoundChipRow(Base):
+    """One frozen session chip from a completed workflow round.
+
+    The durable history trail behind :class:`~app.models_workflow.RoundChip`
+    — written once a step's live chip set is retired, so completed rounds'
+    chips survive a restart/reload (unlike the ephemeral ``active_sessions``
+    on :class:`WorkflowStepRow`, which is never persisted at all).
+    """
+
+    __tablename__ = "workflow_round_chip"
+    __table_args__ = (
+        Index(
+            "ix_workflow_round_chip_workflow_step",
+            "workflow_id", "step_name",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflow_run.id")
+    )
+    step_name: Mapped[str] = mapped_column()
+    round_index: Mapped[int] = mapped_column()
+    profile_id: Mapped[str] = mapped_column()
+    label: Mapped[str] = mapped_column()
+    badge: Mapped[str] = mapped_column(default="sys")
+    session_id: Mapped[str | None] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column()
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retired_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class WebhookDeliveryRow(Base):

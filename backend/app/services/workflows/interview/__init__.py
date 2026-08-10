@@ -224,7 +224,7 @@ async def run_interview(
                 round_cap=round_cap,
             )
         )
-        step.active_sessions = []  # human's turn: chips off
+        service._retire_sessions(run, step)  # human's turn: chips off
         step.status = "awaiting_input"
         run.status = "awaiting_refine_input"
         set_clock(run, "waiting", _now_utc())

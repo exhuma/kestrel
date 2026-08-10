@@ -11,6 +11,7 @@ import EventCard from './EventCard.vue'
 import ConsoleShell from './ConsoleShell.vue'
 import DiffView from './DiffView.vue'
 import ScreenshotGallery from './ScreenshotGallery.vue'
+import RoundChips from './RoundChips.vue'
 import { STEPS } from '../types/workflows'
 import { toViewModel } from '../lib/eventView'
 
@@ -28,6 +29,7 @@ const {
   refresh,
   select,
   ensureLive,
+  pollActiveStep,
   streamSession,
   closeSession,
   createWorkflow,
@@ -167,6 +169,15 @@ const verifyPercent = computed(() =>
 
 // Named specialist sessions active right now, shown as activity chips.
 const activeSessions = computed(() => current.value?.active_sessions ?? [])
+// Retired chips for the active step's completed rounds — these stay
+// visible once a round finishes (the chip row no longer disappears when
+// the view moves to a questionnaire/PRD preview/next round).
+const stepRoundHistory = computed(
+  () =>
+    current.value?.round_history.filter(
+      (c) => c.step === activeStep.value?.name,
+    ) ?? [],
+)
 const expandedSession = ref<string | null>(null)
 const expandedLabel = computed(
   () =>
@@ -194,12 +205,15 @@ watch(
   },
 )
 
-// Close the drawer once its session is no longer active (the step
-// advanced), keeping the workflow view bounded in height.
-watch(activeSessions, (list) => {
+// Close the drawer once its session is no longer active or in history
+// (the step advanced past it entirely), keeping the workflow view
+// bounded in height. A session that just moved from live into history
+// must NOT close the drawer — it's the same chip, still clickable.
+watch([activeSessions, stepRoundHistory], ([live, history]) => {
   if (
     expandedSession.value &&
-    !list.some((s) => s.session_id === expandedSession.value)
+    !live.some((s) => s.session_id === expandedSession.value) &&
+    !history.some((c) => c.session_id === expandedSession.value)
   ) {
     expandedSession.value = null
     closeSession()
@@ -317,18 +331,6 @@ function stepColor(status: string): string | undefined {
   if (status === 'awaiting_approval') return 'warning'
   if (status === 'failed') return 'error'
   return undefined
-}
-// Crew-chip badge token → Vuetify colour.
-const BADGE_COLOR: Record<string, string | undefined> = {
-  user: 'info',
-  agent: 'primary',
-  warn: 'warning',
-  ok: 'success',
-  err: 'error',
-  sys: undefined,
-}
-function badgeColor(token: string): string | undefined {
-  return BADGE_COLOR[token]
 }
 </script>
 
@@ -484,8 +486,8 @@ function badgeColor(token: string): string | undefined {
       </div>
 
       <div class="stage__body flex-1-1 pa-4 d-flex flex-column ga-4">
-        <div v-if="stepRunning">
-          <div class="text-overline text-medium-emphasis mb-2">
+        <div v-if="stepRunning" class="d-flex align-center justify-space-between">
+          <div class="text-overline text-medium-emphasis">
             {{ activeStep?.name
             }}<template v-if="activeStep?.backend">
               · {{ activeStep.backend }}</template
@@ -499,53 +501,36 @@ function badgeColor(token: string): string | undefined {
             >
             · live
           </div>
-          <div v-if="activeSessions.length" class="d-flex flex-wrap ga-2">
-            <v-chip
-              v-for="s in activeSessions"
-              :key="s.session_id ?? s.profile_id"
-              :color="s.status === 'error' ? 'error' : badgeColor(s.badge)"
-              :variant="expandedSession === s.session_id ? 'flat' : 'tonal'"
-              :disabled="!s.session_id"
-              :title="s.status === 'error' ? (s.error ?? undefined) : undefined"
-              @click="toggleSession(s.session_id)"
-            >
-              <template #prepend>
-                <v-progress-circular
-                  v-if="s.status === 'running'"
-                  indeterminate
-                  size="12"
-                  width="2"
-                  class="me-2"
-                />
-                <v-icon
-                  v-else-if="s.status === 'error'"
-                  icon="$alertCircle"
-                  size="small"
-                  class="me-1"
-                />
-              </template>
-              {{ s.label }}
-              <span
-                v-if="s.status === 'error' && s.error"
-                class="ms-1 text-truncate chip__activity"
-              >
-                · {{ s.error }}
-              </span>
-              <span
-                v-else-if="s.activity"
-                class="ms-1 text-truncate chip__activity text-medium-emphasis"
-              >
-                · {{ s.activity }}
-              </span>
-            </v-chip>
-          </div>
-          <v-alert v-else type="info" density="compact" variant="tonal">
-            <template #prepend>
-              <v-progress-circular indeterminate size="16" width="2" />
-            </template>
-            {{ activeStep?.name }} — agent is working…
-          </v-alert>
+          <v-btn
+            icon="$refresh"
+            size="small"
+            variant="text"
+            title="Force poll now"
+            @click="pollActiveStep"
+          />
         </div>
+
+        <!-- Un-gated from stepRunning: retired chips stay visible once a
+             round finishes, so the view moving to a questionnaire/PRD
+             preview/next round no longer makes them disappear. -->
+        <RoundChips
+          v-if="stepRoundHistory.length || activeSessions.length"
+          :round-history="stepRoundHistory"
+          :active-sessions="activeSessions"
+          :expanded-session-id="expandedSession"
+          @toggle-session="toggleSession"
+        />
+        <v-alert
+          v-else-if="stepRunning"
+          type="info"
+          density="compact"
+          variant="tonal"
+        >
+          <template #prepend>
+            <v-progress-circular indeterminate size="16" width="2" />
+          </template>
+          {{ activeStep?.name }} — agent is working…
+        </v-alert>
 
         <v-alert
           v-if="awaitingInput || awaitingApproval"
@@ -729,10 +714,6 @@ function badgeColor(token: string): string | undefined {
 .drawer__feed {
   max-height: 300px;
   overflow-y: auto;
-}
-/* An error/activity hint on a crew chip can be long: keep the chip compact. */
-.chip__activity {
-  max-width: 22ch;
 }
 /* The running stage's chip pulses to signal live activity. Colours come from
    the Vuetify primary theme token (no hex), so it tracks light/dark. */

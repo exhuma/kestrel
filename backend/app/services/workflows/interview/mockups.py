@@ -76,8 +76,7 @@ async def capture_round_mockups(
         return
     step = run.steps[0]
     slot = StepSession(profile_id="mockup", label="Mockups", badge="agent")
-    step.active_sessions = [slot]
-    service._save(run)
+    service._show_sessions(run, [slot])
     prompt = MOCKUP_PROMPT.format(
         prd=issue, screenshots_dir=screenshots.stage_reldir(run, "refine")
     )

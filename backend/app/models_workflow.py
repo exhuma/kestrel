@@ -36,7 +36,10 @@ class StepSession:
     writer, or a plan/implement worker) that is or was active during a
     step. Purely ephemeral telemetry: it exists only while a step is
     running — a transient phase that never survives a restart — so it is
-    deliberately *not* persisted to ``WorkflowStepRow``.
+    deliberately *not* persisted to ``WorkflowStepRow``. This is not the
+    end of the story once a step retires its chips, though: see
+    :class:`RoundChip`, the durable afterimage written at that point so
+    completed rounds stay visible across a reload/restart.
 
     :param profile_id: Stable id (a profile id, or "coordinator"/
         "writer"/"planner"/"builder").
@@ -58,6 +61,41 @@ class StepSession:
     status: str = "running"
     activity: str | None = None
     error: str | None = None
+
+
+@dataclass
+class RoundChip:
+    """One frozen session chip from a completed workflow round.
+
+    A durable afterimage of a :class:`StepSession`: written once, when
+    that step's live chip set is retired (cleared or replaced), so a
+    finished round's chips stay visible and clickable across page
+    reloads and restarts — unlike :attr:`WorkflowStep.active_sessions`,
+    which stays ephemeral by design.
+
+    :param step: The step name this chip belonged to.
+    :param round_index: 0-based group number within this step — each
+        retire/replace of that step's live chips is one round.
+    :param profile_id: Stable id (mirrors :class:`StepSession`).
+    :param label: Human-readable mnemonic for the chip.
+    :param badge: Theme tone token.
+    :param session_id: The claude/opencode session id, if one was ever
+        resolved.
+    :param status: Frozen terminal status — ``"idle"`` (succeeded) or
+        ``"error"``; never ``"running"``.
+    :param error: A short failure reason when ``status == "error"``.
+    :param retired_at: When this chip was frozen into history.
+    """
+
+    step: str
+    round_index: int
+    profile_id: str
+    label: str
+    badge: str
+    session_id: str | None
+    status: str
+    error: str | None
+    retired_at: datetime
 
 
 @dataclass

@@ -61,7 +61,7 @@ def recover_one(service: "WorkflowService", run: WorkflowRun) -> None:
     elif run.status in _TRANSIENT:
         run.status = "failed"
         run.error = "backend restarted mid-step"
-        fail_active_steps(run)
+        fail_active_steps(service, run)
         service._save(run)
 
 
@@ -87,7 +87,7 @@ async def resume(service: "WorkflowService", workflow_id: str) -> None:
         )
         run.status = "failed"
         run.error = str(exc)
-        fail_active_steps(run)
+        fail_active_steps(service, run)
         service._safe_save(run)
         await service._teardown_workspace(run)
 
@@ -138,7 +138,7 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
         )
         run.status = "failed"
         run.error = str(exc)
-        fail_active_steps(run)
+        fail_active_steps(service, run)
         service._safe_save(run)
         await service._teardown_workspace(run)
 
@@ -192,7 +192,7 @@ async def refine(
         step.deliverable = await interview.write_refined(
             service, run, issue, accumulated
         )
-        step.active_sessions = []  # chips off at the gate
+        service._retire_sessions(run, step)  # chips off at the gate
         step.status = "awaiting_approval"
         run.status = "awaiting_refine_approval"
         set_clock(run, "waiting", _now_utc())
@@ -220,7 +220,7 @@ async def refine(
         step.deliverable = await interview.rewrite_refined(
             service, run, step.deliverable or "", decision.refinement
         )
-        step.active_sessions = []  # chips off at the gate
+        service._retire_sessions(run, step)  # chips off at the gate
         step.status = "awaiting_approval"
         run.status = "awaiting_refine_approval"
         set_clock(run, "waiting", _now_utc())
@@ -264,7 +264,7 @@ async def design(service: "WorkflowService", run: WorkflowRun) -> None:
     run.boundary = extract_boundary(result.final_text)
     # Persist the design as the second handover artifact for code/verify.
     service._write_artifact(run, "design.md", design_text)
-    step.active_sessions = []
+    service._retire_sessions(run, step)
     step.status = "done"
     service._save(run)
 

@@ -18,23 +18,29 @@ import json
 import logging
 import os
 import uuid
-from contextlib import asynccontextmanager, suppress
-from typing import AsyncIterator, Callable
+from typing import Callable
 
 import httpx
 
-from app.backends.base import Backend, Capability, TurnRequest, TurnResult
+from app.backends.base import (
+    Backend,
+    Capability,
+    LivenessResult,
+    TurnRequest,
+    TurnResult,
+)
+from app.backends.opencode_permissions import (
+    DENY_WRITE_TOOLS,
+    OpenCodeConnection,
+    permission_handler,
+    run_permission_loop,
+)
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
 from app.storage.registry import SessionRegistry
 
 _TASKS: set[asyncio.Task[None]] = set()
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
-
-#: File-mutating opencode tools. On a read-only step (refine, plan) these are
-#: both disabled per message AND their permission requests are rejected, so
-#: the agent cannot modify the workspace (defense-in-depth).
-_DENY_WRITE_TOOLS = frozenset({"edit", "write", "patch"})
 
 #: The claude-style permission mode that means "read-only, no edits". The
 #: workflow passes this for the refine and plan steps; opencode maps it to a
@@ -108,6 +114,12 @@ class OpenCodeBackend(Backend):
             if password
             else None
         )
+        self._conn = OpenCodeConnection(
+            base_url=self._base_url,
+            auth=self._auth,
+            client=self._client,
+            request=self._request,
+        )
 
     # ---- Backend protocol ---------------------------------------------
     async def start(self, prompt: str) -> str:
@@ -138,14 +150,48 @@ class OpenCodeBackend(Backend):
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
     ) -> TurnResult:
-        sid = req.resume_id or await self._create_session(req.cwd)
-        if self.registry.get(sid) is None:
-            self.registry.create(sid, req.cwd)
-        if on_session_id is not None:
-            on_session_id(sid)
-        read_only = req.permission_mode == _READ_ONLY_MODE
-        content = await self._turn(sid, req.prompt, req.cwd, read_only)
-        return TurnResult(session_id=sid, final_text=content)
+        sid: str | None = req.resume_id
+        try:
+            if sid is None:
+                sid = await self._create_session(req.cwd)
+            if self.registry.get(sid) is None:
+                self.registry.create(sid, req.cwd)
+            if on_session_id is not None:
+                on_session_id(sid)
+            read_only = req.permission_mode == _READ_ONLY_MODE
+            content = await self._turn(sid, req.prompt, req.cwd, read_only)
+            return TurnResult(session_id=sid, final_text=content)
+        except Exception as exc:
+            _logger.exception(
+                "opencode run_turn failed (session=%s, cwd=%s)", sid, req.cwd,
+            )
+            # sid is None only when _create_session itself failed — there is
+            # no session to attach a diagnostic record to in that case; the
+            # traceback above is the only trail.
+            if sid is not None:
+                self._record_turn_error(sid, req.cwd, exc)
+            raise
+
+    def _record_turn_error(
+        self, session_id: str, cwd: str, exc: BaseException
+    ) -> None:
+        """Ensure a session record exists and append a diagnosable error.
+
+        Mirrors the RESULT event a normal turn ends with, so a crash here
+        (whether from :meth:`run_turn` or :meth:`_safe_turn`) is just as
+        visible/inspectable in the Sessions tab as an ordinary completion.
+        """
+        if self.registry.get(session_id) is None:
+            self.registry.create(session_id, cwd)
+        self.registry.append_event(
+            session_id,
+            CanonicalEvent(
+                kind=EventKind.RESULT,
+                session_id=session_id,
+                is_error=True,
+                text=str(exc),
+            ),
+        )
 
     def terminate(self, session_id: str) -> bool:
         task = self._live.get(session_id)
@@ -154,6 +200,32 @@ class OpenCodeBackend(Backend):
             return True
         return False
 
+    async def check_alive(self, session_id: str) -> LivenessResult:
+        """Probe whether this session still exists on the opencode server.
+
+        Used by "force poll now" to detect a session that has crashed
+        silently, with no terminal event ever recorded.
+        """
+        try:
+            data = await self._request(
+                "GET", "/session", directory=self._session_dir(session_id)
+            )
+        except Exception as exc:
+            return LivenessResult(
+                alive=False, reason=f"could not reach opencode: {exc}"
+            )
+        ids = (
+            {s.get("id") for s in data if isinstance(s, dict)}
+            if isinstance(data, list)
+            else set()
+        )
+        if session_id in ids:
+            return LivenessResult(alive=True)
+        return LivenessResult(
+            alive=False,
+            reason="opencode session no longer exists — likely crashed",
+        )
+
     # ---- internals ----------------------------------------------------
     def _session_dir(self, session_id: str) -> str | None:
         """Return the working directory recorded for a session, if any."""
@@ -161,95 +233,16 @@ class OpenCodeBackend(Backend):
         return record.cwd if record is not None else None
 
     # ---- permissions --------------------------------------------------
-    @asynccontextmanager
-    async def _permission_handler(
-        self, session_id: str, directory: str | None, read_only: bool
-    ) -> AsyncIterator[None]:
-        """Answer opencode permission prompts for the duration of a turn.
-
-        opencode's permissions are ``ask`` by default, so a headless turn
-        would block on the first tool call. A background task streams the
-        server's ``/event`` bus and replies to each ``permission.asked`` for
-        this session so the turn proceeds unattended.
-        """
-        task = asyncio.create_task(
-            self._permission_loop(session_id, directory, read_only)
-        )
-        try:
-            yield
-        finally:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-
     async def _permission_loop(
         self, session_id: str, directory: str | None, read_only: bool
     ) -> None:
-        """Stream ``/event`` and answer this session's permission prompts."""
-        client = self._client or httpx.AsyncClient(timeout=None)
-        params = (
-            {"directory": os.path.abspath(directory)} if directory else None
-        )
-        try:
-            async with client.stream(
-                "GET",
-                f"{self._base_url}/event",
-                params=params,
-                auth=self._auth,
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    try:
-                        event = json.loads(line[len("data:") :].strip())
-                    except json.JSONDecodeError:
-                        continue
-                    if event.get("type") != "permission.asked":
-                        continue
-                    props = event.get("properties") or {}
-                    if props.get("sessionID") != session_id:
-                        continue
-                    await self._answer_permission(
-                        session_id, props, directory, read_only
-                    )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            _logger.exception(
-                "opencode permission handling failed for session %s", session_id
-            )
-            raise RuntimeError(
-                "opencode permission handling failed"
-            ) from exc
-        finally:
-            if self._client is None:
-                await client.aclose()
+        """Stream ``/event`` and answer this session's permission prompts.
 
-    async def _answer_permission(
-        self,
-        session_id: str,
-        request: dict[str, object],
-        directory: str | None,
-        read_only: bool,
-    ) -> None:
-        """Approve or reject a single opencode permission request.
-
-        Rejects a file-mutating tool on a read-only turn (defense-in-depth
-        alongside the disabled tools); approves everything else — including
-        ``bash``. Approving shell execution inside the workspace is a
-        deliberate, documented prompt-injection risk in this alpha.
+        Delegates to :mod:`app.backends.opencode_permissions`; kept as a
+        thin method so callers/tests can address it on the backend
+        instance without reaching into that module directly.
         """
-        request_id = request.get("id")
-        tool = request.get("permission")
-        if not isinstance(request_id, str):
-            return
-        reject = read_only and tool in _DENY_WRITE_TOOLS
-        await self._request(
-            "POST",
-            f"/session/{session_id}/permissions/{request_id}",
-            json={"response": "reject" if reject else "once"},
-            directory=directory,
-        )
+        await run_permission_loop(self._conn, session_id, directory, read_only)
 
     def _schedule(
         self,
@@ -283,15 +276,12 @@ class OpenCodeBackend(Backend):
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"
-            self.registry.append_event(
+            _logger.warning(
+                "opencode ad-hoc turn failed for session %s",
                 session_id,
-                CanonicalEvent(
-                    kind=EventKind.RESULT,
-                    session_id=session_id,
-                    is_error=True,
-                    text=str(exc),
-                ),
+                exc_info=True,
             )
+            self._record_turn_error(session_id, directory or "", exc)
 
     async def _turn(
         self, session_id: str, prompt: str, directory: str | None,
@@ -330,9 +320,9 @@ class OpenCodeBackend(Backend):
         if self._model is not None:
             body["model"] = self._model
         if read_only:
-            body["tools"] = {tool: False for tool in _DENY_WRITE_TOOLS}
-        async with self._permission_handler(
-            session_id, directory, read_only
+            body["tools"] = {tool: False for tool in DENY_WRITE_TOOLS}
+        async with permission_handler(
+            self._conn, session_id, directory, read_only
         ):
             response = await self._request(
                 "POST",
@@ -458,6 +448,9 @@ class OpenCodeBackend(Backend):
         )
         sid = data.get("id") if isinstance(data, dict) else None
         if not isinstance(sid, str):
+            _logger.warning(
+                "opencode create-session returned no session id: %r", data
+            )
             raise RuntimeError("opencode did not return a session id")
         return sid
 
@@ -494,6 +487,11 @@ class OpenCodeBackend(Backend):
             )
             resp.raise_for_status()
             return resp.json()
+        except Exception:
+            _logger.warning(
+                "opencode request failed: %s %s", method, path, exc_info=True,
+            )
+            raise
         finally:
             if self._client is None:
                 await client.aclose()

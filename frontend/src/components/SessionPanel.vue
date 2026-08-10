@@ -12,6 +12,7 @@ const {
   refresh,
   start,
   resume,
+  poll,
   watchEvents,
   stopEvents,
   remove,
@@ -59,6 +60,10 @@ async function onResume(): Promise<void> {
 function onSelect(id: string): void {
   current.value = id
   watchEvents(id)
+}
+
+async function onPoll(): Promise<void> {
+  if (current.value) await poll(current.value)
 }
 
 async function onDelete(id: string): Promise<void> {
@@ -306,6 +311,14 @@ function preview(e: SessionEvent): string {
         <span class="text-caption text-medium-emphasis">
           {{ events.length }} events
         </span>
+        <v-btn
+          v-if="current"
+          icon="$refresh"
+          size="small"
+          variant="text"
+          title="Force poll now"
+          @click="onPoll"
+        />
       </div>
     </div>
 

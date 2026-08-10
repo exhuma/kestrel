@@ -17,7 +17,13 @@ from typing import Callable
 
 import httpx
 
-from app.backends.base import Backend, Capability, TurnRequest, TurnResult
+from app.backends.base import (
+    Backend,
+    Capability,
+    LivenessResult,
+    TurnRequest,
+    TurnResult,
+)
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
 from app.storage.registry import SessionRegistry
@@ -85,6 +91,14 @@ class OpenAICompatBackend(Backend):
             task.cancel()
             return True
         return False
+
+    async def check_alive(self, _session_id: str) -> LivenessResult:
+        """No independent remote-liveness signal — always alive.
+
+        This endpoint has no server-side session to probe; kestrel owns
+        the conversation entirely.
+        """
+        return LivenessResult(alive=True)
 
     # ---- internals ----------------------------------------------------
     def _schedule(self, session_id: str, prompt: str) -> None:

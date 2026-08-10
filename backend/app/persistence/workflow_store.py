@@ -1,15 +1,22 @@
 """Write-through persistence for workflow runs."""
 from __future__ import annotations
 
+from datetime import datetime
 from functools import lru_cache
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_workflow import WorkflowRun, WorkflowStep
+from app.models_workflow import (
+    RoundChip,
+    StepSession,
+    WorkflowRun,
+    WorkflowStep,
+)
 from app.persistence.db import get_sessionmaker
 from app.persistence.tables import (
     NotificationRow,
+    WorkflowRoundChipRow,
     WorkflowRunRow,
     WorkflowStepRow,
 )
@@ -83,6 +90,11 @@ class WorkflowStore:
                 )
             )
             db.execute(
+                delete(WorkflowRoundChipRow).where(
+                    WorkflowRoundChipRow.workflow_id == workflow_id
+                )
+            )
+            db.execute(
                 delete(WorkflowStepRow).where(
                     WorkflowStepRow.workflow_id == workflow_id
                 )
@@ -90,6 +102,89 @@ class WorkflowStore:
             row = db.get(WorkflowRunRow, workflow_id)
             if row is not None:
                 db.delete(row)
+
+    def save_round_chips(
+        self,
+        workflow_id: str,
+        step_name: str,
+        chips: list[StepSession],
+        retired_at: datetime,
+    ) -> None:
+        """
+        Freeze a step's live chips into durable round history.
+
+        A no-op when ``chips`` is empty (nothing to retire). The new
+        group's ``round_index`` is one past the highest already recorded
+        for this ``(workflow_id, step_name)`` pair, so each retire call
+        becomes its own round. A chip still "running" when frozen is
+        persisted as "error" — it's terminal history now, not a normal
+        completion.
+
+        :param workflow_id: Id of the run the chips belong to.
+        :param step_name: Name of the step being retired.
+        :param chips: The step's live chip set at the moment of retiring.
+        :param retired_at: Timestamp to stamp every chip in this group.
+        """
+        if not chips:
+            return
+        with self._factory.begin() as db:
+            highest = db.scalar(
+                select(func.max(WorkflowRoundChipRow.round_index)).where(
+                    WorkflowRoundChipRow.workflow_id == workflow_id,
+                    WorkflowRoundChipRow.step_name == step_name,
+                )
+            )
+            round_index = 0 if highest is None else highest + 1
+            for chip in chips:
+                db.add(
+                    WorkflowRoundChipRow(
+                        workflow_id=workflow_id,
+                        step_name=step_name,
+                        round_index=round_index,
+                        profile_id=chip.profile_id,
+                        label=chip.label,
+                        badge=chip.badge,
+                        session_id=chip.session_id,
+                        status=(
+                            "error" if chip.status == "running"
+                            else chip.status
+                        ),
+                        error=chip.error,
+                        retired_at=retired_at,
+                    )
+                )
+
+    def load_round_chips(self, workflow_id: str) -> list[RoundChip]:
+        """
+        Load a run's retired round-chip history, oldest first.
+
+        :param workflow_id: Id of the run to load history for.
+        :returns: Frozen chips ordered by step, round, then insertion.
+        """
+        with self._factory() as db:
+            stmt = (
+                select(WorkflowRoundChipRow)
+                .where(WorkflowRoundChipRow.workflow_id == workflow_id)
+                .order_by(
+                    WorkflowRoundChipRow.step_name,
+                    WorkflowRoundChipRow.round_index,
+                    WorkflowRoundChipRow.id,
+                )
+            )
+            return [
+                RoundChip(
+                    step=r.step_name,
+                    round_index=r.round_index,
+                    profile_id=r.profile_id,
+                    label=r.label,
+                    badge=r.badge,
+                    session_id=r.session_id,
+                    status=r.status,
+                    error=r.error,
+                    retired_at=r.retired_at,
+                )
+                for r in db.scalars(stmt)
+            ]
 
     def load_all(self) -> list[WorkflowRun]:
         """

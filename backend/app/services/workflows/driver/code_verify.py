@@ -111,7 +111,7 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
             slot,
             _bind(code_step, slot),
         )
-        code_step.active_sessions = []
+        service._retire_sessions(run, code_step)
         # Exclude the handover artifacts: they are committed with the
         # change, but must not pollute what the escalation check weighs.
         # A single-ref diff against round_start_sha captures both any
@@ -245,7 +245,7 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
             ev_fb = _evidence_feedback(evidence)
             feedback = f"{ev_fb}\n\n{feedback}".strip()
             accept = False
-        verify_step.active_sessions = []
+        service._retire_sessions(run, verify_step)
         verify_step.deliverable = (
             "accepted" if accept else f"rejected: {feedback}"
         )
