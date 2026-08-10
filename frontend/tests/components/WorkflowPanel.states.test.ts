@@ -288,9 +288,15 @@ describe('WorkflowPanel round chip history', () => {
         ],
         round_history: [
           {
-            step: 'refine', round_index: 0, profile_id: 'coordinator',
-            label: 'Coordinator', badge: 'sys', session_id: 's1',
-            status: 'idle', error: null, retired_at: '2026-01-01T00:00:00Z',
+            step: 'refine',
+            round_index: 0,
+            profile_id: 'coordinator',
+            label: 'Coordinator',
+            badge: 'sys',
+            session_id: 's1',
+            status: 'idle',
+            error: null,
+            retired_at: '2026-01-01T00:00:00Z',
           },
         ],
       })

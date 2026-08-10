@@ -486,7 +486,10 @@ function stepColor(status: string): string | undefined {
       </div>
 
       <div class="stage__body flex-1-1 pa-4 d-flex flex-column ga-4">
-        <div v-if="stepRunning" class="d-flex align-center justify-space-between">
+        <div
+          v-if="stepRunning"
+          class="d-flex align-center justify-space-between"
+        >
           <div class="text-overline text-medium-emphasis">
             {{ activeStep?.name
             }}<template v-if="activeStep?.backend">

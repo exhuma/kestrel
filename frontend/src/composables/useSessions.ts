@@ -62,9 +62,7 @@ export function useSessions() {
   async function poll(id: string): Promise<void> {
     error.value = null
     try {
-      const summary = await api.post<SessionSummary>(
-        `/api/sessions/${id}/poll`,
-      )
+      const summary = await api.post<SessionSummary>(`/api/sessions/${id}/poll`)
       sessions.value = sessions.value.map((s) =>
         s.session_id === id ? summary : s,
       )

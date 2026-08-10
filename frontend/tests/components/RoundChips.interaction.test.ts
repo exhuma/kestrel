@@ -60,8 +60,8 @@ describe('RoundChips interaction', () => {
         },
       }),
     )
-    expect(
-      wrapper.findComponent({ name: 'VProgressCircular' }).exists(),
-    ).toBe(true)
+    expect(wrapper.findComponent({ name: 'VProgressCircular' }).exists()).toBe(
+      true,
+    )
   })
 })

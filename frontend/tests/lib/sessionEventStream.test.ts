@@ -20,7 +20,10 @@ class FakeEventSource {
   }
 
   emit(data: unknown, lastEventId = ''): void {
-    this.onmessage?.({ data: JSON.stringify(data), lastEventId } as MessageEvent)
+    this.onmessage?.({
+      data: JSON.stringify(data),
+      lastEventId,
+    } as MessageEvent)
   }
 
   fail(): void {
