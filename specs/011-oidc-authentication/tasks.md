@@ -412,10 +412,17 @@ amendment's Sync Impact Report, plus whole-feature verification.
 - [X] T065 Run `task quality` end-to-end — confirm every new/changed module
       stays within the structural limits (complexity ≤10, module ≤500
       lines, etc.)
-- [ ] T066 Execute `quickstart.md` steps 1–7 end-to-end against a real
-      Keycloak instance (or a disposable `docker run
+- [ ] T066 **BLOCKED (manual, outside this environment):** Execute
+      `quickstart.md` steps 1–7 end-to-end against a real Keycloak
+      instance (or a disposable `docker run
       quay.io/keycloak/keycloak start-dev`) — the feature's actual
-      acceptance bar
+      acceptance bar. Not executable in this sandboxed session (no
+      Docker/network access to stand up an IdP or drive a browser
+      through the real redirect flow). Everything short of a live IdP
+      round-trip is covered by the automated suite: unit/integration
+      tests exercise real RS256-signed tokens, JWKS validation,
+      realm/client-role extraction, permission resolution, and the
+      full HTTP gating chain end-to-end against every route.
 
 ---
 
