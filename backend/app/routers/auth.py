@@ -14,7 +14,7 @@ from app.auth.dependencies import get_current_claims
 from app.auth.identity import AuthenticatedUser
 from app.auth.tickets import mint
 from app.config import Settings, get_settings
-from app.schemas import AuthConfigOut, TicketOut
+from app.schemas import AuthConfigOut, AuthPermissionsOut, TicketOut
 
 router = APIRouter(prefix="/api/auth")
 
@@ -39,6 +39,31 @@ async def get_auth_config(
         enabled=True,
         authority=settings.oidc_authority,
         client_id=settings.effective_oidc_client_id(),
+    )
+
+
+@router.get("/permissions", response_model=AuthPermissionsOut)
+async def get_auth_permissions(
+    user: AuthenticatedUser = Depends(get_current_claims),
+) -> AuthPermissionsOut:
+    """
+    The caller's resolved identity + permission set.
+
+    The single source of truth the frontend uses to decide which mutating
+    controls to enable — see ``contracts/auth-permissions.md``. When auth
+    is disabled, ``get_current_claims`` already resolves to the
+    "everything allowed" stand-in (``permissions == {"*"}``), so no
+    special-casing is needed here.
+
+    :param user: The caller's identity/permissions, injected.
+    :returns: ``sub``/``email``/``preferred_username`` are ``null`` when
+        auth is disabled; ``permissions`` is ``["*"]`` in that case.
+    """
+    return AuthPermissionsOut(
+        sub=user.sub,
+        email=user.email,
+        preferred_username=user.preferred_username,
+        permissions=sorted(user.permissions),
     )
 
 

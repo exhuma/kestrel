@@ -269,18 +269,18 @@ and is refused for the other, for every gated action.
 
 ### Tests for User Story 2
 
-- [ ] T043 [P] [US2] Extend `backend/tests/test_sessions_router.py`: with
+- [X] T043 [P] [US2] Extend `backend/tests/test_sessions_router.py`: with
       auth enabled, `POST /api/sessions`, `POST /api/sessions/{id}/resume`
       require `sessions:write` (200 with it, 403 without, 401 with no
       token); `DELETE /api/sessions/{id}` requires `sessions:delete`
-- [ ] T044 [P] [US2] Extend `backend/tests/test_workflows_router.py`: each
+- [X] T044 [P] [US2] Extend `backend/tests/test_workflows_router.py`: each
       of `POST /{id}/approve` (`workflows:approve`), `/reject`
       (`workflows:reject`), `/reply` `/answers` `/answers/draft`
       (`workflows:respond`), `/cleanup` (`workflows:cleanup`), `/rerun`
       (`workflows:rerun`), `DELETE /{id}` (`workflows:delete`) — 200 with
       the matching permission, 403 without, and confirm a 403 performs no
       side effect (per `contracts/permission-gated-endpoints.md`)
-- [ ] T045 [P] [US2] Test `GET /api/auth/permissions` in
+- [X] T045 [P] [US2] Test `GET /api/auth/permissions` in
       `backend/tests/test_auth_router.py`: auth disabled → the `"*"`
       sentinel shape; auth enabled + valid token + mapped permissions →
       exact list; auth enabled + zero mapped roles → `"permissions": []`
@@ -297,17 +297,17 @@ and is refused for the other, for every gated action.
 
 ### Implementation for User Story 2
 
-- [ ] T048 [US2] Apply `require_permission("sessions:write")` to
+- [X] T048 [US2] Apply `require_permission("sessions:write")` to
       `POST /api/sessions` and `POST /api/sessions/{id}/resume`,
       `require_permission("sessions:delete")` to
       `DELETE /api/sessions/{id}` in `backend/app/routers/sessions.py` —
       makes T043 pass
-- [ ] T049 [US2] Apply the matching `require_permission(...)` (per
+- [X] T049 [US2] Apply the matching `require_permission(...)` (per
       `data-model.md`'s vocabulary table) to `POST /{id}/approve`,
       `/reject`, `/reply`, `/answers`, `/answers/draft`, `/cleanup`,
       `/rerun`, and `DELETE /{id}` in `backend/app/routers/workflows.py` —
       makes T044 pass
-- [ ] T050 [US2] Add `GET /api/auth/permissions` to
+- [X] T050 [US2] Add `GET /api/auth/permissions` to
       `backend/app/routers/auth.py` (per `contracts/auth-permissions.md`,
       including the disabled-auth `"*"` sentinel response) — makes T045
       pass; depends on T016

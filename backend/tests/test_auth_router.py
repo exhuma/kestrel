@@ -97,3 +97,62 @@ async def test_sse_ticket_mint_returns_a_usable_ticket() -> None:
     assert validated is not None
     assert validated.sub == "user-1"
     assert validated.permissions == frozenset({"workflows:cleanup"})
+
+
+async def test_permissions_disabled_returns_sentinel() -> None:
+    """Auth disabled: null identity fields, the "*" sentinel permission."""
+    async with _client(Settings(auth_enabled=False)) as client:
+        resp = await client.get("/api/auth/permissions")
+    assert resp.status_code == HTTPStatus.OK
+    assert resp.json() == {
+        "sub": None,
+        "email": None,
+        "preferred_username": None,
+        "permissions": ["*"],
+    }
+
+
+async def test_permissions_enabled_reports_resolved_set() -> None:
+    """Auth enabled: the caller's actual resolved permissions and claims."""
+    user = AuthenticatedUser(
+        sub="user-1", email="user@example.com", preferred_username="user",
+        permissions=frozenset({"workflows:cleanup", "sessions:write"}),
+    )
+    settings = Settings(
+        auth_enabled=True, oidc_authority="x", oidc_audience="y"
+    )
+    async with _client(settings, user=user) as client:
+        resp = await client.get("/api/auth/permissions")
+    assert resp.status_code == HTTPStatus.OK
+    body = resp.json()
+    assert body["sub"] == "user-1"
+    assert body["email"] == "user@example.com"
+    assert sorted(body["permissions"]) == [
+        "sessions:write", "workflows:cleanup",
+    ]
+
+
+async def test_permissions_enabled_zero_roles_is_not_an_error() -> None:
+    """An authenticated user with no mapped roles gets an empty list, not
+    an error — view-only is a valid state (spec FR-009)."""
+    user = AuthenticatedUser(
+        sub="user-2", email=None, preferred_username=None,
+        permissions=frozenset(),
+    )
+    settings = Settings(
+        auth_enabled=True, oidc_authority="x", oidc_audience="y"
+    )
+    async with _client(settings, user=user) as client:
+        resp = await client.get("/api/auth/permissions")
+    assert resp.status_code == HTTPStatus.OK
+    assert resp.json()["permissions"] == []
+
+
+async def test_permissions_enabled_requires_authentication() -> None:
+    """No override registered -> a real (missing) token is validated -> 401."""
+    settings = Settings(
+        auth_enabled=True, oidc_authority="x", oidc_audience="y"
+    )
+    async with _client(settings) as client:
+        resp = await client.get("/api/auth/permissions")
+    assert resp.status_code == HTTPStatus.UNAUTHORIZED

@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app import sse
-from app.auth.dependencies import get_current_claims, get_ticket_claims
+from app.auth.dependencies import (
+    get_current_claims,
+    get_ticket_claims,
+    require_permission,
+)
 from app.config import get_settings
 from app.models_workflow import Step, WorkflowRun
 from app.policy import label_policy
@@ -227,7 +231,10 @@ async def stream_workflow(
     )
 
 
-@router.delete("/{workflow_id}")
+@router.delete(
+    "/{workflow_id}",
+    dependencies=[Depends(require_permission("workflows:delete"))],
+)
 async def delete_workflow(
     workflow_id: str,
     service: WorkflowService = Depends(get_workflow_service),
@@ -237,7 +244,10 @@ async def delete_workflow(
     return {"status": "ok"}
 
 
-@router.post("/{workflow_id}/cleanup")
+@router.post(
+    "/{workflow_id}/cleanup",
+    dependencies=[Depends(require_permission("workflows:cleanup"))],
+)
 async def cleanup_workflow(
     workflow_id: str,
     service: WorkflowService = Depends(get_workflow_service),
@@ -251,7 +261,10 @@ async def cleanup_workflow(
     return {"status": "ok"}
 
 
-@router.post("/{workflow_id}/rerun")
+@router.post(
+    "/{workflow_id}/rerun",
+    dependencies=[Depends(require_permission("workflows:rerun"))],
+)
 async def rerun_workflow(
     workflow_id: str,
     service: WorkflowService = Depends(get_workflow_service),
@@ -266,7 +279,10 @@ async def rerun_workflow(
     return {"workflow_id": new_id}
 
 
-@router.post("/{workflow_id}/reply")
+@router.post(
+    "/{workflow_id}/reply",
+    dependencies=[Depends(require_permission("workflows:respond"))],
+)
 async def reply_workflow(
     workflow_id: str,
     body: ReplyIn,
@@ -277,7 +293,10 @@ async def reply_workflow(
     return {"status": "ok"}
 
 
-@router.post("/{workflow_id}/approve")
+@router.post(
+    "/{workflow_id}/approve",
+    dependencies=[Depends(require_permission("workflows:approve"))],
+)
 async def approve_workflow(
     workflow_id: str,
     body: ApproveIn,
@@ -288,7 +307,10 @@ async def approve_workflow(
     return {"status": "ok"}
 
 
-@router.post("/{workflow_id}/reject")
+@router.post(
+    "/{workflow_id}/reject",
+    dependencies=[Depends(require_permission("workflows:reject"))],
+)
 async def reject_workflow(
     workflow_id: str,
     body: RejectIn,
@@ -299,7 +321,10 @@ async def reject_workflow(
     return {"status": "ok"}
 
 
-@router.post("/{workflow_id}/answers/draft")
+@router.post(
+    "/{workflow_id}/answers/draft",
+    dependencies=[Depends(require_permission("workflows:respond"))],
+)
 async def save_draft_answers(
     workflow_id: str,
     body: AnswersIn,
@@ -310,7 +335,10 @@ async def save_draft_answers(
     return {"status": "ok"}
 
 
-@router.post("/{workflow_id}/answers")
+@router.post(
+    "/{workflow_id}/answers",
+    dependencies=[Depends(require_permission("workflows:respond"))],
+)
 async def submit_answers(
     workflow_id: str,
     body: AnswersIn,

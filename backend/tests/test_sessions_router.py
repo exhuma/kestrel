@@ -221,10 +221,20 @@ def _client_auth_enabled(
     service: _FakeService, *, authenticated: bool
 ) -> httpx.AsyncClient:
     """A client with auth enabled, either authenticated or not."""
+    return _client_with_permissions(
+        service, frozenset() if authenticated else None
+    )
+
+
+def _client_with_permissions(
+    service: _FakeService, permissions: frozenset[str] | None
+) -> httpx.AsyncClient:
+    """A client with auth enabled and a specific permission set (or,
+    when ``permissions`` is None, an unauthenticated caller)."""
     app = create_app()
     app.dependency_overrides[get_session_service] = lambda: service
     app.dependency_overrides[get_settings] = _auth_enabled_settings
-    override_auth(app, permissions=frozenset() if authenticated else None)
+    override_auth(app, permissions=permissions)
     transport = httpx.ASGITransport(app=app)
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 
@@ -292,3 +302,54 @@ async def test_events_stream_accepts_a_valid_ticket() -> None:
             f"/api/sessions/s1/events?ticket={ticket}"
         )
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_create_session_requires_sessions_write() -> None:
+    """POST /api/sessions 403s without sessions:write."""
+    async with _client_with_permissions(_FakeService(), frozenset()) as client:
+        resp = await client.post("/api/sessions", json={"prompt": "hi"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_create_session_ok_with_sessions_write() -> None:
+    """POST /api/sessions succeeds with sessions:write."""
+    perms = frozenset({"sessions:write"})
+    async with _client_with_permissions(_FakeService(), perms) as client:
+        resp = await client.post("/api/sessions", json={"prompt": "hi"})
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_resume_session_requires_sessions_write() -> None:
+    """POST /api/sessions/{id}/resume 403s without sessions:write."""
+    async with _client_with_permissions(_FakeService(), frozenset()) as client:
+        resp = await client.post(
+            "/api/sessions/s1/resume", json={"prompt": "again"}
+        )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_session_requires_sessions_delete() -> None:
+    """DELETE /api/sessions/{id} 403s without sessions:delete."""
+    service = _FakeService()
+    # Holds sessions:write but not sessions:delete — proves the two are
+    # gated independently, not folded into one "sessions:write" catch-all.
+    perms = frozenset({"sessions:write"})
+    async with _client_with_permissions(service, perms) as client:
+        resp = await client.delete("/api/sessions/s1")
+    assert resp.status_code == 403
+    assert not hasattr(service, "deleted")
+
+
+@pytest.mark.asyncio
+async def test_delete_session_ok_with_sessions_delete() -> None:
+    """DELETE /api/sessions/{id} succeeds with sessions:delete."""
+    service = _FakeService()
+    perms = frozenset({"sessions:delete"})
+    async with _client_with_permissions(service, perms) as client:
+        resp = await client.delete("/api/sessions/s1")
+    assert resp.status_code == 200
+    assert service.deleted == "s1"

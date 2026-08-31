@@ -12,7 +12,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import sse
-from app.auth.dependencies import get_current_claims, get_ticket_claims
+from app.auth.dependencies import (
+    get_current_claims,
+    get_ticket_claims,
+    require_permission,
+)
 from app.config import Settings, get_settings
 from app.schemas import SessionSummary
 from app.services.sessions import SessionService, get_session_service
@@ -62,7 +66,11 @@ class SessionOut(BaseModel):
     session_id: str
 
 
-@router.post("/sessions", response_model=SessionOut)
+@router.post(
+    "/sessions",
+    response_model=SessionOut,
+    dependencies=[Depends(require_permission("sessions:write"))],
+)
 async def create_session(
     body: PromptIn,
     service: SessionService = Depends(get_session_service),
@@ -78,7 +86,11 @@ async def create_session(
     return SessionOut(session_id=session_id)
 
 
-@router.post("/sessions/{session_id}/resume", response_model=SessionOut)
+@router.post(
+    "/sessions/{session_id}/resume",
+    response_model=SessionOut,
+    dependencies=[Depends(require_permission("sessions:write"))],
+)
 async def resume_session(
     session_id: str,
     body: PromptIn,
@@ -113,7 +125,10 @@ async def list_sessions(
     return service.list_summaries()
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete(
+    "/sessions/{session_id}",
+    dependencies=[Depends(require_permission("sessions:delete"))],
+)
 async def delete_session(
     session_id: str,
     service: SessionService = Depends(get_session_service),
