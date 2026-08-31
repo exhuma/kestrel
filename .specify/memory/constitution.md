@@ -1,6 +1,85 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-08-31 (1.4.0 → 2.0.0, MAJOR): Redefine Principle IV to permit
+optional, off-by-default OIDC-based multi-user authentication and
+permission-based authorization, reversing the prior explicit non-goal ("the
+only planned access protection is a shared-secret gate, not multi-user
+authentication"). This is a MAJOR change, not a recorded deviation like the
+three prior amendments (webhook HMAC, hooks_dir, fixture visibility): those
+each added a narrow exception to the *access model* while leaving kestrel's
+single-user *scope* declaration intact; this amendment redefines that scope
+declaration itself, which the constitution's own Governance section requires
+to be MAJOR ("principle removals/redefinitions"). Kestrel remains
+single-tenant by design — no per-user data ownership, no new database tables,
+permissions are recomputed statelessly from IdP token claims on every
+request — this is authentication/authorization of *who may act*, not a shift
+to multi-tenancy. Default behavior (`KESTREL_AUTH_ENABLED=false`) is
+unchanged: unauthenticated, loopback-bound, exactly as before. When enabled,
+kestrel's backend is a stateless OIDC resource server (bearer-token
+validation against a configured IdP's JWKS) and the SPA is the public OIDC
+client (Authorization Code + PKCE); IdP roles (realm and client roles alike)
+are mapped through an operator-owned `role_mappings` table in `config.toml`
+to an app-defined permission vocabulary, so application code gates only on
+permissions, never on IdP-specific role names, and role-extraction is
+provider-pluggable (Keycloak first) rather than hardcoded to one IdP. State-
+mutating actions (session start/resume/delete; workflow approve/reject/
+respond/cleanup/rerun/delete) require the matching permission; all other API
+access requires only authentication when the feature is enabled.
+Task-ingestion-level access control (who may create tasks in Jira/GitHub) is
+explicitly out of scope for kestrel itself — delegated to the source's own
+permissions (JQL scoping, GitHub label/repo access) and documented as the
+operator's responsibility, not enforced here. One further recorded access-
+model exception: the four Server-Sent Events streams (`/api/workflows/
+events`, `/api/workflows/{id}/events`, `/api/sessions/{id}/events`,
+`/api/notifications/events`) authenticate via a short-lived (~30s),
+single-use, kestrel-minted connection ticket (`POST /api/auth/sse-ticket`)
+rather than the `Authorization` header, because the browser `EventSource`
+API cannot set custom headers; the ticket is validated once at connection
+time and is not itself a bearer credential adequate for anything beyond
+opening that one stream. Required by Principle I ("any intentional departure
+… MUST be recorded here … before it is relied upon") and by the developer's
+explicit direction to amend the constitution as part of this feature rather
+than work around it.
+
+Modified sections:
+  - Principle IV ("Deliberate Simplicity & Single-User Scope") → rewritten
+    to permit the opt-in OIDC exception described above; renamed rationale
+    accordingly.
+  - Technology & Architecture Constraints → "Access model" bullet expanded
+    with a fourth recorded exception: opt-in OIDC authentication/permission
+    gating, the SSE-ticket mechanism, and the explicit task-ingestion-scope
+    boundary.
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... ✅ aligned (Constitution Check
+    gate references the constitution dynamically; no edit)
+  - .specify/templates/spec-template.md ...... ✅ aligned (no mandatory
+    section changed)
+  - .specify/templates/tasks-template.md ..... ✅ aligned (no new
+    principle-driven task type)
+  - .claude/skills/speckit-*/SKILL.md ........ ✅ reviewed; generic guidance
+  - AGENTS.md ................................ ✅ consistent (defers the
+    access model to this file; no edit needed)
+  - docs/next-steps.md ....................... ⚠ pending: "Multi-user / auth"
+    out-of-scope bullet asserts something this amendment makes false; update
+    as part of feature 011's implementation
+  - docs/architecture.md ..................... ⚠ pending: "Data & auth"
+    section ("Single-user, no auth… Multi-user/authn is out of scope") to be
+    rewritten as part of feature 011's implementation
+  - docs/qm-alignment.md ..................... ⚠ pending: the four
+    `module-auth-*` kits are recorded there as "N/A"; update as part of
+    feature 011
+
+Follow-up TODOs:
+  - Run `/speckit.specify` for the OIDC feature (next available number) to
+    carry this amendment into a formal spec/plan/tasks pipeline per
+    AGENTS.md's mandated workflow for non-trivial changes.
+  - docs/next-steps.md, docs/architecture.md, docs/qm-alignment.md updates
+    (see ⚠ above) ship as part of that feature's implementation, not this
+    amendment.
+
+--------------------------------------------------------------------------------
 Amendment 2026-08-10 (1.3.0 → 1.4.0, MINOR): Record the visibility/rerun constraint
 introduced by feature 008-fixture-task-source in "Technology & Architecture
 Constraints". Every `TaskSource` implementation (`backend/app/ports.py`) now declares
@@ -220,18 +299,30 @@ with a test that reproduces the bug.
 **Rationale**: Tests are the executable specification of intended behaviour and
 the only durable guard against regressions in a fast-moving alpha.
 
-### IV. Deliberate Simplicity & Single-User Scope
+### IV. Deliberate Simplicity & Single-Tenant Scope
 
-kestrel is single-user by design. YAGNI governs: features, abstractions, and
+kestrel is single-tenant by design: one shared workspace, no per-user data
+ownership, no multi-tenancy. YAGNI governs: features, abstractions, and
 dependencies are added only when a present need justifies them, and every new
-npm/Python dependency MUST be justified. Single-user assumptions (e.g. no
-multi-user auth) are intentional and MUST NOT be "fixed" by speculative
-generalisation; the only planned access protection is a shared-secret gate, not
-multi-user authentication. Added complexity MUST be recorded and justified (see
-Governance).
+npm/Python dependency MUST be justified. By default kestrel remains
+single-user, unauthenticated, and loopback-bound — that default MUST NOT be
+"fixed" by speculative generalisation. The one recorded, deliberate exception:
+an operator MAY opt into OIDC-based authentication and permission-based
+authorization (`KESTREL_AUTH_ENABLED`, off by default) to gate access and
+state-mutating actions behind identities and roles from their own IdP — see
+Technology & Architecture Constraints. This is authentication/authorization of
+*who may act*, not a reversal of single-tenancy: permissions are computed
+statelessly from IdP token claims on every request, kestrel persists no user
+row and owns no per-user data, and disabled (the default) the system is
+unchanged from before this exception existed. Added complexity MUST be
+recorded and justified (see Governance).
 
-**Rationale**: The project's value comes from being a focused personal tool;
-unrequested generality is cost without benefit and erodes the contract.
+**Rationale**: The project's value comes from being a focused, single-tenant
+tool; unrequested generality is cost without benefit and erodes the contract.
+Gating *who* may reach that one tenant is a narrow, opt-in exception to that
+posture, not a redefinition of it — kestrel does not become multi-tenant, own
+per-user data, or grow speculative generality anywhere this amendment doesn't
+explicitly name.
 
 ### V. Kit-Aligned Consistency & Observability
 
@@ -313,7 +404,36 @@ section records only the non-negotiable constraints an agent must honour.
   enforce alone, per Principle II). The existing delete/cleanup actions were already
   safe for public sources (they act only on kestrel's local state, never on the
   remote ticket) and this constraint does not change that; it only formalizes the
-  guarantee and extends it to gate rerun.
+  guarantee and extends it to gate rerun. **Fourth recorded exception**
+  (feature 011, opt-in OIDC authentication): an operator MAY set
+  `KESTREL_AUTH_ENABLED=true` to turn kestrel's backend into a stateless OIDC
+  resource server: bearer tokens are validated against a configured IdP's JWKS
+  (`KESTREL_OIDC_AUTHORITY`/`_AUDIENCE`/`_ISSUER`/`_CLIENT_ID`), and the Vue SPA
+  becomes the public OIDC client, performing Authorization Code + PKCE (never
+  holding a `client_secret`). IdP roles — both realm roles and client roles —
+  are extracted via a provider-keyed, pluggable port (Keycloak first; adding
+  another IdP is one new adapter) and mapped through an operator-owned
+  `[[role_mappings]]` list in `config.toml` to a fixed, app-defined permission
+  vocabulary; application code gates only on permissions, never on
+  IdP-specific role names. State-mutating actions (session start/resume/
+  delete; workflow approve/reject/respond/cleanup/rerun/delete) require the
+  matching permission when auth is enabled; all other API access requires
+  only a valid, authenticated identity. Kestrel persists no local user row and
+  owns no per-user data — permissions are recomputed from token claims on
+  every request, so this exception does not make kestrel multi-tenant.
+  Task-ingestion-level access control (who may create a task in Jira/GitHub)
+  is explicitly **not** enforced by kestrel; it is delegated to and
+  documented as the responsibility of the configured source's own access
+  control (a scoped JQL query, a GitHub label/repo allow-list). One further,
+  narrower exception within this one: the four Server-Sent Events streams
+  (workflow list/detail, session detail, notifications) authenticate via a
+  short-lived (~30 second), single-use, kestrel-minted connection ticket
+  (`POST /api/auth/sse-ticket`) rather than the `Authorization` header,
+  because the browser `EventSource` API cannot set custom request headers;
+  the ticket is valid only to establish one connection and carries no
+  broader authority. Disabled (the default), every route in this bullet
+  behaves exactly as it did before this exception was recorded:
+  unauthenticated, loopback-bound.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -354,4 +474,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.4.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-08-10
+**Version**: 2.0.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-08-31

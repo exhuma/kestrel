@@ -38,8 +38,16 @@ collector, rate limiting, etc.) remain recorded in
 
 ## Explicitly out of scope (by design, not gaps)
 
-- **Multi-user / auth** — single-user by design; the access gate (#21) is the
-  only planned protection, and it's explicitly *not* multi-user auth.
+- **Multi-user / auth** — single-*tenant* by design (one shared workspace, no
+  per-user data ownership), but no longer no-auth: constitution v2.0.0
+  (2026-08-31) permits optional, off-by-default OIDC authentication and
+  permission-based authorization (`KESTREL_AUTH_ENABLED`) so an operator can
+  gate access and state-mutating actions behind their own IdP's identities and
+  roles. See feature 011 (OIDC authentication) and `docs/auth.md` once it
+  lands. Superseded issue #21 (shared-secret gate) — closed in favor of the
+  OIDC mechanism. Still explicitly out of scope: per-user data ownership,
+  multi-tenancy, and enforcing task-ingestion-level access control (delegated
+  to the source's own permissions).
 - **Auto-merging the PR** — the workflow opens a draft PR only; merging is a
   manual human action on GitHub (the review gate, by design).
 - **Incremental commits during implement** — the implement step makes one
