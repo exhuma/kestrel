@@ -7,10 +7,14 @@ from typing import AsyncIterator
 import httpx
 import pytest
 
+from app.auth import tickets
+from app.auth.identity import AuthenticatedUser
+from app.config import get_settings
 from app.main import create_app
 from app.schemas import SessionSummary
 from app.services.exceptions import SessionNotFoundError, SessionStartError
 from app.services.sessions import get_session_service
+from tests.conftest import _auth_enabled_settings, override_auth
 
 
 class _FakeService:
@@ -211,3 +215,80 @@ async def test_events_stream_honours_last_event_id() -> None:
         )
     frames = _data_frames(resp.text)
     assert frames == [{"type": "result", "session_id": "s1", "raw": {}}]
+
+
+def _client_auth_enabled(
+    service: _FakeService, *, authenticated: bool
+) -> httpx.AsyncClient:
+    """A client with auth enabled, either authenticated or not."""
+    app = create_app()
+    app.dependency_overrides[get_session_service] = lambda: service
+    app.dependency_overrides[get_settings] = _auth_enabled_settings
+    override_auth(app, permissions=frozenset() if authenticated else None)
+    transport = httpx.ASGITransport(app=app)
+    return httpx.AsyncClient(transport=transport, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_requires_auth_when_enabled() -> None:
+    """GET /api/sessions is authenticated-only, no permission needed."""
+    async with _client_auth_enabled(
+        _FakeService(), authenticated=False
+    ) as client:
+        resp = await client.get("/api/sessions")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_ok_when_authenticated() -> None:
+    """Any authenticated identity (no specific permission) may list."""
+    async with _client_auth_enabled(
+        _FakeService(), authenticated=True
+    ) as client:
+        resp = await client.get("/api/sessions")
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_poll_session_requires_auth_when_enabled() -> None:
+    """POST /api/sessions/{id}/poll is authenticated-only."""
+    async with _client_auth_enabled(
+        _FakeService(), authenticated=False
+    ) as client:
+        resp = await client.post("/api/sessions/s1/poll")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_events_stream_requires_a_ticket_when_auth_enabled() -> None:
+    """GET /sessions/{id}/events rejects a connection with no ticket."""
+    app = create_app()
+    app.dependency_overrides[get_session_service] = _FakeService
+    app.dependency_overrides[get_settings] = _auth_enabled_settings
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/sessions/s1/events")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_events_stream_accepts_a_valid_ticket() -> None:
+    """GET /sessions/{id}/events opens the stream with a valid ticket."""
+    user = AuthenticatedUser(
+        sub="user-1", email=None, preferred_username=None,
+        permissions=frozenset(),
+    )
+    ticket = tickets.mint(user)
+    app = create_app()
+    app.dependency_overrides[get_session_service] = _FakeService
+    app.dependency_overrides[get_settings] = _auth_enabled_settings
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        resp = await client.get(
+            f"/api/sessions/s1/events?ticket={ticket}"
+        )
+    assert resp.status_code == 200

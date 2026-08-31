@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import sse
+from app.auth.dependencies import get_current_claims, get_ticket_claims
 from app.config import Settings, get_settings
 from app.schemas import SessionSummary
 from app.services.sessions import SessionService, get_session_service
@@ -19,7 +20,7 @@ from app.services.sessions import SessionService, get_session_service
 router = APIRouter(prefix="/api")
 
 
-@router.get("/backends")
+@router.get("/backends", dependencies=[Depends(get_current_claims)])
 async def list_backends(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
@@ -95,7 +96,11 @@ async def resume_session(
     return SessionOut(session_id=sid)
 
 
-@router.get("/sessions", response_model=list[SessionSummary])
+@router.get(
+    "/sessions",
+    response_model=list[SessionSummary],
+    dependencies=[Depends(get_current_claims)],
+)
 async def list_sessions(
     service: SessionService = Depends(get_session_service),
 ) -> list[SessionSummary]:
@@ -124,7 +129,11 @@ async def delete_session(
     return {"status": "ok"}
 
 
-@router.post("/sessions/{session_id}/poll", response_model=SessionSummary)
+@router.post(
+    "/sessions/{session_id}/poll",
+    response_model=SessionSummary,
+    dependencies=[Depends(get_current_claims)],
+)
 async def poll_session(
     session_id: str,
     service: SessionService = Depends(get_session_service),
@@ -153,7 +162,10 @@ def _last_event_id(request: Request) -> int:
         return 0
 
 
-@router.get("/sessions/{session_id}/events")
+@router.get(
+    "/sessions/{session_id}/events",
+    dependencies=[Depends(get_ticket_claims)],
+)
 async def stream_events(
     session_id: str,
     request: Request,

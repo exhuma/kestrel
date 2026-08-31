@@ -243,3 +243,13 @@ class AuthPermissionsOut(BaseModel):
     email: str | None
     preferred_username: str | None
     permissions: list[str]
+
+
+class TicketOut(BaseModel):
+    """A minted SSE connection ticket (feature 011).
+
+    Opaque to the client — appended verbatim as ``?ticket=...`` on one of
+    the four ``/events`` routes. See ``app.auth.tickets``.
+    """
+
+    ticket: str

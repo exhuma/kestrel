@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app import sse
+from app.auth.dependencies import get_current_claims, get_ticket_claims
 from app.notifications import Notification, signal_class
 from app.persistence.notification_store import (
     NotificationStore,
@@ -40,7 +41,11 @@ def _payload(store: NotificationStore) -> dict[str, object]:
     }
 
 
-@router.get("", response_model=list[NotificationOut])
+@router.get(
+    "",
+    response_model=list[NotificationOut],
+    dependencies=[Depends(get_current_claims)],
+)
 async def list_notifications(
     store: NotificationStore = Depends(get_notification_store),
 ) -> list[NotificationOut]:
@@ -48,7 +53,7 @@ async def list_notifications(
     return [_to_out(n) for n in store.list_all()]
 
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(get_ticket_claims)])
 async def stream_notifications(
     store: NotificationStore = Depends(get_notification_store),
     bus: NotificationBus = Depends(get_notification_bus),
@@ -78,7 +83,9 @@ async def stream_notifications(
     )
 
 
-@router.post("/{notification_id}/read")
+@router.post(
+    "/{notification_id}/read", dependencies=[Depends(get_current_claims)]
+)
 async def mark_read(
     notification_id: int,
     store: NotificationStore = Depends(get_notification_store),

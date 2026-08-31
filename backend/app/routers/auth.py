@@ -10,8 +10,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.auth.dependencies import get_current_claims
+from app.auth.identity import AuthenticatedUser
+from app.auth.tickets import mint
 from app.config import Settings, get_settings
-from app.schemas import AuthConfigOut
+from app.schemas import AuthConfigOut, TicketOut
 
 router = APIRouter(prefix="/api/auth")
 
@@ -37,3 +40,20 @@ async def get_auth_config(
         authority=settings.oidc_authority,
         client_id=settings.effective_oidc_client_id(),
     )
+
+
+@router.post("/sse-ticket", response_model=TicketOut)
+async def mint_sse_ticket(
+    user: AuthenticatedUser = Depends(get_current_claims),
+) -> TicketOut:
+    """
+    Mint a short-lived, single-use ticket for one of the four SSE streams.
+
+    Requires normal bearer-token auth (called via the authenticated
+    ``fetch``-based api client, never via ``EventSource`` itself — see
+    ``contracts/auth-sse-ticket.md``).
+
+    :param user: The caller's already-validated identity, injected.
+    :returns: An opaque ticket, valid for ~30 seconds and one connection.
+    """
+    return TicketOut(ticket=mint(user))

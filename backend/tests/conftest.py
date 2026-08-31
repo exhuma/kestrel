@@ -5,7 +5,10 @@ import asyncio
 import json
 
 import pytest
+from fastapi import HTTPException
 
+from app.auth.dependencies import get_current_claims
+from app.auth.identity import AuthenticatedUser
 from app.backends.base import Capability, TurnResult
 from app.config import Settings, get_settings
 from app.models import CanonicalEvent, EventKind, SessionRecord
@@ -423,3 +426,47 @@ def _write_fixture_task(fixtures_dir, slug: str, **fields) -> None:
     }
     data.update(fields)
     (fixtures_dir / f"{slug}.json").write_text(json.dumps(data))
+
+
+# ---- shared auth-test helpers (feature 011) ----
+# Used across test_{sessions,workflows,notifications}_router.py to exercise
+# the authenticated-only/permission-gated tiers without a real IdP token.
+
+
+def _auth_enabled_settings() -> Settings:
+    """Settings with auth on; a valid-looking (never-fetched) OIDC config.
+
+    Deliberately zero-arg (not ``**overrides``): FastAPI's
+    ``dependency_overrides`` re-inspects the override callable's own
+    signature to build each route's request schema, and a ``**kwargs``
+    signature there gets misparsed as a required query parameter. Callers
+    needing different settings should build their own ``Settings(...)``
+    and wrap it in a zero-arg ``lambda: ...`` when registering it as an
+    override.
+    """
+    return Settings(auth_enabled=True, oidc_authority="x", oidc_audience="y")
+
+
+def _fake_authenticated_user(
+    permissions: frozenset[str] = frozenset(),
+) -> AuthenticatedUser:
+    """A minimal, already-authenticated identity for dependency overrides."""
+    return AuthenticatedUser(
+        sub="user-1", email=None, preferred_username=None,
+        permissions=permissions,
+    )
+
+
+async def _reject_unauthenticated() -> AuthenticatedUser:
+    """A get_current_claims override simulating a missing/invalid token."""
+    raise HTTPException(status_code=401, detail="missing token")
+
+
+def override_auth(app, *, permissions: frozenset[str] | None = None) -> None:
+    """Wire an app's get_current_claims override: authenticated (with the
+    given permission set) when ``permissions`` is not None, else rejected."""
+    app.dependency_overrides[get_current_claims] = (
+        (lambda: _fake_authenticated_user(permissions))
+        if permissions is not None
+        else _reject_unauthenticated
+    )

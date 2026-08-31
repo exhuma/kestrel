@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app import sse
+from app.auth.dependencies import get_current_claims, get_ticket_claims
 from app.config import get_settings
 from app.models_workflow import Step, WorkflowRun
 from app.policy import label_policy
@@ -118,7 +119,11 @@ def _summaries(service: WorkflowService) -> list[WorkflowSummary]:
     ]
 
 
-@router.get("", response_model=list[WorkflowSummary])
+@router.get(
+    "",
+    response_model=list[WorkflowSummary],
+    dependencies=[Depends(get_current_claims)],
+)
 async def list_workflows(
     service: WorkflowService = Depends(get_workflow_service),
 ) -> list[WorkflowSummary]:
@@ -126,7 +131,7 @@ async def list_workflows(
     return _summaries(service)
 
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(get_ticket_claims)])
 async def stream_workflows(
     service: WorkflowService = Depends(get_workflow_service),
     bus: WorkflowBus = Depends(get_workflow_bus),
@@ -158,7 +163,11 @@ async def stream_workflows(
     )
 
 
-@router.get("/{workflow_id}", response_model=WorkflowDetail)
+@router.get(
+    "/{workflow_id}",
+    response_model=WorkflowDetail,
+    dependencies=[Depends(get_current_claims)],
+)
 async def get_workflow(
     workflow_id: str,
     service: WorkflowService = Depends(get_workflow_service),
@@ -167,7 +176,11 @@ async def get_workflow(
     return _detail(service, service.get(workflow_id))
 
 
-@router.post("/{workflow_id}/poll", response_model=WorkflowDetail)
+@router.post(
+    "/{workflow_id}/poll",
+    response_model=WorkflowDetail,
+    dependencies=[Depends(get_current_claims)],
+)
 async def poll_workflow_step(
     workflow_id: str,
     service: WorkflowService = Depends(get_workflow_service),
@@ -177,7 +190,9 @@ async def poll_workflow_step(
     return _detail(service, service.get(workflow_id))
 
 
-@router.get("/{workflow_id}/events")
+@router.get(
+    "/{workflow_id}/events", dependencies=[Depends(get_ticket_claims)]
+)
 async def stream_workflow(
     workflow_id: str,
     service: WorkflowService = Depends(get_workflow_service),

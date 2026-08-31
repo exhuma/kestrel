@@ -155,26 +155,26 @@ live-updating ones.
 
 ### Tests for User Story 1
 
-- [ ] T021 [P] [US1] Test SSE connection tickets in
+- [X] T021 [P] [US1] Test SSE connection tickets in
       `backend/tests/test_auth_tickets.py`: mint → validate succeeds once;
       replay of the same `jti` is rejected; expired ticket rejected;
       tampered signature rejected (per `contracts/auth-sse-ticket.md`)
-- [ ] T022 [P] [US1] Extend `backend/tests/test_sessions_router.py`: with
+- [X] T022 [P] [US1] Extend `backend/tests/test_sessions_router.py`: with
       auth enabled, `GET /api/sessions`, `POST /api/sessions/{id}/poll`
       require only authentication (any valid identity, no permission
       check); with auth disabled, unchanged
-- [ ] T023 [P] [US1] Extend `backend/tests/test_workflows_router.py`
+- [X] T023 [P] [US1] Extend `backend/tests/test_workflows_router.py`
       (or create if list/detail/poll cases aren't yet covered): same
       authenticated-only assertions for `GET /api/workflows`,
       `/{id}`, `POST /{id}/poll`
-- [ ] T024 [P] [US1] Extend `backend/tests/` for `notifications.py`
+- [X] T024 [P] [US1] Extend `backend/tests/` for `notifications.py`
       (`GET /api/notifications`, `POST /{id}/read`): same
       authenticated-only assertions
-- [ ] T025 [P] [US1] Test the ticket-gated `/events` routes (all four) in
+- [X] T025 [P] [US1] Test the ticket-gated `/events` routes (all four) in
       the relevant router test files: valid ticket → stream opens; missing/
       invalid/reused/expired ticket → connection refused; auth disabled →
       unchanged (no ticket required)
-- [ ] T026 [P] [US1] Test `POST /api/auth/sse-ticket` in
+- [X] T026 [P] [US1] Test `POST /api/auth/sse-ticket` in
       `backend/tests/test_auth_router.py`: requires the caller's own valid
       bearer token when auth is enabled; returns a ticket; 401 when
       unauthenticated
@@ -196,24 +196,24 @@ live-updating ones.
 
 ### Implementation for User Story 1
 
-- [ ] T030 [P] [US1] Create `backend/app/auth/tickets.py`: mint (HS256,
+- [X] T030 [P] [US1] Create `backend/app/auth/tickets.py`: mint (HS256,
       in-process startup secret, `sub` + `permissions` + `exp` (~30s) +
       `jti`) and validate (signature, expiry, one-time use via a bounded
       in-memory used-`jti` set) — makes T021 pass; depends on T015
-- [ ] T031 [US1] Add `POST /api/auth/sse-ticket` to
+- [X] T031 [US1] Add `POST /api/auth/sse-ticket` to
       `backend/app/routers/auth.py` (per `contracts/auth-sse-ticket.md`) —
       makes T026 pass; depends on T030
-- [ ] T032 [US1] Apply the authenticated-only dependency (T016) to
+- [X] T032 [US1] Apply the authenticated-only dependency (T016) to
       `GET /api/sessions`, `POST /api/sessions/{id}/poll` in
       `backend/app/routers/sessions.py` — makes T022 pass
-- [ ] T033 [US1] Apply the authenticated-only dependency to
+- [X] T033 [US1] Apply the authenticated-only dependency to
       `GET /api/workflows`, `GET /api/workflows/{id}`,
       `POST /api/workflows/{id}/poll` in
       `backend/app/routers/workflows.py` — makes T023 pass
-- [ ] T034 [US1] Apply the authenticated-only dependency to
+- [X] T034 [US1] Apply the authenticated-only dependency to
       `GET /api/notifications`, `POST /api/notifications/{id}/read` in
       `backend/app/routers/notifications.py` — makes T024 pass
-- [ ] T035 [US1] Add the ticket-validation dependency (from T030) to the
+- [X] T035 [US1] Add the ticket-validation dependency (from T030) to the
       four `/events` routes: `GET /api/sessions/{id}/events`
       (`sessions.py`), `GET /api/workflows/events` and
       `GET /api/workflows/{id}/events` (`workflows.py`),

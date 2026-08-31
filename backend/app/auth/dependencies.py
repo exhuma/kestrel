@@ -12,6 +12,7 @@ import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.auth import tickets
 from app.auth.identity import AuthenticatedUser
 from app.auth.jwks import get_jwks_client
 from app.auth.permissions import ALL_PERMISSIONS_SENTINEL, resolve_permissions
@@ -83,6 +84,32 @@ async def get_current_claims(
         preferred_username=payload.get("preferred_username"),
         permissions=permissions,
     )
+
+
+async def get_ticket_claims(
+    ticket: str | None = None,
+    settings: Settings = Depends(get_settings),
+) -> AuthenticatedUser:
+    """
+    Authenticate an ``/events`` (SSE) connection via a minted ticket.
+
+    Browser ``EventSource`` cannot set an ``Authorization`` header, so the
+    four live-updating streams use this instead of :func:`get_current_claims`
+    — see ``POST /api/auth/sse-ticket`` and :mod:`app.auth.tickets`.
+
+    :param ticket: The ``?ticket=...`` query parameter.
+    :param settings: Application settings, injected.
+    :returns: The "everything allowed" stand-in when ``auth_enabled`` is
+        false; otherwise the ticket's embedded identity.
+    :raises HTTPException: 401 when auth is enabled and the ticket is
+        missing, malformed, expired, or already used.
+    """
+    if not settings.auth_enabled:
+        return _open_user()
+    user = tickets.validate(ticket) if ticket else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid ticket")
+    return user
 
 
 def require_permission(permission: str):
