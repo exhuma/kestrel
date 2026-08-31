@@ -105,6 +105,28 @@ trigger_label = "kestrel"
 # code_host_base_url = ""               # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
 
+# --- role mappings (feature 011, opt-in OIDC authentication) ---------------
+# Only used when KESTREL_AUTH_ENABLED=true (see docs/auth.md). Each entry
+# maps one identity-provider role to the kestrel permissions it grants. A
+# realm role is written as-is; a client role is namespaced
+# "<client_id>:<role>" (the same client_id as KESTREL_OIDC_CLIENT_ID, or
+# KESTREL_OIDC_AUDIENCE when that's unset) to avoid colliding with a
+# same-named realm role. Permission strings are validated at startup against
+# a fixed vocabulary — an unknown one fails fast rather than silently
+# granting nothing.
+#
+# [[role_mappings]]
+# role = "kestrel-admin"                # a Keycloak realm role
+# permissions = [
+#   "sessions:write", "sessions:delete",
+#   "workflows:approve", "workflows:reject", "workflows:respond",
+#   "workflows:cleanup", "workflows:rerun", "workflows:delete",
+# ]
+#
+# [[role_mappings]]
+# role = "kestrel-spa:approver"         # a client role, namespaced
+# permissions = ["workflows:approve", "workflows:reject", "workflows:respond"]
+
 # --- backend routing --------------------------------------------------------
 # Backend used for ad-hoc /api/sessions dispatch.
 default_session_backend = "claude"

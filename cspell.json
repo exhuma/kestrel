@@ -25,7 +25,7 @@
     "kwargs", "livez",
     "multiedit",
     "nosniff", "notebookedit", "notif", "ntfy", "Okabe", "ollama", "oncall",
-    "opencode", "pinentry", "Planka", "PROCS", "pydantic", "pyproject",
+    "opencode", "pinentry", "PKCE", "Planka", "PROCS", "pydantic", "pyproject",
     "pytest", "qbadge", "qblock", "qform", "qgroup", "qtab", "qtabs", "readyz",
     "reldir",
     "renamespaced", "reraise", "rerunnable", "rgba", "runbook", "runbooks",

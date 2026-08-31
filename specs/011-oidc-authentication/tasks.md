@@ -349,16 +349,16 @@ the documentation and example needed to use it.
 
 ### Tests for User Story 3
 
-- [ ] T054 [P] [US3] Integration test in `backend/tests/test_auth_roles.py`
+- [X] T054 [P] [US3] Integration test in `backend/tests/test_auth_roles.py`
       (or a new `backend/tests/test_auth_integration.py`): a user whose
       token carries a **realm** role mapped in `config.toml` to
       `workflows:cleanup` can call `POST /api/workflows/{id}/cleanup`
       (200); a user without that role mapping cannot (403)
-- [ ] T055 [P] [US3] Same integration test shape for a **client** role
+- [X] T055 [P] [US3] Same integration test shape for a **client** role
       (namespaced `f"{client_id}:{role}"` in the mapping) granting
       `sessions:delete` — confirms client-role mapping works identically
       to realm-role mapping
-- [ ] T056 [P] [US3] Test that changing `role_mappings` between two
+- [X] T056 [P] [US3] Test that changing `role_mappings` between two
       `Settings()` construction calls (simulating a restart with an edited
       `config.toml`) changes `resolve_permissions()`'s output for the same
       role set — confirms FR-005/SC-002 without needing a real process
@@ -366,11 +366,11 @@ the documentation and example needed to use it.
 
 ### Implementation for User Story 3
 
-- [ ] T057 [P] [US3] Add a commented-out, documented `[[role_mappings]]`
+- [X] T057 [P] [US3] Add a commented-out, documented `[[role_mappings]]`
       example block to `config.toml.example` (per `data-model.md`'s
       example, showing both a realm-role and a namespaced client-role
       entry)
-- [ ] T058 [P] [US3] Write `docs/auth.md` (new): Keycloak public-client
+- [X] T058 [P] [US3] Write `docs/auth.md` (new): Keycloak public-client
       setup (PKCE, redirect URIs), realm vs. client role creation, the
       `[[role_mappings]]` format and permission vocabulary, **the
       audience-mapper gotcha** (Keycloak access tokens don't carry the
