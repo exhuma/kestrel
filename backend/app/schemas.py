@@ -160,13 +160,6 @@ class WorkflowDetail(BaseModel):
     error: str | None
 
 
-class CreateWorkflowIn(BaseModel):
-    """Request body to start a workflow."""
-
-    repo: str
-    issue_number: int
-
-
 class ReplyIn(BaseModel):
     """Request body to answer the refine interview."""
 

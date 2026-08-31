@@ -32,7 +32,6 @@ const {
   pollActiveStep,
   streamSession,
   closeSession,
-  createWorkflow,
   reply,
   submitAnswers,
   saveDraft,
@@ -46,14 +45,10 @@ const {
   rerun,
 } = useWorkflows()
 
-const repo = ref('owner/name')
-const issueNumber = ref<number>(1)
 const answer = ref('')
 const edited = ref('')
 const feedback = ref('')
-const busy = ref<'create' | 'approve' | 'reject' | 'reply' | 'changes' | null>(
-  null,
-)
+const busy = ref<'approve' | 'reject' | 'reply' | 'changes' | null>(null)
 
 onMounted(() => {
   // Reliable baseline via plain fetch, independent of the SSE stream
@@ -210,14 +205,6 @@ watch([activeSessions, stepRoundHistory], ([live, history]) => {
   }
 })
 
-async function onCreate(): Promise<void> {
-  busy.value = 'create'
-  try {
-    await createWorkflow(repo.value, Number(issueNumber.value))
-  } finally {
-    busy.value = null
-  }
-}
 async function onApprove(): Promise<void> {
   busy.value = 'approve'
   try {
@@ -338,26 +325,6 @@ function stepColor(status: string): string | undefined {
 <template>
   <ConsoleShell>
     <template #rail>
-      <div class="pa-4">
-        <div class="text-overline text-medium-emphasis mb-2">New workflow</div>
-        <v-text-field v-model="repo" label="owner/name" class="mb-2" />
-        <v-text-field
-          v-model.number="issueNumber"
-          type="number"
-          label="Issue #"
-          class="mb-3"
-        />
-        <v-btn
-          block
-          color="primary"
-          prepend-icon="$rocketLaunchOutline"
-          :loading="busy === 'create'"
-          @click="onCreate"
-        >
-          Start workflow
-        </v-btn>
-      </div>
-      <v-divider />
       <div class="d-flex align-center justify-space-between px-4 py-2">
         <span class="text-overline text-medium-emphasis">Runs</span>
         <v-chip size="small" variant="tonal">{{ workflows.length }}</v-chip>
@@ -417,7 +384,7 @@ function stepColor(status: string): string | undefined {
         </v-list-item>
       </v-list>
       <div v-else class="px-4 text-medium-emphasis text-body-2">
-        No workflows yet
+        No runs yet — one starts when a configured task source picks up a task.
       </div>
     </template>
 
@@ -690,7 +657,7 @@ function stepColor(status: string): string | undefined {
     <v-empty-state
       v-else
       headline="No workflow selected"
-      text="Start one from an issue on the left."
+      text="Pick a run from the list on the left."
     />
   </ConsoleShell>
 </template>

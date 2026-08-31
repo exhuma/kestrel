@@ -65,7 +65,7 @@ async def test_uiux_round_surfaces_mockups_in_envelope(monkeypatch) -> None:
         _refined("Refined"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -85,7 +85,7 @@ async def test_refine_question_visible_while_awaiting_input() -> None:
         _refined("Build a blue widget"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -112,7 +112,7 @@ async def test_questionnaire_deliverable_is_structured() -> None:
         _refined("Use OIDC"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
@@ -142,7 +142,7 @@ async def test_waiver_reason_lands_in_refined_issue() -> None:
         _refined("Store the widget data in S3"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
@@ -189,7 +189,7 @@ async def test_coordinator_samples_union_across_runs() -> None:
     ])
     svc = _service(gh, runner, _FakeGit(),
                    settings=_settings(refine_samples=2))
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -219,7 +219,7 @@ async def test_failed_specialist_is_retried_then_hard_capped() -> None:
 
     runner = _RetryRunner(SessionRegistry())
     svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
 
     async def _round(n: int):
         await _wait(

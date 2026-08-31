@@ -32,16 +32,11 @@ These appear in the full settings reference in
 [Configuration](configuration.md#environment-variables). Running from source
 instead? See [Development](development.md) for the `backend/.env` route.
 
-## 3. Run it
+## 3. Watch a repository
 
-Open the **Workflows** tab, enter `owner/repo` and an issue number, and click
-**Start workflow**.
-
-## 4. Automatic ingestion (optional)
-
-Instead of entering an issue by hand, kestrel can start a run when you apply a
-label to an issue on GitHub, and catch up on any it missed. This is additive —
-the manual **Start workflow** path keeps working.
+Runs are never started by hand. Kestrel starts one when you apply a label to
+an issue in a watched repository, and catches up on any delivery it missed, so
+configuring a `github` task source is required rather than optional.
 
 ### Configure
 

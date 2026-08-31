@@ -171,7 +171,7 @@ async def test_gate_state_is_checkpointed(
     svc = _persistent_service(
         store, _FakeGitHub(body="vague"), runner, _FakeGit()
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_input"
@@ -216,11 +216,11 @@ def test_save_is_an_upsert(tmp_path: Path) -> None:
     assert len(loaded[0].steps) == 3
 
 
-def test_source_defaults_to_manual(tmp_path: Path) -> None:
-    """Ensure a run with no explicit source persists as "manual"."""
+def test_source_defaults_to_github_issue(tmp_path: Path) -> None:
+    """Ensure a run with no explicit source persists as "github-issue"."""
     store = _store(tmp_path)
     store.save(_run())
-    assert store.load_all()[0].source == "manual"
+    assert store.load_all()[0].source == "github-issue"
 
 
 def test_source_round_trips(tmp_path: Path) -> None:

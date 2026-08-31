@@ -43,7 +43,7 @@ async def test_active_and_wait_seconds_accumulate_through_both_gates() -> (
     ])
     svc = _service(gh, runner, git)
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     assert svc.get(wid).clock_state == "waiting"
     await asyncio.sleep(0.05)  # simulate the operator taking a moment
@@ -74,7 +74,7 @@ async def test_design_sets_boundary_from_tag() -> None:
         _verdict(accept=True),
     ])
     svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -93,7 +93,7 @@ async def test_design_missing_boundary_tag_leaves_it_none() -> None:
         _verdict(accept=True),
     ])
     svc = _service(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -131,7 +131,7 @@ async def test_step_exception_marks_active_step_failed() -> None:
     policy = _RoutingPolicy(sessions, _RaisingBackend(), code)
     svc = _service(gh, policy, _FakeGit())
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)  # design runs next → raises
     await _wait(lambda: svc.get(wid).status == "failed")
@@ -151,7 +151,7 @@ async def test_sentinel_skips_refine() -> None:
         "The plan", "coded", _verdict(accept=True),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "done")
     assert svc.get(wid).steps[0].status == "done"  # refine skipped
     # No <PLAN> tag emitted: falls back to the raw text rather than
@@ -167,7 +167,7 @@ async def test_reject_ends_run() -> None:
         SessionRegistry(), outputs=[*_refine_noquestions("refined")]
     )
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
@@ -194,7 +194,7 @@ async def test_driver_task_exception_is_logged_not_swallowed(caplog) -> None:
     )
     svc = _service(gh, runner, _FakeGit())
     svc.dismissals = _BoomDismissals()
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
 
     with caplog.at_level("ERROR", logger="app.services.workflows"):
@@ -221,7 +221,7 @@ async def test_step_failure_is_logged_and_recorded(caplog) -> None:
         _BrokenGitHub(), _FakeRunner(SessionRegistry(), ["x"]), _FakeGit()
     )
     with caplog.at_level("ERROR", logger="app.services.workflows"):
-        wid = await svc.create("o/r", 5)
+        wid = await svc.create("o/r", 5, source="github-issue")
         await _wait(lambda: svc.get(wid).status == "failed")
 
     assert svc.get(wid).error is not None
@@ -245,7 +245,7 @@ async def test_steps_use_policy_models() -> None:
     ])
     runner._outputs.append(_verdict(accept=True))  # verify leg
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_approval"
@@ -266,7 +266,7 @@ async def test_reject_refine_without_prompt_ends_run() -> None:
         SessionRegistry(), outputs=[*_refine_noquestions("v1")]
     )
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
@@ -289,7 +289,7 @@ async def test_backend_error_result_fails_run_loudly() -> None:
 
     runner = _ErroringRunner(SessionRegistry(), outputs=[])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
 
     await _wait(lambda: svc.get(wid).status == "failed")
     assert "Not logged in" in (svc.get(wid).error or "")
@@ -316,7 +316,7 @@ async def test_text_only_design_backend_inlines_the_prd(tmp_path) -> None:
     policy = _RoutingPolicy(sessions, design, code)
     svc = _artifact_service(tmp_path, policy, github=gh)
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")

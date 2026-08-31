@@ -130,7 +130,7 @@ async def test_accept_first_round_opens_pr() -> None:
         "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -148,7 +148,7 @@ async def test_reject_then_accept_reruns_coder() -> None:
         "coded v2", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -177,7 +177,7 @@ async def test_exhaustion_escalates_without_pr() -> None:
         sessions=runner.sessions, workflows=WorkflowRegistry(),
         backends=runner, git=git, github=gh, notifier=notifier,
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
@@ -206,7 +206,7 @@ async def test_no_awaiting_gate_during_autonomous_phases() -> None:
         sessions=runner.sessions, workflows=WorkflowRegistry(),
         backends=runner, git=git, github=gh, notifier=_RecordingNotifier(),
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -231,7 +231,7 @@ async def test_boundary_dispatches_explore_then_verdict_turn() -> None:
         _verdict(accept=True),                          # verify: verdict turn
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -256,7 +256,7 @@ async def test_no_boundary_skips_explore_turn() -> None:
     ]
     runner = _FakeRunner(SessionRegistry(), outputs=list(outputs))
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -289,7 +289,7 @@ async def test_self_reported_observation_failure_forces_reject() -> None:
     ])
     # max_iter=1 so exhaustion escalates after the single forced reject.
     svc = _svc(gh, runner, git, max_iter=1)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     # ... but the failing observation forces a reject -> exhaustion -> escalate.
@@ -313,7 +313,7 @@ async def test_quality_only_feedback_does_not_block_acceptance() -> None:
         ),
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -347,7 +347,7 @@ async def test_failing_evidence_rejects_despite_positive_quality_feedback() -> (
         ),
     ])
     svc = _svc(gh, runner, git, max_iter=1)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
@@ -395,7 +395,7 @@ async def test_coder_no_self_commit_triggers_safety_net_commit() -> None:
         "<PLAN>d</PLAN>", "coded but forgot to commit", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -415,7 +415,7 @@ async def test_coder_self_commit_skips_safety_net_commit() -> None:
         "<PLAN>d</PLAN>", "coded and committed", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -438,7 +438,7 @@ async def test_no_changes_escalation_fires_on_self_committed_empty_diff() -> (
         "<PLAN>d</PLAN>", "I looked but changed nothing",
     ])
     svc = _svc(gh, runner, git)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
@@ -468,7 +468,7 @@ async def test_verify_report_written_on_accept(tmp_path) -> None:
     # A successful delivery tears the worktree down too (it's no longer
     # needed); neuter that here so the workspace survives to inspect.
     svc._teardown_workspace = lambda _run: asyncio.sleep(0)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -493,7 +493,7 @@ async def test_verify_report_written_on_escalate(tmp_path) -> None:
     # of the report; neuter teardown here (a spy-style override, matching
     # this suite's existing pattern) so the workspace survives to inspect.
     svc._teardown_workspace = lambda _run: asyncio.sleep(0)
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
@@ -521,12 +521,12 @@ async def test_second_run_unaffected_by_first_runs_report(tmp_path) -> None:
         "coded", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
-    first = await svc.create("o/r", 5)
+    first = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(first).status == "awaiting_refine_approval")
     svc.approve(first)
     await _wait(lambda: svc.get(first).status == "done")
 
-    second = await svc.create("o/r", 6)
+    second = await svc.create("o/r", 6, source="github-issue")
     await _wait(lambda: svc.get(second).status == "awaiting_refine_approval")
     svc.approve(second)
     await _wait(lambda: svc.get(second).status == "done")
@@ -547,7 +547,7 @@ async def test_workflow_debug_writes_dialogue_transcript(tmp_path) -> None:
     svc = _svc(
         gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -574,7 +574,7 @@ async def test_workflow_debug_off_writes_no_transcript(tmp_path) -> None:
         "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -596,7 +596,7 @@ async def test_workflow_debug_keeps_workspace_on_escalate(tmp_path) -> None:
         gh, runner, git, max_iter=1, workspace_root=str(tmp_path),
         workflow_debug=True,
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
@@ -614,7 +614,7 @@ async def test_workflow_debug_keeps_workspace_on_done(tmp_path) -> None:
     svc = _svc(
         gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -634,7 +634,7 @@ async def test_abandon_removes_workspace_despite_workflow_debug(
     svc = _svc(
         gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     workspace = svc.get(wid).workspace
     assert Path(workspace).exists()

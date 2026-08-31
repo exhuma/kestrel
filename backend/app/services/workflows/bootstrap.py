@@ -42,15 +42,11 @@ def get_workflow_service() -> WorkflowService:
         github, settings.public_base_url, config_for=settings.github_source_for
     )
     gh_host = GitHubCodeHost(github, settings.git_base)
-    # Task Source / Code Host per run source. GitHub and manual runs collapse
-    # onto the GitHub adapters; the Jira source + its configured code host are
-    # registered below when Jira ingestion is configured (feature 003).
-    sources: dict[str, object] = {
-        "manual": gh_source, "github-issue": gh_source,
-    }
-    code_hosts: dict[str, object] = {
-        "manual": gh_host, "github-issue": gh_host,
-    }
+    # Task Source / Code Host per run source. GitHub runs use the GitHub
+    # adapters; the Jira source + its configured code host are registered
+    # below when Jira ingestion is configured (feature 003).
+    sources: dict[str, object] = {"github-issue": gh_source}
+    code_hosts: dict[str, object] = {"github-issue": gh_host}
     jira_sources = settings.jira_sources()
     if jira_sources:
         from app.services.jira import JiraClient, JiraTaskSource

@@ -40,7 +40,7 @@ async def test_screenshots_uploaded_and_persisted(monkeypatch) -> None:
     ])
     svc = _service(gh, runner, git)
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")

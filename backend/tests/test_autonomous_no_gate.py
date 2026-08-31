@@ -45,7 +45,7 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
         github=gh,
         notifier=_Recorder(),
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")

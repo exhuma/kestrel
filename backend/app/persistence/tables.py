@@ -61,10 +61,11 @@ class WorkflowRunRow(Base):
     error: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
-    #: Run origin: "manual" | "github-issue" | "jira-issue". Server-default
-    #: keeps pre-existing rows valid; internal-only (not in the API).
+    #: Run origin: "github-issue" | "jira-issue" | "fixture-issue".
+    #: Internal-only (not in the API). Migration 0014 relabelled the retired
+    #: "manual" origin onto "github-issue" and moved the server-default.
     source: Mapped[str] = mapped_column(
-        default="manual", server_default="manual"
+        default="github-issue", server_default="github-issue"
     )
     #: Source-native ticket identity (feature 003): GitHub "owner/name#123",
     #: Jira "RFC-123". Server-default "" keeps pre-existing rows valid; the

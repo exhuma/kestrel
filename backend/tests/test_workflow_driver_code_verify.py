@@ -30,7 +30,7 @@ async def test_code_step_reuses_same_backend_design_session() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -70,7 +70,7 @@ async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
     policy = _RoutingPolicy(sessions, design, code)
     svc = _service(gh, policy, _FakeGit())
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -112,7 +112,7 @@ async def test_code_handover_via_file_on_cross_backend() -> None:
     policy = _RoutingPolicy(sessions, design, code)
     svc = _service(gh, policy, _FakeGit())
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
@@ -144,7 +144,7 @@ async def test_no_changes_escalation_fails_code_step() -> None:
     ])
     svc = _service(gh, runner, git)
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
@@ -175,7 +175,7 @@ async def test_verifier_diff_excludes_artifact_folder(tmp_path) -> None:
         gh, runner, git, settings=_settings(workspace_root=str(tmp_path))
     )
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")

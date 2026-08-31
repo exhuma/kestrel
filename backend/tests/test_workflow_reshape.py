@@ -35,7 +35,7 @@ async def test_create_sets_task_ref_and_reshaped_steps() -> None:
     """Ensure create() sets task_ref and the design/code/verify steps."""
     runner = _FakeRunner(SessionRegistry(), outputs=[*_refine_noquestions("x")])
     svc = _svc(_FakeGitHub(body="vague"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     run = svc.get(wid)
     assert run.task_ref == "o/r#5"
     assert [s.name for s in run.steps] == ["refine", "design", "code", "verify"]
@@ -63,7 +63,7 @@ async def test_github_run_traverses_reshaped_status_sequence() -> None:
         sessions=runner.sessions, workflows=WorkflowRegistry(),
         backends=runner, git=git, github=gh, notifier=_Recorder(),
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")

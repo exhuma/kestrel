@@ -67,18 +67,14 @@ class WorkflowService:
         self.github = github
         self.notifier = notifier
         self.bus = bus
-        #: Task Source / Code Host per ``run.source`` (feature 003). GitHub and
-        #: manual runs collapse onto the GitHub adapters over ``github``; the
-        #: factory registers the Jira source and a self-hosted code host. Built
-        #: from ``github`` by default so existing callers need no change.
+        #: Task Source / Code Host per ``run.source`` (feature 003). GitHub
+        #: runs use the GitHub adapters over ``github``; the factory registers
+        #: the Jira/fixture sources and a self-hosted code host. Built from
+        #: ``github`` by default so existing callers need no change.
         _gh_source = GitHubTaskSource(github, settings.public_base_url)
         _gh_host = GitHubCodeHost(github, settings.git_base)
-        self.sources = sources or {
-            "manual": _gh_source, "github-issue": _gh_source,
-        }
-        self.code_hosts = code_hosts or {
-            "manual": _gh_host, "github-issue": _gh_host,
-        }
+        self.sources = sources or {"github-issue": _gh_source}
+        self.code_hosts = code_hosts or {"github-issue": _gh_host}
         self._fallback_source = _gh_source
         self._fallback_host = _gh_host
         #: Records a dismissal on abandon so a still-labelled ingested issue
@@ -239,7 +235,7 @@ class WorkflowService:
         repo: str,
         issue_number: int | None = None,
         *,
-        source: str = "manual",
+        source: str,
         task_ref: str | None = None,
         base_branch: str | None = None,
     ) -> str:
@@ -247,8 +243,12 @@ class WorkflowService:
 
         Source-neutral (feature 003): ``repo`` is the *code repository*;
         ``task_ref`` is the source-native ticket id (defaults to
-        ``owner/name#n`` for GitHub/manual). A Jira run passes ``task_ref`` (the
-        RFC key), ``issue_number=None``, and a resolved ``base_branch``.
+        ``owner/name#n`` for GitHub). A Jira run passes ``task_ref`` (the RFC
+        key), ``issue_number=None``, and a resolved ``base_branch``.
+
+        ``source`` is required: every run is attributed to the task source
+        that produced it, so the driver binds the right adapters. Only
+        ingestion and rerun create runs (feature 010 removed manual entry).
         """
         tref = task_ref or f"{repo}#{issue_number}"
         if issue_number is not None:

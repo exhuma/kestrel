@@ -45,7 +45,7 @@ async def test_recover_resumes_awaiting_input(
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
-    wid = await svc1.create("o/r", 5)
+    wid = await svc1.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc1.get(wid).status
         == "awaiting_refine_input"
@@ -90,7 +90,7 @@ async def test_recover_resumes_awaiting_refine_approval(
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague issue"), runner1, _FakeGit(),
     )
-    wid = await svc1.create("o/r", 5)
+    wid = await svc1.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc1.get(wid).status == "awaiting_refine_approval"
     )
@@ -125,7 +125,7 @@ async def test_recover_fails_mid_step_runs(
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
-    wid = await svc1.create("o/r", 5)
+    wid = await svc1.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc1.get(wid).status
         == "awaiting_refine_input"
@@ -164,9 +164,9 @@ async def test_recover_isolates_one_runs_failure_from_others(
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
-    bad_wid = await svc1.create("o/r", 5)
+    bad_wid = await svc1.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc1.get(bad_wid).status == "awaiting_refine_input")
-    good_wid = await svc1.create("o/r", 6)
+    good_wid = await svc1.create("o/r", 6, source="github-issue")
     await _wait(lambda: svc1.get(good_wid).status == "awaiting_refine_input")
 
     # Force both into a mid-step snapshot, as if the process died there.
@@ -237,7 +237,7 @@ async def test_recovery_does_not_renotify_gate(tmp_path: Path) -> None:
     svc1 = _persistent_service(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
-    wid = await svc1.create("o/r", 5)
+    wid = await svc1.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc1.get(wid).status == "awaiting_refine_input")
 
     # --- simulated restart with a counting notifier ---

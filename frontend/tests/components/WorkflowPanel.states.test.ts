@@ -37,7 +37,6 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     pollActiveStep: vi.fn(),
     streamSession: vi.fn(),
     closeSession: vi.fn(),
-    createWorkflow: vi.fn(),
     reply: vi.fn(),
     submitAnswers: vi.fn(),
     saveDraft: vi.fn(),
@@ -164,6 +163,27 @@ describe('WorkflowPanel rerun control (feature 008)', () => {
     const wrapper = mount(WorkflowPanel, withVuetify())
     const rerunButtons = wrapper.findAll('[title="Rerun workflow"]')
     expect(rerunButtons).toHaveLength(1)
+  })
+})
+
+describe('WorkflowPanel task entry (feature 010)', () => {
+  it('offers no manual repo/issue entry — every run comes from a task source', () => {
+    state.current.value = null
+    state.workflows.value = []
+    const wrapper = mount(WorkflowPanel, withVuetify())
+    const html = wrapper.html()
+    expect(html).not.toContain('owner/name')
+    expect(html).not.toContain('Issue #')
+    expect(html).not.toContain('Start workflow')
+    // No free-text/number inputs are offered in the rail at all.
+    expect(wrapper.findAll('input')).toHaveLength(0)
+  })
+
+  it('points the empty rail at task-source ingestion', () => {
+    state.current.value = null
+    state.workflows.value = []
+    const text = mount(WorkflowPanel, withVuetify()).text()
+    expect(text).toContain('configured task source')
   })
 })
 

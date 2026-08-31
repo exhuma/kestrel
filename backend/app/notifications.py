@@ -157,7 +157,7 @@ class TaskSourceNotifier:
     content (FR-029).
 
     :param sources: ``run.source`` -> ``TaskSource``. A run whose source is
-        not present is skipped (e.g. a manual run with no external ticket).
+        not present is skipped (e.g. a source that is not configured).
     """
 
     def __init__(

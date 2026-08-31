@@ -21,9 +21,6 @@ class _FakeService:
         self.rejected: tuple[str, str | None] | None = None
         self.answers: dict[str, object] | None = None
 
-    async def create(self, repo: str, issue_number: int) -> str:
-        return "wf-1"
-
     def list(self):
         return [WorkflowRun(id="wf-1", repo="o/r", issue_number=3,
                             status="planning")]
@@ -114,17 +111,6 @@ def _client(service):
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
-
-
-@pytest.mark.asyncio
-async def test_create_returns_id() -> None:
-    """Ensure POST /api/workflows returns a workflow id."""
-    async with _client(_FakeService()) as c:
-        r = await c.post(
-            "/api/workflows", json={"repo": "o/r", "issue_number": 3}
-        )
-    assert r.status_code == 200
-    assert r.json()["workflow_id"] == "wf-1"
 
 
 @pytest.mark.asyncio

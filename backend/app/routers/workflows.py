@@ -14,7 +14,6 @@ from app.questionnaire import parse_envelope
 from app.schemas import (
     AnswersIn,
     ApproveIn,
-    CreateWorkflowIn,
     RejectIn,
     ReplyIn,
     RoundChipOut,
@@ -103,16 +102,6 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         pr_url=run.pr_url,
         error=run.error,
     )
-
-
-@router.post("")
-async def create_workflow(
-    body: CreateWorkflowIn,
-    service: WorkflowService = Depends(get_workflow_service),
-) -> dict[str, str]:
-    """Start a workflow and return its id."""
-    wid = await service.create(body.repo, body.issue_number)
-    return {"workflow_id": wid}
 
 
 def _summaries(service: WorkflowService) -> list[WorkflowSummary]:

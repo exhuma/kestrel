@@ -56,7 +56,7 @@ async def test_github_and_jira_traverse_identical_status_sequence() -> None:
         backends=gh_runner, git=_FakeGit(), github=_FakeGitHub(body="vague"),
         notifier=_FakeNotifier(),
     )
-    gh_wid = await gh_svc.create("o/r", 5)
+    gh_wid = await gh_svc.create("o/r", 5, source="github-issue")
     gh_seq = await _drive_and_record(gh_svc, gh_wid)
 
     # Jira run (Jira task source + GitLab-style code host).

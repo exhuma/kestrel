@@ -81,16 +81,17 @@ the image small and lets a deploy attach or swap backends purely by config.
   task) is permitted only when `visibility() == "private"`, so it can never
   be exposed for a GitHub- or Jira-sourced run (see the constitution's access
   model, amendment 1.4.0).
-- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or manual
-  — traverses the identical `refine → PRD approval → design → code → verify →
-  change request` sequence (`services/workflows.py`). The single human gate is
-  PRD approval; design/code/verify run **without human gates**. The **verifier**
-  adjudicates the implementation against the PRD/design weighing **evidence**
-  it observes by exercising the running, modified project itself (see below);
-  a failing observation forces a reject, the loop is bounded by
-  `max_verify_iterations`, and it **escalates** to the ticket on exhaustion. The
-  task source is only the human↔agent boundary — the process behind it is the
-  same, so the system is predictable.
+- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or
+  fixture — traverses the identical `refine → PRD approval → design → code →
+  verify → change request` sequence (`services/workflows.py`). There is no
+  hand-entered run: a run exists because a task source produced a task. The
+  single human gate is PRD approval; design/code/verify run **without human
+  gates**. The **verifier** adjudicates the implementation against the
+  PRD/design weighing **evidence** it observes by exercising the running,
+  modified project itself (see below); a failing observation forces a reject,
+  the loop is bounded by `max_verify_iterations`, and it **escalates** to the
+  ticket on exhaustion. The task source is only the human↔agent boundary —
+  the process behind it is the same, so the system is predictable.
 - **Behavioral verify evidence, grounded in real, observed behaviour.** The
   `design` step classifies the project's user-facing boundary — HTTP API, web
   UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.

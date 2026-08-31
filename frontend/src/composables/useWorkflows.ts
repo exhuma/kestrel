@@ -114,25 +114,6 @@ export function useWorkflows() {
     if (current.value && !detailSource) select(current.value.id)
   }
 
-  async function createWorkflow(
-    repo: string,
-    issueNumber: number,
-  ): Promise<string | null> {
-    error.value = null
-    try {
-      const out = await api.post<{ workflow_id: string }>('/api/workflows', {
-        repo,
-        issue_number: issueNumber,
-      })
-      await refresh()
-      select(out.workflow_id)
-      return out.workflow_id
-    } catch (e) {
-      error.value = describe(e)
-      return null
-    }
-  }
-
   // Gate actions (reply/approve/reject/submit) surface failures on the
   // `error` banner and report success, so a rejected/expired gate never just
   // "does nothing" — the user sees why (e.g. a 409 "no gate awaiting a
@@ -283,7 +264,6 @@ export function useWorkflows() {
     pollActiveStep,
     streamSession,
     closeSession,
-    createWorkflow,
     reply,
     submitAnswers,
     saveDraft,

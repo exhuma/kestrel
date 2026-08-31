@@ -35,7 +35,7 @@ async def test_malformed_questions_block_surfaces_as_soft_issue() -> None:
         "<QUESTIONS>{not json}</QUESTIONS>",  # unparseable
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
@@ -93,7 +93,7 @@ async def test_profiles_are_interviewed_concurrently() -> None:
         _refined("done"),
     ], expected=2)
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     assert runner.max_inflight == 2  # both ran at once
@@ -135,7 +135,7 @@ async def test_reconciler_folds_overlap_into_one_simple_question() -> None:
         _refined("Accounts are seeded"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -159,7 +159,7 @@ async def test_reconciler_malformed_output_keeps_all() -> None:
         _refined("Accounts are seeded"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -185,7 +185,7 @@ async def test_reconciler_unknown_audience_keeps_all() -> None:
         _refined("Accounts are seeded"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -211,7 +211,7 @@ async def test_reconciler_silent_audience_drop_keeps_all() -> None:
         _refined("Accounts are seeded"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -243,7 +243,7 @@ async def test_critic_reinjects_dropped_audience() -> None:
     ])
     svc = _service(gh, runner, _FakeGit(),
                    settings=_settings(refine_critic=True))
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -266,7 +266,7 @@ async def test_reconcile_mode_off_keeps_the_pool() -> None:
     ])
     svc = _service(gh, runner, _FakeGit(),
                    settings=_settings(reconcile_mode="off"))
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
@@ -303,7 +303,7 @@ async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     assert svc.get(wid).status != "failed"
 
@@ -318,7 +318,7 @@ async def test_optionless_select_is_coerced_to_free_text() -> None:
         _qs(_q(qid="q1", qtype="single_select", options=[])),  # no options
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     env = parse_envelope(svc.get(wid).steps[0].deliverable or "")
@@ -336,7 +336,7 @@ async def test_duplicate_question_ids_are_made_unique() -> None:
         _qs(_q(qid="q1", prompt="A?"), _q(qid="q1", prompt="B?")),
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     env = parse_envelope(svc.get(wid).steps[0].deliverable or "")
@@ -363,7 +363,7 @@ async def test_all_specialists_failing_is_retryable_not_fatal() -> None:
     ])
     svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     assert svc.get(wid).status != "failed"
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
@@ -398,7 +398,7 @@ async def test_failed_specialist_recorded_in_questionnaire_issues() -> None:
         _qs(_q(qid="q1")),   # the surviving profile's questions
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
@@ -424,7 +424,7 @@ async def test_empty_generator_response_recorded_as_issue() -> None:
         _qs(_q(qid="q1")),        # the other profile answers
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")

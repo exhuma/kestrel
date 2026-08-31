@@ -60,24 +60,26 @@ from `GET /api/sessions`.
 
 ### User Story 2 - Turn a GitHub issue into a draft pull request (Priority: P2)
 
-The operator points kestrel at a `repo` + `issue_number`. Kestrel clones the
-repo into a per-run workspace, runs a profile-aware clarifying interview to
-refine the issue, writes the refined issue back to GitHub, plans an approach,
-implements the change, and opens a **draft** pull request — pausing at human
-approval gates between stages.
+A configured task source hands kestrel a `repo` + `issue_number`. Kestrel
+clones the repo into a per-run workspace, runs a profile-aware clarifying
+interview to refine the issue, writes the refined issue back to GitHub, plans
+an approach, implements the change, and opens a **draft** pull request —
+pausing at human approval gates between stages.
 
 **Why this priority**: This is the flagship higher-order workflow, but it
 depends on the session-dispatch loop (Story 1) and on GitHub credentials, so it
 is secondary to the core loop.
 
-**Independent Test**: With `KESTREL_GITHUB_TOKEN` set, `POST /api/workflows`
-with a real `{repo, issue_number}`, drive the run through its approval gates via
-the `approve`/`answers` endpoints, and observe a `pr_url` and `done` status,
-with a draft PR created on GitHub.
+**Independent Test**: With `KESTREL_GITHUB_TOKEN` set and a `github` task
+source watching the repo, apply the trigger label to a real issue, drive the
+resulting run through its approval gates via the `approve`/`answers`
+endpoints, and observe a `pr_url` and `done` status, with a draft PR created
+on GitHub. (Runs were started by hand via `POST /api/workflows` until feature
+010 removed that path.)
 
 **Acceptance Scenarios**:
 
-1. **Given** a repo and issue number, **When** the operator creates a workflow,
+1. **Given** a repo and issue number, **When** a task source starts a workflow,
    **Then** a run is created with fixed steps `refine` → `plan` → `implement`,
    a branch `kestrel/issue-{n}`, and a workspace under the workspace root; the
    run then clones the repo and checks out the branch.

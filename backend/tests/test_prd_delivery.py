@@ -109,7 +109,7 @@ async def test_github_run_publishes_refined_to_issue_body() -> None:
         sessions=runner.sessions, workflows=WorkflowRegistry(),
         backends=runner, git=_FakeGit(), github=gh, notifier=_FakeNotifier(),
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")

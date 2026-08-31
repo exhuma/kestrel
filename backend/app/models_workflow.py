@@ -139,11 +139,13 @@ class WorkflowRun:
     steps: list[WorkflowStep] = field(default_factory=list)
     pr_url: str | None = None
     error: str | None = None
-    #: Origin of the run: ``"manual"`` (started via the UI), ``"github-issue"``
-    #: or ``"jira-issue"`` (ingested). Internal attribution / notification
-    #: routing only — never surfaced to the API/UI, and never changes which
-    #: phases/gates a run traverses (feature 002 FR-019; feature 003 FR-026).
-    source: str = "manual"
+    #: Origin of the run: ``"github-issue"``, ``"jira-issue"`` or
+    #: ``"fixture-issue"`` — the task source that produced it. Internal
+    #: attribution / notification routing only — never surfaced to the API/UI,
+    #: and never changes which phases/gates a run traverses (feature 002
+    #: FR-019; feature 003 FR-026). Every run is ingested or rerun; feature
+    #: 010 removed manual entry and migration 0014 relabelled its rows.
+    source: str = "github-issue"
     #: Source-native ticket identity: GitHub ``"owner/name#123"``, Jira the
     #: issue key ``"RFC-123"``. The universal key for dedup, dismissal, and
     #: notification rendering (feature 003, FR-024/FR-031/FR-033).

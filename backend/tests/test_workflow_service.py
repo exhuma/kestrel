@@ -43,7 +43,7 @@ async def test_happy_path_refine_design_code_verify_pr() -> None:
     ])
     svc = _service(gh, runner, git)
 
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     assert svc.get(wid).steps[0].deliverable == "Build a clear widget"
@@ -92,7 +92,7 @@ async def test_save_publishes_to_bus() -> None:
         notifier=_FakeNotifier(),
         bus=bus,
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "done")
     assert bus.ticks  # at least one push happened
     assert all(t == wid for t in bus.ticks)
@@ -115,7 +115,7 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
         github=gh,
         notifier=notifier,
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "done")
     assert "done" in notifier.notified
     # The gateless autonomous phases are transient and never notified.
@@ -141,7 +141,7 @@ async def test_notifier_does_not_fire_on_reject() -> None:
         github=gh,
         notifier=notifier,
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
@@ -175,7 +175,7 @@ async def test_delete_drops_run_without_touching_github() -> None:
         *_refine_noquestions("v1"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
@@ -197,7 +197,7 @@ async def test_delete_removes_workspace_dir(tmp_path) -> None:
         SessionRegistry(), outputs=[*_refine_noquestions("v1")]
     )
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
@@ -222,7 +222,7 @@ async def test_delete_removes_all_workspace_sessions() -> None:
         *_refine_noquestions("v1"),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )

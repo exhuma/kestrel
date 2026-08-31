@@ -42,7 +42,7 @@ async def test_reject_with_refinement_regenerates() -> None:
         "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_approval"
@@ -68,7 +68,7 @@ async def test_submit_answers_validates() -> None:
                options=[{"value": "oidc", "label": "OIDC"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
@@ -87,7 +87,7 @@ async def test_incomplete_submission_rejected_by_default() -> None:
                options=[{"value": "oidc", "label": "OIDC"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     with pytest.raises(AnswerValidationError):
         svc.submit_answers(wid, {})  # required question unanswered
@@ -108,7 +108,7 @@ async def test_allow_incomplete_answers_accepts_partial_submission() -> None:
         gh, runner, _FakeGit(),
         settings=_settings(allow_incomplete_answers=True),
     )
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     svc.submit_answers(wid, {})  # tolerated: the interview advances
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
@@ -124,7 +124,7 @@ async def test_draft_save_persists_without_resuming() -> None:
                options=[{"value": "a", "label": "A"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
@@ -155,7 +155,7 @@ async def test_refine_round_increments_across_interview_rounds() -> None:
         "<REFINED_ISSUE>\nUse A then B\n</REFINED_ISSUE>",
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
@@ -183,7 +183,7 @@ async def test_finalize_requires_completeness() -> None:
                options=[{"value": "a", "label": "A"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
-    wid = await svc.create("o/r", 5)
+    wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )

@@ -46,23 +46,6 @@ describe('useWorkflows', () => {
     expect(workflows.value.map((w) => w.id)).toContain('wf-1')
   })
 
-  it('createWorkflow posts repo and issue number', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).endsWith('/api/workflows')
-        ? new Response(JSON.stringify({ workflow_id: 'wf-9' }), { status: 200 })
-        : new Response(JSON.stringify([]), { status: 200 }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    const { createWorkflow } = useWorkflows()
-    const id = await createWorkflow('o/r', 5)
-    expect(id).toBe('wf-9')
-    const [, init] = fetchMock.mock.calls[0]
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
-      repo: 'o/r',
-      issue_number: 5,
-    })
-  })
-
   it('select opens a workflow event stream and applies snapshots', async () => {
     const { select, current } = useWorkflows()
     select('wf-1')
