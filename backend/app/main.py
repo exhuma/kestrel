@@ -233,6 +233,7 @@ def create_app() -> FastAPI:
         )
 
     from app.routers import (
+        auth,
         github_webhook,
         identity,
         notifications,
@@ -246,6 +247,7 @@ def create_app() -> FastAPI:
     app.include_router(screenshots.router)
     app.include_router(notifications.router)
     app.include_router(identity.router)
+    app.include_router(auth.router)
     app.include_router(github_webhook.router)
 
     # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op

@@ -27,14 +27,14 @@ frontend within each phase, per the plan's stated order.
 
 **Purpose**: Dependencies and package scaffolding, nothing behavioral yet.
 
-- [ ] T001 [P] Add `pyjwt[crypto]` to `backend/pyproject.toml` runtime deps
+- [X] T001 [P] Add `pyjwt[crypto]` to `backend/pyproject.toml` runtime deps
       and `respx` to its dev deps; run `uv sync` (or `uv add pyjwt[crypto]`
       / `uv add --dev respx`) so `backend/uv.lock` is updated
-- [ ] T002 [P] Add `oidc-client-ts` to `frontend/package.json`; run
+- [X] T002 [P] Add `oidc-client-ts` to `frontend/package.json`; run
       `npm install`
-- [ ] T003 [P] Create the empty `backend/app/auth/` package:
+- [X] T003 [P] Create the empty `backend/app/auth/` package:
       `backend/app/auth/__init__.py`
-- [ ] T004 [P] Create the empty `frontend/src/auth/` directory (no file
+- [X] T004 [P] Create the empty `frontend/src/auth/` directory (no file
       yet — populated in Phase 2)
 
 **Checkpoint**: Dependencies installed, package scaffolding exists.
@@ -54,26 +54,26 @@ disabled) zero change to anything else.
 
 ### Tests for Foundational (write first, confirm they fail)
 
-- [ ] T005 [P] Test `resolve_permissions()` and the fixed permission
+- [X] T005 [P] Test `resolve_permissions()` and the fixed permission
       vocabulary in `backend/tests/test_auth_permissions.py`: role→permission
       mapping resolution (union across multiple matched mappings), and that
       `Settings._validate_role_mappings` fails fast at startup on a
       permission string outside the vocabulary
-- [ ] T006 [P] Test `RoleExtractor`/`KeycloakRoleExtractor` in
+- [X] T006 [P] Test `RoleExtractor`/`KeycloakRoleExtractor` in
       `backend/tests/test_auth_roles.py`: realm-role extraction, client-role
       extraction with `f"{client_id}:{role}"` namespacing, and the provider
       registry raising on an unknown `oidc_provider`
-- [ ] T007 [P] Test the JWKS client and `get_current_claims`/opt-out
+- [X] T007 [P] Test the JWKS client and `get_current_claims`/opt-out
       short-circuit in `backend/tests/test_auth_dependencies.py`: mock the
       JWKS endpoint (`respx`); cases — valid token, expired token, wrong
       `aud`, wrong `iss`, tampered signature, and `auth_enabled=False`
       passing every case through untouched
-- [ ] T008 [P] Test `GET /api/auth/config` in
+- [X] T008 [P] Test `GET /api/auth/config` in
       `backend/tests/test_auth_router.py`: disabled → `{"enabled": false,
       "authority": "", "client_id": ""}`; enabled → populated from
       `Settings`; no `Authorization` header required either way (per
       `contracts/auth-config.md`)
-- [ ] T009 [P] Test the new `oidc.ts` bootstrap in
+- [X] T009 [P] Test the new `oidc.ts` bootstrap in
       `frontend/tests/auth/oidc.test.ts`: `enabled: false` → no-op
       `UserManager` stand-in constructed, app can mount immediately;
       `enabled: true` with a populated authority/client_id → a real
@@ -83,9 +83,9 @@ disabled) zero change to anything else.
 
 ### Implementation for Foundational
 
-- [ ] T010 [P] Add `RoleMapping` model (`role: str`, `permissions:
+- [X] T010 [P] Add `RoleMapping` model (`role: str`, `permissions:
       list[str]`) to `backend/app/config_models.py`
-- [ ] T011 [P] Create `backend/app/auth/permissions.py`: the fixed
+- [X] T011 [P] Create `backend/app/auth/permissions.py`: the fixed
       permission-vocabulary constants from `data-model.md` (`sessions:write`,
       `sessions:delete`, `workflows:approve`, `workflows:reject`,
       `workflows:respond`, `workflows:cleanup`, `workflows:rerun`,
@@ -93,7 +93,7 @@ disabled) zero change to anything else.
       mappings: list[RoleMapping]) -> frozenset[str]`. **Leaf module — MUST
       NOT import `app.config`** (see `research.md` §9 / `plan.md`'s import-
       linter constraint)
-- [ ] T012 In `backend/app/config.py`: add `auth_enabled`, `oidc_authority`,
+- [X] T012 In `backend/app/config.py`: add `auth_enabled`, `oidc_authority`,
       `oidc_audience`, `oidc_issuer`, `oidc_client_id`, `oidc_provider`
       fields (see `data-model.md`'s Settings table for defaults); add
       `role_mappings: list[RoleMapping] = []` to `_FILE_ONLY_FIELDS` and
@@ -103,34 +103,34 @@ disabled) zero change to anything else.
       string; add the auth-incomplete-config warning validator (mirrors
       `_warn_incomplete_ingestion_config`) — depends on T010, T011 (T005
       must be failing before this task, T005 must pass after)
-- [ ] T013 [P] Create `backend/app/auth/jwks.py`: `get_jwks_client(authority:
+- [X] T013 [P] Create `backend/app/auth/jwks.py`: `get_jwks_client(authority:
       str) -> jwt.PyJWKClient`, `lru_cache`d, resolving
       `{authority}/.well-known/openid-configuration` — depends on T001
-- [ ] T014 [P] Create `backend/app/auth/roles.py`: `RoleExtractor` Protocol,
+- [X] T014 [P] Create `backend/app/auth/roles.py`: `RoleExtractor` Protocol,
       `KeycloakRoleExtractor` (realm + namespaced client roles per
       `data-model.md`), and a provider registry keyed by `oidc_provider` —
       makes T006 pass
-- [ ] T015 [P] Create `backend/app/auth/identity.py`: the `AuthenticatedUser`
+- [X] T015 [P] Create `backend/app/auth/identity.py`: the `AuthenticatedUser`
       value object (`sub`, `email`, `preferred_username`, `permissions:
       frozenset[str]`), never persisted — depends on T011
-- [ ] T016 Create `backend/app/auth/dependencies.py`: `get_current_claims`
+- [X] T016 Create `backend/app/auth/dependencies.py`: `get_current_claims`
       (validates `exp`/`nbf`/`aud`/`iss` via T013's JWKS client),
       `require_permission(perm: str)` dependency factory, an
       authenticated-only dependency, all short-circuiting to "everything
       allowed" when `auth_enabled=False` — makes T007 pass; depends on
       T012, T013, T014, T015
-- [ ] T017 Create `backend/app/routers/auth.py` with `GET /api/auth/config`
+- [X] T017 Create `backend/app/routers/auth.py` with `GET /api/auth/config`
       only (per `contracts/auth-config.md`); register it in
       `backend/app/main.py` — makes T008 pass; depends on T012
-- [ ] T018 [P] Add `AuthConfig`/`AuthPermissions` TypeScript interfaces to
+- [X] T018 [P] Add `AuthConfig`/`AuthPermissions` TypeScript interfaces to
       `frontend/src/types/` (per constitution Principle I — every backend
       JSON shape gets a mirrored frontend type), matching
       `contracts/auth-config.md` and `contracts/auth-permissions.md`
-- [ ] T019 Create `frontend/src/auth/oidc.ts`: fetches `GET /api/auth/config`
+- [X] T019 Create `frontend/src/auth/oidc.ts`: fetches `GET /api/auth/config`
       at boot; lazy `UserManager` built only when `enabled: true`; no-op
       stand-in otherwise; throws on missing authority/client_id when
       enabled — makes T009 pass; depends on T018
-- [ ] T020 In `frontend/src/api/index.ts`: wire `setTokenProvider()` to read
+- [X] T020 In `frontend/src/api/index.ts`: wire `setTokenProvider()` to read
       `oidc.ts`'s current user's access token (existing, currently-unused
       seam) — depends on T019
 

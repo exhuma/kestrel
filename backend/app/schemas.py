@@ -214,3 +214,32 @@ class IdentityOut(BaseModel):
     username: str | None
     email: str | None
     preferred_username: str | None
+
+
+class AuthConfigOut(BaseModel):
+    """The SPA's runtime OIDC bootstrap config (feature 011).
+
+    Fetched at page load, before sign-in — never requires auth itself.
+    ``client_id`` is a public OIDC client identifier, never a secret (a
+    public client holds no ``client_secret``; PKCE replaces it).
+    """
+
+    enabled: bool
+    authority: str
+    client_id: str
+
+
+class AuthPermissionsOut(BaseModel):
+    """The caller's resolved identity + permission set (feature 011).
+
+    When auth is disabled, ``sub``/``email``/``preferred_username`` are
+    ``null`` and ``permissions`` is ``["*"]`` (see
+    ``app.auth.permissions.ALL_PERMISSIONS_SENTINEL``) — the frontend
+    treats that sentinel as "every permission" rather than needing to know
+    the full vocabulary itself.
+    """
+
+    sub: str | None
+    email: str | None
+    preferred_username: str | None
+    permissions: list[str]

@@ -14,7 +14,8 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from app.config_models import BackendConfig, TaskSourceConfig
+from app.auth.permissions import PERMISSIONS
+from app.config_models import BackendConfig, RoleMapping, TaskSourceConfig
 from app.models_workflow import Step
 
 _log = logging.getLogger("kestrel.config")
@@ -23,7 +24,10 @@ _log = logging.getLogger("kestrel.config")
 # named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
-    {"backends", "step_backends", "default_session_backend", "task_sources"}
+    {
+        "backends", "step_backends", "default_session_backend",
+        "task_sources", "role_mappings",
+    }
 )
 
 # Applicative (non-secret) settings the TOML config file may override. Unlike
@@ -193,6 +197,40 @@ class Settings(BaseSettings):
     #: stay inspectable — only an explicit abandon still removes them. Off
     #: by default: a personal tool should not silently accumulate worktrees.
     workflow_debug: bool = False
+    #: Opt-in OIDC authentication + permission-based authorization (feature
+    #: 011, constitution v2.0.0). Off by default: kestrel stays fully open,
+    #: unauthenticated, exactly as before this setting existed.
+    auth_enabled: bool = False
+    #: IdP issuer base URL (``KESTREL_OIDC_AUTHORITY``); the discovery
+    #: document is resolved at ``{authority}/.well-known/openid-configuration``.
+    oidc_authority: str = ""
+    #: Validated against the token's ``aud`` claim (``KESTREL_OIDC_AUDIENCE``).
+    oidc_audience: str = ""
+    #: Validated against the token's ``iss`` claim (``KESTREL_OIDC_ISSUER``);
+    #: defaults to ``oidc_authority`` when unset.
+    oidc_issuer: str = ""
+    #: Which client's ``resource_access`` branch to read for client-role
+    #: extraction (``KESTREL_OIDC_CLIENT_ID``); defaults to ``oidc_audience``
+    #: when unset. A distinct knob from ``oidc_audience`` even though they
+    #: are typically the same value for kestrel's single SPA client.
+    oidc_client_id: str = ""
+    #: Selects the :class:`app.auth.roles.RoleExtractor` implementation
+    #: (``KESTREL_OIDC_PROVIDER``).
+    oidc_provider: str = "keycloak"
+    #: Operator-authored role -> permission mappings. File-only (like
+    #: ``task_sources``); each entry's ``permissions`` MUST be drawn from
+    #: :data:`app.auth.permissions.PERMISSIONS` (validated below).
+    role_mappings: list[RoleMapping] = []
+
+    def effective_oidc_issuer(self) -> str:
+        """The issuer to validate tokens against: ``oidc_issuer`` or,
+        when unset, ``oidc_authority``."""
+        return self.oidc_issuer or self.oidc_authority
+
+    def effective_oidc_client_id(self) -> str:
+        """The client id to read ``resource_access`` from: ``oidc_client_id``
+        or, when unset, ``oidc_audience``."""
+        return self.oidc_client_id or self.oidc_audience
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""
@@ -253,6 +291,10 @@ class Settings(BaseSettings):
         if "task_sources" in data:
             self.task_sources = [
                 TaskSourceConfig(**entry) for entry in data["task_sources"]
+            ]
+        if "role_mappings" in data:
+            self.role_mappings = [
+                RoleMapping(**entry) for entry in data["role_mappings"]
             ]
         # Applicative overrides: file wins, but only for keys it sets.
         for key in _CONFIG_FILE_FIELDS:
@@ -326,6 +368,50 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"Invalid step names in step_backends: {invalid_list!r}. "
                 f"Valid steps are: {valid_list}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_role_mappings(self) -> Settings:
+        """Fail fast on a ``role_mappings`` entry naming an unknown
+        permission (feature 011) — mirrors ``_validate_step_backends``:
+        a silent typo here would otherwise look like "role granted nothing"
+        rather than the misconfiguration it is.
+        """
+        unknown: set[str] = set()
+        for mapping in self.role_mappings:
+            unknown.update(set(mapping.permissions) - PERMISSIONS)
+        if unknown:
+            valid_list = ", ".join(sorted(PERMISSIONS))
+            invalid_list = ", ".join(sorted(unknown))
+            raise ValueError(
+                f"Invalid permission(s) in role_mappings: {invalid_list!r}. "
+                f"Valid permissions are: {valid_list}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _warn_incomplete_auth_config(self) -> Settings:
+        """Warn (not fail) when auth is enabled but OIDC settings are
+        incomplete — a misconfigured-but-enabled setup should be loud, not
+        a silent open door or a hard startup crash (feature 011).
+        """
+        if not self.auth_enabled:
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("oidc_authority", self.oidc_authority),
+                ("oidc_audience", self.oidc_audience),
+                ("oidc_client_id", self.effective_oidc_client_id()),
+            )
+            if not value
+        ]
+        if missing:
+            _log.warning(
+                "auth_enabled is true but %s unset; token validation will "
+                "reject every request until configured.",
+                ", ".join(missing),
             )
         return self
 

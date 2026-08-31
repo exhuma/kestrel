@@ -156,3 +156,21 @@ class TaskSourceConfig(BaseModel):
             else "KESTREL_CODE_HOST_TOKEN"
         )
         return os.environ.get(env) if env else None
+
+
+class RoleMapping(BaseModel):
+    """One IdP role mapped to the kestrel permissions it grants.
+
+    ``role`` is an IdP role name as reported in token claims: a realm role
+    is used as-is; a client role is namespaced by the configured
+    :class:`~app.auth.roles.RoleExtractor` (``f"{client_id}:{role}"``)
+    before this mapping is looked up, so the operator writes the client-role
+    form here too. ``permissions`` entries are validated against the fixed
+    vocabulary in :mod:`app.auth.permissions` by
+    ``Settings._validate_role_mappings`` (not here, to keep this module free
+    of an ``app.auth`` import). Every entry lives in the file-only
+    ``role_mappings`` list (feature 011).
+    """
+
+    role: str
+    permissions: list[str] = []
