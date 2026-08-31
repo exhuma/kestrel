@@ -42,6 +42,12 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_REFINE_CRITIC` | `false` | Add an adversarial completeness pass after refine's reconciliation step |
 | `KESTREL_RECONCILE_MODE` | `rewrite` | How refine consolidates overlapping questions: `rewrite` (LLM rewriter), `dedup` (no-LLM, coverage-safe within-audience dedup), or `off` (keep the pooled questions as-is) |
 | `KESTREL_ALLOW_INCOMPLETE_ANSWERS` | `false` | Safety net: let a questionnaire be submitted with required questions left blank. Provided answers are still validated for well-formedness |
+| `KESTREL_AUTH_ENABLED` | `false` | Opt-in OIDC authentication + permission-based authorization. Disabled, kestrel is unauthenticated exactly as before. See [OIDC authentication](auth.md) |
+| `KESTREL_OIDC_AUTHORITY` | _(empty)_ | IdP issuer base URL, e.g. `https://keycloak.example.com/realms/kestrel`. Required when auth is enabled |
+| `KESTREL_OIDC_AUDIENCE` | _(empty)_ | The client id, validated against the token's `aud` claim. Required when auth is enabled |
+| `KESTREL_OIDC_ISSUER` | _(unset)_ | Validated against `iss`; defaults to `KESTREL_OIDC_AUTHORITY` |
+| `KESTREL_OIDC_CLIENT_ID` | _(unset)_ | Which client's `resource_access` branch to read for client-role extraction; defaults to `KESTREL_OIDC_AUDIENCE` |
+| `KESTREL_OIDC_PROVIDER` | `keycloak` | Selects the role-extraction adapter |
 
 A project's user-facing boundary (HTTP API, web UI, both, or none) is inferred
 by the `design` step from the PRD and codebase, not configured — there is no
@@ -159,6 +165,29 @@ Backends are configured **only** through `KESTREL_CONFIG_FILE` (or the
 
 Unknown or stale `KESTREL_*` keys are ignored rather than causing a startup
 failure, so a leftover key from a rename never crashes the service.
+
+## Role mappings
+
+Only meaningful when `KESTREL_AUTH_ENABLED=true` (see
+[OIDC authentication](auth.md)). The **file-only** `[[role_mappings]]` list
+in `config.toml` maps identity-provider role names onto kestrel's own
+permission vocabulary — application code never gates on an IdP role name
+directly.
+
+```toml
+[[role_mappings]]
+role = "kestrel-admin"                # a realm role
+permissions = ["workflows:cleanup", "workflows:rerun"]
+
+[[role_mappings]]
+role = "kestrel-spa:approver"         # a client role, namespaced client_id:role
+permissions = ["workflows:approve", "workflows:reject"]
+```
+
+Each `permissions` entry is validated at startup against a fixed
+vocabulary — an unknown string fails fast rather than silently granting
+nothing. See [OIDC authentication](auth.md#4-map-roles-to-permissions) for
+the full vocabulary and the realm-vs-client-role namespacing rule.
 
 ## Config files
 

@@ -45,16 +45,38 @@ the image small and lets a deploy attach or swap backends purely by config.
 - **State** lives in SQLite on the `/data` volume; migrations run on every
   container start (idempotent).
 - **Agent auth** is inherited from the host `claude` login (seeded read-only
-  into the container), never re-implemented by kestrel. The only secret
-  kestrel itself consumes is an optional `KESTREL_GITHUB_TOKEN`.
+  into the container), never re-implemented by kestrel. The only secrets
+  kestrel itself consumes are an optional `KESTREL_GITHUB_TOKEN` and, when
+  the OIDC feature below is enabled, its IdP client configuration.
+- **User auth** is opt-in and off by default (feature 011,
+  `KESTREL_AUTH_ENABLED`). Disabled, kestrel is exactly as it always was:
+  unauthenticated, loopback-bound. Enabled, the backend becomes a stateless
+  OIDC resource server (bearer-token validation against a configured IdP's
+  JWKS; no session, no local user table — permissions are recomputed from
+  token claims on every request) and the SPA becomes the public OIDC
+  client (Authorization Code + PKCE). IdP roles (Keycloak realm and client
+  roles alike) are mapped through an operator-authored `config.toml`
+  `role_mappings` list onto a fixed, kestrel-owned permission vocabulary,
+  extracted via a provider-pluggable port so a second IdP is one new
+  adapter. See [OIDC authentication](auth.md) and the constitution's
+  Access model ("Fourth recorded exception") for the full design.
 
 ## Design trade-offs
 
-- **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool bound to loopback. Multi-user/authn is out of scope. One exception:
-  the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
-  face the network so GitHub can deliver events; its authenticity gate is an
-  HMAC signature, not loopback binding (see the constitution's access model).
+- **Single-tenant, auth optional.** Kestrel remains one shared workspace
+  with no per-user data ownership — that doesn't change whether or not
+  authentication is enabled. By default it stays a personal tool bound to
+  loopback with no auth, as in the alpha. An operator who needs to gate
+  access to more than one trusted identity can opt into OIDC authentication
+  and permission-based authorization (see "Data & auth" above) without the
+  system becoming multi-tenant. Two further, narrower exceptions to
+  loopback-binding: the GitHub webhook endpoint
+  (`POST /api/github/webhook`) is intended to face the network so GitHub
+  can deliver events, gated by an HMAC signature rather than loopback
+  binding; and, when OIDC auth is enabled, the four SSE streams
+  authenticate via a short-lived, single-use connection ticket instead of
+  the `Authorization` header, since browser `EventSource` cannot set one
+  (see the constitution's access model for both).
 - **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
   (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)**
   both feed one source-neutral entry point (`ingestion.maybe_start_run`, on a

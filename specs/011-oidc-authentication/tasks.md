@@ -390,26 +390,26 @@ verifiable per `quickstart.md`'s steps 1–7.
 **Purpose**: Documentation catch-up recorded as pending in the constitution
 amendment's Sync Impact Report, plus whole-feature verification.
 
-- [ ] T059 [P] Update `docs/configuration.md`: add the new
+- [X] T059 [P] Update `docs/configuration.md`: add the new
       `KESTREL_AUTH_ENABLED`/`KESTREL_OIDC_*` environment variable rows and
       the `[[role_mappings]]` config.toml section, matching the existing
       table format
-- [ ] T060 [P] Rewrite `docs/architecture.md`'s "Data & auth" section
+- [X] T060 [P] Rewrite `docs/architecture.md`'s "Data & auth" section
       (currently states "Single-user, no auth… Multi-user/authn is out of
       scope") to describe the opt-in OIDC resource-server model
-- [ ] T061 [P] Update `docs/qm-alignment.md`: move the four `module-auth-*`
+- [X] T061 [P] Update `docs/qm-alignment.md`: move the four `module-auth-*`
       kits from "N/A" to "Applies", noting what was and wasn't adopted (no
       user provisioning, no dev-auth-bypass, no vue-router — see
       `research.md`'s Rejected Alternatives); record the
       `GET /api/auth/config` runtime-config deviation alongside the
       existing `VITE_API_BASE` entry
-- [ ] T062 Run `cd backend && uv run pytest` — full suite green
-- [ ] T063 Run `uvx ruff check backend` and the import-linter check (however
+- [X] T062 Run `cd backend && uv run pytest` — full suite green
+- [X] T063 Run `uvx ruff check backend` and the import-linter check (however
       `task quality` invokes it) — confirm `backend/app/auth/permissions.py`
       has no upward import (leaf-module constraint, T011)
-- [ ] T064 Run `cd frontend && npm run test && npm run build` — full suite
+- [X] T064 Run `cd frontend && npm run test && npm run build` — full suite
       green
-- [ ] T065 Run `task quality` end-to-end — confirm every new/changed module
+- [X] T065 Run `task quality` end-to-end — confirm every new/changed module
       stays within the structural limits (complexity ≤10, module ≤500
       lines, etc.)
 - [ ] T066 Execute `quickstart.md` steps 1–7 end-to-end against a real

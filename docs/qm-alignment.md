@@ -72,24 +72,40 @@ module-observability-healthz, **module-http-middleware-hardening (v2)**,
 module-testing-strategy, stack-fastapi-vuetify, module-vue-vuetify,
 module-ux-principles, module-github-link, module-version-control,
 module-calver-release-channels, module-documentation,
-module-notification-alarm-discipline.
+module-notification-alarm-discipline, **module-auth-oidc**,
+**module-auth-oidc-python**, **module-auth-oidc-vue** (feature 011,
+2026-08-31: kestrel gained opt-in OIDC authentication — see
+[docs/auth.md](auth.md) and the constitution's Access model "Fourth
+recorded exception". Superseded the 2026-07-13 pass's N/A verdict below).
 
 **Partial:** module-database-postgresql (SQLAlchemy/Alembic patterns apply;
 Postgres-specific ones N/A — uses SQLite), module-library-preferences,
-module-runtime-config-spa, module-release-metadata, module-design-tokens,
-module-operator-docs.
+module-runtime-config-spa (adopted a second time, the same way as
+`VITE_API_BASE`: `GET /api/auth/config` serves the OIDC client's
+authority/client_id at runtime rather than baking them in at build time,
+since kestrel ships one image reused across every operator's own Keycloak
+realm — the kit's canonical entrypoint-`envsubst`-into-`config.js`
+mechanism was judged disproportionate for one small, non-secret config
+blob when the backend already serves dynamic content), module-release-metadata,
+module-design-tokens, module-operator-docs.
 
 **Deferred (in scope, not implemented):** module-observability-metrics — see
 [Deferred](#deferred-single-user-scope).
 
-**N/A (confirmed):** module-auth-\* (no auth; reuses host Claude login —
-includes the new `-oidc-python`/`-oidc-vue`, `dev-auth-bypass`, and
-`oidc-user-provisioning` kits), module-docs-sphinx and
-module-hosting-readthedocs (docs are plain Markdown),
-release-snapshot (single image, no
-upstream→downstream client snapshot), module-onboarding-tour (no first-run
-onboarding), module-diagrams (latent — no diagrams exist yet),
-module-design-tokens multi-surface codegen (no login/email surfaces).
+**N/A (confirmed):** module-dev-auth-bypass (feature 011 stayed
+stateless/schema-free; when auth is disabled — the default — local dev
+without an IdP already works with zero config, and backend tests mock the
+JWKS endpoint per `module-auth-oidc-python`'s own testing guidance rather
+than needing a bypass token; revisit only if manual QA against a real
+Keycloak becomes a real friction point), module-oidc-user-provisioning
+(kestrel owns no per-user data and stays stateless — permissions are
+recomputed from token claims on every request, so there is no local user
+row to provision; see `specs/011-oidc-authentication/research.md` §4),
+module-docs-sphinx and module-hosting-readthedocs (docs are plain
+Markdown), release-snapshot (single image, no upstream→downstream client
+snapshot), module-onboarding-tour (no first-run onboarding),
+module-diagrams (latent — no diagrams exist yet), module-design-tokens
+multi-surface codegen (no login/email surfaces).
 
 ## What already aligns well
 
