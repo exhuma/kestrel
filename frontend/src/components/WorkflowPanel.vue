@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { usePermissions } from '../composables/usePermissions'
 import { useWorkflows } from '../composables/useWorkflows'
 import QuestionnaireForm from './QuestionnaireForm.vue'
 import {
@@ -44,6 +45,7 @@ const {
   cleanup,
   rerun,
 } = useWorkflows()
+const { can } = usePermissions()
 
 const answer = ref('')
 const edited = ref('')
@@ -362,6 +364,7 @@ function stepColor(status: string): string | undefined {
               variant="text"
               title="Rerun workflow"
               aria-label="Rerun workflow"
+              :disabled="!can('workflows:rerun')"
               @click.stop="onRerun(w.id)"
             />
             <v-btn
@@ -370,6 +373,7 @@ function stepColor(status: string): string | undefined {
               variant="text"
               title="Clean up workflow"
               aria-label="Clean up workflow"
+              :disabled="!can('workflows:cleanup')"
               @click.stop="onCleanup(w.id)"
             />
             <v-btn
@@ -378,6 +382,7 @@ function stepColor(status: string): string | undefined {
               variant="text"
               title="Abandon workflow"
               aria-label="Abandon workflow"
+              :disabled="!can('workflows:delete')"
               @click.stop="onDelete(w.id)"
             />
           </template>
@@ -565,6 +570,7 @@ function stepColor(status: string): string | undefined {
           <div class="d-flex ga-3">
             <v-btn
               color="primary"
+              :disabled="!can('workflows:approve')"
               :loading="busy === 'approve'"
               @click="onApprove"
             >
@@ -572,6 +578,7 @@ function stepColor(status: string): string | undefined {
             </v-btn>
             <v-btn
               variant="tonal"
+              :disabled="!can('workflows:reject')"
               :loading="busy === 'reject'"
               @click="onReject"
             >
@@ -585,7 +592,7 @@ function stepColor(status: string): string | undefined {
           />
           <v-btn
             variant="outlined"
-            :disabled="!feedback.trim()"
+            :disabled="!feedback.trim() || !can('workflows:reject')"
             :loading="busy === 'changes'"
             @click="onRequestChanges"
           >
@@ -600,6 +607,7 @@ function stepColor(status: string): string | undefined {
             :draft-answers="pendingInterview.draft_answers"
             :round="pendingInterview.round"
             :allow-incomplete="current?.allow_incomplete_answers ?? false"
+            :disabled="!can('workflows:respond')"
             @submit="onSubmitAnswers"
             @save-draft="onSaveDraft"
           />
@@ -609,7 +617,12 @@ function stepColor(status: string): string | undefined {
               rows="3"
               label="Answer the agent's questions…"
             />
-            <v-btn color="primary" :loading="busy === 'reply'" @click="onReply">
+            <v-btn
+              color="primary"
+              :disabled="!can('workflows:respond')"
+              :loading="busy === 'reply'"
+              @click="onReply"
+            >
               Send reply
             </v-btn>
           </div>

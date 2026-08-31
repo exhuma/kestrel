@@ -25,6 +25,9 @@ const props = defineProps<{
   round: number
   /** Safety net: allow submitting with required questions unanswered. */
   allowIncomplete?: boolean
+  /** UX-only gate (the backend is the real enforcer): disables both
+   * submit and save-draft, e.g. when the caller lacks workflows:respond. */
+  disabled?: boolean
 }>()
 const emit = defineEmits<{
   submit: [answers: Record<string, unknown>]
@@ -111,7 +114,9 @@ const complete = computed(() =>
 )
 // The safety net lets an incomplete questionnaire go through (unanswered
 // questions are sent blank); it never blocks a complete one.
-const canSubmit = computed(() => complete.value || !!props.allowIncomplete)
+const canSubmit = computed(
+  () => (complete.value || !!props.allowIncomplete) && !props.disabled,
+)
 const submittingIncomplete = computed(() => canSubmit.value && !complete.value)
 
 // One tab per specialist; the tab reuses the same mnemonic + badge as
@@ -423,7 +428,12 @@ function onSaveDraft(): void {
       <v-btn type="submit" color="primary" :disabled="!canSubmit">
         {{ submittingIncomplete ? 'Submit incomplete' : 'Submit answers' }}
       </v-btn>
-      <v-btn type="button" variant="text" @click="onSaveDraft">
+      <v-btn
+        type="button"
+        variant="text"
+        :disabled="props.disabled"
+        @click="onSaveDraft"
+      >
         Save progress
       </v-btn>
       <span v-if="submittingIncomplete" class="text-caption text-warning">

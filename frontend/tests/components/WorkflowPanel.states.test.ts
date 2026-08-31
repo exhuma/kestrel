@@ -48,6 +48,12 @@ vi.mock('../../src/composables/useWorkflows', () => ({
     rerun: mockRerun,
   }),
 }))
+// This file's concern is run-state rendering, not permission gating (see
+// WorkflowPanel.permissions.test.ts for that) — default to "always allowed"
+// so its pre-existing assertions about action buttons stay valid.
+vi.mock('../../src/composables/usePermissions', () => ({
+  usePermissions: () => ({ can: () => true }),
+}))
 
 import WorkflowPanel from '../../src/components/WorkflowPanel.vue'
 

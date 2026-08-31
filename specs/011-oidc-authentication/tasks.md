@@ -286,11 +286,11 @@ and is refused for the other, for every gated action.
       exact list; auth enabled + zero mapped roles → `"permissions": []`
       (not an error); auth enabled + invalid token → 401 (per
       `contracts/auth-permissions.md`)
-- [ ] T046 [P] [US2] Test `usePermissions.ts` in
+- [X] T046 [P] [US2] Test `usePermissions.ts` in
       `frontend/tests/composables/usePermissions.test.ts`: fetches once,
       `can(permission)` reflects the fetched set; auth disabled → `can()`
       always true (sentinel handling)
-- [ ] T047 [P] [US2] Extend `frontend/tests/components/` for
+- [X] T047 [P] [US2] Extend `frontend/tests/components/` for
       `WorkflowPanel.vue` and `SessionPanel.vue`: each mutating button
       renders disabled when `usePermissions().can(...)` is false for its
       permission, enabled when true
@@ -311,16 +311,16 @@ and is refused for the other, for every gated action.
       `backend/app/routers/auth.py` (per `contracts/auth-permissions.md`,
       including the disabled-auth `"*"` sentinel response) — makes T045
       pass; depends on T016
-- [ ] T051 [P] [US2] Create `frontend/src/composables/usePermissions.ts`
+- [X] T051 [P] [US2] Create `frontend/src/composables/usePermissions.ts`
       (module-singleton pattern, matching `useIdentity.ts`): fetches
       `GET /api/auth/permissions` once, exposes `can(permission: string):
       boolean`, treating the `"*"` sentinel as always-true — makes T046
       pass; depends on T018
-- [ ] T052 [P] [US2] Gate `WorkflowPanel.vue`'s mutating buttons
+- [X] T052 [P] [US2] Gate `WorkflowPanel.vue`'s mutating buttons
       (`onCleanup`, `onRerun`, `onDelete`, `onApprove`, `onReject`,
       `onReply`/answers) via `usePermissions().can(...)` — makes half of
       T047 pass; depends on T051
-- [ ] T053 [P] [US2] Gate `SessionPanel.vue`'s mutating buttons (`onStart`,
+- [X] T053 [P] [US2] Gate `SessionPanel.vue`'s mutating buttons (`onStart`,
       `onResume`, `onDelete`) via `usePermissions().can(...)` — makes the
       other half of T047 pass; depends on T051
 

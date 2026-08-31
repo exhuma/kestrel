@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { usePermissions } from '../composables/usePermissions'
 import { useSessions } from '../composables/useSessions'
 import ConsoleShell from './ConsoleShell.vue'
 import type { SessionEvent } from '../types/sessions'
@@ -17,6 +18,7 @@ const {
   stopEvents,
   remove,
 } = useSessions()
+const { can } = usePermissions()
 
 const prompt = ref('Write a haiku about the sea into poem.txt')
 const followUp = ref('Now revise it to be about mountains instead.')
@@ -216,7 +218,7 @@ function preview(e: SessionEvent): string {
           block
           color="primary"
           prepend-icon="$rocketLaunchOutline"
-          :disabled="loading || !prompt.trim()"
+          :disabled="loading || !prompt.trim() || !can('sessions:write')"
           @click="onStart"
         >
           Launch session
@@ -235,7 +237,7 @@ function preview(e: SessionEvent): string {
         <v-btn
           block
           variant="tonal"
-          :disabled="!current || loading"
+          :disabled="!current || loading || !can('sessions:write')"
           @click="onResume"
         >
           Resume session
@@ -277,6 +279,7 @@ function preview(e: SessionEvent): string {
               variant="text"
               title="Abandon session"
               aria-label="Abandon session"
+              :disabled="!can('sessions:delete')"
               @click.stop="onDelete(s.session_id)"
             />
           </template>
