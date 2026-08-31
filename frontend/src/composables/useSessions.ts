@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { api, API_BASE, ApiError } from '../api'
+import { api, ApiError } from '../api'
+import { eventSourceUrl } from '../auth/sseTicket'
 import { openSessionEventStream } from '../lib/sessionEventStream'
 import type { SessionEventStreamHandle } from '../lib/sessionEventStream'
 import type { SessionEvent, SessionSummary } from '../types/sessions'
@@ -71,10 +72,10 @@ export function useSessions() {
     }
   }
 
-  function watchEvents(id: string): void {
+  async function watchEvents(id: string): Promise<void> {
     events.value = []
     if (stream) stream.close()
-    const url = `${API_BASE}/api/sessions/${id}/events`
+    const url = await eventSourceUrl(`/api/sessions/${id}/events`)
     stream = openSessionEventStream(url, (event) => {
       events.value.push(event)
       // A result event ends a run — refresh so the session's status

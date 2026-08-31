@@ -178,17 +178,17 @@ live-updating ones.
       `backend/tests/test_auth_router.py`: requires the caller's own valid
       bearer token when auth is enabled; returns a ticket; 401 when
       unauthenticated
-- [ ] T027 [P] [US1] Test the reauth-loop-guard circuit breaker in
+- [X] T027 [P] [US1] Test the reauth-loop-guard circuit breaker in
       `frontend/tests/auth/reauthGuard.test.ts`: a single 401 (genuine
       expiry) triggers exactly one redirect and clears on the next success;
       a second consecutive 401 (structurally-rejected token) trips the
       breaker and surfaces `authError` instead of redirecting again
-- [ ] T028 [P] [US1] Test the `/auth/callback` bootstrap path in
+- [X] T028 [P] [US1] Test the `/auth/callback` bootstrap path in
       `frontend/tests/` (e.g. a `main.ts`-adjacent test or an
       `oidc.test.ts` addition): pathname `/auth/callback` triggers
       `signinRedirectCallback()` and redirects to the stored `returnTo`
       (or `/`) before the main app mounts
-- [ ] T029 [P] [US1] Extend `frontend/tests/composables/useSessions.test.ts`,
+- [X] T029 [P] [US1] Extend `frontend/tests/composables/useSessions.test.ts`,
       `useWorkflows.test.ts`, `useNotifications.test.ts`: when auth is
       enabled, a ticket is fetched via `POST /api/auth/sse-ticket` and
       appended as `?ticket=...` before each `EventSource` is constructed;
@@ -219,33 +219,33 @@ live-updating ones.
       `GET /api/workflows/{id}/events` (`workflows.py`),
       `GET /api/notifications/events` (`notifications.py`) — makes T025
       pass
-- [ ] T036 [P] [US1] Create `frontend/src/auth/reauthGuard.ts`: the
+- [X] T036 [P] [US1] Create `frontend/src/auth/reauthGuard.ts`: the
       `sessionStorage`-counter circuit breaker (`handleUnauthorized`,
       `notifyAuthSuccess`, `authError` ref) — makes T027 pass
-- [ ] T037 [US1] In `frontend/src/api/index.ts`: wire
+- [X] T037 [US1] In `frontend/src/api/index.ts`: wire
       `setUnauthorizedHandler(reauthGuard.handleUnauthorized)` and a
       success-seam call to `reauthGuard.notifyAuthSuccess` on every 2xx —
       depends on T036
-- [ ] T038 [US1] In `frontend/src/main.ts`: before mounting `App.vue`,
+- [X] T038 [US1] In `frontend/src/main.ts`: before mounting `App.vue`,
       resolve `oidc.ts`'s config; if disabled, mount immediately
       (unchanged today); if enabled and `pathname === '/auth/callback'`,
       run the callback flow and redirect (mirrors the existing
       `applyDeepLink` manual-URL-parsing idiom in this file); otherwise
       check for a valid non-expired user and `signinRedirect()` if absent —
       makes T028 pass; depends on T019, T037
-- [ ] T039 [P] [US1] In `frontend/src/composables/useSessions.ts`: before
+- [X] T039 [P] [US1] In `frontend/src/composables/useSessions.ts`: before
       constructing the session-detail `EventSource`, fetch a ticket via
       `POST /api/auth/sse-ticket` (through the authenticated `api` client)
       when auth is enabled, append `?ticket=...`; unchanged when disabled —
       part of what makes T029 pass; depends on T020
-- [ ] T040 [P] [US1] Same ticket-fetch wiring in
+- [X] T040 [P] [US1] Same ticket-fetch wiring in
       `frontend/src/composables/useWorkflows.ts` for both its
       `EventSource` call sites (list + detail) — part of what makes T029
       pass; depends on T020
-- [ ] T041 [P] [US1] Same ticket-fetch wiring in
+- [X] T041 [P] [US1] Same ticket-fetch wiring in
       `frontend/src/composables/useNotifications.ts` — part of what makes
       T029 pass; depends on T020
-- [ ] T042 [US1] Extend `frontend/src/components/IdentityBadge.vue`: add
+- [X] T042 [US1] Extend `frontend/src/components/IdentityBadge.vue`: add
       login/logout controls (`userManager.signinRedirect()` /
       `signoutRedirect()`) visible when auth is enabled, in the existing
       `v-app-bar` right-hand cluster in `frontend/src/App.vue`

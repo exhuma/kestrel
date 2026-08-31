@@ -1,11 +1,24 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { useNotifications } from '../../src/composables/useNotifications'
+import { stubDisabledAuthConfig } from '../support/authConfig'
 
 afterEach(() => {
   useNotifications().stop()
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
+
+// Used only by the 'start opens a stream' test below; hoisted to module
+// scope to keep that test's describe block under the line-count limit.
+let fakeEventSourceClose: ReturnType<typeof vi.fn>
+let lastFakeEventSource: FakeEventSource | null = null
+class FakeEventSource {
+  onmessage: ((e: MessageEvent) => void) | null = null
+  close = (): void => fakeEventSourceClose()
+  constructor(public url: string) {
+    lastFakeEventSource = this
+  }
+}
 
 const sample = [
   {
@@ -73,28 +86,21 @@ describe('useNotifications', () => {
     )
   })
 
-  it('start opens a stream that populates items; stop closes it', () => {
-    const close = vi.fn()
-    let es: FakeEventSource | null = null
-    class FakeEventSource {
-      onmessage: ((e: MessageEvent) => void) | null = null
-      close = close
-      constructor(public url: string) {
-        es = this
-      }
-    }
+  it('start opens a stream that populates items; stop closes it', async () => {
+    fakeEventSourceClose = vi.fn()
     vi.stubGlobal('EventSource', FakeEventSource)
+    stubDisabledAuthConfig()
 
     const { items, unreadCount, start, stop } = useNotifications()
-    start()
-    expect(es!.url).toContain('/api/notifications/events')
-    es!.onmessage?.({
+    await start()
+    expect(lastFakeEventSource!.url).toContain('/api/notifications/events')
+    lastFakeEventSource!.onmessage?.({
       data: JSON.stringify({ notifications: sample }),
     } as MessageEvent)
     expect(items.value.map((n) => n.id)).toEqual([2, 1])
     expect(unreadCount.value).toBe(1)
 
     stop()
-    expect(close).toHaveBeenCalled()
+    expect(fakeEventSourceClose).toHaveBeenCalled()
   })
 })

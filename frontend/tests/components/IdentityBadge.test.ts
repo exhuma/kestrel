@@ -20,6 +20,37 @@ async function loadBadge(body: unknown) {
   return mod.default
 }
 
+// A second flavour of loadBadge: mocks auth/oidc directly (enabled, a fake
+// UserManager) instead of driving the real OIDC client through fetch.
+async function loadBadgeWithOidc(signoutRedirect: () => void) {
+  vi.resetModules()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            username: null,
+            email: null,
+            preferred_username: null,
+          }),
+          { status: 200 },
+        ),
+    ),
+  )
+  vi.doMock('../../src/auth/oidc', () => ({
+    initAuth: async () => ({
+      enabled: true,
+      userManager: {
+        getUser: async () => ({ profile: { preferred_username: 'bob' } }),
+        signoutRedirect,
+      },
+    }),
+  }))
+  const mod = await import('../../src/components/IdentityBadge.vue')
+  return mod.default
+}
+
 describe('IdentityBadge', () => {
   it('renders nothing when no proxy is in front (all-null identity)', async () => {
     const IdentityBadge = await loadBadge({
@@ -53,5 +84,16 @@ describe('IdentityBadge', () => {
     const wrapper = mount(IdentityBadge, withVuetify())
     await flushPromises()
     expect(wrapper.text()).toContain('alice')
+  })
+
+  it('shows the OIDC display name and signs out via the chip control', async () => {
+    const signoutRedirect = vi.fn()
+    const IdentityBadge = await loadBadgeWithOidc(signoutRedirect)
+    const wrapper = mount(IdentityBadge, withVuetify())
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('bob')
+    await wrapper.findComponent({ name: 'VChip' }).vm.$emit('click:append')
+    expect(signoutRedirect).toHaveBeenCalledTimes(1)
   })
 })

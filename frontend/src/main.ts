@@ -2,6 +2,10 @@ import { createApp } from 'vue'
 import { createVuetify } from 'vuetify'
 import 'vuetify/styles'
 import { aliases as vuetifyAliases, mdi } from 'vuetify/iconsets/mdi-svg'
+import { setAuthSuccessHandler, setUnauthorizedHandler } from './api'
+import { isAuthCallbackPath, resolveReturnTo } from './auth/callback'
+import { initAuth } from './auth/oidc'
+import { handleUnauthorized, notifyAuthSuccess } from './auth/reauthGuard'
 import { aliases as appAliases } from './plugins/icons'
 import './styles/theme.css'
 import App from './App.vue'
@@ -46,8 +50,50 @@ const vuetify = createVuetify({
   },
 })
 
-// Deep-link: if the URL carries `?run=<id>` (from a gate-notification
-// comment), open that run before mount so the panel shows its gate form.
-applyDeepLink(window.location.search, (id) => useWorkflows().select(id))
+function mount(): void {
+  // Deep-link: if the URL carries `?run=<id>` (from a gate-notification
+  // comment), open that run before mount so the panel shows its gate form.
+  applyDeepLink(window.location.search, (id) => useWorkflows().select(id))
+  createApp(App).use(vuetify).mount('#app')
+}
 
-createApp(App).use(vuetify).mount('#app')
+/**
+ * Resolve auth state and, when enabled, gate mounting behind sign-in.
+ *
+ * No vue-router: the `/auth/callback` redirect target is handled manually
+ * here (mirroring the existing `applyDeepLink` manual-URL-parsing idiom
+ * above), and "requires sign-in" is enforced by not mounting `App` at all
+ * until a valid, non-expired user is present — appropriate for an app with
+ * exactly one meaningful page rather than per-route guards.
+ */
+async function bootstrap(): Promise<void> {
+  const auth = await initAuth()
+  if (!auth.enabled || !auth.userManager) {
+    mount()
+    return
+  }
+  const userManager = auth.userManager
+
+  setUnauthorizedHandler(() =>
+    handleUnauthorized(() =>
+      void userManager.signinRedirect({ state: window.location.pathname }),
+    ),
+  )
+  setAuthSuccessHandler(notifyAuthSuccess)
+
+  if (isAuthCallbackPath(window.location.pathname)) {
+    const user = await userManager.signinRedirectCallback()
+    window.history.replaceState({}, '', resolveReturnTo(user.state))
+    mount()
+    return
+  }
+
+  const user = await userManager.getUser()
+  if (!user || user.expired) {
+    await userManager.signinRedirect({ state: window.location.pathname })
+    return // navigating away to the IdP; do not mount
+  }
+  mount()
+}
+
+void bootstrap()

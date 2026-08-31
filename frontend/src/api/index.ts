@@ -21,6 +21,15 @@ export function setUnauthorizedHandler(fn: () => void): void {
   unauthorizedHandler = fn
 }
 
+let authSuccessHandler: (() => void) | null = null
+
+// Global auth-success seam: fires on any 2xx response, the symmetric
+// counterpart to the 401 seam above — lets bootstrap code reset the
+// reauth-loop-guard's attempt counter once a request actually succeeds.
+export function setAuthSuccessHandler(fn: () => void): void {
+  authSuccessHandler = fn
+}
+
 let connectivityHandler: ((reachable: boolean) => void) | null = null
 
 // Global connectivity seam: fires `false` when a request fails to even reach
@@ -70,6 +79,7 @@ async function request<T>(
     if (resp.status === 401) unauthorizedHandler?.()
     throw new ApiError(resp.status, await resp.text())
   }
+  authSuccessHandler?.()
   return (await resp.json()) as T
 }
 

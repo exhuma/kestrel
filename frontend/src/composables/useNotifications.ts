@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
-import { api, API_BASE } from '../api'
+import { api } from '../api'
+import { eventSourceUrl } from '../auth/sseTicket'
 import type { Notification } from '../types/notifications'
 
 const items = ref<Notification[]>([])
@@ -16,11 +17,13 @@ export function useNotifications() {
     // list back down the stream — no manual refetch needed.
   }
 
-  function start(): void {
+  async function start(): Promise<void> {
     if (source) return
     // Push, don't poll: the server streams the full list on connect and
     // again on every change (new notification or one marked read).
-    source = new EventSource(`${API_BASE}/api/notifications/events`)
+    const url = await eventSourceUrl('/api/notifications/events')
+    if (source) return // a concurrent call already opened one
+    source = new EventSource(url)
     source.onmessage = (e) => {
       const data = JSON.parse(e.data) as { notifications: Notification[] }
       items.value = data.notifications

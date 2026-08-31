@@ -47,19 +47,19 @@ async function onStart(): Promise<void> {
   const id = await start(prompt.value)
   if (id) {
     current.value = id
-    watchEvents(id)
+    void watchEvents(id)
   }
 }
 
 async function onResume(): Promise<void> {
   if (!current.value) return
   const id = await resume(current.value, followUp.value)
-  if (id) watchEvents(id)
+  if (id) void watchEvents(id)
 }
 
 function onSelect(id: string): void {
   current.value = id
-  watchEvents(id)
+  void watchEvents(id)
 }
 
 async function onPoll(): Promise<void> {

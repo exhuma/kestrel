@@ -48,7 +48,7 @@ describe('useWorkflows', () => {
 
   it('select opens a workflow event stream and applies snapshots', async () => {
     const { select, current } = useWorkflows()
-    select('wf-1')
+    await select('wf-1')
     expect(esInstances).toBe(1)
     expect(lastEs?.url).toContain('/api/workflows/wf-1/events')
     lastEs?.emit({
@@ -67,9 +67,9 @@ describe('useWorkflows', () => {
     expect(current.value?.status).toBe('refining')
   })
 
-  it('startList streams the summary list into the sidebar', () => {
+  it('startList streams the summary list into the sidebar', async () => {
     const { workflows, startList, stopList } = useWorkflows()
-    startList()
+    await startList()
     expect(esInstances).toBe(1)
     expect(lastEs?.url).toContain('/api/workflows/events')
     // A background-created run (Jira, null issue_number) arrives live.
@@ -96,7 +96,7 @@ describe('useWorkflows', () => {
     )
     const { workflows, refresh, select } = useWorkflows()
     await refresh()
-    select('wf-2')
+    await select('wf-2')
     lastEs?.emit({
       id: 'wf-2',
       repo: 'o/r',
@@ -118,7 +118,7 @@ describe('useWorkflows', () => {
 
   it('stop closes the active EventSource', async () => {
     const { select, stop } = useWorkflows()
-    select('wf-1')
+    await select('wf-1')
     const closed = lastEs!.close
     stop()
     expect(closed).toHaveBeenCalled()
@@ -129,10 +129,15 @@ describe('useWorkflows', () => {
     // remounting must reopen the stream for the selected run, or the
     // UI freezes and never shows the awaiting_input reply gate.
     const { select, stop, ensureLive } = useWorkflows()
-    select('wf-1')
+    await select('wf-1')
     expect(esInstances).toBe(1)
     stop()
+    // ensureLive() is deliberately fire-and-forget (called from onMounted
+    // without awaiting) — flush the microtask queue so its internal
+    // select() has resolved before asserting.
     ensureLive()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(esInstances).toBe(2) // stream reopened
     stop()
   })

@@ -55,7 +55,7 @@ onMounted(() => {
   // actually connecting — a stream hiccup then degrades to a static (rather
   // than empty) sidebar instead of hiding runs entirely.
   void refresh()
-  startList() // live sidebar (streams the current list on connect, then updates)
+  void startList() // live sidebar (streams the current list on connect, then updates)
   ensureLive()
 })
 onUnmounted(() => {
@@ -177,7 +177,7 @@ function toggleSession(sessionId: string | null): void {
     closeSession()
   } else {
     expandedSession.value = sessionId
-    streamSession(sessionId)
+    void streamSession(sessionId)
   }
 }
 

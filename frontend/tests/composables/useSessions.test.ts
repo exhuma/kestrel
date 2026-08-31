@@ -38,7 +38,7 @@ describe('useSessions', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { watchEvents } = useSessions()
-    watchEvents('s1')
+    await watchEvents('s1')
     const before = fetchMock.mock.calls.length
 
     handler!({

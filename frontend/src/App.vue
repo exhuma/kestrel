@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { useTheme } from 'vuetify'
+import { authError } from './auth/reauthGuard'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import GithubLink from './components/GithubLink.vue'
@@ -51,10 +52,30 @@ const isDark = computed(() => theme.current.value.dark)
 function toggleTheme() {
   theme.change(isDark.value ? 'light' : 'dark')
 }
+
+// A structurally-rejected token (not a plain expiry) trips the
+// reauth-loop-guard's circuit breaker (see auth/reauthGuard.ts) — surfaced
+// here as a blocking dialog rather than silently looping sign-in attempts.
+// Reloading re-enters main.ts's bootstrap flow from scratch.
+function retrySignIn() {
+  authError.value = null
+  window.location.reload()
+}
 </script>
 
 <template>
   <v-app>
+    <v-dialog :model-value="authError !== null" persistent max-width="480">
+      <v-card>
+        <v-card-title>Sign-in problem</v-card-title>
+        <v-card-text>{{ authError }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn color="primary" @click="retrySignIn">Sign in again</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-alert
       v-if="!reachable"
       type="error"

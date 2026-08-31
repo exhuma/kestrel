@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { api, API_BASE, ApiError } from '../api'
+import { api, ApiError } from '../api'
+import { eventSourceUrl } from '../auth/sseTicket'
 import { openSessionEventStream } from '../lib/sessionEventStream'
 import type { SessionEventStreamHandle } from '../lib/sessionEventStream'
 import type { SessionEvent } from '../types/sessions'
@@ -14,6 +15,11 @@ const error = ref<string | null>(null)
 let detailSource: EventSource | null = null
 let listSource: EventSource | null = null
 let stream: SessionEventStreamHandle | null = null
+// The most recently requested select() id — lets a select() whose
+// eventSourceUrl() await resolves late (a slower ticket fetch than a
+// select() started after it) detect it's stale and bail rather than
+// clobbering the newer selection's stream.
+let pendingSelectId: string | null = null
 
 function describe(e: unknown): string {
   if (e instanceof ApiError) return `Request failed (${e.status})`
@@ -34,9 +40,11 @@ export function useWorkflows() {
   // Live sidebar list: the server streams the full summary list on connect
   // and again on every run change — including creation — so runs started by
   // background ingestion (GitHub webhook / Jira poll) appear without a reload.
-  function startList(): void {
+  async function startList(): Promise<void> {
     if (listSource) return
-    listSource = new EventSource(`${API_BASE}/api/workflows/events`)
+    const url = await eventSourceUrl('/api/workflows/events')
+    if (listSource) return // a concurrent call already opened one
+    listSource = new EventSource(url)
     listSource.onmessage = (e) => {
       workflows.value = JSON.parse(e.data) as WorkflowSummary[]
     }
@@ -66,10 +74,10 @@ export function useWorkflows() {
 
   // Telemetry is on-demand now: the workflow view stays compact and only
   // streams a session's raw events when the user opens its chip.
-  function streamSession(sessionId: string): void {
+  async function streamSession(sessionId: string): Promise<void> {
     events.value = []
     if (stream) stream.close()
-    const url = `${API_BASE}/api/sessions/${sessionId}/events`
+    const url = await eventSourceUrl(`/api/sessions/${sessionId}/events`)
     stream = openSessionEventStream(url, (event) => {
       events.value.push(event)
     })
@@ -83,12 +91,15 @@ export function useWorkflows() {
     events.value = []
   }
 
-  function select(id: string): void {
+  async function select(id: string): Promise<void> {
     // Push, don't poll: the backend streams a fresh snapshot on every
     // real state change, so the UI never re-renders (and never clobbers
     // in-progress form input) on an idle interval.
     stopDetail()
-    detailSource = new EventSource(`${API_BASE}/api/workflows/${id}/events`)
+    pendingSelectId = id
+    const url = await eventSourceUrl(`/api/workflows/${id}/events`)
+    if (pendingSelectId !== id) return // a newer select() has superseded this one
+    detailSource = new EventSource(url)
     detailSource.onmessage = (e) => {
       applyDetail(JSON.parse(e.data) as WorkflowDetail)
     }
@@ -101,7 +112,7 @@ export function useWorkflows() {
         current.value?.id === id
       ) {
         setTimeout(() => {
-          if (current.value?.id === id) select(id)
+          if (current.value?.id === id) void select(id)
         }, 2000)
       }
     }
@@ -111,7 +122,7 @@ export function useWorkflows() {
     // Re-arm the event stream after stop() so a remounted panel keeps
     // tracking the already-selected run. Without this, the UI freezes
     // on the pre-unmount state and never surfaces awaiting_* gates.
-    if (current.value && !detailSource) select(current.value.id)
+    if (current.value && !detailSource) void select(current.value.id)
   }
 
   // Gate actions (reply/approve/reject/submit) surface failures on the

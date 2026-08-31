@@ -20,13 +20,13 @@ onMounted(() => {
   // Reliable baseline via plain fetch, independent of the SSE stream
   // actually connecting — see WorkflowPanel.vue for the same pattern.
   void refresh()
-  start()
+  void start()
 })
 onUnmounted(stop)
 
 async function onClick(id: number, workflowId: string): Promise<void> {
   await markRead(id)
-  select(workflowId)
+  void select(workflowId)
   emit('navigate')
 }
 </script>
