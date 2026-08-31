@@ -269,6 +269,10 @@ class GitHubTaskSource:
         repo, number = parse_github_ref(ref)
         await self._client.update_issue(repo, number, append_sentinel(content))
 
+    def display_label(self, ref: str) -> str:
+        """The ref itself: already "owner/name#123"."""
+        return ref
+
     def deep_link_ref(self, ref: str) -> str:
         repo, number = parse_github_ref(ref)
         return f"https://github.com/{repo}/issues/{number}"

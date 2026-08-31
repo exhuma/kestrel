@@ -118,6 +118,19 @@ class WorkflowService:
         """Whether rerun is available for this run (feature 008)."""
         return self._task_source(run).visibility() == "private"
 
+    def _ref(self, run: WorkflowRun) -> str:
+        """The run's task_ref, falling back to repo#issue_number for rows
+        persisted before feature 003 introduced task_ref."""
+        return run.task_ref or f"{run.repo}#{run.issue_number}"
+
+    def task_label(self, run: WorkflowRun) -> str:
+        """Short human-readable identity for this run's ticket (feature 009)."""
+        return self._task_source(run).display_label(self._ref(run))
+
+    def task_link(self, run: WorkflowRun) -> str | None:
+        """Browser-navigable link to this run's ticket, if any (feature 009)."""
+        return self._task_source(run).deep_link_ref(self._ref(run)) or None
+
     def _save(self, run: WorkflowRun) -> None:
         """
         Persist the run and notify if its new status needs

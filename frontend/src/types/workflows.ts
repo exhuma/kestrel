@@ -69,6 +69,9 @@ export interface WorkflowSummary {
   /** Whether rerun is available (feature 008) — true only for a private
    *  task source (never GitHub/Jira). */
   rerunnable: boolean
+  /** Short human-readable ticket identity from the task source (feature
+   *  009), e.g. "owner/name#123", "RFC-123", "hello-fixture". */
+  task_label: string
 }
 
 export interface WorkflowDetail {
@@ -97,6 +100,12 @@ export interface WorkflowDetail {
   /** Whether rerun is available (feature 008) — true only for a private
    *  task source (never GitHub/Jira). */
   rerunnable: boolean
+  /** Short human-readable ticket identity from the task source (feature
+   *  009), e.g. "owner/name#123", "RFC-123", "hello-fixture". */
+  task_label: string
+  /** Browser-navigable link to the ticket, or null when the source has
+   *  none to offer (feature 009) — e.g. a fixture task. */
+  task_link: string | null
   pr_url: string | null
   error: string | null
 }

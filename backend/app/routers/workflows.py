@@ -98,6 +98,8 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         verify_max_iterations=get_settings().max_verify_iterations,
         allow_incomplete_answers=get_settings().allow_incomplete_answers,
         rerunnable=service.rerunnable(run),
+        task_label=service.task_label(run),
+        task_link=service.task_link(run),
         pr_url=run.pr_url,
         error=run.error,
     )
@@ -121,6 +123,7 @@ def _summaries(service: WorkflowService) -> list[WorkflowSummary]:
             issue_number=r.issue_number,
             status=r.status,
             rerunnable=service.rerunnable(r),
+            task_label=service.task_label(r),
         )
         for r in service.list()
     ]

@@ -48,6 +48,12 @@ class _FakeService:
     def rerunnable(self, run) -> bool:
         return False
 
+    def task_label(self, run) -> str:
+        return "o/r#3"
+
+    def task_link(self, run) -> str | None:
+        return "https://github.com/o/r/issues/3"
+
     def approve(self, workflow_id: str, deliverable=None) -> None:
         if workflow_id != "wf-1":
             raise WorkflowNotFoundError(workflow_id)

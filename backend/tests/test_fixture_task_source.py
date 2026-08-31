@@ -85,15 +85,22 @@ async def test_publish_refined_overwrites_body(tmp_path) -> None:
     assert task.body == "refined body"
 
 
-def test_deep_link_ref_returns_file_path(tmp_path) -> None:
-    """Ensure deep_link_ref returns the fixture file's path, or "" if gone."""
+def test_deep_link_ref_is_always_empty(tmp_path) -> None:
+    """Ensure deep_link_ref never offers a link (feature 009): a fixture
+    task lives in a local file, not a browser-navigable destination."""
     _write_task(tmp_path, "hello-fixture")
     source = FixtureTaskSource(str(tmp_path))
 
-    assert source.deep_link_ref("fixture:hello-fixture") == str(
-        tmp_path / "hello-fixture.json"
-    )
+    assert source.deep_link_ref("fixture:hello-fixture") == ""
     assert source.deep_link_ref("fixture:missing") == ""
+
+
+def test_display_label_strips_the_fixture_prefix(tmp_path) -> None:
+    """Ensure display_label shows the task's slug, not the raw ref
+    (feature 009)."""
+    source = FixtureTaskSource(str(tmp_path))
+
+    assert source.display_label("fixture:hello-fixture") == "hello-fixture"
 
 
 @pytest.mark.asyncio

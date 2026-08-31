@@ -59,6 +59,14 @@ async def test_task_source_get_task_and_comment() -> None:
     assert seen["POST"].endswith("/repos/o/r/issues/7/comments")
 
 
+def test_task_source_display_label_and_deep_link() -> None:
+    """Ensure GitHubTaskSource's display_label/deep_link_ref (feature 009)
+    are the ref itself and the issue URL, respectively."""
+    src = GitHubTaskSource(_client(lambda r: httpx.Response(200)))
+    assert src.display_label("o/r#7") == "o/r#7"
+    assert src.deep_link_ref("o/r#7") == "https://github.com/o/r/issues/7"
+
+
 @pytest.mark.asyncio
 async def test_publish_refined_updates_issue_with_sentinel() -> None:
     """Ensure publish_refined PATCHes the body + appends the sentinel."""

@@ -74,6 +74,8 @@ function detail(over: Partial<WorkflowDetail>): WorkflowDetail {
     verify_max_iterations: 3,
     allow_incomplete_answers: false,
     rerunnable: false,
+    task_label: 'team/svc',
+    task_link: null,
     pr_url: null,
     error: null,
     ...over,
@@ -116,20 +118,21 @@ describe('WorkflowPanel run identity + steps', () => {
     expect(srcs.some((s) => s.includes('/screenshots/verify/v.png'))).toBe(true)
   })
 
-  it('shows a Jira run by repo only, with no broken GitHub issue link', () => {
-    state.current.value = detail({ issue_number: null })
+  it('shows the task source label as plain text when it has no link (e.g. Jira/fixture)', () => {
+    state.current.value = detail({ task_label: 'RFC-1', task_link: null })
     const wrapper = mount(WorkflowPanel, withVuetify())
     const header = wrapper.find('.stage__id')
-    expect(header.text()).toBe('team/svc')
-    // No GitHub issue anchor for a Jira run (issue_number is null).
+    expect(header.text()).toBe('RFC-1')
     expect(wrapper.find('a.stage__id').exists()).toBe(false)
   })
 
-  it('shows a GitHub run as repo#number with an issue link', () => {
+  it('shows the task source label as a link when one is offered (e.g. GitHub)', () => {
     state.current.value = detail({
       repo: 'o/r',
       issue_number: 5,
       branch: 'kestrel/issue-5',
+      task_label: 'o/r#5',
+      task_link: 'https://github.com/o/r/issues/5',
     })
     const wrapper = mount(WorkflowPanel, withVuetify())
     const link = wrapper.find('a.stage__id')

@@ -60,8 +60,9 @@ the image small and lets a deploy attach or swap backends purely by config.
   both feed one source-neutral entry point (`ingestion.maybe_start_run`, on a
   `task_ref`). The load-bearing axis — *task source* (the ticket) vs *code host*
   (the repo) — is now realized as two protocols in `app/ports.py`: `TaskSource`
-  (read/comment/attach/publish/deep-link) and `CodeHost` (default branch, clone
-  remote, open a merge/pull request). GitHub implements both roles; **Jira**
+  (read/comment/attach/publish/deep-link/**display-label**, feature 009) and
+  `CodeHost` (default branch, clone remote, open a merge/pull request).
+  GitHub implements both roles; **Jira**
   implements `TaskSource` and delegates the `CodeHost` role to a configured,
   **self-hostable** git host (GitLab reference; Gitea/Forgejo the same port) —
   kestrel is sovereign by design, so a Jira-resolved repo can live on an on-prem

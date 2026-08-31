@@ -108,6 +108,9 @@ class WorkflowSummary(BaseModel):
     #: Whether rerun is available for this run (feature 008) — true only
     #: when the run's task source is private (never GitHub/Jira).
     rerunnable: bool
+    #: Short human-readable ticket identity from the run's task source
+    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-fixture".
+    task_label: str
 
 
 class WorkflowDetail(BaseModel):
@@ -116,7 +119,9 @@ class WorkflowDetail(BaseModel):
     id: str
     repo: str
     #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003),
-    #: whose ticket has no numeric id. Origin/task_ref stay internal (FR-026).
+    #: whose ticket has no numeric id. The raw ``source``/``task_ref``
+    #: stay internal (FR-026) — ``task_label``/``task_link`` below are the
+    #: derived, UI-safe identity for any source (feature 009).
     issue_number: int | None
     issue_title: str
     status: str
@@ -145,6 +150,12 @@ class WorkflowDetail(BaseModel):
     #: Whether rerun is available for this run (feature 008) — true only
     #: when the run's task source is private (never GitHub/Jira).
     rerunnable: bool
+    #: Short human-readable ticket identity from the run's task source
+    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-fixture".
+    task_label: str
+    #: Browser-navigable link to the ticket, or ``null`` when the source
+    #: has none to offer (feature 009) — e.g. a fixture task.
+    task_link: str | None
     pr_url: str | None
     error: str | None
 

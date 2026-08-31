@@ -127,8 +127,22 @@ class TaskSource(Protocol):
         """Record the approved PRD on the ticket (update body / attach)."""
         ...
 
+    def display_label(self, ref: str) -> str:
+        """Short human-readable identity for the ticket (feature 009).
+
+        Pure formatting of ``ref`` — no I/O — so it's cheap to compute
+        for every run in a list. Surfaced to the UI (workflow list and
+        detail header) as the run's primary identifying label.
+        """
+        ...
+
     def deep_link_ref(self, ref: str) -> str:
-        """Source-native URL to the ticket (operator logs); may return ""."""
+        """Browser-navigable URL to the ticket, or "" (feature 009).
+
+        "" means this source has no destination a browser can open for
+        ``ref`` (e.g. a local file) — the UI shows ``display_label``
+        as plain text instead of a link in that case.
+        """
         ...
 
     async def transition(self, ref: str, event: LifecycleEvent) -> bool:

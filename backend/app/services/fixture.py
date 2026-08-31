@@ -65,9 +65,13 @@ class FixtureTaskSource:
         with open(self._task_path(ref), "w", encoding="utf-8") as handle:
             json.dump(data, handle)
 
-    def deep_link_ref(self, ref: str) -> str:
-        path = self._task_path(ref)
-        return path if os.path.exists(path) else ""
+    def display_label(self, ref: str) -> str:
+        """The task's slug, stripped of the internal "fixture:" prefix."""
+        return _slug(ref)
+
+    def deep_link_ref(self, _ref: str) -> str:
+        """No browsable destination — a fixture task lives in a local file."""
+        return ""
 
     async def transition(self, _ref: str, _event: LifecycleEvent) -> bool:
         """No native lifecycle mechanism; the caller falls back to a footer."""

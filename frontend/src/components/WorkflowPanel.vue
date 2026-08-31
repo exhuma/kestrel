@@ -110,22 +110,11 @@ const pendingInterview = computed(() =>
     ? parsePendingInterview(current.value.id, activeStep.value ?? null)
     : null,
 )
-// A GitHub issue URL only when the run has a numeric issue (GitHub-sourced);
-// a Jira run's ticket lives elsewhere and its ref stays internal (FR-026), so
-// there is no deep link from here.
-const issueUrl = computed(() =>
-  current.value && current.value.issue_number != null
-    ? `https://github.com/${current.value.repo}/issues/${current.value.issue_number}`
-    : '',
-)
-// Ticket label for the header: `repo#123` for GitHub, just `repo` for Jira.
-const ticketLabel = computed(() =>
-  current.value
-    ? current.value.issue_number != null
-      ? `${current.value.repo}#${current.value.issue_number}`
-      : current.value.repo
-    : '',
-)
+// Ticket identity for the header: label + link both come from the run's own
+// task source (feature 009) — never reconstructed client-side, so a new
+// source type needs no frontend change to be identified correctly.
+const taskLabel = computed(() => current.value?.task_label ?? '')
+const taskLink = computed(() => current.value?.task_link ?? '')
 
 // Prose deliverables (refined issue, plan) are markdown — render them as
 // HTML. A structured deliverable (a questionnaire envelope) parses as JSON,
@@ -378,9 +367,7 @@ function stepColor(status: string): string | undefined {
           v-for="w in workflows"
           :key="w.id"
           :active="w.id === current?.id"
-          :title="
-            w.issue_number != null ? `${w.repo}#${w.issue_number}` : w.repo
-          "
+          :title="w.task_label"
           :subtitle="w.status"
           @click="select(w.id)"
         >
@@ -461,15 +448,15 @@ function stepColor(status: string): string | undefined {
         <div class="d-flex align-center ga-2">
           <span class="text-overline text-medium-emphasis">Workflow</span>
           <a
-            v-if="issueUrl"
+            v-if="taskLink"
             class="stage__id text-body-1"
-            :href="issueUrl"
+            :href="taskLink"
             target="_blank"
             rel="noopener noreferrer"
           >
-            {{ ticketLabel }}
+            {{ taskLabel }}
           </a>
-          <span v-else class="stage__id text-body-1">{{ ticketLabel }}</span>
+          <span v-else class="stage__id text-body-1">{{ taskLabel }}</span>
         </div>
         <div class="d-flex ga-2 flex-wrap">
           <v-chip

@@ -90,9 +90,7 @@ async def delete(service: "WorkflowService", workflow_id: str) -> None:
     # re-created by the webhook or reconciliation (feature 002,
     # FR-008a). Cleared when the trigger label is removed.
     if service.dismissals is not None:
-        service.dismissals.add(
-            run.task_ref or f"{run.repo}#{run.issue_number}"
-        )
+        service.dismissals.add(service._ref(run))
 
 
 async def _delete_branch(service: "WorkflowService", run: WorkflowRun) -> None:
@@ -121,9 +119,7 @@ async def cleanup(service: "WorkflowService", workflow_id: str) -> None:
     run = await abandon_common(service, workflow_id)
     await _delete_branch(service, run)
     if service.dismissals is not None:
-        service.dismissals.clear(
-            run.task_ref or f"{run.repo}#{run.issue_number}"
-        )
+        service.dismissals.clear(service._ref(run))
 
 
 async def rerun(service: "WorkflowService", workflow_id: str) -> str:
@@ -149,7 +145,7 @@ async def rerun(service: "WorkflowService", workflow_id: str) -> str:
         raise RerunNotAllowedError(workflow_id)
     run = await abandon_common(service, workflow_id)
     await _delete_branch(service, run)
-    task_ref = run.task_ref or f"{run.repo}#{run.issue_number}"
+    task_ref = service._ref(run)
     if service.dismissals is not None:
         service.dismissals.clear(task_ref)
     return await service.create(

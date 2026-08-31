@@ -208,6 +208,10 @@ class JiraTaskSource:
             ref, "PRD.md", content.encode("utf-8"), "text/markdown"
         )
 
+    def display_label(self, ref: str) -> str:
+        """The ref itself: already the issue key, e.g. "RFC-123"."""
+        return ref
+
     def deep_link_ref(self, ref: str) -> str:
         return f"{self._base}/browse/{ref}"
 

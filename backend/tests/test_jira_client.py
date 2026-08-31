@@ -159,6 +159,12 @@ async def test_task_source_publishes_prd_as_attachment() -> None:
     assert src.deep_link_ref("RFC-1") == "https://jira.example/browse/RFC-1"
 
 
+def test_task_source_display_label_is_the_issue_key() -> None:
+    """Ensure JiraTaskSource.display_label is the RFC key (feature 009)."""
+    src = JiraTaskSource(_client(lambda r: httpx.Response(200)))
+    assert src.display_label("RFC-1") == "RFC-1"
+
+
 def _config(**overrides) -> TaskSourceConfig:
     base = dict(
         type="jira", base_url="https://jira.example", jql="x", key="RFC"
