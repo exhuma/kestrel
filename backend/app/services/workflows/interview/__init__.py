@@ -111,8 +111,10 @@ async def _maybe_capture_mockups(
 
     Triggered on the coordinator summoning ``uiux``, not on question
     parsing, so mockups still appear when uiux's question turn soft-failed.
+    Gated behind ``settings.mockups_enabled`` (default off — the feature
+    is not yet well implemented, per manual-testing feedback).
     """
-    if "uiux" in profiles:
+    if service.settings.mockups_enabled and "uiux" in profiles:
         await capture_round_mockups(service, run, issue, questionnaire)
 
 

@@ -14,19 +14,19 @@ from app.profiles import (
 #: Specialists added in the roster-expansion round, with the label and
 #: badge tone each is expected to resolve to.
 _ADDED_PROFILES = {
-    "uiux": ("UX", "ok"),
-    "dba": ("DBA", "sys"),
-    "pm": ("PM", "user"),
-    "qa": ("QA", "err"),
-    "architect": ("Arch", "agent"),
-    "ops": ("Ops", "warn"),
+    "uiux": ("Design & Usability", "ok"),
+    "dba": ("Database Specialist", "sys"),
+    "pm": ("Project Manager", "user"),
+    "qa": ("Quality Assurance", "err"),
+    "architect": ("Solution Architect", "agent"),
+    "ops": ("Operations", "warn"),
 }
 
 
 def test_get_profile_returns_seeded_entry() -> None:
     """Ensure a seeded id resolves to its roster profile."""
     profile = get_profile("infosec")
-    assert profile.label == "InfoSec"
+    assert profile.label == "Security Reviewer"
     assert profile.badge == "warn"
     assert "security" in profile.system_prompt.lower()
 

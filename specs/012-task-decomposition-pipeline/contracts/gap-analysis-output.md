@@ -30,14 +30,25 @@ follow-up tasks (spec.md User Story 3).
 
 A completeness self-review turn (research.md R8, structurally mirroring
 `interview/questions.py::critique_coverage`) checks **each** candidate
-follow-up task against this question, framed exactly as it was raised for
-this feature: *if a human with no access to the parent ticket, the
-requirements document, the technical-analysis summary, or any sibling
-follow-up task read only this task's body, could they implement it in
-total isolation?*
+follow-up task against this question: *if a human with access to the
+linked parent ticket/requirements document, but no access to the
+technical-analysis summary or any sibling follow-up task, read only this
+task's body, could they implement it in total isolation?*
 
-A task that fails this check is **not** published as-is — it is revised
-(the relevant architecture decision, shared interface/contract detail, or
+Self-containment is **technical**, not narrative: a task's body must not
+restate the requirements document's business framing (the problem, who
+it's for, why it matters) — that stays reachable via the task's link to
+its parent, keeping the PRD high-altitude and the task low-altitude. Doing
+otherwise produces redundant, near-duplicate text between the two (found
+in manual testing: a single decomposed task read almost identically to
+its parent PRD). Reference the parent for business context instead of
+duplicating it; inline only the architecture decisions, shared
+interface/contract details, and acceptance criteria the task specifically
+needs.
+
+A task that fails this check (missing a technical detail, not missing
+business narrative) is **not** published as-is — it is revised (the
+relevant architecture decision, shared interface/contract detail, or
 acceptance criterion it was missing is inlined into it) and re-checked.
 This mirrors `critique_coverage`'s existing role: catching a real gap
 introduced by consolidation, not nitpicking wording.

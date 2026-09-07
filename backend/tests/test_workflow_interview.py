@@ -1,6 +1,8 @@
 """Tests for the interview round loop and coordinator (interview/__init__)."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.backends.base import TurnResult
@@ -34,6 +36,9 @@ def test_round_has_content_false_when_empty() -> None:
     assert interview._round_has_content(Questionnaire(questions=[])) is False
 
 
+_MOCKUPS_ON = SimpleNamespace(settings=SimpleNamespace(mockups_enabled=True))
+
+
 @pytest.mark.asyncio
 async def test_maybe_capture_only_triggers_on_uiux(monkeypatch) -> None:
     """Ensure mockups are captured only when uiux was summoned."""
@@ -44,10 +49,29 @@ async def test_maybe_capture_only_triggers_on_uiux(monkeypatch) -> None:
 
     monkeypatch.setattr(interview, "capture_round_mockups", _spy)
     qn = Questionnaire(questions=[])
-    await interview._maybe_capture_mockups(None, None, "iss", ["developer"], qn)
+    await interview._maybe_capture_mockups(
+        _MOCKUPS_ON, None, "iss", ["developer"], qn
+    )
     assert calls == []
-    await interview._maybe_capture_mockups(None, None, "iss", ["uiux"], qn)
+    await interview._maybe_capture_mockups(
+        _MOCKUPS_ON, None, "iss", ["uiux"], qn
+    )
     assert calls == ["iss"]
+
+
+@pytest.mark.asyncio
+async def test_maybe_capture_disabled_by_default(monkeypatch) -> None:
+    """Ensure mockups stay off when settings.mockups_enabled is False."""
+    calls: list[str] = []
+
+    async def _spy(_service, _run, issue, _questionnaire) -> None:
+        calls.append(issue)
+
+    monkeypatch.setattr(interview, "capture_round_mockups", _spy)
+    off = SimpleNamespace(settings=SimpleNamespace(mockups_enabled=False))
+    qn = Questionnaire(questions=[])
+    await interview._maybe_capture_mockups(off, None, "iss", ["uiux"], qn)
+    assert calls == []
 
 
 @pytest.mark.asyncio
@@ -67,7 +91,9 @@ async def test_uiux_round_surfaces_mockups_in_envelope(monkeypatch) -> None:
         _coord([]),
         _refined("Refined"),
     ])
-    svc = _service(gh, runner, _FakeGit())
+    svc = _service(
+        gh, runner, _FakeGit(), settings=_settings(mockups_enabled=True)
+    )
     wid = await svc.create("o/r", 5, source="github-issue")
 
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")

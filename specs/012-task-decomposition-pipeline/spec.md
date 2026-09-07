@@ -224,11 +224,16 @@ runs.
 - **FR-009**: The technical-analysis phase MUST produce at least one
   follow-up task even when the approved work is judged not to warrant
   splitting into multiple tasks.
-- **FR-010**: Each follow-up task MUST contain, inline, everything necessary
-  to implement it without further access to the original ticket, the
-  requirements document, the technical-analysis summary, or any sibling
-  follow-up task — including any architecture decisions, shared
-  interface/contract details, and acceptance criteria relevant to that task.
+- **FR-010**: Each follow-up task MUST be technically self-contained: it
+  MUST contain, inline, every architecture decision, shared interface/
+  contract detail, and acceptance criterion relevant to that task, without
+  further access to the technical-analysis summary or any sibling follow-up
+  task. It MUST NOT restate the requirements document's business framing
+  (the problem, who it is for, why it matters) — that stays reachable via
+  the task's link to its parent ticket, so the PRD stays high-altitude and
+  the task stays low-altitude/technical, referencing the PRD instead of
+  duplicating it (found redundant in manual testing: near-identical wording
+  between a PRD and its sole decomposed task).
 - **FR-011**: The system MUST publish each follow-up task back to the task
   source the original ticket came from, as a distinct item linked to (a
   subdivision of) the original ticket.

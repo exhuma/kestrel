@@ -313,6 +313,33 @@ const ACTIVE_STATUSES = new Set([
 function isActiveStatus(status: string): boolean {
   return ACTIVE_STATUSES.has(status)
 }
+// Friendly, non-technical wording for each run status shown in the sidebar
+// (mirrors the backend's status vocabulary in
+// services/workflows/shared.py). Falls back to the raw status for any value
+// added on the backend before this map catches up, so an unmapped status
+// still renders (just less politely) instead of vanishing.
+const RUN_STATUS_LABEL: Record<string, string> = {
+  pending: 'Waiting to start',
+  cloning: 'Setting up workspace',
+  describing: 'Reading the request',
+  awaiting_describe_approval: 'Waiting on your approval',
+  refining: 'Asking clarifying questions',
+  awaiting_refine_input: 'Waiting on your answers',
+  awaiting_refine_approval: 'Waiting on your approval',
+  analyzing: 'Reviewing technical scope',
+  decomposed: 'Split into subtasks',
+  designing: 'Planning the approach',
+  coding: 'Writing the change',
+  verifying: 'Testing the change',
+  opening_pr: 'Opening the pull request',
+  done: 'Done',
+  failed: 'Failed',
+  rejected: 'Rejected',
+  escalated: 'Needs your attention',
+}
+function runStatusLabel(status: string): string {
+  return RUN_STATUS_LABEL[status] ?? status
+}
 // Map a step/run status onto a Vuetify theme colour; `undefined` leaves the
 // chip in its neutral default (pending / not-yet-reached).
 function stepColor(status: string): string | undefined {
@@ -337,7 +364,7 @@ function stepColor(status: string): string | undefined {
           :key="w.id"
           :active="w.id === current?.id"
           :title="w.task_label"
-          :subtitle="w.status"
+          :subtitle="runStatusLabel(w.status)"
           @click="select(w.id)"
         >
           <template #prepend>

@@ -66,7 +66,7 @@ ROSTER: dict[str, Profile] = {
     # working; only the human-facing labels change.
     "requester": Profile(
         id="requester",
-        label="Product",
+        label="Product Owner",
         badge="user",
         description=(
             "The stakeholder who filed the change: owns the intent, "
@@ -84,7 +84,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "developer": Profile(
         id="developer",
-        label="Eng",
+        label="Engineering",
         badge="agent",
         description=(
             "The engineer who will implement the change: owns "
@@ -100,7 +100,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "infosec": Profile(
         id="infosec",
-        label="InfoSec",
+        label="Security Reviewer",
         badge="warn",
         description=(
             "Security reviewer: owns authn/authz, data protection, "
@@ -118,7 +118,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "uiux": Profile(
         id="uiux",
-        label="UX",
+        label="Design & Usability",
         badge="ok",
         description=(
             "Design & usability: user flows, information architecture, "
@@ -137,7 +137,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "dba": Profile(
         id="dba",
-        label="DBA",
+        label="Database Specialist",
         badge="sys",
         description=(
             "Database specialist: data model, schema changes and "
@@ -155,7 +155,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "pm": Profile(
         id="pm",
-        label="PM",
+        label="Project Manager",
         badge="user",
         description=(
             "Project manager: scope boundaries, priority, dependencies, "
@@ -173,7 +173,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "qa": Profile(
         id="qa",
-        label="QA",
+        label="Quality Assurance",
         badge="err",
         description=(
             "Quality assurance: test strategy, acceptance criteria, "
@@ -191,7 +191,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "architect": Profile(
         id="architect",
-        label="Arch",
+        label="Solution Architect",
         badge="agent",
         description=(
             "Architect (system and data): service/module boundaries, "
@@ -212,7 +212,7 @@ ROSTER: dict[str, Profile] = {
     ),
     "ops": Profile(
         id="ops",
-        label="Ops",
+        label="Operations",
         badge="warn",
         description=(
             "Operations/SRE: deployment and rollout, configuration and "

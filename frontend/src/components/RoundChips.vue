@@ -44,6 +44,27 @@ const BADGE_COLOR: Record<string, string | undefined> = {
 function badgeColor(token: string): string | undefined {
   return BADGE_COLOR[token]
 }
+
+// Friendlier phrasing for the short activity hint the backend derives per
+// event (see `activity_for` in services/workflow_text.py) — kept in the
+// same terse, present-tense tone as the original single word so the chip
+// stays compact. Any hint this map doesn't know (a tool name the backend
+// hasn't given a verb yet) still renders, just humanised instead of raw.
+const ACTIVITY_LABEL: Record<string, string> = {
+  thinking: 'thinking',
+  responding: 'writing a response',
+  waiting: 'waiting on a rate limit',
+  reading: 'reading files',
+  editing: 'making edits',
+  running: 'running a command',
+  searching: 'searching',
+  delegating: 'delegating to a helper',
+  planning: 'planning next steps',
+  working: 'working',
+}
+function activityLabel(activity: string): string {
+  return ACTIVITY_LABEL[activity] ?? activity.replace(/[_-]+/g, ' ')
+}
 </script>
 
 <template>
@@ -116,7 +137,7 @@ function badgeColor(token: string): string | undefined {
         v-else-if="s.activity"
         class="ms-1 text-truncate chip__activity text-medium-emphasis"
       >
-        · {{ s.activity }}
+        · {{ activityLabel(s.activity) }}
       </span>
     </v-chip>
   </div>

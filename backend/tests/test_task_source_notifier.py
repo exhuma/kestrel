@@ -116,6 +116,45 @@ async def test_gates_and_escalation_each_post_one_comment() -> None:
 
 
 @pytest.mark.asyncio
+async def test_repeated_same_status_posts_once() -> None:
+    """A re-save of the same gate status (an interview round, a
+    reject-and-retry loop) must not repost an identical comment."""
+    gh = _FakeSource()
+    notifier = TaskSourceNotifier({"github-issue": gh}, "https://k.example")
+    run = _run("awaiting_refine_input")
+    notifier.notify(run)
+    notifier.notify(run)
+    notifier.notify(run)
+    await _tick()
+    assert len(gh.comments) == 1
+
+
+@pytest.mark.asyncio
+async def test_distinct_statuses_each_post() -> None:
+    """A genuinely new gate status still posts its own comment."""
+    gh = _FakeSource()
+    notifier = TaskSourceNotifier({"github-issue": gh}, "https://k.example")
+    notifier.notify(_run("awaiting_describe_approval"))
+    notifier.notify(_run("awaiting_refine_approval"))
+    await _tick()
+    assert [ref for ref, _ in gh.comments] == ["o/r#5", "o/r#5"]
+
+
+@pytest.mark.asyncio
+async def test_same_status_reposts_after_leaving_the_gate() -> None:
+    """Once a run leaves its gate, a later visit to the same status
+    (a different episode) posts again rather than staying suppressed
+    forever."""
+    gh = _FakeSource()
+    notifier = TaskSourceNotifier({"github-issue": gh}, "https://k.example")
+    notifier.notify(_run("awaiting_refine_input"))
+    notifier.notify(_run("refining"))  # gate cleared
+    notifier.notify(_run("awaiting_refine_input"))  # a later, new episode
+    await _tick()
+    assert [ref for ref, _ in gh.comments] == ["o/r#5", "o/r#5"]
+
+
+@pytest.mark.asyncio
 async def test_non_attention_status_posts_nothing() -> None:
     """Ensure done/failed/rejected and transient phases post no comment."""
     for status in ("done", "failed", "rejected", "designing", "coding",

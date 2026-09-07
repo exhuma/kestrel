@@ -167,15 +167,31 @@ class TaskSourceNotifier:
         self._public_base_url = public_base_url
         #: Keep fire-and-forget tasks referenced so they are not GC'd.
         self._tasks: set[asyncio.Task] = set()
+        #: The status last posted for a run, so re-saving the *same*
+        #: gate status (each interview round, each reject-and-retry
+        #: loop) doesn't repost an identical comment — the message is
+        #: rendered purely from ``run.status`` (see ``render_message``),
+        #: so an unchanged status can never produce new text anyway.
+        #: Cleared once a run leaves its gate, so a later, genuinely
+        #: distinct visit to the same status still posts.
+        self._last_notified: dict[str, str] = {}
 
     def notify(self, run: WorkflowRun) -> None:
-        """Schedule a thin ticket comment for a gate / escalation."""
+        """Schedule a thin ticket comment for a gate / escalation.
+
+        At most one comment per distinct status per run — see
+        ``_last_notified``.
+        """
         gate = run.status.startswith("awaiting_") or run.status == "escalated"
         if not gate:
+            self._last_notified.pop(run.id, None)
+            return
+        if self._last_notified.get(run.id) == run.status:
             return
         source = self._sources.get(run.source)
         if source is None or not run.task_ref:
             return
+        self._last_notified[run.id] = run.status
         body = render_message(run)
         link = gate_deep_link(self._public_base_url, run.id)
         if link:

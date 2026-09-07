@@ -278,6 +278,7 @@ function onSaveDraft(): void {
       v-model="activeTab"
       density="compact"
       show-arrows
+      class="qform__tabs"
     >
       <v-tab v-for="g in groups" :key="g.profile.id" :value="g.profile.id">
         {{ g.profile.label }}
@@ -444,5 +445,14 @@ function onSaveDraft(): void {
    legible instead of stretching the full stage width. */
 .qform {
   max-width: 44rem;
+}
+/* Pin the expert tab row to the top of the panel's scroll container (the
+   parent's overflow-y: auto region) so switching profiles stays reachable
+   without scrolling back up through a long list of questions. */
+.qform__tabs {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgb(var(--v-theme-surface));
 }
 </style>
