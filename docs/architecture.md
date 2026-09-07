@@ -158,6 +158,24 @@ the image small and lets a deploy attach or swap backends purely by config.
   by exercising it live; it is never shown diff text. `code_step.deliverable`
   (the UI's diff view) is instead the cumulative diff since the run's branch
   point, computed on kestrel's side from git history.
+- **Little to no persistence — nothing kestrel-caused reaches a commit.**
+  Kestrel's own state lives in source code and task-source items only, so a
+  run must be handoff-able to a human at any moment with nothing hidden in
+  kestrel-side state. This extends to the worktree itself: a work-time
+  artifact caused purely by kestrel's own dispatch (e.g. the operator's
+  Playwright MCP server writing its cache into the worktree because
+  kestrel points its `cwd` there during the verify step's explore turn)
+  must never leak into a commit or the PR. Known cases are seeded once,
+  deterministically, into the run's mirror's shared `info/exclude`
+  (`GitService._write_kestrel_excludes`) — `git add -A` (used throughout
+  the commit path, and by the coding agent's own instructed commit) already
+  honours it, so no commit-path call site needs to special-case anything.
+  For a case kestrel doesn't yet know about, the coding agent is instructed
+  (`_COMMIT_INSTRUCTION`, `prompts.py`) to triage any untracked file itself
+  before committing: material to the change → commit it; the *project's*
+  own toolchain artifact → the tracked `.gitignore`; a work-time artifact
+  of kestrel's own dispatch → `.git/info/exclude`, never `.gitignore`,
+  since it is not the project's concern.
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

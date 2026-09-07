@@ -10,6 +10,24 @@ from app.services.exceptions import GitError
 
 LOG = logging.getLogger(__name__)
 
+#: Work-time artifacts caused by kestrel's own dispatch (not by the
+#: project's toolchain) — kestrel has little to no persistence by design
+#: (everything must live in source code or task-source items, so a run
+#: can hand off to a human at any moment), so none of these may ever
+#: reach a commit. Written to the mirror's (bare, shared-across-worktrees)
+#: `info/exclude` rather than the tracked `.gitignore`, since these are a
+#: property of *how kestrel ran*, not of the project. `git add -A` (used
+#: throughout the commit path, and by the coding agent's own instructed
+#: commit) already honours this file, so seeding it once here is enough —
+#: no other call site needs to change.
+#: Known so far: `.playwright-mcp/` — the operator's own Playwright MCP
+#: server (configured host-side, not by kestrel) writes its cache/output
+#: here because kestrel points its cwd at the worktree during the verify
+#: step's explore turn. Extend this list as new cases turn up; the
+#: dispatched agent is separately instructed (CODE_PROMPT) to triage any
+#: *other* untracked file it encounters case by case.
+_KESTREL_ARTIFACT_EXCLUDES = (".playwright-mcp/",)
+
 
 def _redact(args: tuple[str, ...]) -> list[str]:
     """Mask the injected auth header so the token never reaches logs/errors."""
@@ -184,6 +202,23 @@ class GitService:
                     *self._auth(cred), "-C", mirror_dir, "fetch", "origin",
                     "+refs/heads/*:refs/remotes/origin/*",
                 )
+        self._write_kestrel_excludes(mirror_dir)
+
+    def _write_kestrel_excludes(self, mirror_dir: str) -> None:
+        """Seed the mirror's shared ``info/exclude`` with known kestrel-
+        caused artifact paths (see ``_KESTREL_ARTIFACT_EXCLUDES``).
+
+        A bare mirror's ``info/exclude`` sits directly at
+        ``<mirror_dir>/info/exclude`` and is shared by every worktree cut
+        from it (unlike per-worktree private state such as HEAD/index), so
+        writing it once here covers every run against this repo. Rewritten
+        (not appended) on every call so it stays in sync with this list
+        even for a mirror that already existed before this was added.
+        """
+        info_dir = os.path.join(mirror_dir, "info")
+        os.makedirs(info_dir, exist_ok=True)
+        with open(os.path.join(info_dir, "exclude"), "w") as f:
+            f.write("\n".join(_KESTREL_ARTIFACT_EXCLUDES) + "\n")
 
     async def add_worktree(
         self, mirror_dir: str, dest: str, base_branch: str, new_branch: str

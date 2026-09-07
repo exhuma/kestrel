@@ -183,6 +183,21 @@ REFINE_FEEDBACK_PROMPT = (
 #: itself; every round still runs the full verify pass regardless of how
 #: the coder phrased its commit message.
 _COMMIT_INSTRUCTION = (
+    "Before committing, run `git status` and triage any UNTRACKED file "
+    "or directory you find — kestrel hands work off to a human at any "
+    "time, so nothing you leave behind may depend on state that only "
+    "exists because of how this particular session happened to run. For "
+    "each untracked item: if it is part of the change you are making, "
+    "stage it normally — it belongs in the commit. If it is a build/"
+    "dependency artifact of this PROJECT's own toolchain (something any "
+    "contributor's checkout would also produce, e.g. an installed-"
+    "package or build-output directory), add it to this repo's tracked "
+    "`.gitignore` instead of committing it. If it has nothing to do with "
+    "this project and exists only because of a tool YOU used this "
+    "session (e.g. a browser-automation tool's own cache/output "
+    "directory), add it to `.git/info/exclude` instead — never to "
+    "`.gitignore` — so it stays untracked and invisible to the PR "
+    "without becoming the project's own concern. "
     "Commit your changes on this branch before you finish (`git add -A "
     "&& git commit`): use a real, descriptive commit message when you are "
     "confident in the result, or a `WIP: ...`-prefixed message naming your "

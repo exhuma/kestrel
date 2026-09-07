@@ -213,6 +213,38 @@ async def test_ensure_mirror_is_idempotent(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ensure_mirror_seeds_kestrel_excludes(tmp_path) -> None:
+    """A kestrel-caused work artifact must never enter a commit: seeded
+    into the mirror's shared info/exclude, not the tracked .gitignore."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    await svc.ensure_mirror(str(bare), mirror)
+    exclude = (Path(mirror) / "info" / "exclude").read_text()
+    assert ".playwright-mcp/" in exclude
+
+
+@pytest.mark.asyncio
+async def test_worktree_untracked_kestrel_artifact_is_not_added(
+    tmp_path,
+) -> None:
+    """git add -A in a worktree must skip a seeded kestrel-artifact path."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    dest = str(tmp_path / "wt")
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, dest, "main", "kestrel/issue-1")
+    (Path(dest) / ".playwright-mcp").mkdir()
+    (Path(dest) / ".playwright-mcp" / "cache.json").write_text("{}")
+    status = subprocess.run(
+        ["git", "add", "-A", "-n"], cwd=dest,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert "playwright-mcp" not in status
+
+
+@pytest.mark.asyncio
 async def test_delete_local_branch_removes_ref_and_tolerates_missing(
     tmp_path,
 ) -> None:
