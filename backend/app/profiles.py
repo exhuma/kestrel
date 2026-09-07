@@ -18,9 +18,23 @@ the service stays single-user and profiles carry no access control.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 #: Fallback badge tone for agent-minted profiles not in the roster.
 _DEFAULT_BADGE = "sys"
+
+#: Non-technical, requestor-altitude profiles (feature 012): the only
+#: audiences summoned during the high-level, go/no-go requirements phase.
+#: Never includes a technical profile — the altitude restriction that
+#: keeps that phase's questions and output business-only.
+BUSINESS_ALTITUDE_IDS = frozenset({"requester", "pm", "uiux"})
+
+#: Technical-altitude profiles (feature 012): summoned during the
+#: technical-analysis/decomposition phase, once the business-altitude PRD
+#: is approved.
+TECHNICAL_ALTITUDE_IDS = frozenset(
+    {"developer", "infosec", "dba", "architect", "ops", "qa"}
+)
 
 
 @dataclass(frozen=True)
@@ -248,12 +262,20 @@ def get_profile(profile_id: str) -> Profile:
     )
 
 
-def roster_summary() -> str:
+def roster_summary(ids: Iterable[str] | None = None) -> str:
     """
     Render the seeded roster as ``- id: description`` lines.
 
     Given to the coordinator so it can pick relevant profiles by id.
+
+    :param ids: When given, restrict the rendered roster to these ids
+        (e.g. :data:`BUSINESS_ALTITUDE_IDS`) — the altitude restriction
+        for the describe/refine and gap_analysis phases (feature 012).
+        ``None`` renders the full roster, unchanged from before.
     """
+    allowed = set(ids) if ids is not None else None
     return "\n".join(
-        f"- {p.id}: {p.description}" for p in ROSTER.values()
+        f"- {p.id}: {p.description}"
+        for p in ROSTER.values()
+        if allowed is None or p.id in allowed
     )

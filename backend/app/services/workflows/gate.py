@@ -81,7 +81,7 @@ def interview_state(
     :raises InvalidWorkflowStateError: If the refine step is not
         currently awaiting structured answers.
     """
-    step = run.steps[0]
+    step = run.steps[1]
     if step.name != Step.REFINE or step.status != "awaiting_input":
         raise InvalidWorkflowStateError("not awaiting a refine reply")
     envelope = parse_envelope(step.deliverable or "")

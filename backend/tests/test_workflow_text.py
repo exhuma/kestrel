@@ -4,15 +4,22 @@ from __future__ import annotations
 from app.models import CanonicalEvent, EventKind
 from app.services.workflow_text import (
     SENTINEL,
+    SUBTASK_SENTINEL,
     activity_for,
     append_sentinel,
+    append_subtask_sentinel,
     extract_boundary,
+    extract_containment_verdicts,
+    extract_followup_tasks,
     extract_mockups,
     extract_plan,
     extract_profiles,
     extract_questionnaire,
     extract_refined_issue,
+    extract_tech_analysis,
+    extract_understanding,
     has_sentinel,
+    has_subtask_sentinel,
 )
 
 
@@ -63,6 +70,83 @@ def test_append_sentinel_is_idempotent() -> None:
     twice = append_sentinel(once)
     assert has_sentinel(once)
     assert once == twice
+
+
+def test_has_subtask_sentinel_detects_marker() -> None:
+    """Ensure has_subtask_sentinel is true only when that marker is
+    present (feature 012) — distinct from the plain refined SENTINEL."""
+    assert has_subtask_sentinel(f"body\n{SUBTASK_SENTINEL}") is True
+    assert has_subtask_sentinel("plain body") is False
+    assert has_subtask_sentinel(f"body\n{SENTINEL}") is False
+
+
+def test_append_subtask_sentinel_is_idempotent() -> None:
+    """Ensure append_subtask_sentinel adds the marker once."""
+    once = append_subtask_sentinel("body")
+    twice = append_subtask_sentinel(once)
+    assert has_subtask_sentinel(once)
+    assert once == twice
+
+
+def test_extract_understanding_between_delimiters() -> None:
+    """Ensure the describe restatement is extracted from its block."""
+    text = "chatter\n<UNDERSTANDING>\nAdd a widget.\n</UNDERSTANDING>\nmore"
+    assert extract_understanding(text) == "Add a widget."
+    assert extract_understanding("no tags here") is None
+
+
+def test_extract_tech_analysis_between_delimiters() -> None:
+    """Ensure the gap_analysis summary is extracted from its block."""
+    text = "<TECH_ANALYSIS>\nUse a REST endpoint.\n</TECH_ANALYSIS>"
+    assert extract_tech_analysis(text) == "Use a REST endpoint."
+    assert extract_tech_analysis("no tags here") is None
+
+
+def test_extract_followup_tasks_parses_valid_entries() -> None:
+    """Ensure follow-up tasks parse from a well-formed JSON block."""
+    text = (
+        '<FOLLOWUP_TASKS>[{"title": "Do X", "body": "self-contained"}]'
+        "</FOLLOWUP_TASKS>"
+    )
+    tasks = extract_followup_tasks(text)
+    assert tasks == [{"title": "Do X", "body": "self-contained"}]
+
+
+def test_extract_followup_tasks_rejects_malformed_entries() -> None:
+    """Ensure a missing tag, bad JSON, or entries missing title/body all
+    return None rather than a partial/garbage list."""
+    assert extract_followup_tasks("no tags") is None
+    assert (
+        extract_followup_tasks("<FOLLOWUP_TASKS>not json</FOLLOWUP_TASKS>")
+        is None
+    )
+    assert (
+        extract_followup_tasks(
+            '<FOLLOWUP_TASKS>[{"title": "only"}]</FOLLOWUP_TASKS>'
+        )
+        is None
+    )
+
+
+def test_extract_containment_verdicts_parses_by_index() -> None:
+    """Ensure self-containment verdicts key by integer index."""
+    text = (
+        '<CONTAINMENT>{"verdicts": [{"index": 0, "self_contained": false, '
+        '"reason": "missing schema"}]}</CONTAINMENT>'
+    )
+    verdicts = extract_containment_verdicts(text)
+    assert verdicts == {
+        0: {"self_contained": False, "reason": "missing schema"}
+    }
+
+
+def test_extract_containment_verdicts_rejects_malformed() -> None:
+    """Ensure a missing tag or malformed JSON returns None."""
+    assert extract_containment_verdicts("no tags") is None
+    assert (
+        extract_containment_verdicts("<CONTAINMENT>not json</CONTAINMENT>")
+        is None
+    )
 
 
 def test_extract_refined_issue_between_delimiters() -> None:

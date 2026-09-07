@@ -204,6 +204,21 @@ class GitHubClient:
                 f"DELETE labels/{label} -> {resp.status_code}: {resp.text}"
             )
 
+    async def create_issue(self, repo: str, title: str, body: str) -> int:
+        """Create a new issue (no labels); return its number.
+
+        Never applies any label — in particular, never the configured
+        trigger label — so a caller creating a follow-up task (feature
+        012) never causes it to satisfy the webhook/reconcile trigger
+        condition as a side effect of creation.
+        """
+        resp = await self._request(
+            "POST",
+            f"/repos/{repo}/issues",
+            json={"title": title, "body": body},
+        )
+        return resp.json()["number"]
+
     async def create_pull_request(
         self,
         repo: str,
@@ -268,6 +283,20 @@ class GitHubTaskSource:
         """Write the approved PRD back to the issue body with the sentinel."""
         repo, number = parse_github_ref(ref)
         await self._client.update_issue(repo, number, append_sentinel(content))
+
+    async def create_subtask(
+        self, parent_ref: str, title: str, body: str
+    ) -> str:
+        """Create a follow-up issue in the same repo (feature 012).
+
+        Linked to its parent via a reference line in the body (GitHub
+        issues have no native sub-issue type at this API layer); created
+        with no labels at all, so it can never carry the trigger label.
+        """
+        repo, parent_number = parse_github_ref(parent_ref)
+        full_body = f"Sub-task of #{parent_number}\n\n{body}"
+        number = await self._client.create_issue(repo, title, full_body)
+        return f"{repo}#{number}"
 
     def display_label(self, ref: str) -> str:
         """The ref itself: already "owner/name#123"."""

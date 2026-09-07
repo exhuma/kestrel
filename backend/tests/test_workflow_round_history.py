@@ -229,7 +229,8 @@ def test_show_sessions_freezes_the_outgoing_set_first(tmp_path: Path) -> None:
 
     history = svc.round_history(run.id)
     assert [c.profile_id for c in history] == ["coordinator"]
-    assert run.steps[0].active_sessions[0].profile_id == "writer"
+    # _show_sessions always targets steps[1] (the refine slot).
+    assert run.steps[1].active_sessions[0].profile_id == "writer"
 
 
 def test_fail_active_steps_retires_a_stranded_running_chip(

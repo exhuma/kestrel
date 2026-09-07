@@ -3,15 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import uuid
 from typing import Callable
 
 from app.backends.base import Backend, TurnRequest, TurnResult
 from app.config import Settings
 from app.models_workflow import (
     RoundChip,
-    Step,
     StepSession,
     WorkflowRun,
     WorkflowStep,
@@ -30,15 +27,15 @@ from app.services.workflows import sessions as sessions_mod
 from app.services.workflows.gate import _Control, _Decision
 from app.services.workflows.shared import (
     _TERMINAL_STATUSES,
+    TicketRef,
     _log_driver_exception,
     _now_utc,
-    _slug_ref,
+    build_run,
 )
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_bus import WorkflowBus
 from app.storage.workflow_registry import WorkflowRegistry
 
-_WF_TASKS: set[asyncio.Task] = set()
 _logger = logging.getLogger(__name__)
 
 
@@ -90,8 +87,6 @@ class WorkflowService:
         """Launch a run's driver task and track it by id for abandon."""
         task = asyncio.create_task(coro)
         self._tasks[workflow_id] = task
-        _WF_TASKS.add(task)
-        task.add_done_callback(_WF_TASKS.discard)
         task.add_done_callback(
             lambda t, wid=workflow_id: self._tasks.pop(wid, None)
         )
@@ -250,24 +245,10 @@ class WorkflowService:
         that produced it, so the driver binds the right adapters. Only
         ingestion and rerun create runs (feature 010 removed manual entry).
         """
-        tref = task_ref or f"{repo}#{issue_number}"
-        if issue_number is not None:
-            branch = f"kestrel/issue-{issue_number}"
-        else:
-            branch = f"kestrel/{_slug_ref(tref)}"
-        run = WorkflowRun(
-            id="wf-" + uuid.uuid4().hex[:8],
-            repo=repo,
-            issue_number=issue_number,
-            task_ref=tref,
-            base_branch=base_branch or "",
-            branch=branch,
-            workspace=os.path.join(
-                self.settings.workspace_root,
-                f"wf-{uuid.uuid4().hex[:8]}",
-            ),
-            steps=[WorkflowStep(name=step) for step in Step.sequence()],
+        run = build_run(
+            TicketRef(repo, issue_number, task_ref, base_branch),
             source=source,
+            workspace_root=self.settings.workspace_root,
         )
         self.workflows.create(run)
         self._control[run.id] = self._new_control()
@@ -401,7 +382,7 @@ class WorkflowService:
     ) -> None:
         """Publish the sessions active on the refine step right now,
         freezing whatever was showing before into history first."""
-        step = run.steps[0]
+        step = run.steps[1]
         self._retire_sessions(run, step)
         step.active_sessions = slots
         self._save(run)

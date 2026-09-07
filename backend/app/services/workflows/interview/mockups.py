@@ -74,7 +74,7 @@ async def capture_round_mockups(
     )
     if backend is None:
         return
-    step = run.steps[0]
+    step = run.steps[1]
     slot = StepSession(profile_id="mockup", label="Mockups", badge="agent")
     service._show_sessions(run, [slot])
     prompt = MOCKUP_PROMPT.format(

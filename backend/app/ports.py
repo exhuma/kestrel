@@ -127,6 +127,22 @@ class TaskSource(Protocol):
         """Record the approved PRD on the ticket (update body / attach)."""
         ...
 
+    async def create_subtask(
+        self, parent_ref: str, title: str, body: str
+    ) -> str:
+        """Create a follow-up task linked to ``parent_ref`` (feature 012).
+
+        ``body`` is already final and self-contained (the caller has
+        already run the completeness check) and already carries the
+        ``SUBTASK_SENTINEL`` marker. Implementations MUST create the
+        ticket without satisfying this source's own ingestion-trigger
+        condition (e.g. GitHub: no ``trigger_label``), so publishing a
+        follow-up task never itself starts a new run.
+
+        :returns: The new ticket's source-native ref.
+        """
+        ...
+
     def display_label(self, ref: str) -> str:
         """Short human-readable identity for the ticket (feature 009).
 

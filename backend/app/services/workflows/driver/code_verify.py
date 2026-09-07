@@ -40,9 +40,9 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
 
     :returns: ``True`` if the run escalated (caller must not deliver).
     """
-    code_step, verify_step = run.steps[2], run.steps[3]
-    prd = run.steps[0].deliverable or ""
-    design = run.steps[1].deliverable or ""
+    code_step, verify_step = run.steps[4], run.steps[5]
+    prd = run.steps[1].deliverable or ""
+    design = run.steps[3].deliverable or ""
     # Ensure both handover artifacts are on disk (defensive: _design
     # wrote them earlier this drive, but this keeps code/verify correct
     # on any resume path).
@@ -89,7 +89,7 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
             Step.DESIGN
         ) == service.backends.backend_id_for(Step.CODE)
         code_resume_id = code_step.session_id or (
-            run.steps[1].session_id if same_backend else None
+            run.steps[3].session_id if same_backend else None
         )
         service._debug_log(
             run, f"Round {iteration + 1} — CODE PROMPT", prompt

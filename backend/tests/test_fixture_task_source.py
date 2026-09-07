@@ -1,10 +1,13 @@
 """Tests for the file-backed fixture TaskSource adapter (feature 008)."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.ports import LifecycleEvent, Task
 from app.services.fixture import FixtureTaskSource
+from app.services.workflow_text import has_subtask_sentinel
 from tests.conftest import _write_fixture_task as _write_task
 
 
@@ -83,6 +86,41 @@ async def test_publish_refined_overwrites_body(tmp_path) -> None:
     task = await source.get_task("fixture:hello-fixture")
 
     assert task.body == "refined body"
+
+
+@pytest.mark.asyncio
+async def test_create_subtask_writes_parent_linked_file(tmp_path) -> None:
+    """Ensure create_subtask (feature 012) writes a new fixture task file
+    with a parent field, never touching the originating file."""
+    _write_task(tmp_path, "hello-fixture")
+    source = FixtureTaskSource(str(tmp_path))
+
+    ref = await source.create_subtask(
+        "fixture:hello-fixture",
+        "Do the thing",
+        "Self-contained body <!-- kestrel:subtask -->",
+    )
+
+    task = await source.get_task(ref)
+    assert task.title == "Do the thing"
+    assert has_subtask_sentinel(task.body)
+    data = json.loads((tmp_path / f"{ref.split(':', 1)[1]}.json").read_text())
+    assert data["parent"] == "fixture:hello-fixture"
+    # The parent file itself is untouched.
+    parent = await source.get_task("fixture:hello-fixture")
+    assert parent.title == "Add a hello endpoint"
+
+
+@pytest.mark.asyncio
+async def test_create_subtask_avoids_filename_collisions(tmp_path) -> None:
+    """Ensure two follow-up tasks from the same parent get distinct refs."""
+    _write_task(tmp_path, "hello-fixture")
+    source = FixtureTaskSource(str(tmp_path))
+
+    ref1 = await source.create_subtask("fixture:hello-fixture", "One", "a")
+    ref2 = await source.create_subtask("fixture:hello-fixture", "Two", "b")
+
+    assert ref1 != ref2
 
 
 def test_deep_link_ref_is_always_empty(tmp_path) -> None:

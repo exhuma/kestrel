@@ -8,6 +8,11 @@ from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
 
 SENTINEL = "<!-- kestrel:refined -->"
+#: Marks a ticket as a follow-up task published by `gap_analysis` (feature
+#: 012): its body is already self-contained and technically scoped, so a
+#: run against it skips describe/refine/gap_analysis entirely and starts
+#: at design (see `driver.drive`).
+SUBTASK_SENTINEL = "<!-- kestrel:subtask -->"
 
 #: Map a tool (its bare name, MCP prefixes stripped) to a 1-2 word verb
 #: for the chip activity subtext. Unlisted tools fall back to their own
@@ -64,6 +69,18 @@ def append_sentinel(body: str) -> str:
     return f"{body.rstrip()}\n\n{SENTINEL}\n"
 
 
+def has_subtask_sentinel(body: str) -> bool:
+    """Return True if the body marks a gap_analysis follow-up task."""
+    return SUBTASK_SENTINEL in body
+
+
+def append_subtask_sentinel(body: str) -> str:
+    """Append the subtask sentinel to a body, at most once."""
+    if has_subtask_sentinel(body):
+        return body
+    return f"{body.rstrip()}\n\n{SUBTASK_SENTINEL}\n"
+
+
 def _extract_tag(text: str, tag: str) -> str | None:
     """Return the trimmed content of a <tag>...</tag> block, or None."""
     match = re.search(
@@ -75,6 +92,81 @@ def _extract_tag(text: str, tag: str) -> str | None:
 def extract_refined_issue(text: str) -> str | None:
     """Return the refined issue if the agent emitted the delimiter block."""
     return _extract_tag(text, "REFINED_ISSUE")
+
+
+def extract_understanding(text: str) -> str | None:
+    """Return the describe step's restatement, if the agent emitted it."""
+    return _extract_tag(text, "UNDERSTANDING")
+
+
+def extract_tech_analysis(text: str) -> str | None:
+    """Return the gap_analysis technical-analysis summary, if emitted."""
+    return _extract_tag(text, "TECH_ANALYSIS")
+
+
+def _is_followup_task(item: object) -> bool:
+    """Whether a parsed item is a usable follow-up task entry."""
+    return (
+        isinstance(item, dict)
+        and isinstance(item.get("title"), str)
+        and isinstance(item.get("body"), str)
+    )
+
+
+def extract_followup_tasks(text: str) -> list[dict[str, str]] | None:
+    """
+    Return the gap_analysis candidate follow-up tasks, if well-formed.
+
+    :param text: The agent's full response text.
+    :returns: A list of ``{"title", "body"}`` dicts (possibly carrying an
+        extra ``"index"`` key on a revision response), or None if the
+        ``<FOLLOWUP_TASKS>`` tag is absent, its JSON is malformed, or it
+        contains no usable entries.
+    """
+    raw = _extract_tag(text, "FOLLOWUP_TASKS")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, list):
+        return None
+    tasks = [dict(item) for item in data if _is_followup_task(item)]
+    return tasks or None
+
+
+def extract_containment_verdicts(text: str) -> dict[int, dict] | None:
+    """
+    Return the gap_analysis self-containment critic's per-task verdicts.
+
+    :param text: The critic's full response text.
+    :returns: ``{index: {"self_contained": bool, "reason": str}}``, or
+        None if the ``<CONTAINMENT>`` tag is absent or its JSON does not
+        match the expected shape.
+    """
+    raw = _extract_tag(text, "CONTAINMENT")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    verdicts = data.get("verdicts") if isinstance(data, dict) else None
+    if not isinstance(verdicts, list):
+        return None
+    result: dict[int, dict] = {}
+    for item in verdicts:
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("index"), int)
+            and isinstance(item.get("self_contained"), bool)
+        ):
+            result[item["index"]] = {
+                "self_contained": item["self_contained"],
+                "reason": item.get("reason", ""),
+            }
+    return result or None
 
 
 def extract_plan(text: str) -> str | None:

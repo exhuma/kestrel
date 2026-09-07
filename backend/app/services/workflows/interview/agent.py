@@ -30,7 +30,7 @@ async def run_refine_agent(
     reconciler — to a stronger backend/model; it falls back to the
     ``refine`` step's backend and model when unconfigured.
     """
-    step = run.steps[0]
+    step = run.steps[1]
 
     def _bind(s: str) -> None:
         slot.session_id = s

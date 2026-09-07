@@ -10,6 +10,7 @@ import pytest
 from app.config_models import TaskSourceConfig
 from app.ports import LifecycleEvent, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
+from app.services.workflow_text import has_subtask_sentinel
 
 
 def _client(handler, **kw) -> JiraClient:
@@ -163,6 +164,50 @@ def test_task_source_display_label_is_the_issue_key() -> None:
     """Ensure JiraTaskSource.display_label is the RFC key (feature 009)."""
     src = JiraTaskSource(_client(lambda r: httpx.Response(200)))
     assert src.display_label("RFC-1") == "RFC-1"
+
+
+@pytest.mark.asyncio
+async def test_client_create_subtask_posts_native_subtask_issue() -> None:
+    """Ensure JiraClient.create_subtask POSTs a native Sub-task issue type
+    with the parent field set (feature 012)."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["path"] = req.url.path
+        seen["method"] = req.method
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(201, json={"key": "RFC-2"})
+
+    client = _client(handler, auth="basic", email="e", token="t")
+    key = await client.create_subtask("RFC-1", "RFC", "Do the thing", "body")
+    assert key == "RFC-2"
+    assert seen["method"] == "POST"
+    assert seen["path"].endswith("/issue")
+    fields = seen["body"]["fields"]
+    assert fields["issuetype"] == {"name": "Sub-task"}
+    assert fields["parent"] == {"key": "RFC-1"}
+    assert fields["project"] == {"key": "RFC"}
+    assert fields["summary"] == "Do the thing"
+    assert fields["description"] == "body"
+
+
+@pytest.mark.asyncio
+async def test_task_source_create_subtask_derives_project_key() -> None:
+    """Ensure JiraTaskSource.create_subtask derives the project key from
+    the parent ref and returns the new issue's key."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(201, json={"key": "RFC-2"})
+
+    src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
+    ref = await src.create_subtask(
+        "RFC-1", "Do the thing", "Self-contained body <!-- kestrel:subtask -->"
+    )
+    assert ref == "RFC-2"
+    assert seen["body"]["fields"]["project"] == {"key": "RFC"}
+    assert has_subtask_sentinel(seen["body"]["fields"]["description"])
 
 
 def _config(**overrides) -> TaskSourceConfig:

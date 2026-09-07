@@ -1,5 +1,12 @@
 /** The canonical workflow steps, mirroring the backend `Step` enum. */
-export const STEPS = ['refine', 'design', 'code', 'verify'] as const
+export const STEPS = [
+  'describe',
+  'refine',
+  'gap_analysis',
+  'design',
+  'code',
+  'verify',
+] as const
 export type Step = (typeof STEPS)[number]
 
 /** How the UI should render a step's deliverable. */

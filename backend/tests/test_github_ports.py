@@ -1,6 +1,8 @@
 """Tests for the GitHub TaskSource / CodeHost port adapters (feature 003)."""
 from __future__ import annotations
 
+from typing import Callable
+
 import httpx
 import pytest
 
@@ -12,7 +14,7 @@ from app.services.github import (
     GitHubTaskSource,
     parse_github_ref,
 )
-from app.services.workflow_text import has_sentinel
+from app.services.workflow_text import has_sentinel, has_subtask_sentinel
 
 
 def _client(handler) -> GitHubClient:
@@ -22,6 +24,23 @@ def _client(handler) -> GitHubClient:
         transport=httpx.MockTransport(handler),
     )
     return client
+
+
+def _recording_handler(
+    response: httpx.Response,
+) -> tuple[dict, Callable[[httpx.Request], httpx.Response]]:
+    """Build a `seen` dict + MockTransport handler that records the
+    request's method/url/body and replies with `response` — the
+    recording pattern shared by several contract tests below."""
+    seen: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["method"] = req.method
+        seen["url"] = str(req.url)
+        seen["body"] = req.read().decode()
+        return response
+
+    return seen, handler
 
 
 def test_parse_github_ref() -> None:
@@ -70,13 +89,7 @@ def test_task_source_display_label_and_deep_link() -> None:
 @pytest.mark.asyncio
 async def test_publish_refined_updates_issue_with_sentinel() -> None:
     """Ensure publish_refined PATCHes the body + appends the sentinel."""
-    seen = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["method"] = req.method
-        seen["url"] = str(req.url)
-        seen["body"] = req.read().decode()
-        return httpx.Response(200, json={})
+    seen, handler = _recording_handler(httpx.Response(200, json={}))
 
     src = GitHubTaskSource(_client(handler))
     await src.publish_refined("o/r#7", "PRD text")
@@ -87,6 +100,30 @@ async def test_publish_refined_updates_issue_with_sentinel() -> None:
     import json
 
     assert has_sentinel(json.loads(seen["body"])["body"])
+
+
+@pytest.mark.asyncio
+async def test_create_subtask_creates_issue_without_trigger_label() -> None:
+    """Ensure create_subtask (feature 012) POSTs a new issue in the same
+    repo, referencing the parent, with no labels — so it can never carry
+    the configured trigger label as a side effect of creation."""
+    seen, handler = _recording_handler(
+        httpx.Response(201, json={"number": 99})
+    )
+
+    src = GitHubTaskSource(_client(handler))
+    ref = await src.create_subtask(
+        "o/r#7", "Do the thing", "Self-contained body <!-- kestrel:subtask -->"
+    )
+    assert ref == "o/r#99"
+    assert seen["method"] == "POST"
+    assert seen["url"].endswith("/repos/o/r/issues")
+    import json
+
+    payload = json.loads(seen["body"])
+    assert "labels" not in payload
+    assert "Sub-task of #7" in payload["body"]
+    assert has_subtask_sentinel(payload["body"])
 
 
 @pytest.mark.asyncio
@@ -104,13 +141,7 @@ async def test_attach_is_noop() -> None:
 @pytest.mark.asyncio
 async def test_transition_start_adds_in_progress_label() -> None:
     """Ensure a "start" event adds the configured in-progress label."""
-    seen = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["method"] = req.method
-        seen["url"] = str(req.url)
-        seen["body"] = req.read().decode()
-        return httpx.Response(200, json=[])
+    seen, handler = _recording_handler(httpx.Response(200, json=[]))
 
     src = GitHubTaskSource(_client(handler))
     ok = await src.transition("o/r#7", LifecycleEvent(kind="start"))

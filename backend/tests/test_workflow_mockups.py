@@ -128,7 +128,8 @@ async def test_capture_reconciles_files_with_explanations(
     monkeypatch.setattr(mockups, "get_policy", _Stub)
     run = WorkflowRun(
         id="r", repo="o/r", workspace=str(tmp_path),
-        artifact_dir=".kestrel/d-001", steps=[WorkflowStep("refine")],
+        artifact_dir=".kestrel/d-001",
+        steps=[WorkflowStep("describe"), WorkflowStep("refine")],
     )
     refine_dir = os.path.join(
         str(tmp_path), run.artifact_dir, "screenshots", "refine"

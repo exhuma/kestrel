@@ -65,6 +65,29 @@ class FixtureTaskSource:
         with open(self._task_path(ref), "w", encoding="utf-8") as handle:
             json.dump(data, handle)
 
+    async def create_subtask(
+        self, parent_ref: str, title: str, body: str
+    ) -> str:
+        """Write a new fixture task file linked to its parent by ``ref``.
+
+        Never touches any file the (manual, no-argument) fixture poll
+        would auto-pick up on its own — creating this file has no
+        ingestion side effect, matching every other source's no-retrigger
+        contract (feature 012).
+        """
+        parent_slug = _slug(parent_ref)
+        n = 1
+        while os.path.exists(
+            os.path.join(self._dir, f"{parent_slug}-subtask-{n}.json")
+        ):
+            n += 1
+        slug = f"{parent_slug}-subtask-{n}"
+        ref = f"{_PREFIX}{slug}"
+        data = {"title": title, "body": body, "parent": parent_ref}
+        with open(self._task_path(ref), "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        return ref
+
     def display_label(self, ref: str) -> str:
         """The task's slug, stripped of the internal "fixture:" prefix."""
         return _slug(ref)

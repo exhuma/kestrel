@@ -165,6 +165,7 @@ async def test_gate_state_is_checkpointed(
 
     store = _store(tmp_path)
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
@@ -173,14 +174,18 @@ async def test_gate_state_is_checkpointed(
     )
     wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(
+        lambda: svc.get(wid).status == "awaiting_describe_approval"
+    )
+    svc.approve(wid)
+    await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_input"
     )
     persisted = {r.id: r for r in store.load_all()}[wid]
     assert persisted.status == "awaiting_refine_input"
-    assert persisted.steps[0].status == "awaiting_input"
-    assert persisted.steps[0].session_id is not None
-    envelope = parse_envelope(persisted.steps[0].deliverable)
+    assert persisted.steps[1].status == "awaiting_input"
+    assert persisted.steps[1].session_id is not None
+    envelope = parse_envelope(persisted.steps[1].deliverable)
     assert envelope.questionnaire.questions[0].prompt == "What colour?"
 
 

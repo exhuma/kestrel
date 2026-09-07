@@ -82,16 +82,36 @@ the image small and lets a deploy attach or swap backends purely by config.
   be exposed for a GitHub- or Jira-sourced run (see the constitution's access
   model, amendment 1.4.0).
 - **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or
-  fixture — traverses the identical `refine → PRD approval → design → code →
-  verify → change request` sequence (`services/workflows.py`). There is no
-  hand-entered run: a run exists because a task source produced a task. The
-  single human gate is PRD approval; design/code/verify run **without human
-  gates**. The **verifier** adjudicates the implementation against the
-  PRD/design weighing **evidence** it observes by exercising the running,
-  modified project itself (see below); a failing observation forces a reject,
-  the loop is bounded by `max_verify_iterations`, and it **escalates** to the
-  ticket on exhaustion. The task source is only the human↔agent boundary —
-  the process behind it is the same, so the system is predictable.
+  fixture — traverses the identical `describe → refine → gap_analysis →
+  design → code → verify → change request` sequence
+  (`services/workflows/driver/`). There is no hand-entered run: a run exists
+  because a task source produced a task. **Two** human gates open the
+  pipeline: `describe` restates kestrel's understanding of the task in plain
+  language and parks for the requester to confirm or amend it, before any
+  clarifying question is asked; `refine`'s interview is then restricted to
+  non-technical, requestor-altitude profiles only (`requester`/`pm`/`uiux`),
+  producing a business-only, go/no-go requirements document — the PRD
+  approval gate. Once approved, `gap_analysis` runs **gatelessly** (feature
+  012): technical-altitude profiles (`developer`/`infosec`/`dba`/`architect`/
+  `ops`/`qa`) analyze the approved requirements, producing an
+  architecture/technical-decision record and one or more independent,
+  self-contained follow-up tasks — checked by a completeness self-review
+  turn before publishing — which are published back to the task source as
+  subdivisions of the original ticket, without themselves satisfying that
+  source's ingestion trigger (so publishing them starts no new run). The
+  original run then ends (`status = "decomposed"`); it never itself reaches
+  `design`/`code`/`verify`. A promoted follow-up task, recognized via a
+  second sentinel marker in its body (`SUBTASK_SENTINEL`, alongside the
+  existing "already refined" `SENTINEL`), skips `describe`/`refine`/
+  `gap_analysis` entirely and starts at `design` — it is already scoped and
+  technical. From `design` onward, every run — original or follow-up — runs
+  **without human gates**. The **verifier** adjudicates the implementation
+  against the PRD/design weighing **evidence** it observes by exercising the
+  running, modified project itself (see below); a failing observation forces
+  a reject, the loop is bounded by `max_verify_iterations`, and it
+  **escalates** to the ticket on exhaustion. The task source is only the
+  human↔agent boundary — the process behind it is the same, so the system is
+  predictable.
 - **Behavioral verify evidence, grounded in real, observed behaviour.** The
   `design` step classifies the project's user-facing boundary — HTTP API, web
   UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.
@@ -120,7 +140,8 @@ the image small and lets a deploy attach or swap backends purely by config.
   run's verify step is obligated to satisfy.
 - **File-based step handover (`.kestrel/`).** The steps share one worktree, so a
   step's artifacts pass to the next as *files* under
-  `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `design.md`) — spec-kit's
+  `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `technical-analysis.md`,
+  `design.md`) — spec-kit's
   `.specify/` in spirit. A file-capable backend (claude, opencode) is pointed at
   the file so a large PRD/design never bloats its prompt; a text-only LLM, which
   cannot read the worktree, still gets the content inlined. The artifacts are

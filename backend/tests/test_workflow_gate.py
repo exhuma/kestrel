@@ -38,18 +38,21 @@ async def test_reject_with_refinement_regenerates() -> None:
     """Ensure gate feedback regenerates the refined issue via the writer."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord([]), "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
         "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status
         == "awaiting_refine_approval"
     )
     svc.reject(wid, refinement_prompt="Mention the API surface")
     await _wait(
-        lambda: svc.get(wid).steps[0].deliverable
+        lambda: svc.get(wid).steps[1].deliverable
         == "v2 with feedback"
     )
     assert svc.get(wid).status == "awaiting_refine_approval"
@@ -63,18 +66,21 @@ async def test_submit_answers_validates() -> None:
     """Ensure invalid answers raise without resuming the interview."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="Which?",
                options=[{"value": "oidc", "label": "OIDC"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
     with pytest.raises(AnswerValidationError):
         svc.submit_answers(wid, {"developer:q0": "saml"})
-    assert len(runner.calls) == 2  # coordinator + one generator only
+    assert len(runner.calls) == 3  # describe + coordinator + one generator
 
 
 @pytest.mark.asyncio
@@ -82,12 +88,15 @@ async def test_incomplete_submission_rejected_by_default() -> None:
     """Ensure a required question left blank is rejected without the flag."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(qid="q1", prompt="Which?",
                options=[{"value": "oidc", "label": "OIDC"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     with pytest.raises(AnswerValidationError):
         svc.submit_answers(wid, {})  # required question unanswered
@@ -98,6 +107,7 @@ async def test_allow_incomplete_answers_accepts_partial_submission() -> None:
     """Ensure the safety-net flag lets a required question go through blank."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(qid="q1", prompt="Which?",
                options=[{"value": "oidc", "label": "OIDC"}])),
@@ -109,6 +119,8 @@ async def test_allow_incomplete_answers_accepts_partial_submission() -> None:
         settings=_settings(allow_incomplete_answers=True),
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     svc.submit_answers(wid, {})  # tolerated: the interview advances
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
@@ -119,24 +131,27 @@ async def test_draft_save_persists_without_resuming() -> None:
     """Ensure a partial draft is stored and the agent is not resumed."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="Which?",
                options=[{"value": "a", "label": "A"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
-    round_before = svc.get(wid).steps[0].refine_round
+    round_before = svc.get(wid).steps[1].refine_round
     svc.save_draft(wid, {"developer:q0": "a"})
     # Still parked at the interview; no further agent call fired.
     assert svc.get(wid).status == "awaiting_refine_input"
-    assert len(runner.calls) == 2
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    assert len(runner.calls) == 3  # describe + coordinator + one generator
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     assert envelope.draft_answers == {"developer:q0": "a"}
     # A draft save must never look like a genuine questionnaire change.
-    assert svc.get(wid).steps[0].refine_round == round_before
+    assert svc.get(wid).steps[1].refine_round == round_before
 
 
 @pytest.mark.asyncio
@@ -145,6 +160,7 @@ async def test_refine_round_increments_across_interview_rounds() -> None:
     genuinely produced, not on a draft save or an unrelated update."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="Which?",
                options=[{"value": "a", "label": "A"}])),
@@ -156,14 +172,16 @@ async def test_refine_round_increments_across_interview_rounds() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
-    assert svc.get(wid).steps[0].refine_round == 1
+    assert svc.get(wid).steps[1].refine_round == 1
 
     svc.submit_answers(wid, {"developer:q0": "a"})
     await _wait(
-        lambda: svc.get(wid).steps[0].refine_round == 2
+        lambda: svc.get(wid).steps[1].refine_round == 2
     )
     assert svc.get(wid).status == "awaiting_refine_input"
 
@@ -178,12 +196,15 @@ async def test_finalize_requires_completeness() -> None:
     """Ensure finalize refuses an incomplete answer set."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="Which?",
                options=[{"value": "a", "label": "A"}])),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )

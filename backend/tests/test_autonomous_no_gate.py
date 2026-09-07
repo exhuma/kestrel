@@ -12,7 +12,7 @@ from tests.conftest import (
     _FakeGitHub,
     _FakeNotifier,
     _FakeRunner,
-    _refine_noquestions,
+    _subtask_body,
     _wait,
 )
 
@@ -20,8 +20,13 @@ from tests.conftest import (
 @pytest.mark.asyncio
 async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
     """Ensure a coder that makes no changes escalates (FR-020), never parking
-    on the removed awaiting_implement_input human gate."""
-    gh = _FakeGitHub(body="vague")
+    on the removed awaiting_implement_input human gate.
+
+    A follow-up (SUBTASK_SENTINEL) body skips describe/refine/gap_analysis
+    entirely (FR-015) — the only way to reach design/code at all now that
+    a plain ticket's run always ends at gap_analysis instead (FR-014).
+    """
+    gh = _FakeGitHub(body=_subtask_body("vague"))
     git = _FakeGit()
     git.diffs = [""]  # coder produced no changes
     seen: list[str] = []
@@ -32,7 +37,6 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
             super().notify(run)
 
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",       # design
         "I couldn't make changes",   # code — yields an empty diff
     ])
@@ -46,8 +50,6 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
         notifier=_Recorder(),
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
 
     assert "awaiting_implement_input" not in seen

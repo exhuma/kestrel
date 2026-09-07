@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.profiles import ROSTER, get_profile, roster_summary
+from app.profiles import (
+    BUSINESS_ALTITUDE_IDS,
+    ROSTER,
+    TECHNICAL_ALTITUDE_IDS,
+    get_profile,
+    roster_summary,
+)
 
 #: Specialists added in the roster-expansion round, with the label and
 #: badge tone each is expected to resolve to.
@@ -46,6 +52,38 @@ def test_added_profiles_resolve(pid: str, expected: tuple[str, str]) -> None:
 
 def test_roster_summary_lists_seeded_ids() -> None:
     """Ensure the coordinator summary names every seeded profile."""
+    summary = roster_summary()
+    for pid in ROSTER:
+        assert pid in summary
+
+
+def test_business_altitude_ids_are_non_technical_only() -> None:
+    """Ensure the business-altitude roster excludes every technical
+    profile (feature 012, spec.md FR-004)."""
+    assert {"requester", "pm", "uiux"} == BUSINESS_ALTITUDE_IDS
+    assert BUSINESS_ALTITUDE_IDS.isdisjoint(TECHNICAL_ALTITUDE_IDS)
+
+
+def test_technical_altitude_ids_cover_the_technical_specialists() -> None:
+    """Ensure the technical-altitude roster matches research.md R7's list
+    and excludes every business-altitude profile."""
+    assert {
+        "developer", "infosec", "dba", "architect", "ops", "qa",
+    } == TECHNICAL_ALTITUDE_IDS
+    assert TECHNICAL_ALTITUDE_IDS.isdisjoint(BUSINESS_ALTITUDE_IDS)
+
+
+def test_roster_summary_restricts_to_given_ids() -> None:
+    """Ensure passing ids to roster_summary renders only those profiles."""
+    summary = roster_summary(BUSINESS_ALTITUDE_IDS)
+    listed = {
+        line.split(":", 1)[0].strip("- ") for line in summary.splitlines()
+    }
+    assert listed == BUSINESS_ALTITUDE_IDS
+
+
+def test_roster_summary_with_no_ids_lists_everyone() -> None:
+    """Ensure the default (no restriction) behaviour is unchanged."""
     summary = roster_summary()
     for pid in ROSTER:
         assert pid in summary

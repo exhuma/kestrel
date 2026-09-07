@@ -11,6 +11,24 @@ MAX_REFINE_ROUNDS_HARD = 6
 #: hard failure (a soft failure is retried on each answer submission).
 MAX_SPECIALIST_RETRIES = 3
 
+DESCRIBE_PROMPT = (
+    "Read this newly ingested task and the surrounding codebase. Before "
+    "any clarifying questions are asked, restate in plain, non-technical "
+    "language what you understand this task to be asking for — the "
+    "problem, who it is for, and what change is being requested. Do not "
+    "ask questions, and do not propose a solution or implementation "
+    "approach — this is a check that you understood the request, not an "
+    "analysis of it. Output ONLY the restatement wrapped EXACTLY in "
+    "<UNDERSTANDING> and </UNDERSTANDING> tags and nothing else. Do not "
+    "edit any files.\n\nTASK:\n{issue}"
+)
+DESCRIBE_FEEDBACK_PROMPT = (
+    "The restatement below was not confirmed as accurate. Revise it "
+    "according to the correction given. Output ONLY the revised "
+    "restatement wrapped EXACTLY in <UNDERSTANDING> and </UNDERSTANDING> "
+    "tags and nothing else. Do not edit any files.\n\n"
+    "CURRENT RESTATEMENT:\n{current}\n\nCORRECTION:\n{feedback}"
+)
 COORDINATOR_PROMPT = (
     "You are the refinement coordinator for a GitHub issue. Read the "
     "issue and the surrounding codebase, and consider the answers "
@@ -265,6 +283,67 @@ VERIFY_PROMPT = (
     "Set accept=false and give specific, actionable feedback for the coder "
     "when the implementation is inconsistent or what you observed shows "
     "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
+)
+GAP_ANALYSIS_PROMPT = (
+    "You are performing technical analysis and decomposition of an "
+    "approved, business-altitude requirements document, before any "
+    "implementation begins. Read the requirements document, the "
+    "confirmed understanding of the task, and the surrounding codebase. "
+    "Consider this from every technical angle a real team would bring: "
+    "engineering approach and feasibility, security (authn/authz, "
+    "sensitive data, attack surface), data model and schema, system "
+    "architecture and integration points, operations (deployment, "
+    "config, observability), and test strategy. Produce two things:\n"
+    "1. A technical-analysis summary: the architecture and technical "
+    "decisions you are making and why, wrapped EXACTLY in "
+    "<TECH_ANALYSIS> and </TECH_ANALYSIS> tags.\n"
+    "2. A decomposition of the approved work into one or more "
+    "independent follow-up tasks, each implementable on its own. Never "
+    "output zero tasks — if the work does not warrant splitting, output "
+    "exactly one task covering all of it. EACH task's body MUST be "
+    "self-contained: written as if the reader has no access to this "
+    "requirements document, this technical-analysis summary, or any "
+    "sibling task — inline whatever architecture decisions, shared "
+    "interface/contract details, and acceptance criteria that task "
+    "specifically needs. Wrap the tasks EXACTLY in <FOLLOWUP_TASKS> and "
+    "</FOLLOWUP_TASKS> tags as a JSON array, e.g. "
+    '<FOLLOWUP_TASKS>[{{"title": "...", "body": "..."}}]</FOLLOWUP_TASKS>. '
+    "Do not edit any files.\n\nREQUIREMENTS DOCUMENT:\n{prd}\n\n"
+    "CONFIRMED UNDERSTANDING:\n{understanding}"
+)
+GAP_ANALYSIS_CRITIC_PROMPT = (
+    "You are a completeness critic. Below is a set of follow-up tasks "
+    "produced by decomposing an approved requirements document. Your "
+    "ONLY job is to catch a task that is NOT self-contained: could a "
+    "human with no access to the original requirements document, the "
+    "technical-analysis summary, or any of this task's siblings "
+    "implement it correctly from its body alone?\n"
+    "For EACH task below (0-indexed), decide self_contained=true if its "
+    "body alone is sufficient, or self_contained=false ONLY when it is "
+    "missing something it specifically needs (a referenced decision, a "
+    "shared interface with a sibling, a concrete acceptance criterion) "
+    "— not for wording or style. Return ONLY a JSON object wrapped "
+    "EXACTLY in <CONTAINMENT> and </CONTAINMENT> tags and nothing else, "
+    "matching this shape: "
+    '<CONTAINMENT>{{"verdicts": [{{"index": 0, "self_contained": false, '
+    '"reason": "references \\"see task 2\\" for the interface shape but '
+    'does not inline it"}}]}}</CONTAINMENT>. Do not edit any files.\n\n'
+    "TECHNICAL ANALYSIS:\n{tech_analysis}\n\nTASKS:\n{tasks}"
+)
+GAP_ANALYSIS_REVISION_PROMPT = (
+    "The follow-up tasks below failed a self-containment check: each "
+    "listed task is missing something it needs to be implementable in "
+    "total isolation, per the reason given. Revise ONLY the listed "
+    "tasks' bodies to inline what is missing (relevant architecture "
+    "decisions, shared interface/contract details with siblings, "
+    "acceptance criteria) — do not change their titles or scope. Return "
+    "ONLY a JSON array of the revised tasks wrapped EXACTLY in "
+    "<FOLLOWUP_TASKS> and </FOLLOWUP_TASKS> tags, matching this shape: "
+    '<FOLLOWUP_TASKS>[{{"index": 0, "title": "...", "body": "..."}}]'
+    "</FOLLOWUP_TASKS>. Do not edit any files.\n\n"
+    "TECHNICAL ANALYSIS:\n{tech_analysis}\n\nALL TASKS (for context, "
+    "including ones not being revised):\n{all_tasks}\n\n"
+    "TASKS TO REVISE:\n{failing_tasks}"
 )
 #: Optional refine-stage turn (uiux round): mock up the proposed UI and
 #: screenshot it, so the human sees it inside the clarification questionnaire.

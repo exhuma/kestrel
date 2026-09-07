@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.models_workflow import StepSession, WorkflowRun
-from app.profiles import get_profile, roster_summary
+from app.profiles import BUSINESS_ALTITUDE_IDS, get_profile, roster_summary
 from app.questionnaire import (
     GenerationIssue,
     ProfileMeta,
@@ -284,7 +284,9 @@ async def reconcile_questions(
         service,
         run,
         RECONCILE_PROMPT.format(
-            issue=issue, questions=payload, roster=roster_summary()
+            issue=issue,
+            questions=payload,
+            roster=roster_summary(BUSINESS_ALTITUDE_IDS),
         ),
         slot,
         substep="refine.reconcile",

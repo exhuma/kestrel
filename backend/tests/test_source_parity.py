@@ -13,9 +13,8 @@ from tests.conftest import (
     _FakeGitHub,
     _FakeNotifier,
     _FakeRunner,
-    _refine_noquestions,
+    _subtask_body,
     _verdict,
-    _wait,
 )
 from tests.test_prd_delivery import _FakeJiraHost, _FakeJiraSource
 
@@ -36,24 +35,30 @@ async def _drive_and_record(svc: WorkflowService, wid: str) -> list[str]:
             import asyncio
             await asyncio.sleep(0.01)
 
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await watch()
     return seen
 
 
 @pytest.mark.asyncio
 async def test_github_and_jira_traverse_identical_status_sequence() -> None:
-    """Ensure a GitHub run and a Jira run traverse the same phases/gates."""
+    """Ensure a GitHub run and a Jira run traverse the same phases/gates.
+
+    A follow-up (SUBTASK_SENTINEL) body skips describe/refine/
+    gap_analysis entirely (FR-015) — the only way to reach design/code/
+    verify at all now that a plain ticket's run always ends at
+    gap_analysis instead (FR-014); the gate itself is source-neutral too,
+    but is already covered elsewhere, so this test focuses on the
+    gateless design/code/verify leg both sources share.
+    """
     # GitHub run.
     gh_runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"), "<PLAN>d</PLAN>", "coded",
-        _verdict(accept=True),
+        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     gh_svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=gh_runner.sessions, workflows=WorkflowRegistry(),
-        backends=gh_runner, git=_FakeGit(), github=_FakeGitHub(body="vague"),
+        backends=gh_runner, git=_FakeGit(),
+        github=_FakeGitHub(body=_subtask_body("vague")),
         notifier=_FakeNotifier(),
     )
     gh_wid = await gh_svc.create("o/r", 5, source="github-issue")
@@ -61,15 +66,16 @@ async def test_github_and_jira_traverse_identical_status_sequence() -> None:
 
     # Jira run (Jira task source + GitLab-style code host).
     jira_runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"), "<PLAN>d</PLAN>", "coded",
-        _verdict(accept=True),
+        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     jira_svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=jira_runner.sessions, workflows=WorkflowRegistry(),
         backends=jira_runner, git=_FakeGit(), github=_FakeGitHub(),
         notifier=_FakeNotifier(),
-        sources={"jira-issue": _FakeJiraSource(body="vague RFC")},
+        sources={
+            "jira-issue": _FakeJiraSource(body=_subtask_body("vague RFC")),
+        },
         code_hosts={"jira-issue": _FakeJiraHost()},
     )
     jira_wid = await jira_svc.create(

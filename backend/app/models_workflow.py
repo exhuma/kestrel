@@ -17,15 +17,24 @@ class Step(StrEnum):
     step vocabulary now has a single typed source of truth.
     """
 
+    DESCRIBE = "describe"
     REFINE = "refine"
+    GAP_ANALYSIS = "gap_analysis"
     DESIGN = "design"
     CODE = "code"
     VERIFY = "verify"
 
     @classmethod
     def sequence(cls) -> list[Step]:
-        """The ordered steps a run traverses, refine → verify."""
-        return [cls.REFINE, cls.DESIGN, cls.CODE, cls.VERIFY]
+        """The ordered steps a run traverses, describe → verify."""
+        return [
+            cls.DESCRIBE,
+            cls.REFINE,
+            cls.GAP_ANALYSIS,
+            cls.DESIGN,
+            cls.CODE,
+            cls.VERIFY,
+        ]
 
 
 @dataclass

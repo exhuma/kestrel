@@ -28,7 +28,7 @@ from tests.conftest import (
     _FakeGitHub,
     _FakeNotifier,
     _FakeRunner,
-    _refine_noquestions,
+    _subtask_body,
     _verdict,
     _wait,
 )
@@ -124,15 +124,13 @@ def test_parse_verdict_drops_malformed_observation_entries() -> None:
 @pytest.mark.asyncio
 async def test_accept_first_round_opens_pr() -> None:
     """Ensure an accepted verdict opens the change request."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
 
@@ -140,17 +138,15 @@ async def test_accept_first_round_opens_pr() -> None:
 @pytest.mark.asyncio
 async def test_reject_then_accept_reruns_coder() -> None:
     """Ensure a rejected verdict re-runs the coder, then accepts."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",                       # design
         "coded v1", _verdict(accept=False, feedback="fix the edge case"),
         "coded v2", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     # Coder ran twice; the re-run carried the verifier's feedback.
     coder_prompts = [
@@ -163,10 +159,10 @@ async def test_reject_then_accept_reruns_coder() -> None:
 @pytest.mark.asyncio
 async def test_exhaustion_escalates_without_pr() -> None:
     """Ensure the loop escalates (no PR) when verification never passes."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     notifier = _FakeNotifier()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
         "coded", _verdict(accept=False, feedback="nope"),
         "coded", _verdict(accept=False, feedback="still nope"),
@@ -178,8 +174,6 @@ async def test_exhaustion_escalates_without_pr() -> None:
         backends=runner, git=git, github=gh, notifier=notifier,
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
     assert svc.get(wid).pr_url is None
     assert git.pushed == []
@@ -189,7 +183,8 @@ async def test_exhaustion_escalates_without_pr() -> None:
 @pytest.mark.asyncio
 async def test_no_awaiting_gate_during_autonomous_phases() -> None:
     """Ensure design/code/verify never enter an awaiting_* gate (FR-014)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     seen: list[str] = []
 
     class _RecordingNotifier(_FakeNotifier):
@@ -198,7 +193,6 @@ async def test_no_awaiting_gate_during_autonomous_phases() -> None:
             super().notify(run)
 
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     svc = WorkflowService(
@@ -207,14 +201,13 @@ async def test_no_awaiting_gate_during_autonomous_phases() -> None:
         backends=runner, git=git, github=gh, notifier=_RecordingNotifier(),
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
-    # The only awaiting_* status ever seen is the PRD gate.
+    # A follow-up (SUBTASK_SENTINEL) run pre-marks describe/refine/
+    # gap_analysis done and never parks at any gate at all; design/code/
+    # verify are themselves gateless (FR-014/FR-015) — so no awaiting_*
+    # status should ever appear for this run.
     awaiting = [s for s in seen if s.startswith("awaiting_")]
-    assert set(awaiting) <= {
-        "awaiting_refine_approval", "awaiting_refine_input"
-    }
+    assert awaiting == []
     assert "designing" in seen and "coding" in seen and "verifying" in seen
 
 
@@ -222,9 +215,9 @@ async def test_no_awaiting_gate_during_autonomous_phases() -> None:
 async def test_boundary_dispatches_explore_then_verdict_turn() -> None:
     """Ensure an http-boundary run runs a tool-enabled explore turn before
     the verdict turn, resuming the same session (feature 005, US1)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>\n<BOUNDARY>http</BOUNDARY>",  # design
         "coded",                                       # code
         "explored the running app",                     # verify: explore turn
@@ -232,8 +225,6 @@ async def test_boundary_dispatches_explore_then_verdict_turn() -> None:
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     explore_call, verdict_call = runner.calls[-2], runner.calls[-1]
     assert explore_call["permission_mode"] != "plan"
@@ -247,9 +238,9 @@ async def test_boundary_dispatches_explore_then_verdict_turn() -> None:
 async def test_no_boundary_skips_explore_turn() -> None:
     """Ensure boundary=None/"none" runs today's single verdict-only turn —
     no explore turn is ever dispatched (feature 005, US1)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     outputs = [
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",  # no <BOUNDARY> tag -> boundary stays None
         "coded",
         _verdict(accept=True),  # verify: single turn, exactly as today
@@ -257,13 +248,10 @@ async def test_no_boundary_skips_explore_turn() -> None:
     runner = _FakeRunner(SessionRegistry(), outputs=list(outputs))
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
-    # One call per queued output (coordinator, writer, design, code,
-    # verdict): if an explore turn had also been dispatched, the queue
-    # above would have been exhausted early and the run would never reach
-    # "done".
+    # One call per queued output (design, code, verdict): if an explore
+    # turn had also been dispatched, the queue above would have been
+    # exhausted early and the run would never reach "done".
     assert len(runner.calls) == len(outputs)
     assert runner.calls[-1]["permission_mode"] == "plan"
 
@@ -273,9 +261,9 @@ async def test_self_reported_observation_failure_forces_reject() -> None:
     """Ensure a failing self-reported observation rejects even though the
     verdict's own accept field says true — the http/ui analogue of
     test_failing_check_forces_reject (feature 005, US1)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>\n<BOUNDARY>ui</BOUNDARY>",
         "coded",
         "explored",  # verify: explore turn
@@ -290,8 +278,6 @@ async def test_self_reported_observation_failure_forces_reject() -> None:
     # max_iter=1 so exhaustion escalates after the single forced reject.
     svc = _svc(gh, runner, git, max_iter=1)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     # ... but the failing observation forces a reject -> exhaustion -> escalate.
     await _wait(lambda: svc.get(wid).status == "escalated")
     assert svc.get(wid).pr_url is None
@@ -301,9 +287,9 @@ async def test_self_reported_observation_failure_forces_reject() -> None:
 async def test_quality_only_feedback_does_not_block_acceptance() -> None:
     """Ensure a code-quality concern in feedback does not block acceptance
     when nothing observed failed (feature 005, US2; FR-006/SC-005)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
         "coded",
         _verdict(
@@ -314,14 +300,12 @@ async def test_quality_only_feedback_does_not_block_acceptance() -> None:
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     # Accepted despite the quality concern in the verdict's own feedback
     # text — a full record of that feedback is a US3 concern (the
     # committed verify-report.md), not something the "accepted" deliverable
     # itself needs to carry.
-    assert svc.get(wid).steps[3].deliverable == "accepted"
+    assert svc.get(wid).steps[5].deliverable == "accepted"
 
 
 @pytest.mark.asyncio
@@ -331,9 +315,9 @@ async def test_failing_evidence_rejects_despite_positive_quality_feedback() -> (
     """Ensure a failing self-reported observation still rejects even when
     the verdict's text is positive about code quality — the hard gate is
     never softened by advisory framing (feature 005, US2)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>\n<BOUNDARY>http</BOUNDARY>",
         "coded",
         "explored",  # verify: explore turn
@@ -348,8 +332,6 @@ async def test_failing_evidence_rejects_despite_positive_quality_feedback() -> (
     ])
     svc = _svc(gh, runner, git, max_iter=1)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
     assert svc.get(wid).pr_url is None
 
@@ -389,15 +371,13 @@ def test_verify_prompts_do_not_reference_or_require_a_diff() -> None:
 async def test_coder_no_self_commit_triggers_safety_net_commit() -> None:
     """When the coder leaves its round uncommitted (the fake's default),
     kestrel's safety-net commits on its behalf (feature 006, Phase C)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "coded but forgot to commit", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert any(
         m.startswith("Auto-commit (round") for m in git.commit_messages
@@ -408,16 +388,14 @@ async def test_coder_no_self_commit_triggers_safety_net_commit() -> None:
 async def test_coder_self_commit_skips_safety_net_commit() -> None:
     """When the coder commits its own round, kestrel's safety-net
     auto-commit must not fire (feature 006, Phase C)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     git.rounds = [("diff --git a/x b/x", True)]  # coder self-commits
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "coded and committed", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert not any(
         m.startswith("Auto-commit (round") for m in git.commit_messages
@@ -431,16 +409,14 @@ async def test_no_changes_escalation_fires_on_self_committed_empty_diff() -> (
     """Ensure the "no changes" escalation is based on the ref-aware round
     diff, not on whether the coder made a commit at all — a coder that
     "commits" an empty change must still escalate (feature 006, Phase C)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     git.rounds = [("", True)]  # coder "commits" but changes nothing
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "I looked but changed nothing",
     ])
     svc = _svc(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
     assert svc.get(wid).error == "escalated: the coder produced no changes"
 
@@ -457,9 +433,9 @@ def _find_report(workspace: str) -> str:
 async def test_verify_report_written_on_accept(tmp_path) -> None:
     """Ensure a committed verify-report.md exists once a run reaches
     "done", covering every round the loop ran (feature 005, US3)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
         "coded v1", _verdict(accept=False, feedback="fix the edge case"),
         "coded v2", _verdict(accept=True),
@@ -469,8 +445,6 @@ async def test_verify_report_written_on_accept(tmp_path) -> None:
     # needed); neuter that here so the workspace survives to inspect.
     svc._teardown_workspace = lambda _run: asyncio.sleep(0)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     report = _find_report(svc.get(wid).workspace)
     assert "fix the edge case" in report  # round 1 (rejected)
@@ -481,9 +455,9 @@ async def test_verify_report_written_on_accept(tmp_path) -> None:
 async def test_verify_report_written_on_escalate(tmp_path) -> None:
     """Ensure the report still exists (covering every attempted round) when
     the run escalates instead of completing (feature 005, US3)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
         "coded", _verdict(accept=False, feedback="nope"),
         "coded", _verdict(accept=False, feedback="still nope"),
@@ -494,8 +468,6 @@ async def test_verify_report_written_on_escalate(tmp_path) -> None:
     # this suite's existing pattern) so the workspace survives to inspect.
     svc._teardown_workspace = lambda _run: asyncio.sleep(0)
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
     workspace = svc.get(wid).workspace
     report = _find_report(workspace)
@@ -507,39 +479,34 @@ async def test_verify_report_written_on_escalate(tmp_path) -> None:
 async def test_second_run_unaffected_by_first_runs_report(tmp_path) -> None:
     """Ensure a second, unrelated run's verify step is not influenced by a
     prior run's committed verify-report.md (feature 005, US3, FR-009)."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
         # First run: rejects once, then accepts.
-        *_refine_noquestions("prd one"),
         "<PLAN>d</PLAN>",
         "coded v1", _verdict(accept=False, feedback="fix X"),
         "coded v2", _verdict(accept=True),
         # Second run: accepts immediately — no code path reads the first
         # run's report as an obligation it must also satisfy.
-        *_refine_noquestions("prd two"),
         "<PLAN>d2</PLAN>",
         "coded", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
     first = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(first).status == "awaiting_refine_approval")
-    svc.approve(first)
     await _wait(lambda: svc.get(first).status == "done")
 
     second = await svc.create("o/r", 6, source="github-issue")
-    await _wait(lambda: svc.get(second).status == "awaiting_refine_approval")
-    svc.approve(second)
     await _wait(lambda: svc.get(second).status == "done")
-    assert svc.get(second).steps[3].deliverable == "accepted"
+    assert svc.get(second).steps[5].deliverable == "accepted"
 
 
 @pytest.mark.asyncio
 async def test_workflow_debug_writes_dialogue_transcript(tmp_path) -> None:
     """Ensure workflow_debug appends the coder<->verifier exchange to a
     plain-text transcript next to (not inside) the worktree."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
         "coded v1", _verdict(accept=False, feedback="fix the edge case"),
         "coded v2", _verdict(accept=True),
@@ -548,8 +515,6 @@ async def test_workflow_debug_writes_dialogue_transcript(tmp_path) -> None:
         gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     workspace = svc.get(wid).workspace
     transcript = Path(f"{workspace}-debug", "dialogue.log").read_text()
@@ -568,15 +533,13 @@ async def test_workflow_debug_writes_dialogue_transcript(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_workflow_debug_off_writes_no_transcript(tmp_path) -> None:
     """Ensure the default (workflow_debug=False) creates no debug dir at all."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     svc = _svc(gh, runner, git, workspace_root=str(tmp_path))
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     workspace = svc.get(wid).workspace
     assert not Path(f"{workspace}-debug").exists()
@@ -586,9 +549,9 @@ async def test_workflow_debug_off_writes_no_transcript(tmp_path) -> None:
 async def test_workflow_debug_keeps_workspace_on_escalate(tmp_path) -> None:
     """Ensure workflow_debug skips auto-teardown so the worktree survives
     an escalation for inspection."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>",
         "coded", _verdict(accept=False, feedback="nope"),
     ])
@@ -597,8 +560,6 @@ async def test_workflow_debug_keeps_workspace_on_escalate(tmp_path) -> None:
         workflow_debug=True,
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
     assert Path(svc.get(wid).workspace).exists()
 
@@ -606,17 +567,15 @@ async def test_workflow_debug_keeps_workspace_on_escalate(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_workflow_debug_keeps_workspace_on_done(tmp_path) -> None:
     """Ensure workflow_debug also skips teardown after a successful run."""
-    gh, git = _FakeGitHub(body="vague"), _FakeGit()
+    gh = _FakeGitHub(body=_subtask_body("vague"))
+    git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("prd"),
         "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
     ])
     svc = _svc(
         gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert Path(svc.get(wid).workspace).exists()
 
@@ -626,16 +585,23 @@ async def test_abandon_removes_workspace_despite_workflow_debug(
     tmp_path,
 ) -> None:
     """Ensure an explicit abandon still deletes the workspace even with
-    workflow_debug on — only *automatic* cleanup is suppressed."""
+    workflow_debug on — only *automatic* cleanup is suppressed.
+
+    This does not exercise design/code/verify at all — it only needs a
+    run parked at a gate with a live workspace, so it stays on a plain
+    (non-follow-up) ticket and parks at the new first gate, the describe
+    checkpoint, rather than reaching for the SUBTASK_SENTINEL shortcut.
+    """
     gh, git = _FakeGitHub(body="vague"), _FakeGit()
     runner = _FakeRunner(
-        SessionRegistry(), outputs=[*_refine_noquestions("prd")]
+        SessionRegistry(),
+        outputs=["<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>"],
     )
     svc = _svc(
         gh, runner, git, workspace_root=str(tmp_path), workflow_debug=True
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     workspace = svc.get(wid).workspace
     assert Path(workspace).exists()
     await svc.delete(wid)

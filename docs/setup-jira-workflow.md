@@ -1,10 +1,11 @@
 # Jira workflow (feature 003)
 
 Kestrel can ingest change requests (RFCs) from a Jira project and drive them
-through the autonomous **refine → PRD approval → design → code → verify → change
-request** workflow. Ingestion is **poll-only** — kestrel polls Jira outbound
-over HTTPS and exposes **no inbound endpoint**, so no tunnel or reverse proxy is
-needed and no off-loopback exception is introduced.
+through the **describe → refine → gap_analysis → design → code → verify →
+change request** workflow (see [Architecture](architecture.md) for the full
+pipeline). Ingestion is **poll-only** — kestrel polls Jira outbound over HTTPS
+and exposes **no inbound endpoint**, so no tunnel or reverse proxy is needed
+and no off-loopback exception is introduced.
 
 ## Configure
 
@@ -103,13 +104,39 @@ on the RFC and stops rather than shipping unverified work.
 
 1. Create/transition an RFC so it matches the qualifying filter, with the repo
    field set. Kestrel notices it within one poll interval and starts a run.
-2. If refinement needs clarification, kestrel posts a **thin** comment on the
-   RFC with a deep-link to the kestrel questionnaire — answer there.
-3. When the PRD is ready it is **attached** to the RFC (`PRD.md`) and kestrel
-   asks for approval (a thin comment + deep-link). Approve/reject in the UI.
-4. On approval the design → code → verify loop runs autonomously. On success a
-   change request is opened and its link is posted to the RFC. On exhaustion the
-   run escalates to the RFC.
+2. Kestrel first restates its understanding of the RFC and asks you to confirm
+   or correct it (a thin comment + deep-link) — before any clarifying
+   question is asked.
+3. If refinement needs clarification, kestrel posts a **thin** comment on the
+   RFC with a deep-link to the kestrel questionnaire — answer there. The
+   questions stay business-altitude: this phase never asks about
+   implementation or architecture.
+4. When the requirements document is ready it is **attached** to the RFC
+   (`PRD.md`) and kestrel asks for approval (a thin comment + deep-link).
+   Approve/reject in the UI.
+5. On approval, kestrel performs technical analysis and decomposes the
+   approved work into one or more independent, self-contained follow-up
+   RFCs — each a native Jira **Sub-task** linked to the parent — plus an
+   attached technical-analysis summary. The original RFC's run then ends;
+   kestrel does not implement it directly.
+6. To implement a follow-up sub-task, transition **it** into the qualifying
+   filter the same way you would any RFC. Kestrel recognizes it as already
+   scoped and starts directly at `design` — no repeat of steps 2-5. From
+   there the design → code → verify loop runs autonomously; on success a
+   change request is opened and its link is posted to the sub-task RFC, and
+   on exhaustion the run escalates to it.
+
+### Scoping `jql` so follow-up sub-tasks aren't picked up on creation
+
+A follow-up sub-task is created without any status/label kestrel controls —
+it starts wherever your Jira Sub-task creation defaults land it. **Write
+your `jql` so a newly created sub-task does not already qualify** (e.g. keep
+the same `status = "Ready for Kestrel"` gate you use for top-level RFCs, so a
+sub-task is only picked up once a human deliberately transitions it, exactly
+like step 6 above). Kestrel does not inspect issue type or parentage when
+matching `jql` — this is operator-authored query scope, the same posture the
+project already takes for `hooks_dir` and other operator-configured trust
+boundaries (see the constitution's Access model).
 
 ### Re-running a rejected RFC
 

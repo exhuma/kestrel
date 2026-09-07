@@ -24,38 +24,39 @@ from tests.conftest import (
     _RoutingPolicy,
     _service,
     _settings,
+    _subtask_body,
     _verdict,
     _wait,
 )
 
 
 @pytest.mark.asyncio
-async def test_happy_path_refine_design_code_verify_pr() -> None:
-    """Ensure a run refines (PRD gate) then autonomously designs, codes,
-    verifies, and opens a PR — no human gate after PRD approval (FR-014)."""
+async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
+    """Ensure approving the describe and PRD gates publishes the refined
+    issue to the ticket, then the run proceeds autonomously through
+    gap_analysis to a decomposed terminal status (FR-011/FR-014) — a plain
+    ticket never reaches design/code/verify/PR; only a SUBTASK_SENTINEL
+    follow-up does (FR-015)."""
     gh = _FakeGitHub(body="vague issue")
     git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",  # describe
         *_refine_noquestions("Build a clear widget"),              # refine
-        "<PLAN>\nStep 1: do X\nStep 2: do Y\n</PLAN>",              # design
-        "Implemented X and Y",                                      # code
-        _verdict(accept=True),                                      # verify
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",              # gap_analysis
+        "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",             # critic
     ])
     svc = _service(gh, runner, git)
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
-    assert svc.get(wid).steps[0].deliverable == "Build a clear widget"
-    svc.approve(wid)  # PRD approved → design/code/verify run autonomously
+    assert svc.get(wid).steps[1].deliverable == "Build a clear widget"
+    svc.approve(wid)  # PRD approved → gap_analysis runs and ends the run
 
-    await _wait(lambda: svc.get(wid).status == "done")
-    assert svc.get(wid).steps[1].deliverable == "Step 1: do X\nStep 2: do Y"
+    await _wait(lambda: svc.get(wid).status == "decomposed")
     assert gh.updated is not None and "kestrel:refined" in gh.updated
-    assert "diff" in svc.get(wid).steps[2].deliverable
-    assert svc.get(wid).steps[3].deliverable == "accepted"
-    assert svc.get(wid).pr_url == "https://github.com/o/r/pull/1"
-    assert git.pushed == [svc.get(wid).branch]
 
 
 def test_get_unknown_raises() -> None:
@@ -78,7 +79,7 @@ async def test_save_publishes_to_bus() -> None:
             self.ticks.append(workflow_id)
 
     bus = _Bus()
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_subtask_body("x"))
     runner = _FakeRunner(
         SessionRegistry(), outputs=["plan", "impl", _verdict(accept=True)]
     )
@@ -101,7 +102,7 @@ async def test_save_publishes_to_bus() -> None:
 @pytest.mark.asyncio
 async def test_notifier_fires_on_awaiting_and_done() -> None:
     """Ensure attention-worthy statuses reach the notifier."""
-    gh = _FakeGitHub(body="x\n\n<!-- kestrel:refined -->")
+    gh = _FakeGitHub(body=_subtask_body("x"))
     runner = _FakeRunner(
         SessionRegistry(), outputs=["plan", "impl", _verdict(accept=True)]
     )
@@ -129,7 +130,10 @@ async def test_notifier_does_not_fire_on_reject() -> None:
     """Ensure a bare reject of the PRD gate does not produce a notification."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(
-        SessionRegistry(), outputs=[*_refine_noquestions("refined")]
+        SessionRegistry(), outputs=[
+            "<UNDERSTANDING>refined</UNDERSTANDING>",
+            *_refine_noquestions("refined"),
+        ]
     )
     notifier = _FakeNotifier()
     svc = WorkflowService(
@@ -142,6 +146,8 @@ async def test_notifier_does_not_fire_on_reject() -> None:
         notifier=notifier,
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.reject(wid)
     await _wait(lambda: svc.get(wid).status == "rejected")
@@ -172,10 +178,13 @@ async def test_delete_drops_run_without_touching_github() -> None:
     """Ensure abandoning a run removes it and makes no GitHub calls."""
     gh = _SpyGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>v1</UNDERSTANDING>",
         *_refine_noquestions("v1"),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
@@ -194,10 +203,15 @@ async def test_delete_removes_workspace_dir(tmp_path) -> None:
     """Ensure abandoning a run deletes its local workspace clone."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(
-        SessionRegistry(), outputs=[*_refine_noquestions("v1")]
+        SessionRegistry(), outputs=[
+            "<UNDERSTANDING>v1</UNDERSTANDING>",
+            *_refine_noquestions("v1"),
+        ]
     )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )
@@ -219,10 +233,13 @@ async def test_delete_removes_all_workspace_sessions() -> None:
     spawned in its workspace, not just the ids a step still points at."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>v1</UNDERSTANDING>",
         *_refine_noquestions("v1"),
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_approval"
     )

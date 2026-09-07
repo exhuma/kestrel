@@ -39,6 +39,7 @@ async def test_recover_resumes_awaiting_input(
     """Ensure a run parked at the interview survives restart."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
@@ -46,6 +47,10 @@ async def test_recover_resumes_awaiting_input(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
     wid = await svc1.create("o/r", 5, source="github-issue")
+    await _wait(
+        lambda: svc1.get(wid).status == "awaiting_describe_approval"
+    )
+    svc1.approve(wid)
     await _wait(
         lambda: svc1.get(wid).status
         == "awaiting_refine_input"
@@ -72,7 +77,7 @@ async def test_recover_resumes_awaiting_input(
         == "awaiting_refine_approval"
     )
     assert (
-        svc2.get(wid).steps[0].deliverable
+        svc2.get(wid).steps[1].deliverable
         == "Build a blue widget"
     )
 
@@ -82,9 +87,12 @@ async def test_recover_resumes_awaiting_refine_approval(
     tmp_path: Path,
 ) -> None:
     """Ensure a run parked at the PRD-approval gate survives restart, then
-    runs the autonomous design/code/verify loop to a PR."""
+    runs gap_analysis to completion. A plain ticket's run always ends
+    there once refine is approved (FR-014) — it never reaches
+    design/code/verify."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>vague issue understanding</UNDERSTANDING>",
         _coord([]), _refined("refined issue"),
     ])
     svc1 = _persistent_service(
@@ -92,13 +100,16 @@ async def test_recover_resumes_awaiting_refine_approval(
     )
     wid = await svc1.create("o/r", 5, source="github-issue")
     await _wait(
+        lambda: svc1.get(wid).status == "awaiting_describe_approval"
+    )
+    svc1.approve(wid)
+    await _wait(
         lambda: svc1.get(wid).status == "awaiting_refine_approval"
     )
 
     runner2 = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nDo it\n</PLAN>",                                  # design
-        "Implemented",                                            # code
-        '<VERDICT>{"accept": true, "feedback": ""}</VERDICT>',    # verify
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",              # gap_analysis
+        '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',          # critic
     ])
     git2 = _FakeGit()
     svc2 = _persistent_service(
@@ -107,9 +118,8 @@ async def test_recover_resumes_awaiting_refine_approval(
     await svc2.recover()
     assert svc2.get(wid).status == "awaiting_refine_approval"
 
-    svc2.approve(wid)  # PRD approved → autonomous loop
-    await _wait(lambda: svc2.get(wid).status == "done")
-    assert git2.pushed == [svc2.get(wid).branch]
+    svc2.approve(wid)  # PRD approved → gap_analysis, decomposed
+    await _wait(lambda: svc2.get(wid).status == "decomposed")
 
 
 @pytest.mark.asyncio
@@ -119,6 +129,7 @@ async def test_recover_fails_mid_step_runs(
     """Ensure runs that died mid-step fail loudly."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
@@ -126,6 +137,10 @@ async def test_recover_fails_mid_step_runs(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
     wid = await svc1.create("o/r", 5, source="github-issue")
+    await _wait(
+        lambda: svc1.get(wid).status == "awaiting_describe_approval"
+    )
+    svc1.approve(wid)
     await _wait(
         lambda: svc1.get(wid).status
         == "awaiting_refine_input"
@@ -156,8 +171,10 @@ async def test_recover_isolates_one_runs_failure_from_others(
     aborting recovery for every other run (or the app's startup)."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
@@ -165,8 +182,16 @@ async def test_recover_isolates_one_runs_failure_from_others(
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
     bad_wid = await svc1.create("o/r", 5, source="github-issue")
+    await _wait(
+        lambda: svc1.get(bad_wid).status == "awaiting_describe_approval"
+    )
+    svc1.approve(bad_wid)
     await _wait(lambda: svc1.get(bad_wid).status == "awaiting_refine_input")
     good_wid = await svc1.create("o/r", 6, source="github-issue")
+    await _wait(
+        lambda: svc1.get(good_wid).status == "awaiting_describe_approval"
+    )
+    svc1.approve(good_wid)
     await _wait(lambda: svc1.get(good_wid).status == "awaiting_refine_input")
 
     # Force both into a mid-step snapshot, as if the process died there.
@@ -231,6 +256,7 @@ async def test_recovery_does_not_renotify_gate(tmp_path: Path) -> None:
 
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
     ])
@@ -238,6 +264,10 @@ async def test_recovery_does_not_renotify_gate(tmp_path: Path) -> None:
         store, _FakeGitHub(body="vague"), runner1, _FakeGit()
     )
     wid = await svc1.create("o/r", 5, source="github-issue")
+    await _wait(
+        lambda: svc1.get(wid).status == "awaiting_describe_approval"
+    )
+    svc1.approve(wid)
     await _wait(lambda: svc1.get(wid).status == "awaiting_refine_input")
 
     # --- simulated restart with a counting notifier ---

@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.models_workflow import StepSession, WorkflowRun
-from app.profiles import roster_summary
+from app.profiles import BUSINESS_ALTITUDE_IDS, roster_summary
 from app.questionnaire import (
     InterviewEnvelope,
     QAEntry,
@@ -77,7 +77,7 @@ async def coordinator_profiles(
             service,
             run,
             COORDINATOR_PROMPT.format(
-                roster=roster_summary(),
+                roster=roster_summary(BUSINESS_ALTITUDE_IDS),
                 issue=issue,
                 answers=render_qa(accumulated),
             ),
@@ -136,7 +136,7 @@ async def run_interview(
 
     :returns: The issue text and the accumulated Q&A entries.
     """
-    step = run.steps[0]
+    step = run.steps[1]
     # Loop state carried across rounds (and rebuilt on restart from the
     # persisted envelope): per-profile failure counts, the dynamic round
     # cap, and the profiles awaiting a retry (last round's soft failures).

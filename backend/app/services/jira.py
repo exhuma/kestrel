@@ -157,6 +157,30 @@ class JiraClient:
             files={"file": (name, data, mimetype)},
         )
 
+    async def create_subtask(
+        self, parent_key: str, project_key: str, summary: str, body: str
+    ) -> str:
+        """Create a native Sub-task issue linked to ``parent_key``.
+
+        Jira's own subdivision primitive (distinct from a plain linked
+        issue) — feature 012's follow-up tasks use it so the parent/child
+        relationship is native, not just a body reference.
+        """
+        resp = await self._request(
+            "POST",
+            "/issue",
+            json={
+                "fields": {
+                    "project": {"key": project_key},
+                    "summary": summary,
+                    "description": body,
+                    "issuetype": {"name": "Sub-task"},
+                    "parent": {"key": parent_key},
+                }
+            },
+        )
+        return resp.json()["key"]
+
     async def transition_issue(self, key: str, transition_id: str) -> None:
         """Apply a configured workflow transition (feature 006)."""
         await self._request(
@@ -206,6 +230,15 @@ class JiraTaskSource:
         """Deliver the approved PRD as an attachment on the RFC (FR-011)."""
         await self._client.add_attachment(
             ref, "PRD.md", content.encode("utf-8"), "text/markdown"
+        )
+
+    async def create_subtask(
+        self, parent_ref: str, title: str, body: str
+    ) -> str:
+        """Create a native Sub-task issue in the parent's project."""
+        project_key = parent_ref.split("-", 1)[0]
+        return await self._client.create_subtask(
+            parent_ref, project_key, title, body
         )
 
     def display_label(self, ref: str) -> str:

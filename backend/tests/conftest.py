@@ -10,6 +10,7 @@ from app.backends.base import Capability, TurnResult
 from app.config import Settings, get_settings
 from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.services.github import Issue
+from app.services.workflow_text import append_subtask_sentinel
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
@@ -181,6 +182,13 @@ class _FakeGitHub:
         self.body = body
         self.updated: str | None = None
         self.token = "fake-gh-token"  # read by GitHubCodeHost.git_credential
+        #: Follow-up issues created via create_subtask (feature 012's
+        #: gap_analysis), each {"repo", "title", "body", "number"}.
+        self.created_issues: list[dict] = []
+        #: Comments posted via post_comment (e.g. gap_analysis's
+        #: technical-analysis summary, or deliver's CR-link comment).
+        self.comments: list[tuple[str, int, str]] = []
+        self._next_issue_number = 100
 
     async def get_issue(self, repo: str, number: int) -> Issue:
         return Issue(number=number, title="Add widget", body=self.body)
@@ -191,6 +199,18 @@ class _FakeGitHub:
     async def create_pull_request(self, repo, head, base, title, body,
                                   draft=True) -> str:
         return "https://github.com/o/r/pull/1"
+    async def create_issue(self, repo: str, title: str, body: str) -> int:
+        self._next_issue_number += 1
+        self.created_issues.append(
+            {"repo": repo, "title": title, "body": body,
+             "number": self._next_issue_number}
+        )
+        return self._next_issue_number
+    async def create_issue_comment(
+        self, repo: str, number: int, body: str
+    ) -> str:
+        self.comments.append((repo, number, body))
+        return f"https://github.com/{repo}/issues/{number}#comment"
 
 
 class _FakeRunner:
@@ -383,6 +403,16 @@ def _verdict(
 #: Simplest refine leg: coordinator needs nobody, writer emits the issue.
 def _refine_noquestions(text: str) -> list[str]:
     return [_coord([]), _refined(text)]
+
+
+def _subtask_body(text: str) -> str:
+    """A follow-up-task ticket body (feature 012): tagged with
+    ``SUBTASK_SENTINEL`` so ``_seed_from_sentinel`` marks
+    describe/refine/gap_analysis all pre-done and the run lands straight
+    at design (FR-015) — the shortcut every design/code/verify-focused
+    test now needs, since a fresh (untagged) ticket always terminates at
+    gap_analysis without ever reaching design (FR-014)."""
+    return append_subtask_sentinel(text)
 
 
 async def _wait(pred, timeout=2.0) -> None:

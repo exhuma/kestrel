@@ -31,15 +31,18 @@ async def test_malformed_questions_block_surfaces_as_soft_issue() -> None:
     a (retryable) soft issue rather than silently finalizing the run."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         "<QUESTIONS>{not json}</QUESTIONS>",  # unparseable
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_refine_input"
     )
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable or "")
     assert envelope is not None
     assert [i.severity for i in envelope.questionnaire.issues] == ["soft"]
     assert envelope.questionnaire.issues[0].profile == "developer"
@@ -76,6 +79,7 @@ async def test_profiles_are_interviewed_concurrently() -> None:
 
     gh = _FakeGitHub(body="vague issue")
     runner = _BarrierRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer", "infosec"]),
         _qs(_q(prompt="Approach?",
                options=[{"value": "a", "label": "A"}])),
@@ -94,10 +98,12 @@ async def test_profiles_are_interviewed_concurrently() -> None:
     ], expected=2)
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
     assert runner.max_inflight == 2  # both ran at once
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     audiences = {q.audience for q in envelope.questionnaire.questions}
     assert audiences == {"developer", "infosec"}
 
@@ -106,6 +112,7 @@ async def test_profiles_are_interviewed_concurrently() -> None:
 #: decision with different framings — the reconciler's raison d'être.
 def _overlapping_accounts_round() -> list[str]:
     return [
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["requester", "developer"]),
         _qs(_q(prompt="How should user accounts be created?",
                qtype="free_text", options=[])),
@@ -136,9 +143,11 @@ async def test_reconciler_folds_overlap_into_one_simple_question() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     questions = envelope.questionnaire.questions
     assert len(questions) == 1
     assert questions[0].prompt == "How are accounts created?"
@@ -160,9 +169,11 @@ async def test_reconciler_malformed_output_keeps_all() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
     assert ids == {"requester:q0", "developer:q0"}
     assert {p.id for p in envelope.questionnaire.profiles} == {
@@ -186,9 +197,11 @@ async def test_reconciler_unknown_audience_keeps_all() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
     assert ids == {"requester:q0", "developer:q0"}
 
@@ -212,9 +225,11 @@ async def test_reconciler_silent_audience_drop_keeps_all() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
     assert ids == {"requester:q0", "developer:q0"}
     assert {p.id for p in envelope.questionnaire.profiles} == {
@@ -244,9 +259,11 @@ async def test_critic_reinjects_dropped_audience() -> None:
     svc = _service(gh, runner, _FakeGit(),
                    settings=_settings(refine_critic=True))
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     audiences = {q.audience for q in envelope.questionnaire.questions}
     assert audiences == {"requester", "developer"}  # developer recovered
 
@@ -267,9 +284,11 @@ async def test_reconcile_mode_off_keeps_the_pool() -> None:
     svc = _service(gh, runner, _FakeGit(),
                    settings=_settings(reconcile_mode="off"))
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable)
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable)
     ids = {q.id for q in envelope.questionnaire.questions}
     assert ids == {"requester:q0", "developer:q0"}
     # No reconciler agent ran (its prompt's signature never appears).
@@ -298,12 +317,15 @@ async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
 
     gh = _FakeGitHub(body="vague issue")
     runner = _FlakyRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["requester", "infosec"]),   # coordinator selects two
         _qs(_q(qid="q1")),                   # the surviving profile's questions
     ])
     svc = _service(gh, runner, _FakeGit())
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     assert svc.get(wid).status != "failed"
 
@@ -314,14 +336,17 @@ async def test_optionless_select_is_coerced_to_free_text() -> None:
     answerable free text — otherwise the UI renders no choices and the
     answer can only go to the optional note field, never registering."""
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(qid="q1", qtype="single_select", options=[])),  # no options
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    env = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    env = parse_envelope(svc.get(wid).steps[1].deliverable or "")
     assert env is not None
     assert env.questionnaire.questions[0].type == "free_text"
 
@@ -332,14 +357,17 @@ async def test_duplicate_question_ids_are_made_unique() -> None:
     yields unique namespaced ids, so the frontend answer map and v-for
     keys don't collide (some answers never registering)."""
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["developer"]),
         _qs(_q(qid="q1", prompt="A?"), _q(qid="q1", prompt="B?")),
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    env = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    env = parse_envelope(svc.get(wid).steps[1].deliverable or "")
     assert env is not None
     ids = [q.id for q in env.questionnaire.questions]
     assert len(ids) == 2
@@ -358,15 +386,18 @@ async def test_all_specialists_failing_is_retryable_not_fatal() -> None:
             return await super().run_turn(req, on_session_id)
 
     runner = _AllFlaky(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         # coordinator ok; all generators fail
         _coord(["requester", "infosec"]),
     ])
     svc = _service(_FakeGitHub(body="vague"), runner, _FakeGit())
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     assert svc.get(wid).status != "failed"
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable or "")
     assert envelope is not None
     assert sorted(i.profile for i in envelope.questionnaire.issues) == [
         "infosec", "requester",
@@ -394,14 +425,17 @@ async def test_failed_specialist_recorded_in_questionnaire_issues() -> None:
             return await super().run_turn(req, on_session_id)
 
     runner = _FlakyRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["requester", "infosec"]),
         _qs(_q(qid="q1")),   # the surviving profile's questions
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable or "")
     assert envelope is not None
     issues = envelope.questionnaire.issues
     assert len(issues) == 1
@@ -419,15 +453,18 @@ async def test_empty_generator_response_recorded_as_issue() -> None:
     """Ensure a profile that parses to no questionnaire is flagged, not
     silently dropped as a zero-question success."""
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
         _coord(["requester", "infosec"]),
         "I have no questions.",   # no <QUESTIONS> block -> unparseable
         _qs(_q(qid="q1")),        # the other profile answers
     ])
     svc = _service(_FakeGitHub(body="vague issue"), runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
 
-    envelope = parse_envelope(svc.get(wid).steps[0].deliverable or "")
+    envelope = parse_envelope(svc.get(wid).steps[1].deliverable or "")
     assert envelope is not None
     issues = envelope.questionnaire.issues
     assert len(issues) == 1

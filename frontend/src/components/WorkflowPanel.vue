@@ -302,7 +302,9 @@ function isStepPulsing(name: string): boolean {
 const ACTIVE_STATUSES = new Set([
   'pending',
   'cloning',
+  'describing',
   'refining',
+  'analyzing',
   'designing',
   'coding',
   'verifying',

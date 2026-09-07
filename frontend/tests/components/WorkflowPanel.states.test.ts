@@ -356,3 +356,103 @@ describe('WorkflowPanel round chip history', () => {
     }
   })
 })
+
+// feature 012: the understanding-checkpoint (describe) and
+// technical-analysis/decomposition (gap_analysis) steps.
+const SIX_STEP_NAMES = [
+  'describe', 'refine', 'gap_analysis', 'design', 'code', 'verify',
+] as const
+
+// Build the full six-step pipeline, defaulting every step to 'pending'
+// except for whichever ones are overridden — so tests only spell out the
+// step(s) they actually care about.
+function sixSteps(
+  overrides: Partial<Record<(typeof SIX_STEP_NAMES)[number], object>> = {},
+) {
+  return SIX_STEP_NAMES.map(
+    (name) => ({ name, status: 'pending', ...overrides[name] }) as never,
+  )
+}
+
+function sixStepDetail(over: Partial<WorkflowDetail>): WorkflowDetail {
+  return detail({ steps: sixSteps(), ...over })
+}
+
+describe('WorkflowPanel task decomposition pipeline', () => {
+  it('renders describe and gap_analysis chips alongside the existing steps', () => {
+    state.current.value = sixStepDetail({})
+    const html = mount(WorkflowPanel, withVuetify()).html()
+    for (const step of [
+      'describe', 'refine', 'gap_analysis', 'design', 'code', 'verify',
+    ]) {
+      expect(html).toContain(step)
+    }
+  })
+
+  it('shows the approval gate for a describe step awaiting confirmation', () => {
+    state.current.value = sixStepDetail({
+      status: 'awaiting_describe_approval',
+      steps: sixSteps({
+        describe: {
+          status: 'awaiting_approval',
+          deliverable: 'You want a widget added to the page.',
+        },
+      }),
+    })
+    const html = mount(WorkflowPanel, withVuetify()).html()
+    expect(html).toContain('awaiting your approval below')
+    expect(html).toContain('You want a widget added to the page.')
+    expect(html).toContain('Approve')
+  })
+
+  it('renders a technical-analysis deliverable for the gap_analysis step', () => {
+    state.current.value = sixStepDetail({
+      status: 'analyzing',
+      steps: [
+        { name: 'describe', status: 'done' } as never,
+        { name: 'refine', status: 'done' } as never,
+        {
+          name: 'gap_analysis',
+          status: 'running',
+          deliverable: 'Use a REST endpoint for the new widget.',
+        } as never,
+        { name: 'design', status: 'pending' } as never,
+        { name: 'code', status: 'pending' } as never,
+        { name: 'verify', status: 'pending' } as never,
+      ],
+    })
+    const html = mount(WorkflowPanel, withVuetify()).html()
+    expect(html).toContain('Use a REST endpoint for the new widget.')
+  })
+})
+
+describe('WorkflowPanel decomposition run statuses', () => {
+  it('shows the active-run indicator for describing and analyzing statuses', () => {
+    for (const status of ['describing', 'analyzing']) {
+      state.current.value = sixStepDetail({ status })
+      state.workflows.value = [
+        { id: 'wf-1', repo: 'a/b', issue_number: null, status },
+      ]
+      const wrapper = mount(WorkflowPanel, withVuetify())
+      expect(
+        wrapper.findComponent({ name: 'VProgressCircular' }).exists(),
+      ).toBe(true)
+    }
+  })
+
+  it('renders a decomposed run as a plain terminal status, not an error', () => {
+    state.current.value = sixStepDetail({
+      status: 'decomposed',
+      steps: [
+        { name: 'describe', status: 'done' } as never,
+        { name: 'refine', status: 'done' } as never,
+        { name: 'gap_analysis', status: 'done' } as never,
+        { name: 'design', status: 'pending' } as never,
+        { name: 'code', status: 'pending' } as never,
+        { name: 'verify', status: 'pending' } as never,
+      ],
+    })
+    const wrapper = mount(WorkflowPanel, withVuetify())
+    expect(wrapper.find('.v-alert[type="error"]').exists()).toBe(false)
+  })
+})
