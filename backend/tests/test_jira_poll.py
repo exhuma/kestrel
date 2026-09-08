@@ -42,15 +42,6 @@ class _FakeIngestion:
         return "wf-x"
 
 
-class _FakeSource:
-    def __init__(self) -> None:
-        self.comments: list[tuple[str, str]] = []
-
-    async def post_comment(self, ref, body):
-        self.comments.append((ref, body))
-        return "url"
-
-
 class _FakeDismissals:
     def __init__(self, dismissed=()) -> None:
         self._d = set(dismissed)
@@ -66,19 +57,14 @@ class _FakeDismissals:
 
 
 def _svc(
-    jira, ingestion, dismissals, source=None, jql='project = "RFC"'
+    jira, ingestion, dismissals, jql='project = "RFC"'
 ) -> JiraPollService:
     cfg = TaskSourceConfig(
         type="jira", base_url="https://jira.example", jql=jql, key="RFC",
         repo_field="cf1",
     )
     return JiraPollService(
-        cfg,
-        jira,
-        source or _FakeSource(),
-        _FakeCodeHost(),
-        ingestion,
-        dismissals,
+        cfg, jira, _FakeCodeHost(), ingestion, dismissals,
     )
 
 
@@ -108,13 +94,18 @@ async def test_whole_jql_is_passed_through() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unresolved_repo_starts_nothing_and_comments() -> None:
-    """Ensure an RFC with no resolvable repo starts nothing and is commented."""
+async def test_unresolved_repo_starts_nothing_and_only_logs(caplog) -> None:
+    """Ensure an RFC with no resolvable repo starts nothing and is only
+    logged, never commented — this fires every poll cycle for as long as
+    the repo stays unresolved, so a ticket comment here would spam the
+    RFC; the source-health indicator (feature 014) covers the
+    code-host-unreachable case instead."""
     jira = _FakeJira([Task("RFC-9", "t", "b")], fields={"RFC-9": None})
-    ing, src = _FakeIngestion(), _FakeSource()
-    await _svc(jira, ing, _FakeDismissals(), source=src).run_cycle()
+    ing = _FakeIngestion()
+    with caplog.at_level("WARNING"):
+        await _svc(jira, ing, _FakeDismissals()).run_cycle()
     assert ing.calls == []
-    assert len(src.comments) == 1 and src.comments[0][0] == "RFC-9"
+    assert "RFC-9" in caplog.text
 
 
 @pytest.mark.asyncio

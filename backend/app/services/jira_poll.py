@@ -21,7 +21,7 @@ from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.ports import WorkItem
 from app.services.github import GitHubClient
 from app.services.ingestion import IngestionService, get_ingestion_service
-from app.services.jira import JiraClient, JiraTaskSource
+from app.services.jira import JiraClient
 
 _log = logging.getLogger("kestrel.jira_poll")
 
@@ -60,14 +60,12 @@ class JiraPollService:
         self,
         source: TaskSourceConfig,
         jira: JiraClient,
-        task_source: JiraTaskSource,
         code_host: object,
         ingestion: IngestionService,
         dismissals: DismissalStore,
     ) -> None:
         self.source = source
         self.jira = jira
-        self.task_source = task_source
         self.code_host = code_host
         self.ingestion = ingestion
         self.dismissals = dismissals
@@ -153,8 +151,17 @@ class JiraPollService:
         try:
             resolved = await self._resolve_repo(task.ref)
             if resolved is None:
-                _log.info("ingest outcome=unresolved-repo %s", task.ref)
-                await self._comment_unresolved(task.ref)
+                # Deliberately log-only (feature 014): this fires every
+                # poll cycle for as long as the repo stays unresolved, so
+                # a ticket comment here would spam the RFC identically —
+                # the source-health indicator already tells the operator
+                # when the code host itself is the reason.
+                _log.warning(
+                    "jira: could not determine target repository for %s "
+                    "(repo field/link unset or unresolvable, or the code "
+                    "host is unreachable — check source health)",
+                    task.ref,
+                )
                 return
             repo, base = resolved
             await self.ingestion.maybe_start_run(
@@ -176,16 +183,6 @@ class JiraPollService:
                 WorkItem("jira-issue", task.ref, task.title, repo, base)
             )
         return items
-
-    async def _comment_unresolved(self, key: str) -> None:
-        try:
-            await self.task_source.post_comment(
-                key,
-                "Kestrel could not determine the target repository for this "
-                "RFC. Set the repository field to owner/name[@base_branch].",
-            )
-        except Exception:  # noqa: BLE001 — best-effort
-            _log.exception("jira: could not comment unresolved %s", key)
 
     async def run_forever(self) -> None:
         """Run a cycle immediately, then every configured interval."""
@@ -214,7 +211,6 @@ def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
     return JiraPollService(
         source,
         jira,
-        JiraTaskSource(jira, settings.public_base_url),
         build_code_host(source, github, settings.git_base),
         get_ingestion_service(),
         get_dismissal_store(),

@@ -41,7 +41,6 @@ def _svc(
     return JiraPollService(
         cfg,
         _FakeJira(field_value, links=links),
-        None,
         _FakeCodeHost(reachable=reachable, default=default),
         None,
         None,

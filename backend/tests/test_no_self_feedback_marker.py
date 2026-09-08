@@ -22,8 +22,6 @@ with a fixed template, as of this feature:
 - ``app.services.workflows.driver.deliver``: the two landing-comment
   templates (new change request vs. idempotent re-delivery, feature 013
   US3).
-- ``app.services.jira_poll.JiraPollService._comment_unresolved``: the
-  "could not determine the target repository" comment.
 - ``app.services.lifecycle.render_footer``: the lifecycle-footer
   fragments ("kestrel:", "status → …", "active: …", "waiting on you: …").
 
@@ -44,7 +42,7 @@ import pytest
 
 from app.config import get_settings
 from app.notifications import _MESSAGES, TaskSourceNotifier, render_message
-from app.services import jira_poll, lifecycle
+from app.services import lifecycle
 from app.services.feedback.marker import has_marker
 from app.services.workflows import driver
 
@@ -115,17 +113,6 @@ def test_driver_landing_comments_never_carry_marker(marker: str) -> None:
     _assert_none_carry_marker(_literal_strings(driver.deliver), marker)
 
 
-def test_jira_poll_unresolved_comment_never_carries_marker(
-    marker: str,
-) -> None:
-    """The "could not determine the target repository" Jira comment
-    never carries the marker."""
-    _assert_none_carry_marker(
-        _literal_strings(jira_poll.JiraPollService._comment_unresolved),
-        marker,
-    )
-
-
 def test_lifecycle_footer_never_carries_marker(marker: str) -> None:
     """None of the lifecycle-footer fragments ``render_footer`` composes
     ever carry the marker."""
@@ -138,7 +125,6 @@ def test_lifecycle_footer_never_carries_marker(marker: str) -> None:
         render_message,
         TaskSourceNotifier.notify,
         driver.deliver,
-        jira_poll.JiraPollService._comment_unresolved,
         lifecycle.render_footer,
     ],
 )

@@ -15,7 +15,6 @@ from tests.test_jira_poll import (
     _FakeCodeHost,
     _FakeIngestion,
     _FakeJira,
-    _FakeSource,
 )
 from tests.test_jira_poll import (
     _FakeDismissals as _JiraDismissals,
@@ -53,7 +52,7 @@ async def test_jira_list_work_items_starts_no_run() -> None:
     jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
     ing = _FakeIngestion()
     svc = JiraPollService(
-        cfg, jira, _FakeSource(), _FakeCodeHost(), ing, _JiraDismissals()
+        cfg, jira, _FakeCodeHost(), ing, _JiraDismissals()
     )
     items = await svc.list_work_items()
     assert items == [

@@ -13,7 +13,6 @@ from tests.test_jira_poll import (
     _FakeCodeHost,
     _FakeDismissals,
     _FakeJira,
-    _FakeSource,
 )
 
 
@@ -43,7 +42,7 @@ def _poll(jira, wf, dismissals) -> JiraPollService:
         jql='project = "RFC"', key="RFC", repo_field="cf1",
     )
     return JiraPollService(
-        cfg, jira, _FakeSource(), _FakeCodeHost(), ingestion, dismissals,
+        cfg, jira, _FakeCodeHost(), ingestion, dismissals,
     )
 
 
