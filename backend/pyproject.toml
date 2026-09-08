@@ -1,6 +1,6 @@
 [project]
 name = "kestrel-backend"
-version = "2026.8.10a3"
+version = "2026.9.8a1"
 description = "Dispatch and monitor Claude Code CLI sessions from a web UI."
 readme = "README.md"
 license = "MIT"
