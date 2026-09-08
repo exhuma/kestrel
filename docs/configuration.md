@@ -116,12 +116,13 @@ A Jira RFC's target repository is resolved from `repo_field` when set, otherwise
 from a remote/web link on the issue whose title matches `repo_link_text`
 ("Repository" by default). Verify a source's configuration without starting runs
 with `python -m app poll`, which lists the work items each configured source
-currently matches. An RFC whose repository can't be resolved (missing field/link,
-or the code host is unreachable) is logged, never commented on the ticket — this
-fires every poll cycle for as long as it stays unresolved, so a comment there
-would spam the RFC; check the source-health indicator first if every RFC is
-suddenly unresolved, since that usually means the code host itself is the
-problem, not any one ticket.
+currently matches. An RFC whose repository can't be resolved (missing
+field/link, or the code host is unreachable) is logged, never commented
+on the ticket — this fires every poll cycle for as long as it stays
+unresolved, so a comment there would spam the RFC; check the
+source-health indicator first if every RFC is suddenly unresolved, since
+that usually means the code host itself is the problem, not any one
+ticket.
 
 Set `verify_ssl = false` on a source (github or jira) to skip TLS certificate
 verification on its **REST/API** calls — for a self-hosted instance whose CA the
