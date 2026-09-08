@@ -2,13 +2,22 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
-from app.ports import LifecycleEvent, Task
+from app.ports import Feedback, LifecycleEvent, Task
 from app.services.fixture import FixtureTaskSource
 from app.services.workflow_text import has_subtask_sentinel
 from tests.conftest import _write_fixture_task as _write_task
+
+
+def _write_comments(tmp_path, slug: str, *comments: dict) -> None:
+    """Write a fixture task's ``<slug>.comments.jsonl`` (feature 013)."""
+    path = tmp_path / f"{slug}.comments.jsonl"
+    path.write_text(
+        "\n".join(json.dumps(c) for c in comments) + ("\n" if comments else "")
+    )
 
 
 @pytest.mark.asyncio
@@ -165,3 +174,90 @@ def test_visibility_is_private(tmp_path) -> None:
     source = FixtureTaskSource(str(tmp_path))
 
     assert source.visibility() == "private"
+
+
+# ---- feedback intake (feature 013) -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_comments_reads_the_comments_jsonl_file(tmp_path) -> None:
+    """Ensure list_comments reads <slug>.comments.jsonl and mints an
+    external_id carrying the slug and line offset."""
+    _write_comments(
+        tmp_path, "hello-fixture",
+        {
+            "author": "octocat", "body": "@kestrel look again",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+    source = FixtureTaskSource(str(tmp_path))
+
+    items = await source.list_comments("fixture:hello-fixture")
+
+    assert items == [
+        Feedback(
+            external_id="fixture:hello-fixture:0",
+            origin="ticket",
+            author="octocat",
+            body="@kestrel look again",
+            created_at=items[0].created_at,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_comments_never_reads_the_log_file(tmp_path) -> None:
+    """Ensure list_comments never reads <slug>.log — that is this
+    adapter's own post_comment sink; reading it back would be a
+    self-feedback loop by construction (research.md R1)."""
+    _write_task(tmp_path, "hello-fixture")
+    source = FixtureTaskSource(str(tmp_path))
+    await source.post_comment(
+        "fixture:hello-fixture", "@kestrel this is kestrel's own comment"
+    )
+
+    items = await source.list_comments("fixture:hello-fixture")
+
+    assert items == []
+
+
+@pytest.mark.asyncio
+async def test_list_comments_missing_file_returns_empty(tmp_path) -> None:
+    """Ensure a task with no comments file yet returns an empty list."""
+    source = FixtureTaskSource(str(tmp_path))
+
+    assert await source.list_comments("fixture:hello-fixture") == []
+
+
+@pytest.mark.asyncio
+async def test_list_comments_since_cursor_excludes_prior_item(tmp_path) -> None:
+    """Ensure a second call using the first call's newest cursor never
+    re-returns that same comment (round-trip exclusivity)."""
+    _write_comments(
+        tmp_path, "hello-fixture",
+        {"author": "a", "body": "one",
+         "created_at": "2026-01-01T00:00:00+00:00"},
+        {"author": "a", "body": "two",
+         "created_at": "2026-01-02T00:00:00+00:00"},
+    )
+    source = FixtureTaskSource(str(tmp_path))
+
+    first = await source.list_comments("fixture:hello-fixture")
+    cursor = first[-1].created_at.isoformat()
+    second = await source.list_comments("fixture:hello-fixture", since=cursor)
+
+    assert second == []
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_always_returns_false(tmp_path) -> None:
+    """Ensure acknowledge always returns False (no reaction concept for a
+    local file)."""
+    source = FixtureTaskSource(str(tmp_path))
+    feedback = Feedback(
+        external_id="fixture:hello-fixture:0", origin="ticket",
+        author="a", body="hi",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    assert await source.acknowledge(feedback) is False

@@ -55,6 +55,35 @@ the image small and lets a deploy attach or swap backends purely by config.
   the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
   face the network so GitHub can deliver events; its authenticity gate is an
   HMAC signature, not loopback binding (see the constitution's access model).
+  Feature 013 (feedback intake) adds three more event types to that same
+  endpoint — `issue_comment`, `pull_request_review`, and
+  `pull_request_review_comment` — rather than a second endpoint; they carry
+  the identical HMAC gate.
+- **Feedback intake: a marked ticket/review comment steers a run in flight
+  (feature 013).** A run is never a fire-and-forget dispatch: once started,
+  a comment carrying the configured trigger marker (`feedback_marker`,
+  default `@kestrel`) redirects it, on either a GitHub webhook delivery or
+  the poll backstop every task source shares (`FeedbackPollService`).
+  Every transport funnels through one convergence point,
+  `FeedbackIntakeService.intake` — marker gate → author/bot guard → claim
+  (dedup on `feedback_item.external_id`) → route to the newest run for the
+  ticket (or, for a PR review comment, the run whose `pr_number` matches) →
+  persist `queued` → best-effort acknowledge (a reaction, where the source
+  supports one). `FeedbackDispatcher` then branches on that run's *current*
+  status: parked at a human gate → applied immediately, exactly like a UI
+  reject-with-feedback; mid-step with no open gate → left `queued` for
+  `drain_feedback` to fold in at the next round/step boundary the driver
+  reaches on its own (never interrupting a turn in flight); `escalated` →
+  retried from the base branch with the feedback as guidance; `done` → the
+  same PR is resumed if still open, else a linked successor run starts
+  (`WorkflowRun.parent_run_id`). Self-feedback-loops (kestrel reacting to
+  its own comments) are guarded three ways at once — no fixed template
+  kestrel writes ever contains the marker, an author denylist plus
+  GitHub's bot-account flag, and the `external_id` primary key that caps
+  any breach of the first two guards at exactly one iteration. See
+  `docs/setup-github-workflow.md`, `docs/setup-jira-workflow.md`, and
+  `docs/setup-fixture-workflow.md` for the per-source operator picture
+  (configuration, acknowledgment behaviour, revive-vs-successor).
 - **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
   (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)**
   both feed one source-neutral entry point (`ingestion.maybe_start_run`, on a

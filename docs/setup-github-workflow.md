@@ -94,3 +94,14 @@ time-tracking field). See [Configuration → Task
 sources](configuration.md#task-sources) for the label names, and
 [Operator hooks](hooks.md) if you need custom actions kestrel doesn't
 support natively.
+
+### Steering a run with feedback
+
+A marked comment (default trigger: `@kestrel`) on the issue *or* on the
+PR it opened redirects the run in flight — including a PR review comment,
+which is the only way to amend the **same** PR from review feedback rather
+than starting over. GitHub is the one source that also reacts (👀) to the
+triggering comment so you get visual confirmation it was picked up. See
+[Feedback intake](feedback-intake.md) for the full behaviour: what happens
+at each run state, and what a "done" run reactivating vs. a linked
+successor looks like in the **Workflows** tab.

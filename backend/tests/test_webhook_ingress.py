@@ -16,6 +16,8 @@ from app.persistence.dismissal_store import get_dismissal_store
 from app.persistence.webhook_delivery_store import (
     get_webhook_delivery_store,
 )
+from app.services.feedback import github_events
+from app.services.feedback.intake import get_feedback_intake_service
 from app.services.ingestion import get_ingestion_service
 
 _SECRET = "s3cr3t"
@@ -59,6 +61,27 @@ class _FakeIngestion:
         return "wf-x"
 
 
+class _FakeFeedbackIntake:
+    """Records every ``intake`` call instead of running the real pipeline
+    (feature 013) — the webhook route unconditionally resolves this
+    dependency, so every existing ingestion test needs a safe double too,
+    not just the new feedback-specific ones."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def intake(self, feedback, *, task_ref, source, is_bot=False):
+        self.calls.append(
+            {
+                "task_ref": task_ref,
+                "body": feedback.body,
+                "author": feedback.author,
+                "is_bot": is_bot,
+                "origin": feedback.origin,
+            }
+        )
+
+
 def _sign(body: bytes) -> str:
     digest = hmac.new(_SECRET.encode(), body, hashlib.sha256).hexdigest()
     return "sha256=" + digest
@@ -75,7 +98,37 @@ def _payload(action="labeled", repo="o/r", issue=5, label="kestrel") -> bytes:
     ).encode()
 
 
-def _client(deliveries, dismissals, ingestion):
+def _comment_payload(**overrides) -> bytes:
+    """Build an ``issue_comment`` webhook payload; override any field via
+    kwargs: ``action``, ``repo``, ``issue``, ``body``, ``author``,
+    ``author_type``, ``comment_id``, ``on_pr``."""
+    data = {
+        "action": "created", "repo": "o/r", "issue": 5,
+        "body": "@kestrel look again", "author": "octocat",
+        "author_type": "User", "comment_id": 99, "on_pr": False,
+    }
+    data.update(overrides)
+    issue_obj: dict = {"number": data["issue"]}
+    if data["on_pr"]:
+        issue_obj["pull_request"] = {"url": "https://api/pulls/5"}
+    return json.dumps(
+        {
+            "action": data["action"],
+            "repository": {"full_name": data["repo"]},
+            "issue": issue_obj,
+            "comment": {
+                "id": data["comment_id"],
+                "body": data["body"],
+                "user": {
+                    "login": data["author"], "type": data["author_type"],
+                },
+                "created_at": "2026-01-01T00:00:00Z",
+            },
+        }
+    ).encode()
+
+
+def _client(deliveries, dismissals, ingestion, intake=None):
     app = create_app()
     settings = Settings(
         _env_file=None,
@@ -90,6 +143,13 @@ def _client(deliveries, dismissals, ingestion):
     app.dependency_overrides[get_webhook_delivery_store] = lambda: deliveries
     app.dependency_overrides[get_dismissal_store] = lambda: dismissals
     app.dependency_overrides[get_ingestion_service] = lambda: ingestion
+    app.dependency_overrides[get_feedback_intake_service] = (
+        lambda: intake if intake is not None else _FakeFeedbackIntake()
+    )
+    app.dependency_overrides[github_events.get_feedback_github_source] = object
+    app.dependency_overrides[github_events.get_feedback_github_codehost] = (
+        object
+    )
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
@@ -219,3 +279,97 @@ async def test_unlabeled_clears_dismissal_then_relabel_starts() -> None:
     assert r_unlabel.status_code == 200
     assert r_relabel.status_code == 202
     assert ing.calls == [("o/r", 5)]
+
+
+# ---- issue_comment (feedback intake, feature 013) --------------------
+
+
+@pytest.mark.asyncio
+async def test_issue_comment_ticket_origin_reaches_intake() -> None:
+    """A ticket-origin issue_comment on a watched repo is handed to
+    FeedbackIntakeService with the right task_ref/body/author."""
+    intake = _FakeFeedbackIntake()
+    async with _client(
+        _FakeDeliveries(), _FakeDismissals(), _FakeIngestion(), intake
+    ) as c:
+        r = await _post(
+            c, _comment_payload(), event="issue_comment", delivery="c1"
+        )
+        await _tick()
+    assert r.status_code == 202
+    assert intake.calls == [
+        {
+            "task_ref": "o/r#5", "body": "@kestrel look again",
+            "author": "octocat", "is_bot": False, "origin": "ticket",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_issue_comment_on_pull_request_reaches_intake_as_review() -> (
+    None
+):
+    """A PR-conversation comment (issue carries pull_request) reaches
+    intake as review-origin feedback (feature 013, US3), routed by the
+    PR's own identity rather than the run's ticket task_ref."""
+    intake = _FakeFeedbackIntake()
+    async with _client(
+        _FakeDeliveries(), _FakeDismissals(), _FakeIngestion(), intake
+    ) as c:
+        r = await _post(
+            c, _comment_payload(on_pr=True), event="issue_comment",
+        )
+        await _tick()
+    assert r.status_code == 202
+    assert intake.calls == [
+        {
+            "task_ref": "o/r#5", "body": "@kestrel look again",
+            "author": "octocat", "is_bot": False, "origin": "review",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_issue_comment_unwatched_repo_ignored() -> None:
+    """A comment on a repo with no configured github task source never
+    reaches the intake pipeline (avoids an open feedback-spam surface)."""
+    intake = _FakeFeedbackIntake()
+    async with _client(
+        _FakeDeliveries(), _FakeDismissals(), _FakeIngestion(), intake
+    ) as c:
+        r = await _post(
+            c, _comment_payload(repo="x/y"), event="issue_comment",
+        )
+        await _tick()
+    assert r.status_code == 200
+    assert intake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_issue_comment_non_created_action_ignored() -> None:
+    """An edited/deleted comment does not re-trigger intake."""
+    intake = _FakeFeedbackIntake()
+    async with _client(
+        _FakeDeliveries(), _FakeDismissals(), _FakeIngestion(), intake
+    ) as c:
+        r = await _post(
+            c, _comment_payload(action="edited"), event="issue_comment",
+        )
+        await _tick()
+    assert r.status_code == 200
+    assert intake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_issue_comment_bot_author_flag_passed_through() -> None:
+    """A GitHub Bot-typed author is flagged for intake's author guard."""
+    intake = _FakeFeedbackIntake()
+    async with _client(
+        _FakeDeliveries(), _FakeDismissals(), _FakeIngestion(), intake
+    ) as c:
+        r = await _post(
+            c, _comment_payload(author_type="Bot"), event="issue_comment",
+        )
+        await _tick()
+    assert r.status_code == 202
+    assert intake.calls[0]["is_bot"] is True

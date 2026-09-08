@@ -58,6 +58,10 @@ class WorkflowRunRow(Base):
     workspace: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(default="pending")
     pr_url: Mapped[str | None] = mapped_column(nullable=True)
+    #: The same pull/merge request as ``pr_url``, as a number (feature 013).
+    #: NULL for pre-migration rows and runs with no open request yet; those
+    #: still resolve by matching on ``pr_url`` (no backfill).
+    pr_number: Mapped[int | None] = mapped_column(nullable=True)
     error: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
@@ -96,6 +100,11 @@ class WorkflowRunRow(Base):
     #: clock_state is NULL. Feature 006.
     clock_since: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
+    )
+    #: FK to the run this one continues from (feature 013, US4); NULL for
+    #: every run that isn't a linked successor.
+    parent_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workflow_run.id"), nullable=True
     )
 
 
@@ -211,3 +220,60 @@ class NotificationRow(Base):
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class FeedbackItemRow(Base):
+    """One piece of marker-gated feedback (feature 013).
+
+    Keyed by each adapter's own opaque ``external_id`` — the same
+    insert-if-absent dedup pattern as :class:`WebhookDeliveryRow`/
+    :class:`IssueDismissalRow`, applied here to a race between the GitHub
+    webhook and the poll backstop (or a re-delivery) observing the same
+    comment. ``workflow_id`` is nullable because post-terminal feedback may
+    arrive for a ticket with no live run to attach to yet.
+    """
+
+    __tablename__ = "feedback_item"
+    __table_args__ = (
+        Index(
+            "ix_feedback_item_workflow_state",
+            "workflow_id", "state",
+        ),
+    )
+
+    external_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workflow_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workflow_run.id"), nullable=True
+    )
+    task_ref: Mapped[str] = mapped_column(Text)
+    origin: Mapped[str] = mapped_column(Text)
+    author: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    #: "queued" | "dispatched" | "applied" | "ignored".
+    state: Mapped[str] = mapped_column(Text)
+    #: Set once the triage turn has classified this item; NULL until then.
+    target_step: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    #: Set when ``state`` moves to "applied" or "ignored".
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+
+class FeedbackCursorRow(Base):
+    """How far a ticket/PR's feedback has been read (feature 013).
+
+    Deliberately not a column on ``workflow_run``: a ticket's cursor must
+    outlive any single run (post-terminal feedback) and a linked successor
+    run must inherit its parent's cursor rather than re-reading from the
+    beginning.
+    """
+
+    __tablename__ = "feedback_cursor"
+
+    #: "ticket:<task_ref>" or "pr:<repo>#<number>".
+    scope: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: Opaque, adapter-defined — passed back into list_comments/
+    #: list_review_comments' ``since`` parameter verbatim.
+    cursor: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

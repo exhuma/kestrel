@@ -16,3 +16,13 @@ settings_cls
 # (`source: "TaskSource"`); vulture's static analysis does not parse string
 # annotations, so it reads as an unused import even though it is not.
 TaskSource
+
+# TaskSource.list_comments' `since` parameter (feature 013,
+# contracts/feedback-source-port.md) is a Protocol stub whose body is just
+# `...` — like every other Protocol method's parameters in app/ports.py, it
+# is never "used" by design. Every other such parameter name (ref, token,
+# repo, body, ...) happens to already appear as a genuinely-read variable
+# elsewhere in the app package, which coincidentally silences vulture for
+# them; `since` does not yet, making it the first Protocol-stub parameter to
+# need this same class of allowance as `settings_cls` above.
+since

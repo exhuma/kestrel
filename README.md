@@ -38,6 +38,8 @@ and how your host Claude config is used.
 - [Jira workflow](docs/setup-jira-workflow.md) — the RFC → change request feature.
 - [Fixture workflow](docs/setup-fixture-workflow.md) — disposable local
   tasks for testing/retrying the pipeline, plus the Rerun action.
+- [Feedback intake](docs/feedback-intake.md) — steer a run in flight from a
+  marked ticket/PR comment, across every task source.
 - [Operator hooks](docs/hooks.md) — custom actions on lifecycle events.
 - [Troubleshooting](docs/troubleshooting.md) — common speed-bumps.
 - [Observability](docs/observability.md) — logs (text/JSON) and health.

@@ -155,3 +155,17 @@ guessed; unset fields fall back to a comment footer. See [Configuration →
 Task sources](configuration.md#task-sources) for the fields, and
 [Operator hooks](hooks.md) for the escape hatch when your instance needs
 a custom transition or action kestrel doesn't natively support.
+
+### Steering a run with feedback
+
+A marked comment (default trigger: `@kestrel`) on the RFC redirects the run
+it started — applied immediately if the run is parked at a gate, queued
+until the next boundary otherwise. Jira's REST API has no comment-reaction
+endpoint, so — unlike GitHub — kestrel does **not** react to the triggering
+comment; that's expected, not a missed acknowledgment. Amending the same
+merge/pull request from a review comment is supported when the configured
+`code_host` is `gitlab` or `github` (via `award_emoji`/reactions
+respectively); a `gitea` code host does not yet support reading review
+comments back. See [Feedback intake](feedback-intake.md) for the full
+behaviour, including what a `done` RFC reactivating vs. a linked successor
+run looks like.

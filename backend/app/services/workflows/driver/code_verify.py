@@ -7,6 +7,7 @@ from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
 from app.ports import Evidence
+from app.services.feedback.dispatch import drain_feedback
 from app.services.workflows import artifacts, screenshots
 from app.services.workflows.driver.escalate import escalate
 from app.services.workflows.prompts import (
@@ -14,6 +15,7 @@ from app.services.workflows.prompts import (
     CODE_PROMPT,
     EXPLORE_PERMISSION_MODE,
     EXPLORE_PROMPT,
+    MID_RUN_FEEDBACK_APPENDIX,
     VERIFY_PROMPT,
 )
 from app.services.workflows.sessions import _bind
@@ -69,6 +71,15 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
             )
 
     for iteration in range(max(1, service.settings.max_verify_iterations)):
+        # Fold in any ticket feedback that arrived while this run had no
+        # open gate to land it on (feature 013, US2) — drained right here,
+        # at this round's start, so it never interrupts a turn already in
+        # flight; whatever is queued rides along with this round's own
+        # coder prompt (either CODE_PROMPT on the first round, or the
+        # verifier's own feedback on a rejected retry).
+        steering = drain_feedback(service, run)
+        if steering:
+            prompt += MID_RUN_FEEDBACK_APPENDIX.format(feedback=steering)
         # 1-based count of verify passes entered, for the UI's
         # remaining-runs indicator on the verify chip.
         verify_step.verify_round = iteration + 1

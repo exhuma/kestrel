@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
 from app.backends.base import BackendTurnError, Capability
+from app.persistence.tables import FeedbackItemRow
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
     _artifact_service,
     _coord,
+    _FakeFeedbackStore,
     _FakeGit,
     _FakeGitHub,
     _FakeRunner,
@@ -342,3 +345,41 @@ async def test_text_only_design_backend_inlines_the_prd(tmp_path) -> None:
 
     design_call = design.calls[0]
     assert "UNIQUE-PRD-MARKER" in design_call["prompt"]  # PRD inlined
+
+
+@pytest.mark.asyncio
+async def test_drained_feedback_folds_into_the_design_prompt() -> None:
+    """Feedback queued while a run sits between refine and design (feature
+    013, US2) has no open gate of its own to land on once approved — it
+    is drained at continue_run's step boundary, folded into the design
+    turn's prompt, and marked applied. The refine turn already in flight
+    (before approval) is never touched by this."""
+    store = _FakeFeedbackStore()
+    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        *_refine_noquestions("Build a clear widget"),
+        "<PLAN>\nStep 1\n</PLAN>",
+        "Implemented",
+        _verdict(accept=True),
+    ])
+    svc = _service(gh, runner, git, feedback_store=store)
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    store.claim(FeedbackItemRow(
+        external_id="fb-1", workflow_id=wid, task_ref="o/r#5",
+        origin="ticket", author="octocat",
+        body="Please also update the README",
+        state="queued", created_at=datetime.now(timezone.utc),
+    ))
+
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "done")
+
+    # The refine coordinator's own turn also runs in "plan" mode, so
+    # pick out the design turn by its prompt content instead.
+    design_call = next(
+        c for c in runner.calls
+        if "high-level design" in c["prompt"]
+    )
+    assert "Please also update the README" in design_call["prompt"]
+    assert store.items["fb-1"].state == "applied"

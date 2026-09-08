@@ -1,19 +1,16 @@
 """Tests for the GitHub TaskSource / CodeHost port adapters (feature 003)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Callable
 
 import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
-from app.ports import LifecycleEvent, Task
-from app.services.github import (
-    GitHubClient,
-    GitHubCodeHost,
-    GitHubTaskSource,
-    parse_github_ref,
-)
+from app.ports import Feedback, LifecycleEvent, Task
+from app.services.github import GitHubClient, GitHubCodeHost, parse_github_ref
+from app.services.github_tasksource import GitHubTaskSource
 from app.services.workflow_text import has_sentinel, has_subtask_sentinel
 
 
@@ -252,3 +249,131 @@ async def test_code_host_open_change_request_opens_draft_pr() -> None:
     payload = json.loads(seen["body"])
     assert payload["draft"] is True
     assert payload["body"] == "Closes #7"
+
+
+# ---- feedback intake (feature 013) -------------------------------------
+
+
+def _comment(comment_id=1, body="hi", login="octocat",
+             created="2026-01-01T00:00:00Z", user_type="User") -> dict:
+    return {
+        "id": comment_id, "body": body,
+        "user": {"login": login, "type": user_type},
+        "created_at": created,
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_comments_maps_fields_and_mints_external_id() -> None:
+    """Ensure list_comments maps GitHub comments to Feedback correctly."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[_comment(comment_id=8812)])
+
+    src = GitHubTaskSource(_client(handler))
+    items = await src.list_comments("o/r#7")
+    assert items == [
+        Feedback(
+            external_id="gh-issue-comment:o/r#8812",
+            origin="ticket",
+            author="octocat",
+            body="hi",
+            created_at=items[0].created_at,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_comments_excludes_bot_authors() -> None:
+    """Ensure a Bot-typed comment author never surfaces as Feedback."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                _comment(comment_id=1, user_type="Bot"),
+                _comment(comment_id=2, user_type="User"),
+            ],
+        )
+
+    src = GitHubTaskSource(_client(handler))
+    items = await src.list_comments("o/r#7")
+    assert [i.external_id for i in items] == ["gh-issue-comment:o/r#2"]
+
+
+@pytest.mark.asyncio
+async def test_list_comments_since_cursor_excludes_prior_item() -> None:
+    """Ensure a second call with the first call's newest cursor never
+    re-returns that same comment (round-trip exclusivity)."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                _comment(comment_id=1, created="2026-01-01T00:00:00Z"),
+                _comment(comment_id=2, created="2026-01-02T00:00:00Z"),
+            ],
+        )
+
+    src = GitHubTaskSource(_client(handler))
+    first = await src.list_comments("o/r#7")
+    cursor = first[-1].created_at.isoformat()
+
+    second = await src.list_comments("o/r#7", since=cursor)
+
+    assert [i.external_id for i in second] == []
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_reacts_to_the_comment() -> None:
+    """Ensure acknowledge hits the reactions endpoint for the right repo
+    and comment id, recovered from the Feedback's external_id."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["url"] = str(req.url)
+        seen["body"] = req.read().decode()
+        return httpx.Response(200, json={"id": 1})
+
+    src = GitHubTaskSource(_client(handler))
+    feedback = Feedback(
+        external_id="gh-issue-comment:o/r#8812", origin="ticket",
+        author="octocat", body="hi",
+        created_at=datetime.now(timezone.utc),
+    )
+    ok = await src.acknowledge(feedback)
+    assert ok is True
+    assert seen["url"].endswith("/repos/o/r/issues/comments/8812/reactions")
+    assert "eyes" in seen["body"]
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_returns_false_for_unparseable_external_id() -> None:
+    """Ensure a non-comment external_id (no match) returns False, no call."""
+
+    def handler(req: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("must not call GitHub")
+
+    src = GitHubTaskSource(_client(handler))
+    feedback = Feedback(
+        external_id="jira-comment:RFC-1:5", origin="ticket",
+        author="octocat", body="hi",
+        created_at=datetime.now(timezone.utc),
+    )
+    assert await src.acknowledge(feedback) is False
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_swallows_errors_and_returns_false() -> None:
+    """Ensure a failing reaction call returns False, never raises."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    src = GitHubTaskSource(_client(handler))
+    feedback = Feedback(
+        external_id="gh-issue-comment:o/r#1", origin="ticket",
+        author="octocat", body="hi",
+        created_at=datetime.now(timezone.utc),
+    )
+    assert await src.acknowledge(feedback) is False

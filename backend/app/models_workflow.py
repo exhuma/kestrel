@@ -147,6 +147,12 @@ class WorkflowRun:
     status: str = "pending"
     steps: list[WorkflowStep] = field(default_factory=list)
     pr_url: str | None = None
+    #: The same pull/merge request as ``pr_url``, as a number (feature 013,
+    #: US3). ``None`` for pre-migration rows and runs with no open request
+    #: yet; ``deliver()`` sets it once ``open_change_request`` returns and
+    #: reads it back to decide whether a later ``deliver()`` pass must open
+    #: a *new* request or just push to the existing, still-open one.
+    pr_number: int | None = None
     error: str | None = None
     #: Origin of the run: ``"github-issue"``, ``"jira-issue"`` or
     #: ``"fixture-issue"`` — the task source that produced it. Internal
@@ -190,3 +196,10 @@ class WorkflowRun:
     #: Naive UTC timestamp ``clock_state`` last changed (matches this
     #: repo's existing naive-UTC timestamp convention).
     clock_since: datetime | None = None
+    #: Id of the run this one continues from (feature 013, US4): set only
+    #: on a linked successor, started when marked feedback arrives for a
+    #: `done` run whose change request has since merged/closed (or never
+    #: existed) — see ``IngestionService.start_successor_run``. ``None``
+    #: for every run that isn't a successor (the overwhelming majority).
+    #: Internal only — never surfaced to the API/UI in this phase.
+    parent_run_id: str | None = None

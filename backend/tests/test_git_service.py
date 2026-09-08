@@ -318,3 +318,58 @@ async def test_ensure_mirror_refreshes_checked_out_branch(tmp_path) -> None:
     await svc.push(dest, "kestrel/issue-1")
 
     await svc.ensure_mirror(str(bare), mirror)
+
+
+# ---- add_worktree_existing (feature 013, US3 branch resume) -----------
+
+
+@pytest.mark.asyncio
+async def test_add_worktree_existing_resumes_the_local_ref(tmp_path) -> None:
+    """Ensure a branch still present in the mirror is resumed as-is
+    (not recreated with -b), keeping its prior commit history intact."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    svc = GitService(token="unused-locally")
+    dest = str(tmp_path / "wt")
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, dest, "main", "kestrel/issue-1")
+    (Path(dest) / "first.txt").write_text("first\n")
+    await svc.commit_all(dest, "first commit")
+    await svc.push(dest, "kestrel/issue-1")
+    # Tear down the worktree the way deliver() does, keeping the branch.
+    await svc.remove_worktree(mirror, dest)
+
+    resumed = str(tmp_path / "wt-resumed")
+    await svc.add_worktree_existing(mirror, resumed, "kestrel/issue-1")
+
+    # The prior commit's file is present — this is a resume, not a fresh
+    # branch off main.
+    assert (Path(resumed) / "first.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_add_worktree_existing_falls_back_when_local_ref_is_gone(
+    tmp_path,
+) -> None:
+    """Ensure a branch with no local ref in the mirror (only on the
+    remote) falls back to `-b <branch> ... origin/<branch>`."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror_a = str(tmp_path / "mirror-a.git")
+    svc = GitService(token="unused-locally")
+    dest_a = str(tmp_path / "wt-a")
+    await svc.ensure_mirror(str(bare), mirror_a)
+    await svc.add_worktree(mirror_a, dest_a, "main", "kestrel/issue-2")
+    (Path(dest_a) / "remote-only.txt").write_text("remote\n")
+    await svc.commit_all(dest_a, "remote commit")
+    await svc.push(dest_a, "kestrel/issue-2")
+
+    # A second, independent mirror of the same remote never had this
+    # branch's local ref created — only ``origin/kestrel/issue-2`` exists
+    # once fetched.
+    mirror_b = str(tmp_path / "mirror-b.git")
+    await svc.ensure_mirror(str(bare), mirror_b)
+    dest_b = str(tmp_path / "wt-b")
+
+    await svc.add_worktree_existing(mirror_b, dest_b, "kestrel/issue-2")
+
+    assert (Path(dest_b) / "remote-only.txt").exists()

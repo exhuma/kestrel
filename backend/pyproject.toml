@@ -23,11 +23,20 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+# Safety net, not a design choice: a test that leaks an unresolved async
+# task (e.g. a spawned driver task nobody ever drains) can hang
+# asyncio.run()'s own teardown indefinitely with near-zero CPU, which is
+# very hard to notice in unattended/background runs. 60s is generous for
+# this suite (~750 tests currently run end-to-end in ~25s); a test hitting
+# it fails loudly, with a traceback pointing at the stuck line, instead of
+# hanging the whole run forever.
+timeout = 60
 
 # Lint gate (see module-code-style-python). Run with `uvx ruff check .`;
 # CI runs the same. Ruff is invoked via uvx rather than added as a dependency

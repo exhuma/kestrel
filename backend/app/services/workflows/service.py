@@ -15,15 +15,18 @@ from app.models_workflow import (
 )
 from app.notifications import Notifier
 from app.persistence.dismissal_store import DismissalStore
+from app.persistence.feedback_store import FeedbackStore
 from app.policy import BackendPolicy
 from app.questionnaire import InterviewEnvelope
 from app.services.exceptions import WorkflowNotFoundError
 from app.services.git import GitService
-from app.services.github import GitHubClient, GitHubCodeHost, GitHubTaskSource
+from app.services.github import GitHubClient, GitHubCodeHost
+from app.services.github_tasksource import GitHubTaskSource
 from app.services.time_tracking import set_clock
 from app.services.workflows import artifacts, driver, gate, reset
 from app.services.workflows import liveness as wf_liveness
 from app.services.workflows import sessions as sessions_mod
+from app.services.workflows.driver import branch_resume
 from app.services.workflows.gate import _Control, _Decision
 from app.services.workflows.shared import (
     _TERMINAL_STATUSES,
@@ -51,10 +54,12 @@ class WorkflowService:
         git: GitService,
         github: GitHubClient,
         notifier: Notifier,
+        *,
         bus: WorkflowBus | None = None,
         dismissals: DismissalStore | None = None,
         sources: dict[str, object] | None = None,
         code_hosts: dict[str, object] | None = None,
+        feedback_store: FeedbackStore | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -78,6 +83,11 @@ class WorkflowService:
         #: is not re-ingested (feature 002, FR-008a). Optional so unit tests
         #: that don't exercise ingestion need not provide one.
         self.dismissals = dismissals
+        #: Backs ``drain_feedback`` (feature 013, US2) — the driver reads
+        #: this run's still-queued ticket feedback through it at a round/
+        #: step boundary. ``None`` is a safe no-op (nothing to drain):
+        #: unit tests that don't exercise feedback need not provide one.
+        self.feedback_store = feedback_store
         self._control: dict[str, _Control] = {}
         #: Driver task per run, so an abandon can cancel the in-flight
         #: orchestration for exactly that run.
@@ -104,6 +114,24 @@ class WorkflowService:
     def _code_host(self, run: WorkflowRun):
         """The bound CodeHost for a run's target repository (feature 003)."""
         return self.code_hosts.get(run.source, self._fallback_host)
+
+    def task_source_for(self, run: WorkflowRun):
+        """Public accessor for a run's bound TaskSource (feature 013).
+
+        Lets a cross-run poller (``FeedbackPollService``) resolve which
+        adapter to call ``list_comments`` on without reaching into the
+        private ``_task_source``.
+        """
+        return self._task_source(run)
+
+    def code_host_for(self, run: WorkflowRun):
+        """Public accessor for a run's bound CodeHost (feature 013, US3).
+
+        Lets ``FeedbackDispatcher`` resolve a run's change-request state
+        (``get_change_request``) without reaching into the private
+        ``_code_host`` — mirrors :meth:`task_source_for`.
+        """
+        return self._code_host(run)
 
     def rerunnable(self, run: WorkflowRun) -> bool:
         """Whether rerun is available for this run (feature 008)."""
@@ -233,6 +261,7 @@ class WorkflowService:
         source: str,
         task_ref: str | None = None,
         base_branch: str | None = None,
+        parent_run_id: str | None = None,
     ) -> str:
         """Create and drive a run for a ticket.
 
@@ -244,11 +273,16 @@ class WorkflowService:
         ``source`` is required: every run is attributed to the task source
         that produced it, so the driver binds the right adapters. Only
         ingestion and rerun create runs (feature 010 removed manual entry).
+
+        :param parent_run_id: Set only by ``IngestionService.
+            start_successor_run`` (feature 013, US4); see
+            :func:`app.services.workflows.shared._derive_branch`.
         """
         run = build_run(
             TicketRef(repo, issue_number, task_ref, base_branch),
             source=source,
             workspace_root=self.settings.workspace_root,
+            parent_run_id=parent_run_id,
         )
         self.workflows.create(run)
         self._control[run.id] = self._new_control()
@@ -356,6 +390,35 @@ class WorkflowService:
     def _recover_one(self, run: WorkflowRun) -> None:
         """Recover a single persisted run (see :meth:`recover`)."""
         driver.recover_one(self, run)
+
+    def resume_with_feedback(
+        self, workflow_id: str, feedback_body: str
+    ) -> None:
+        """
+        Spawn a driver task resuming a run's branch with review feedback.
+
+        The sole seam ``app.services.feedback.dispatch`` uses to reach
+        ``driver.resume`` (feature 013, US3): that module is itself
+        imported by ``driver/__init__.py``, so it must never import a
+        driver submodule directly (a real circular import, not just a
+        style nit — see ``feedback/dispatch.py``'s module docstring).
+        Mirrors :meth:`create`'s own control-setup + ``_spawn_driver``
+        ordering, so a decision racing in immediately after this call
+        (there is none for this path today, but the shape stays
+        consistent with every other run-driving entry point) finds
+        ``self._control[workflow_id]`` already populated.
+
+        :param workflow_id: The run to resume — must already have a
+            branch (has been through at least one ``deliver()`` pass).
+        :param feedback_body: The raw review-feedback text driving this.
+        """
+        self._control[workflow_id] = self._new_control()
+        self._spawn_driver(
+            workflow_id,
+            branch_resume.resume_with_feedback(
+                self, workflow_id, feedback_body
+            ),
+        )
 
     async def _deliver(self, run: WorkflowRun) -> None:
         """Commit, push, open the change request, and finish the run."""

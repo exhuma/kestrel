@@ -10,6 +10,7 @@ from app.services.workflow_text import (
     append_subtask_sentinel,
     extract_boundary,
     extract_containment_verdicts,
+    extract_feedback_triage,
     extract_followup_tasks,
     extract_mockups,
     extract_plan,
@@ -257,3 +258,50 @@ def test_extract_mockups_absent_or_garbled_returns_empty() -> None:
     assert extract_mockups("no tag") == []
     assert extract_mockups("<MOCKUPS>{not json}</MOCKUPS>") == []
     assert extract_mockups('<MOCKUPS>[{"file": 3}]</MOCKUPS>') == []
+
+
+def test_extract_feedback_triage_well_formed() -> None:
+    """Ensure a well-formed <TRIAGE> tag parses step/reason/instruction."""
+    text = (
+        '<TRIAGE>{"step": "design", "reason": "questions the approach", '
+        '"instruction": "reconsider using a queue"}</TRIAGE>'
+    )
+    assert extract_feedback_triage(text) == {
+        "step": "design",
+        "reason": "questions the approach",
+        "instruction": "reconsider using a queue",
+    }
+
+
+def test_extract_feedback_triage_malformed_tag_falls_back_to_code(
+    caplog,
+) -> None:
+    """Ensure missing/garbled JSON falls back to step="code" + logs."""
+    with caplog.at_level("WARNING"):
+        assert extract_feedback_triage("no tag at all") == {
+            "step": "code", "reason": "", "instruction": "",
+        }
+    assert caplog.records
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        assert extract_feedback_triage("<TRIAGE>{not json}</TRIAGE>") == {
+            "step": "code", "reason": "", "instruction": "",
+        }
+    assert caplog.records
+
+
+def test_extract_feedback_triage_unrecognized_step_falls_back_to_code(
+    caplog,
+) -> None:
+    """Ensure an out-of-vocabulary step (e.g. feature 012's "describe",
+    not a real step on this branch) falls back to "code", keeping the
+    otherwise well-formed reason/instruction, and logs a warning."""
+    text = (
+        '<TRIAGE>{"step": "describe", "reason": "r", '
+        '"instruction": "i"}</TRIAGE>'
+    )
+    with caplog.at_level("WARNING"):
+        result = extract_feedback_triage(text)
+    assert result == {"step": "code", "reason": "r", "instruction": "i"}
+    assert caplog.records

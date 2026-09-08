@@ -11,7 +11,8 @@ from app.services.exceptions import (
     WorkflowNotFoundError,
 )
 from app.services.fixture import FixtureTaskSource
-from app.services.github import GitHubCodeHost, GitHubTaskSource
+from app.services.github import GitHubCodeHost
+from app.services.github_tasksource import GitHubTaskSource
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry

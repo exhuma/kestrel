@@ -6,23 +6,37 @@ source-neutral ``task_ref`` ``"owner/name#123"``.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Literal
 from urllib.parse import quote
 
 import httpx
 
-from app.config_models import TaskSourceConfig
-from app.ports import LifecycleEvent, Task
+from app.ports import ChangeRequest, Feedback
+from app.services import github_reviews
 from app.services.exceptions import GitHubError
-from app.services.workflow_text import append_sentinel
+from app.services.feedback.timeparse import parse_iso
 
-#: Which TaskSourceConfig field names a failure-terminal event's label.
-_TERMINAL_LABEL_FIELD = {
-    "failed": "failed_label",
-    "escalated": "escalated_label",
-    "rejected": "rejected_label",
-}
+#: Extracts a PR/MR number from the tail of a change-request URL —
+#: GitHub's ``.../pull/123`` or GitLab's ``.../merge_requests/123``.
+_CR_NUMBER_RE = re.compile(r"/(?:pull|merge_requests)/(\d+)(?:[/?#]|$)")
+
+
+def change_request_number(url: str) -> int | None:
+    """
+    Extract a pull/merge-request number from an existing ``run.pr_url``.
+
+    Used to backfill ``pr_number``-less rows persisted before that column
+    existed, with no migration data-fix (data-model.md). Never raises.
+
+    :param url: A change-request URL, or ``""``/``None``/anything malformed.
+    :returns: The trailing number, or ``None`` when ``url`` doesn't match.
+    """
+    if not url:
+        return None
+    match = _CR_NUMBER_RE.search(url)
+    return int(match.group(1)) if match else None
 
 
 def parse_github_ref(ref: str) -> tuple[str, int]:
@@ -219,6 +233,96 @@ class GitHubClient:
         )
         return resp.json()["number"]
 
+    async def list_issue_comments(
+        self, repo: str, number: int, since: str | None = None
+    ) -> list[dict]:
+        """
+        List an issue's comments, oldest first, following pagination.
+
+        :param since: GitHub's own ``since=`` filter (an ISO-8601
+            timestamp); server-side only — callers still filter for exact
+            cursor exclusivity themselves (feature 013).
+        """
+        comments: list[dict] = []
+        params: dict[str, object] = {"per_page": 100}
+        if since:
+            params["since"] = since
+        resp = await self._request(
+            "GET", f"/repos/{repo}/issues/{number}/comments", params=params
+        )
+        while True:
+            comments.extend(resp.json())
+            nxt = resp.links.get("next")
+            if not nxt:
+                return comments
+            resp = await self._request("GET", nxt["url"])
+
+    async def add_issue_comment_reaction(
+        self, repo: str, comment_id: int, content: str
+    ) -> None:
+        """React to an issue comment (feature 013 acknowledgment, R8)."""
+        await self._request(
+            "POST",
+            f"/repos/{repo}/issues/comments/{comment_id}/reactions",
+            json={"content": content},
+        )
+
+    async def get_pull_request(self, repo: str, number: int) -> dict:
+        """Fetch a pull request's raw payload (state/merged/html_url)."""
+        resp = await self._request("GET", f"/repos/{repo}/pulls/{number}")
+        return resp.json()
+
+    async def list_pull_reviews(self, repo: str, number: int) -> list[dict]:
+        """List a pull request's reviews, oldest first, following pagination.
+
+        No server-side ``since`` filter exists for this endpoint; callers
+        filter client-side for cursor exclusivity.
+        """
+        reviews: list[dict] = []
+        resp = await self._request(
+            "GET", f"/repos/{repo}/pulls/{number}/reviews",
+            params={"per_page": 100},
+        )
+        while True:
+            reviews.extend(resp.json())
+            nxt = resp.links.get("next")
+            if not nxt:
+                return reviews
+            resp = await self._request("GET", nxt["url"])
+
+    async def list_pull_review_comments(
+        self, repo: str, number: int, since: str | None = None
+    ) -> list[dict]:
+        """List a pull request's inline review comments, oldest first.
+
+        :param since: GitHub's own ``since=`` filter (an ISO-8601
+            timestamp); server-side only — callers still filter for exact
+            cursor exclusivity themselves (feature 013).
+        """
+        comments: list[dict] = []
+        params: dict[str, object] = {"per_page": 100}
+        if since:
+            params["since"] = since
+        resp = await self._request(
+            "GET", f"/repos/{repo}/pulls/{number}/comments", params=params
+        )
+        while True:
+            comments.extend(resp.json())
+            nxt = resp.links.get("next")
+            if not nxt:
+                return comments
+            resp = await self._request("GET", nxt["url"])
+
+    async def add_pull_review_comment_reaction(
+        self, repo: str, comment_id: int, content: str
+    ) -> None:
+        """React to an inline review comment (feature 013 acknowledgment)."""
+        await self._request(
+            "POST",
+            f"/repos/{repo}/pulls/comments/{comment_id}/reactions",
+            json={"content": content},
+        )
+
     async def create_pull_request(
         self,
         repo: str,
@@ -241,114 +345,6 @@ class GitHubClient:
             },
         )
         return resp.json()["html_url"]
-
-
-class GitHubTaskSource:
-    """``TaskSource`` adapter over :class:`GitHubClient` (issues)."""
-
-    def __init__(
-        self,
-        client: GitHubClient,
-        public_base_url: str = "",
-        config_for: "Callable[[str], TaskSourceConfig | None] | None" = None,
-    ) -> None:
-        """
-        :param config_for: Resolves a repo (``owner/name``) to the
-            :class:`TaskSourceConfig` carrying its lifecycle labels
-            (feature 006). ``None`` (or no match) falls back to the
-            model's own defaults.
-        """
-        self._client = client
-        self._public_base_url = public_base_url.rstrip("/")
-        self._config_for = config_for
-
-    async def get_task(self, ref: str) -> Task:
-        repo, number = parse_github_ref(ref)
-        issue = await self._client.get_issue(repo, number)
-        return Task(ref=ref, title=issue.title, body=issue.body)
-
-    async def post_comment(self, ref: str, body: str) -> str:
-        repo, number = parse_github_ref(ref)
-        return await self._client.create_issue_comment(repo, number, body)
-
-    async def attach(
-        self, ref: str, name: str, data: bytes, mimetype: str
-    ) -> None:
-        """No-op: GitHub issues have no attachment API. The PRD goes in the
-        issue body; screenshots ride along committed in the PR's ``.kestrel``
-        folder."""
-        return None
-
-    async def publish_refined(self, ref: str, content: str) -> None:
-        """Write the approved PRD back to the issue body with the sentinel."""
-        repo, number = parse_github_ref(ref)
-        await self._client.update_issue(repo, number, append_sentinel(content))
-
-    async def create_subtask(
-        self, parent_ref: str, title: str, body: str
-    ) -> str:
-        """Create a follow-up issue in the same repo (feature 012).
-
-        Linked to its parent via a reference line in the body (GitHub
-        issues have no native sub-issue type at this API layer); created
-        with no labels at all, so it can never carry the trigger label.
-        """
-        repo, parent_number = parse_github_ref(parent_ref)
-        full_body = f"Sub-task of #{parent_number}\n\n{body}"
-        number = await self._client.create_issue(repo, title, full_body)
-        return f"{repo}#{number}"
-
-    def display_label(self, ref: str) -> str:
-        """The ref itself: already "owner/name#123"."""
-        return ref
-
-    def deep_link_ref(self, ref: str) -> str:
-        repo, number = parse_github_ref(ref)
-        return f"https://github.com/{repo}/issues/{number}"
-
-    def _config(self, repo: str) -> TaskSourceConfig:
-        found = self._config_for(repo) if self._config_for else None
-        return found or TaskSourceConfig(type="github", watched_repos=[repo])
-
-    async def transition(self, ref: str, event: LifecycleEvent) -> bool:
-        """Add/remove issue labels for ``event.kind`` (feature 006).
-
-        GitHub issues have no native "in progress"/"done" state — labels
-        are the closest native primitive. ``done`` only removes the
-        in-progress label (never force-closes the issue: the existing
-        ``Closes #n`` PR body already closes it on merge, and closing it
-        earlier would misrepresent an unmerged PR as resolved).
-        """
-        repo, number = parse_github_ref(ref)
-        cfg = self._config(repo)
-        try:
-            if event.kind == "start":
-                await self._client.add_label(
-                    repo, number, cfg.in_progress_label
-                )
-            elif event.kind == "done":
-                await self._client.remove_label(
-                    repo, number, cfg.in_progress_label
-                )
-            else:
-                terminal_label = getattr(
-                    cfg, _TERMINAL_LABEL_FIELD[event.kind]
-                )
-                await self._client.remove_label(
-                    repo, number, cfg.in_progress_label
-                )
-                await self._client.add_label(repo, number, terminal_label)
-            return True
-        except Exception:  # noqa: BLE001 — best-effort; footer is the fallback
-            return False
-
-    def supports_time_spent(self) -> bool:
-        """GitHub issues have no native time-tracking field."""
-        return False
-
-    def visibility(self) -> Literal["public", "private"]:
-        """GitHub issues are externally visible (feature 008)."""
-        return "public"
 
 
 class GitHubCodeHost:
@@ -380,3 +376,62 @@ class GitHubCodeHost:
         return await self._client.create_pull_request(
             repo, head=head, base=base, title=title, body=body, draft=draft
         )
+
+    async def get_change_request(
+        self, repo: str, number: int
+    ) -> ChangeRequest:
+        """Fetch a pull request's lifecycle state (feature 013, US3/US4)."""
+        data = await self._client.get_pull_request(repo, number)
+        if data.get("merged"):
+            state: Literal["open", "merged", "closed"] = "merged"
+        elif data.get("state") == "closed":
+            state = "closed"
+        else:
+            state = "open"
+        return ChangeRequest(
+            number=number, state=state, url=data.get("html_url") or ""
+        )
+
+    async def list_review_comments(
+        self, repo: str, number: int, since: str | None = None
+    ) -> list[Feedback]:
+        """Every reviewer-authored signal on the PR (feature 013, US3).
+
+        Merges PR-conversation comments (the issues endpoint, since a
+        pull request *is* an issue), review summaries, and inline review
+        comments — see :mod:`app.services.github_reviews`.
+        """
+        conversation = await self._client.list_issue_comments(
+            repo, number, since=since
+        )
+        reviews = await self._client.list_pull_reviews(repo, number)
+        review_comments = await self._client.list_pull_review_comments(
+            repo, number, since=since
+        )
+        cutoff = parse_iso(since) if since else None
+        return github_reviews.merge_review_feedback(
+            repo, conversation, reviews, review_comments, cutoff
+        )
+
+    async def acknowledge(
+        self, feedback: Feedback, token: str = "eyes"
+    ) -> bool:
+        """React to the triggering review comment (feature 013, US3)."""
+        parsed = github_reviews.parse_review_external_id(feedback.external_id)
+        if parsed is None:
+            return False
+        kind, repo, comment_id = parsed
+        try:
+            if kind == "comment":
+                await self._client.add_issue_comment_reaction(
+                    repo, comment_id, token
+                )
+            else:
+                await self._client.add_pull_review_comment_reaction(
+                    repo, comment_id, token
+                )
+            return True
+        except Exception:  # noqa: BLE001 — best-effort acknowledgment
+            return False
+
+

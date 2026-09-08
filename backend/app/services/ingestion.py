@@ -10,6 +10,7 @@ import logging
 from functools import lru_cache
 
 from app.config import Settings, get_settings
+from app.models_workflow import WorkflowRun
 from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.services.workflows import WorkflowService, get_workflow_service
 
@@ -84,6 +85,42 @@ class IngestionService:
             base_branch=base_branch,
         )
         _log.info("ingest outcome=started %s -> %s", task_ref, run_id)
+        return run_id
+
+    async def start_successor_run(self, *, parent: WorkflowRun) -> str:
+        """
+        Start a run continuing ``parent`` after its own path is exhausted.
+
+        Called only by ``FeedbackDispatcher``'s terminal-run branch
+        (feature 013, US4) when marked feedback arrives for a `done` run
+        whose change request has since merged/closed (or never existed)
+        — never by ingestion/reconcile. Deliberately bypasses
+        :meth:`maybe_start_run`'s watched/dismissed/``has_run`` filters:
+        this ticket already proved watched and not dismissed when
+        ``parent`` itself started, and the ``has_run`` dedup rule exists
+        to stop *unrelated* re-ingestion of a ticket whose GitHub trigger
+        label a `done` transition deliberately never removes (so
+        reconcile would otherwise keep finding it labelled) — it is not
+        meant to block an intentional, explicitly linked continuation of
+        a run that already exists. Still funnels through
+        ``WorkflowService.create`` (the same sole convergence point
+        :meth:`maybe_start_run`/``reset.rerun`` already use), so branch-
+        naming/workspace-provisioning stays defined in exactly one place.
+
+        :param parent: The finished run this successor continues from —
+            its ``repo``/``task_ref``/``source``/``base_branch`` carry
+            over unchanged (same ticket, same target repo).
+        :returns: The new run's id.
+        """
+        run_id = await self.workflows.create(
+            parent.repo, parent.issue_number,
+            source=parent.source, task_ref=parent.task_ref,
+            base_branch=parent.base_branch or None,
+            parent_run_id=parent.id,
+        )
+        _log.info(
+            "ingest outcome=successor parent=%s -> %s", parent.id, run_id
+        )
         return run_id
 
 

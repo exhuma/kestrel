@@ -15,8 +15,9 @@ from typing import Literal
 import httpx
 
 from app.config_models import TaskSourceConfig
-from app.ports import LifecycleEvent, Task
+from app.ports import Feedback, LifecycleEvent, Task
 from app.services.exceptions import GitError
+from app.services.feedback.timeparse import parse_iso
 
 _log = logging.getLogger("kestrel.jira")
 
@@ -195,6 +196,27 @@ class JiraClient:
             "PUT", f"/issue/{key}", json={"fields": {field: value}}
         )
 
+    async def list_comments(self, key: str) -> list[dict]:
+        """Fetch every comment on an issue, oldest first (feature 013).
+
+        Paginates via ``startAt``/``total`` (the v2 comment endpoint's own
+        scheme) until every page has been read; typical RFC comment
+        volume is small enough that this is always one or two calls.
+        """
+        comments: list[dict] = []
+        start = 0
+        while True:
+            resp = await self._request(
+                "GET", f"/issue/{key}/comment",
+                params={"orderBy": "created", "startAt": start},
+            )
+            data = resp.json()
+            page = data.get("comments", [])
+            comments.extend(page)
+            start += len(page)
+            if not page or start >= data.get("total", start):
+                return comments
+
 
 class JiraTaskSource:
     """``TaskSource`` adapter over :class:`JiraClient` (RFC tickets)."""
@@ -290,3 +312,34 @@ class JiraTaskSource:
     def visibility(self) -> Literal["public", "private"]:
         """Jira RFCs are externally visible (feature 008)."""
         return "public"
+
+    async def list_comments(
+        self, ref: str, since: str | None = None
+    ) -> list[Feedback]:
+        """List an RFC's comments as ``Feedback`` (feature 013).
+
+        ``since`` is an ISO-8601 cutoff, filtered client-side after
+        fetching every comment (Jira REST v2 has no server-side time
+        filter on this endpoint).
+        """
+        raw = await self._client.list_comments(ref)
+        cutoff = parse_iso(since) if since else None
+        items = [self._to_feedback(ref, c) for c in raw]
+        return [f for f in items if cutoff is None or f.created_at > cutoff]
+
+    @staticmethod
+    def _to_feedback(ref: str, comment: dict) -> Feedback:
+        author = (comment.get("author") or {}).get("displayName", "")
+        return Feedback(
+            external_id=f"jira-comment:{ref}:{comment['id']}",
+            origin="ticket",
+            author=author,
+            body=comment.get("body") or "",
+            created_at=parse_iso(comment["created"]),
+        )
+
+    async def acknowledge(
+        self, _feedback: Feedback, _token: str = "eyes"
+    ) -> bool:
+        """Jira REST v2 has no reaction endpoint (feature 013)."""
+        return False

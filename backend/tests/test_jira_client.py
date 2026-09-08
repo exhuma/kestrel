@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import ssl
+from datetime import datetime, timezone
 
 import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
-from app.ports import LifecycleEvent, Task
+from app.ports import Feedback, LifecycleEvent, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
 from app.services.workflow_text import has_subtask_sentinel
 
@@ -299,3 +300,116 @@ def test_supports_time_spent_reflects_configured_field() -> None:
     cfg = _config(time_spent_field="timespent")
     assert JiraTaskSource(client, config=cfg).supports_time_spent() is True
     assert JiraTaskSource(client, config=None).supports_time_spent() is False
+
+
+# ---- feedback intake (feature 013) -------------------------------------
+
+
+def _jira_comment(comment_id="1", body="hi", author="Jane Reviewer",
+                   created="2026-01-01T00:00:00.000+0000") -> dict:
+    return {
+        "id": comment_id, "body": body,
+        "author": {"displayName": author}, "created": created,
+    }
+
+
+@pytest.mark.asyncio
+async def test_jira_list_comments_maps_fields_and_mints_external_id() -> None:
+    """Ensure list_comments maps a Jira comment to Feedback correctly."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "comments": [_jira_comment(comment_id="42")],
+                "startAt": 0, "maxResults": 50, "total": 1,
+            },
+        )
+
+    src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
+    items = await src.list_comments("RFC-1")
+    assert items == [
+        Feedback(
+            external_id="jira-comment:RFC-1:42",
+            origin="ticket",
+            author="Jane Reviewer",
+            body="hi",
+            created_at=items[0].created_at,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_jira_list_comments_since_cursor_excludes_prior_item() -> None:
+    """Ensure a second call using the first call's newest cursor never
+    re-returns that same comment (round-trip exclusivity)."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "comments": [
+                    _jira_comment(
+                        comment_id="1", created="2026-01-01T00:00:00.000+0000"
+                    ),
+                    _jira_comment(
+                        comment_id="2", created="2026-01-02T00:00:00.000+0000"
+                    ),
+                ],
+                "startAt": 0, "maxResults": 50, "total": 2,
+            },
+        )
+
+    src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
+    first = await src.list_comments("RFC-1")
+    cursor = first[-1].created_at.isoformat()
+
+    second = await src.list_comments("RFC-1", since=cursor)
+
+    assert [i.external_id for i in second] == []
+
+
+@pytest.mark.asyncio
+async def test_jira_list_comments_paginates_via_start_at() -> None:
+    """Ensure multi-page comment lists are followed to the end."""
+    pages = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        start = int(req.url.params.get("startAt", "0"))
+        pages.append(start)
+        if start == 0:
+            return httpx.Response(
+                200,
+                json={
+                    "comments": [_jira_comment(comment_id="1")],
+                    "startAt": 0, "maxResults": 1, "total": 2,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "comments": [_jira_comment(comment_id="2")],
+                "startAt": 1, "maxResults": 1, "total": 2,
+            },
+        )
+
+    client = _client(handler, auth="basic", email="e", token="t")
+    raw = await client.list_comments("RFC-1")
+    assert [c["id"] for c in raw] == ["1", "2"]
+    assert pages == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_jira_acknowledge_always_returns_false() -> None:
+    """Ensure acknowledge never raises and always returns False (no REST
+    v2 reaction endpoint)."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("must not call Jira")
+
+    src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
+    feedback = Feedback(
+        external_id="jira-comment:RFC-1:1", origin="ticket",
+        author="Jane", body="hi", created_at=datetime.now(timezone.utc),
+    )
+    assert await src.acknowledge(feedback) is False

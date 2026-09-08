@@ -8,34 +8,31 @@ from typing import TYPE_CHECKING
 from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
+from app.services.feedback.dispatch import drain_feedback
+from app.services.github import change_request_number
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
     extract_boundary,
     extract_plan,
-    extract_understanding,
     has_sentinel,
     has_subtask_sentinel,
 )
 from app.services.workflows import interview, screenshots
 from app.services.workflows.driver.code_verify import code_and_verify
+from app.services.workflows.driver.describe import describe
 from app.services.workflows.driver.escalate import fail_active_steps
 from app.services.workflows.driver.gap_analysis import run_gap_analysis
 from app.services.workflows.prompts import (
-    DESCRIBE_FEEDBACK_PROMPT,
-    DESCRIBE_PROMPT,
     DESIGN_PROMPT,
+    MID_RUN_FEEDBACK_APPENDIX,
 )
 from app.services.workflows.sessions import _bind
-from app.services.workflows.shared import _TRANSIENT, _now_utc
+from app.services.workflows.shared import _TRANSIENT, _now_utc, _Rejected
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
 
 _logger = logging.getLogger(__name__)
-
-
-class _Rejected(Exception):
-    """Internal signal that a gate was rejected."""
 
 
 async def recover(service: "WorkflowService") -> None:
@@ -191,20 +188,33 @@ async def continue_run(
     :func:`_seed_from_sentinel`), always ends the run, so the caller
     returns rather than falling through to design. The code<->verify
     loop may also escalate instead of delivering (FR-018/FR-020).
+
+    Each not-yet-done step is preceded by a ``drain_feedback`` call
+    (feature 013, US2/US3): a no-op on a fresh drive (nothing queued
+    yet), but on a resumed/revived run it folds in whatever ticket or
+    triage feedback was queued for this run with nowhere else to land —
+    never mid-turn, only at a boundary this loop already reaches
+    naturally. ``gap_analysis`` is a fan-out/reconcile/critic turn, not
+    a single prompt like describe/refine/design, so feeding drained
+    feedback into it is intentionally left for a follow-up rather than
+    bolted on here.
     """
     # Reserve this run's artifact folder once the worktree exists —
     # covers both the fresh drive and a resumed run (no-op if already
     # chosen and restored from the DB).
     service._ensure_artifact_dir(run)
     if run.steps[0].status != "done":
-        await describe(service, run, issue_body)
+        describe_feedback = drain_feedback(service, run)
+        await describe(service, run, issue_body, feedback=describe_feedback)
     if run.steps[1].status != "done":
-        await refine(service, run)
+        refine_feedback = drain_feedback(service, run)
+        await refine(service, run, feedback=refine_feedback)
     if run.steps[2].status != "done":
         await run_gap_analysis(service, run)
         return
     if run.steps[3].status != "done":
-        await design(service, run)
+        design_feedback = drain_feedback(service, run)
+        await design(service, run, feedback=design_feedback)
     if run.steps[5].status != "done":
         escalated = await code_and_verify(service, run)
         if escalated:
@@ -212,99 +222,9 @@ async def continue_run(
     await deliver(service, run)
 
 
-async def describe(
-    service: "WorkflowService", run: WorkflowRun, body: str | None = None
+async def refine(
+    service: "WorkflowService", run: WorkflowRun, feedback: str = ""
 ) -> None:
-    """Drive the understanding-checkpoint gate to a confirmed restatement.
-
-    Restates kestrel's read of the ingested task in plain language and
-    parks for the requester to confirm or amend it — before any
-    clarifying question is asked (FR-001/FR-002/FR-003). Structurally
-    identical to :func:`refine`'s approve / reject-with-feedback /
-    reject-without-feedback gate loop, minus the multi-round interview
-    and the publish-to-ticket step (the restatement is never itself
-    published — only used to confirm intent before refine begins).
-    """
-    step = run.steps[0]
-    step.model = get_policy().model_for(Step.DESCRIBE)
-    if step.status != "awaiting_approval":
-        if body is None:
-            body = (
-                await service._task_source(run).get_task(run.task_ref)
-            ).body
-        run.status = "describing"
-        step.status = "running"
-        slot = StepSession(
-            profile_id="describer", label="Understanding", badge="agent"
-        )
-        step.active_sessions = [slot]
-        service._save(run)
-        result = await service._run_turn_tracked(
-            run,
-            service.backends.backend_for(Step.DESCRIBE),
-            TurnRequest(
-                prompt=DESCRIBE_PROMPT.format(issue=body),
-                cwd=run.workspace,
-                permission_mode="plan",
-                model=step.model,
-                resume_id=step.session_id,
-            ),
-            slot,
-            _bind(step, slot),
-        )
-        step.deliverable = (
-            extract_understanding(result.final_text) or result.final_text
-        )
-        service._retire_sessions(run, step)  # chips off at the gate
-        step.status = "awaiting_approval"
-        run.status = "awaiting_describe_approval"
-        set_clock(run, "waiting", _now_utc())
-        service._save(run)
-    while True:
-        decision = await service._await_gate(run.id)
-        set_clock(run, "active", _now_utc())
-        if decision.approved:
-            step.deliverable = decision.deliverable or (
-                step.deliverable or ""
-            )
-            step.status = "done"
-            service._save(run)
-            return
-        if decision.refinement is None:
-            raise _Rejected()
-        slot = StepSession(
-            profile_id="describer", label="Understanding", badge="agent"
-        )
-        service._retire_sessions(run, step)
-        step.active_sessions = [slot]
-        service._save(run)
-        result = await service._run_turn_tracked(
-            run,
-            service.backends.backend_for(Step.DESCRIBE),
-            TurnRequest(
-                prompt=DESCRIBE_FEEDBACK_PROMPT.format(
-                    current=step.deliverable or "",
-                    feedback=decision.refinement,
-                ),
-                cwd=run.workspace,
-                permission_mode="plan",
-                model=step.model,
-                resume_id=None,
-            ),
-            slot,
-            _bind(step, slot),
-        )
-        step.deliverable = (
-            extract_understanding(result.final_text) or result.final_text
-        )
-        service._retire_sessions(run, step)  # chips off at the gate
-        step.status = "awaiting_approval"
-        run.status = "awaiting_describe_approval"
-        set_clock(run, "waiting", _now_utc())
-        service._save(run)
-
-
-async def refine(service: "WorkflowService", run: WorkflowRun) -> None:
     """Drive the profile-aware refinement interview to an approved,
     refined issue.
 
@@ -315,19 +235,31 @@ async def refine(service: "WorkflowService", run: WorkflowRun) -> None:
     rounds. A writer then folds every answer into the refined issue,
     to which the deterministic risk section is appended before the
     approval gate.
+
+    :param feedback: Ticket/triage feedback drained at the boundary just
+        before this step started (feature 013, US2/US3), folded into the
+        seed when present. On a resume (this step already produced a
+        deliverable once — a review-feedback triage re-opening an
+        already-approved PRD), that prior deliverable is the seed; on a
+        genuinely fresh run, the ticket's current body is (always
+        re-fetched rather than threaded through from describe's gate,
+        since a resumed coroutine may never have received the original
+        body — the ticket is refine's one durable source until this same
+        call publishes over it below).
     """
     step = run.steps[1]
     step.model = get_policy().model_for(Step.REFINE)
     if step.status != "awaiting_approval":
-        # Always re-fetched rather than threaded through from describe's
-        # gate: refine can only start fresh *after* the describe gate has
-        # been passed, which may happen in a resumed coroutine that never
-        # received the original ticket body — the ticket itself is the
-        # one durable source for it, stable until this same call publishes
-        # over it below.
-        body = (await service._task_source(run).get_task(run.task_ref)).body
+        if step.deliverable:
+            seed = step.deliverable
+        else:
+            seed = (
+                await service._task_source(run).get_task(run.task_ref)
+            ).body
+        if feedback:
+            seed += MID_RUN_FEEDBACK_APPENDIX.format(feedback=feedback)
         issue, accumulated = await interview.run_interview(
-            service, run, body
+            service, run, seed
         )
         step.deliverable = await interview.write_refined(
             service, run, issue, accumulated
@@ -367,8 +299,15 @@ async def refine(service: "WorkflowService", run: WorkflowRun) -> None:
         service._save(run)
 
 
-async def design(service: "WorkflowService", run: WorkflowRun) -> None:
-    """Run the designer: produce a high-level design/plan. Gateless."""
+async def design(
+    service: "WorkflowService", run: WorkflowRun, feedback: str = ""
+) -> None:
+    """Run the designer: produce a high-level design/plan. Gateless.
+
+    :param feedback: Ticket feedback drained at the boundary just before
+        this step started (feature 013, US2) — folded into the prompt
+        alongside the PRD, when present.
+    """
     step = run.steps[3]
     prd = run.steps[1].deliverable or ""
     # Persist the approved PRD as a handover artifact, then reference it
@@ -381,13 +320,16 @@ async def design(service: "WorkflowService", run: WorkflowRun) -> None:
     slot = StepSession(profile_id="designer", label="Designer", badge="agent")
     step.active_sessions = [slot]
     service._save(run)
+    prompt = DESIGN_PROMPT.format(
+        issue=service._artifact_slot(Step.DESIGN, run, "prd.md", prd)
+    )
+    if feedback:
+        prompt += MID_RUN_FEEDBACK_APPENDIX.format(feedback=feedback)
     result = await service._run_turn_tracked(
         run,
         service.backends.backend_for(Step.DESIGN),
         TurnRequest(
-            prompt=DESIGN_PROMPT.format(
-                issue=service._artifact_slot(Step.DESIGN, run, "prd.md", prd)
-            ),
+            prompt=prompt,
             cwd=run.workspace,
             permission_mode="plan", model=model,
             resume_id=step.session_id,
@@ -409,20 +351,57 @@ async def design(service: "WorkflowService", run: WorkflowRun) -> None:
     service._save(run)
 
 
+def _change_request_texts(run: WorkflowRun) -> tuple[str, str, str]:
+    """(commit_msg, cr_title, cr_body), source-aware.
+
+    A GitHub run closes its issue (#n); a Jira run references the RFC key
+    (the ticket is in Jira).
+    """
+    if run.issue_number is not None:
+        return (
+            f"Implement #{run.issue_number}",
+            f"{run.issue_title} (#{run.issue_number})",
+            f"Closes #{run.issue_number}\n\nOpened by kestrel.",
+        )
+    return (
+        f"Implement {run.task_ref}",
+        f"{run.issue_title} ({run.task_ref})",
+        f"Implements {run.task_ref}\n\nOpened by kestrel.",
+    )
+
+
+async def _open_or_confirm_change_request(
+    service: "WorkflowService", run: WorkflowRun
+) -> bool:
+    """
+    Open the change request, unless one is already open for this run.
+
+    Idempotent for a resumed run (feature 013, US3): when ``run.pr_number``
+    is already set — this run has been through ``deliver()`` once before
+    and the caller (``feedback/dispatch.py``) only resumes it when that
+    request is still open — this is a second delivery pass onto the SAME
+    branch. Opening a second change request would fork the review thread
+    the human is already on, so this skips straight to just having pushed.
+
+    :returns: ``True`` if a NEW change request was opened this call
+        (governs which landing comment ``deliver`` posts).
+    """
+    if run.pr_number is not None:
+        return False
+    _, cr_title, cr_body = _change_request_texts(run)
+    run.pr_url = await service._code_host(run).open_change_request(
+        run.repo, head=run.branch, base=run.base_branch,
+        title=cr_title, body=cr_body,
+    )
+    run.pr_number = change_request_number(run.pr_url)
+    return True
+
+
 async def deliver(service: "WorkflowService", run: WorkflowRun) -> None:
-    """Commit, push, open the change request, and finish the run."""
+    """Commit, push, open (or confirm) the change request, and finish."""
     run.status = "opening_pr"
     service._save(run)
-    # Change-request metadata is source-aware: a GitHub run closes its
-    # issue (#n); a Jira run references the RFC key (the ticket is in Jira).
-    if run.issue_number is not None:
-        commit_msg = f"Implement #{run.issue_number}"
-        cr_title = f"{run.issue_title} (#{run.issue_number})"
-        cr_body = f"Closes #{run.issue_number}\n\nOpened by kestrel."
-    else:
-        commit_msg = f"Implement {run.task_ref}"
-        cr_title = f"{run.issue_title} ({run.task_ref})"
-        cr_body = f"Implements {run.task_ref}\n\nOpened by kestrel."
+    commit_msg, _, _ = _change_request_texts(run)
     # The coder (or the loop's safety net) may already have committed
     # everything — e.g. a run accepted on its first round with no
     # trailing artifact writes since. An empty `git commit` errors, so
@@ -432,20 +411,18 @@ async def deliver(service: "WorkflowService", run: WorkflowRun) -> None:
     await service.git.push(
         run.workspace, run.branch, service._code_host(run).git_credential()
     )
-    run.pr_url = await service._code_host(run).open_change_request(
-        run.repo,
-        head=run.branch,
-        base=run.base_branch,
-        title=cr_title,
-        body=cr_body,
-    )
+    opened = await _open_or_confirm_change_request(service, run)
     run.status = "done"
     service._save(run)
     # Post the change-request link to the ticket (best-effort — FR-019).
+    # A resumed run (idempotent path above) gets an "Updated" comment
+    # instead — never a second "opened" announcement for the same request.
+    message = (
+        f"Change request opened: {run.pr_url}" if opened
+        else f"Updated the change request: {run.pr_url}"
+    )
     try:
-        await service._task_source(run).post_comment(
-            run.task_ref, f"Change request opened: {run.pr_url}"
-        )
+        await service._task_source(run).post_comment(run.task_ref, message)
     except Exception:  # noqa: BLE001 — best-effort; run is already done
         _logger.exception("failed to post CR link for %s", run.task_ref)
     # Upload the verify screenshots to the ticket (Jira attaches them;

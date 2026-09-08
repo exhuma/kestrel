@@ -14,6 +14,20 @@ from app.services.workflow_text import append_subtask_sentinel
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
+from tests.fixtures_text import (
+    _coord,
+    _coverage,
+    _qs,
+    _refine_noquestions,
+    _refined,
+    _verdict,
+)
+
+#: Re-exported for other test modules' ``from tests.conftest import ...``.
+__all__ = [
+    "_coord", "_coverage", "_qs", "_refined", "_refine_noquestions",
+    "_verdict",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -97,6 +111,9 @@ class _FakeGit:
     ) -> None: ...
     async def add_worktree(
         self, mirror_dir: str, dest: str, base_branch: str, new_branch: str
+    ) -> None: ...
+    async def add_worktree_existing(
+        self, mirror_dir: str, dest: str, branch: str
     ) -> None: ...
     async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
 
@@ -189,6 +206,9 @@ class _FakeGitHub:
         #: technical-analysis summary, or deliver's CR-link comment).
         self.comments: list[tuple[str, int, str]] = []
         self._next_issue_number = 100
+        #: Backs get_pull_request (feature 013, US3) — "open"/"merged"/
+        #: "closed", read by GitHubCodeHost.get_change_request.
+        self.pr_state: str = "open"
 
     async def get_issue(self, repo: str, number: int) -> Issue:
         return Issue(number=number, title="Add widget", body=self.body)
@@ -211,6 +231,12 @@ class _FakeGitHub:
     ) -> str:
         self.comments.append((repo, number, body))
         return f"https://github.com/{repo}/issues/{number}#comment"
+    async def get_pull_request(self, repo: str, number: int) -> dict:
+        return {
+            "state": "closed" if self.pr_state != "open" else "open",
+            "merged": self.pr_state == "merged",
+            "html_url": f"https://github.com/{repo}/pull/{number}",
+        }
 
 
 class _FakeRunner:
@@ -308,7 +334,9 @@ class _RoutingPolicy:
         return None
 
 
-def _service(github, runner, git, settings=None) -> WorkflowService:
+def _service(
+    github, runner, git, settings=None, feedback_store=None
+) -> WorkflowService:
     return WorkflowService(
         settings=settings or Settings(
             git_base="https://github.com", github_token="t"
@@ -319,6 +347,7 @@ def _service(github, runner, git, settings=None) -> WorkflowService:
         git=git,
         github=github,
         notifier=_FakeNotifier(),
+        feedback_store=feedback_store,
     )
 
 
@@ -336,19 +365,6 @@ def _artifact_service(tmp_path, policy, github=None):
         _FakeGit(),
         settings=_settings(workspace_root=str(tmp_path)),
     )
-
-
-def _coverage(**flags: bool) -> str:
-    """A completeness-critic COVERAGE block, one flag per audience."""
-    audiences = [
-        {"audience": a, "covered": c} for a, c in flags.items()
-    ]
-    return f"<COVERAGE>{json.dumps({'audiences': audiences})}</COVERAGE>"
-
-
-def _coord(ids: list[str]) -> str:
-    """A coordinator PROFILES block naming the profiles to interview."""
-    return f"<PROFILES>{json.dumps(ids)}</PROFILES>"
 
 
 def _q(qid="q1", prompt="Which auth?", qtype="single_select",
@@ -371,38 +387,6 @@ def _q(qid="q1", prompt="Which auth?", qtype="single_select",
     if folded_from is not None:
         q["folded_from"] = folded_from
     return q
-
-
-def _qs(*questions: dict) -> str:
-    """A generator QUESTIONS block wrapping the given questions."""
-    body = json.dumps({"questions": list(questions)})
-    return f"<QUESTIONS>{body}</QUESTIONS>"
-
-
-def _refined(text: str) -> str:
-    """A writer REFINED_ISSUE block."""
-    return f"<REFINED_ISSUE>\n{text}\n</REFINED_ISSUE>"
-
-
-def _verdict(
-    accept: bool = True,
-    feedback: str = "",
-    observations: list[dict] | None = None,
-) -> str:
-    """A verifier VERDICT block (feature 003 autonomous loop).
-
-    ``observations`` optionally carries self-reported http/ui findings
-    (feature 005) — a list of ``{name, kind, passed, detail}`` dicts.
-    """
-    payload: dict = {"accept": accept, "feedback": feedback}
-    if observations is not None:
-        payload["observations"] = observations
-    return f"<VERDICT>{json.dumps(payload)}</VERDICT>"
-
-
-#: Simplest refine leg: coordinator needs nobody, writer emits the issue.
-def _refine_noquestions(text: str) -> list[str]:
-    return [_coord([]), _refined(text)]
 
 
 def _subtask_body(text: str) -> str:
@@ -440,6 +424,43 @@ class _FakeDismissals:
 
     def clear(self, task_ref: str) -> None:
         self.added = [p for p in self.added if p != task_ref]
+
+
+class _FakeFeedbackStore:
+    """In-memory FeedbackStore double for the feedback-intake pipeline
+    tests (feature 013) — avoids standing up a real sqlite DB/migration
+    for tests that only exercise pipeline logic (persistence internals
+    are already covered by test_feedback_store.py)."""
+
+    def __init__(self) -> None:
+        self.items: dict[str, object] = {}
+        self.cursors: dict[str, str] = {}
+
+    def claim(self, item) -> bool:
+        if item.external_id in self.items:
+            return False
+        self.items[item.external_id] = item
+        return True
+
+    def queued_for(self, workflow_id: str) -> list:
+        return [
+            item for item in self.items.values()
+            if item.workflow_id == workflow_id and item.state == "queued"
+        ]
+
+    def mark(self, external_id: str, state: str, target_step=None) -> None:
+        item = self.items.get(external_id)
+        if item is None:
+            return
+        item.state = state
+        if target_step is not None:
+            item.target_step = target_step
+
+    def cursor(self, scope: str) -> str | None:
+        return self.cursors.get(scope)
+
+    def set_cursor(self, scope: str, value: str) -> None:
+        self.cursors[scope] = value
 
 
 def _write_fixture_task(fixtures_dir, slug: str, **fields) -> None:

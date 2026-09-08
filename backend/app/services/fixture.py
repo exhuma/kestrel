@@ -15,7 +15,8 @@ import os
 from datetime import datetime, timezone
 from typing import Literal
 
-from app.ports import LifecycleEvent, Task
+from app.ports import Feedback, LifecycleEvent, Task
+from app.services.feedback.timeparse import parse_iso
 
 _PREFIX = "fixture:"
 
@@ -107,3 +108,53 @@ class FixtureTaskSource:
     def visibility(self) -> Literal["public", "private"]:
         """Fixture tasks are local and admin-only (feature 008)."""
         return "private"
+
+    async def list_comments(
+        self, ref: str, since: str | None = None
+    ) -> list[Feedback]:
+        """
+        Read marker-gated feedback from ``<slug>.comments.jsonl``.
+
+        Never reads ``<slug>.log`` — that file is this adapter's own
+        ``post_comment`` sink; reading it back would be a self-feedback
+        loop by construction (feature 013, research.md R1). Each line is
+        one JSON object: ``{"author", "body", "created_at"}``. ``since``
+        is an ISO-8601 cutoff, filtered client-side.
+        """
+        path = os.path.join(self._dir, f"{_slug(ref)}.comments.jsonl")
+        if not os.path.isfile(path):
+            return []
+        cutoff = parse_iso(since) if since else None
+        slug = _slug(ref)
+        items: list[Feedback] = []
+        with open(path, encoding="utf-8") as handle:
+            for line_no, raw_line in enumerate(handle):
+                item = self._parse_comment_line(slug, line_no, raw_line, cutoff)
+                if item is not None:
+                    items.append(item)
+        return items
+
+    @staticmethod
+    def _parse_comment_line(
+        slug: str, line_no: int, raw_line: str, cutoff: datetime | None
+    ) -> Feedback | None:
+        line = raw_line.strip()
+        if not line:
+            return None
+        data = json.loads(line)
+        created = parse_iso(data["created_at"])
+        if cutoff is not None and created <= cutoff:
+            return None
+        return Feedback(
+            external_id=f"fixture:{slug}:{line_no}",
+            origin="ticket",
+            author=data.get("author", ""),
+            body=data.get("body", ""),
+            created_at=created,
+        )
+
+    async def acknowledge(
+        self, _feedback: Feedback, _token: str = "eyes"
+    ) -> bool:
+        """A local file has no reaction concept (feature 013)."""
+        return False

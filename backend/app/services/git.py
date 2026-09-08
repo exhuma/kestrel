@@ -220,18 +220,62 @@ class GitService:
         with open(os.path.join(info_dir, "exclude"), "w") as f:
             f.write("\n".join(_KESTREL_ARTIFACT_EXCLUDES) + "\n")
 
+    async def _worktree_add(
+        self, mirror_dir: str, dest: str, args: list[str]
+    ) -> None:
+        """Run ``git worktree add <args>``, then set commit identity.
+
+        Shared by :meth:`add_worktree`/:meth:`add_worktree_existing`
+        (feature 013, US3) so the ``worktree add`` lock/invocation and the
+        ``user.email``/``user.name`` identity lines are not duplicated —
+        this repo's jscpd copy-paste budget is thin.
+        """
+        async with self._lock_for(mirror_dir):
+            await self._git("-C", mirror_dir, "worktree", "add", *args)
+        await self._git("config", "user.email", "kestrel@local", cwd=dest)
+        await self._git("config", "user.name", "kestrel", cwd=dest)
+
     async def add_worktree(
         self, mirror_dir: str, dest: str, base_branch: str, new_branch: str
     ) -> None:
         """Add a worktree on a new branch from the current remote base."""
-        async with self._lock_for(mirror_dir):
+        await self._worktree_add(
+            mirror_dir, dest,
+            ["-b", new_branch, dest, f"origin/{base_branch}"],
+        )
+
+    async def _has_local_branch(self, mirror_dir: str, branch: str) -> bool:
+        """Whether ``branch`` has a local ref in the mirror (no network I/O)."""
+        try:
             await self._git(
-                "-C", mirror_dir, "worktree", "add", "-b", new_branch,
-                dest, f"origin/{base_branch}",
+                "-C", mirror_dir, "show-ref", "--verify", "--quiet",
+                f"refs/heads/{branch}",
             )
-        # Commit identity for this worktree (writes to the shared config).
-        await self._git("config", "user.email", "kestrel@local", cwd=dest)
-        await self._git("config", "user.name", "kestrel", cwd=dest)
+            return True
+        except GitError:
+            return False
+
+    async def add_worktree_existing(
+        self, mirror_dir: str, dest: str, branch: str
+    ) -> None:
+        """
+        Add a worktree resuming an existing branch (feature 013, US3).
+
+        Resumes the mirror's local ref for ``branch`` when present — the
+        common case, since :func:`app.services.workflows.driver.deliver`
+        keeps the branch after tearing down its worktree. Falls back to
+        ``-b <branch> ... origin/<branch>`` when the mirror holds no local
+        ref for it (e.g. a fresh ``workspace_root``). This method performs
+        no network I/O itself: the caller (``driver/resume.py``) always
+        runs ``ensure_mirror`` immediately before it, so ``origin/<branch>``
+        is already current by the time the fallback path reads it.
+        """
+        if await self._has_local_branch(mirror_dir, branch):
+            await self._worktree_add(mirror_dir, dest, [dest, branch])
+        else:
+            await self._worktree_add(
+                mirror_dir, dest, ["-b", branch, dest, f"origin/{branch}"],
+            )
 
     async def remove_worktree(self, mirror_dir: str, dest: str) -> None:
         """Remove a run's worktree, leaving the mirror and other runs intact."""

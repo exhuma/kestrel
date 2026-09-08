@@ -197,6 +197,23 @@ class Settings(BaseSettings):
     #: stay inspectable — only an explicit abandon still removes them. Off
     #: by default: a personal tool should not silently accumulate worktrees.
     workflow_debug: bool = False
+    #: Trigger token a ticket comment or PR review must contain, whole-token
+    #: and case-insensitive, for kestrel to act on it at all (feature 013,
+    #: ``KESTREL_FEEDBACK_MARKER``). Unmarked feedback is never even
+    #: recorded — the primary self-triggering-loop guard (constitution's
+    #: recorded self-feedback-loop risk).
+    feedback_marker: str = "@kestrel"
+    #: Authors whose marked feedback is still discarded before it reaches
+    #: persistence (feature 013) — the second independent self-loop guard,
+    #: alongside GitHub's ``user.type == "Bot"`` detection. Empty by
+    #: default; an operator adds kestrel's own configured identity here if
+    #: it ever posts comments as an authenticated user rather than a bot.
+    feedback_ignore_authors: list[str] = []
+    #: How far back a poll-based source's ``list_comments``/
+    #: ``list_review_comments`` call looks when no ``feedback_cursor`` row
+    #: exists yet (feature 013) — bounds the first read after a fresh
+    #: ticket/PR starts being watched.
+    feedback_window_days: int = 14
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

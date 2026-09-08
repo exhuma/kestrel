@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
+
+_log = logging.getLogger(__name__)
 
 SENTINEL = "<!-- kestrel:refined -->"
 #: Marks a ticket as a follow-up task published by `gap_analysis` (feature
@@ -317,3 +320,59 @@ def extract_mockups(text: str) -> list[dict[str, str]]:
     if not isinstance(data, list):
         return []
     return [_mockup_entry(item) for item in data if _is_mockup(item)]
+
+
+#: Legal re-entry steps a feedback-triage turn may select on *this*
+#: branch's ``Step`` enum (feature 013, US3). ``describe``/``gap_analysis``
+#: are feature 012 decomposition steps not present here — see
+#: ``app.services.workflows.reentry.REENTRY_STEPS``, which this mirrors.
+_TRIAGE_STEPS = frozenset({"refine", "design", "code"})
+#: Fallback re-entry step for a parse miss or an unrecognized value
+#: (never fails the dispatch outright — research.md's degrade-gracefully
+#: posture).
+_DEFAULT_TRIAGE_STEP = "code"
+#: The empty triage result a parse miss falls back to.
+_EMPTY_TRIAGE = {"step": _DEFAULT_TRIAGE_STEP, "reason": "", "instruction": ""}
+
+
+def _triage_str_field(data: dict, field: str) -> str:
+    value = data.get(field)
+    return value if isinstance(value, str) else ""
+
+
+def extract_feedback_triage(text: str) -> dict[str, str]:
+    """
+    Return the triage turn's classified re-entry step + instruction.
+
+    The triage agent wraps a JSON object in ``<TRIAGE>`` tags:
+    ``{"step": "code", "reason": "...", "instruction": "..."}``. A parse
+    failure (missing tag, malformed JSON, not an object) falls back to
+    :data:`_EMPTY_TRIAGE` wholesale; a ``step`` outside
+    :data:`_TRIAGE_STEPS` falls back to ``"code"`` alone, keeping whatever
+    ``reason``/``instruction`` were still well-formed. Both cases log a
+    warning — this never fails the dispatch outright (FR-009).
+
+    :param text: The triage turn's full response text.
+    :returns: ``{"step", "reason", "instruction"}``, all strings.
+    """
+    raw = _extract_tag(text, "TRIAGE")
+    if raw is None:
+        _log.warning("extract_feedback_triage: no <TRIAGE> tag found")
+        return dict(_EMPTY_TRIAGE)
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        _log.warning("extract_feedback_triage: malformed JSON: %r", raw)
+        return dict(_EMPTY_TRIAGE)
+    if not isinstance(data, dict):
+        _log.warning("extract_feedback_triage: not a JSON object: %r", raw)
+        return dict(_EMPTY_TRIAGE)
+    step = data.get("step")
+    if step not in _TRIAGE_STEPS:
+        _log.warning("extract_feedback_triage: unrecognized step %r", step)
+        step = _DEFAULT_TRIAGE_STEP
+    return {
+        "step": step,
+        "reason": _triage_str_field(data, "reason"),
+        "instruction": _triage_str_field(data, "instruction"),
+    }

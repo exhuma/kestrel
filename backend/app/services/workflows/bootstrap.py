@@ -12,15 +12,12 @@ from app.notifications import (
     TaskSourceNotifier,
 )
 from app.persistence.dismissal_store import get_dismissal_store
+from app.persistence.feedback_store import get_feedback_store
 from app.persistence.notification_store import get_notification_store
 from app.policy import get_backend_policy
 from app.services.git import GitService
-from app.services.github import (
-    GitHubClient,
-    GitHubCodeHost,
-    GitHubTaskSource,
-    parse_github_ref,
-)
+from app.services.github import GitHubClient, GitHubCodeHost, parse_github_ref
+from app.services.github_tasksource import GitHubTaskSource
 from app.services.lifecycle import LifecycleTransitioner
 from app.services.workflows.service import WorkflowService
 from app.storage.notification_bus import get_notification_bus
@@ -122,6 +119,7 @@ def get_workflow_service() -> WorkflowService:
         dismissals=get_dismissal_store(),
         sources=sources,
         code_hosts=code_hosts,
+        feedback_store=get_feedback_store(),
     )
 
 
@@ -141,5 +139,6 @@ def build_code_host(
             source.code_host_base_url,
             source.code_host_token() or "",
             verify=source.verify_ssl,
+            is_gitea=source.code_host == "gitea",
         )
     return GitHubCodeHost(github, git_base)

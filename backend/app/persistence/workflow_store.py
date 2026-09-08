@@ -51,6 +51,7 @@ class WorkflowStore:
                     workspace=run.workspace,
                     status=run.status,
                     pr_url=run.pr_url,
+                    pr_number=run.pr_number,
                     error=run.error,
                     source=run.source,
                     task_ref=run.task_ref,
@@ -60,6 +61,7 @@ class WorkflowStore:
                     wait_seconds=run.wait_seconds,
                     clock_state=run.clock_state,
                     clock_since=run.clock_since,
+                    parent_run_id=run.parent_run_id,
                 )
             )
             for i, step in enumerate(run.steps):
@@ -226,6 +228,7 @@ class WorkflowStore:
                         status=row.status,
                         steps=steps,
                         pr_url=row.pr_url,
+                        pr_number=row.pr_number,
                         error=row.error,
                         source=row.source,
                         task_ref=row.task_ref,
@@ -235,6 +238,7 @@ class WorkflowStore:
                         wait_seconds=row.wait_seconds,
                         clock_state=row.clock_state,
                         clock_since=row.clock_since,
+                        parent_run_id=row.parent_run_id,
                     )
                 )
             return runs

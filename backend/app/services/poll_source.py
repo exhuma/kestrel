@@ -12,6 +12,7 @@ from typing import Protocol
 
 from app.config import Settings
 from app.ports import WorkItem
+from app.services.feedback.poll import get_feedback_poll_service
 from app.services.fixture_poll import get_fixture_poll_services
 from app.services.jira_poll import get_jira_poll_services
 from app.services.reconcile import get_reconcile_services
@@ -40,4 +41,11 @@ def configured_poll_sources(settings: Settings) -> list[PollSource]:
         sources.extend(get_jira_poll_services())
     if settings.fixture_sources():
         sources.extend(get_fixture_poll_services())
+    # Feedback polling (feature 013) is source-agnostic — it walks live
+    # runs rather than a specific source's ticket list — so it registers
+    # once whenever *any* task source is configured, covering every
+    # configured source uniformly (including GitHub's own
+    # missed-webhook-delivery backstop, research.md R2).
+    if settings.task_sources:
+        sources.append(get_feedback_poll_service())
     return sources

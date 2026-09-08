@@ -55,6 +55,10 @@ def test_relabelled_run_loads_as_github_issue(tmp_path: Path) -> None:
         _seed(db, "wf-1", "manual")
 
     command.upgrade(cfg, "0014")
+    # The relabelling itself is what this test verifies; upgrading the rest
+    # of the way to head only keeps the schema in step with WorkflowRunRow's
+    # current (post-0015) column set for the ORM load below.
+    command.upgrade(cfg, "head")
 
     run = WorkflowStore(sessionmaker(bind=engine)).load_all()[0]
     assert run.source == "github-issue"

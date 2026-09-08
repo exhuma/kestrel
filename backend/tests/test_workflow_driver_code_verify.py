@@ -1,10 +1,16 @@
 """Tests for the autonomous coder<->verifier loop (driver/code_verify)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
+from app.models_workflow import WorkflowRun, WorkflowStep
+from app.persistence.tables import FeedbackItemRow
+from app.services.workflows.driver.code_verify import code_and_verify
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
+    _FakeFeedbackStore,
     _FakeGit,
     _FakeGitHub,
     _FakeRunner,
@@ -166,3 +172,53 @@ async def test_verifier_diff_excludes_artifact_folder(tmp_path) -> None:
     await _wait(lambda: svc.get(wid).status == "done")
 
     assert ".kestrel" in git.diff_excludes
+
+
+@pytest.mark.asyncio
+async def test_drained_feedback_folds_into_the_round_start(tmp_path) -> None:
+    """Feedback already queued for a run is picked up at the TOP of the
+    very next code_and_verify round — folded into that round's coder
+    prompt — and marked applied (feature 013, US2).
+
+    Drives ``code_and_verify`` directly (design/refine already "done" on
+    the run passed in) so this proves the round-start drain itself,
+    independent of continue_run's separate pre-design boundary hook
+    (covered in test_workflow_driver.py).
+    """
+    store = _FakeFeedbackStore()
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(), outputs=["Implemented X", _verdict(accept=True)]
+    )
+    svc = _service(
+        gh, runner, _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+        feedback_store=store,
+    )
+    run = WorkflowRun(
+        id="wf-1", repo="o/r", issue_number=5, task_ref="o/r#5",
+        base_branch="main", branch="kestrel/5", workspace=str(tmp_path),
+        status="coding",
+        steps=[
+            WorkflowStep(name="refine", status="done", deliverable="PRD"),
+            WorkflowStep(name="design", status="done", deliverable="Design"),
+            WorkflowStep(name="code", status="pending"),
+            WorkflowStep(name="verify", status="pending"),
+        ],
+    )
+    svc.workflows.create(run)
+    store.claim(FeedbackItemRow(
+        external_id="fb-1", workflow_id="wf-1", task_ref="o/r#5",
+        origin="ticket", author="octocat",
+        body="Also handle the empty-input case",
+        state="queued", created_at=datetime.now(timezone.utc),
+    ))
+
+    escalated = await code_and_verify(svc, run)
+
+    assert escalated is False
+    code_call = next(
+        c for c in runner.calls if c["permission_mode"] == "acceptEdits"
+    )
+    assert "Also handle the empty-input case" in code_call["prompt"]
+    assert store.items["fb-1"].state == "applied"

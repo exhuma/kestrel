@@ -110,3 +110,23 @@ already produced a run is left alone on later polls. Deleting or
 cleaning up that run (the same actions available for every source) frees
 the task to be picked up as new on the next poll — or just remove the
 JSON file once you're done with it.
+
+## Steering a run with feedback
+
+Append a line to `<slug>.comments.jsonl` (next to the task's `.json` file)
+containing kestrel's trigger marker (default `@kestrel`) and it's picked up
+on the next poll cycle, exactly like a real ticket comment:
+
+```jsonl
+{"author": "you", "body": "@kestrel also handle the empty-input case", "created_at": "2026-01-01T12:00:00Z"}
+```
+
+A fixture task never causes kestrel to contact GitHub or Jira, so — like
+Jira — there is no reaction/acknowledgment: kestrel never writes to
+`<slug>.comments.jsonl` itself (only to `<slug>.log`, its own comment
+sink), so there's nothing to react with. See [Feedback
+intake](feedback-intake.md) for the full behaviour: what happens at each
+run state, and what a `done` fixture run reactivating vs. a linked
+successor run looks like in the **Workflows** tab. This is the easiest
+source to validate the feature against locally, since everything —
+task, comments, and kestrel's own replies — is a plain local file.

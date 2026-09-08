@@ -415,3 +415,14 @@ MOCKUP_PROMPT = (
     "Emit an empty array <MOCKUPS>[]</MOCKUPS> if you produced no "
     "screenshots.\n\nCHANGE REQUEST:\n{prd}"
 )
+#: Appended (feature 013, US2) to whatever prompt a boundary in the driver
+#: is about to send when a human left ticket feedback while the run had no
+#: open gate to land it on — folded in as additional context alongside,
+#: never in place of, that turn's existing PRD/design/verifier-feedback
+#: content. Shared by both drain points (``driver/code_verify.py``'s
+#: round-start and ``driver/__init__.py``'s pre-design step boundary) so
+#: there is exactly one place this wording lives.
+MID_RUN_FEEDBACK_APPENDIX = (
+    "\n\nAdditionally, apply this feedback left on the ticket while this "
+    "run was already in progress:\n{feedback}"
+)

@@ -18,6 +18,7 @@ re-measures.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal, Protocol
 
 
@@ -46,6 +47,44 @@ class WorkItem:
     title: str
     code_repo: str | None = None
     base_branch: str | None = None
+
+
+@dataclass
+class Feedback:
+    """One piece of marker-gated feedback read from a ticket or PR review.
+
+    The port-level read result — not itself a database row (the persisted
+    form is ``FeedbackItemRow``, ``persistence/tables.py``). ``external_id``
+    is source-native and adapter-minted (e.g. GitHub's
+    ``"gh-issue-comment:8812"``, Jira's ``"jira-comment:{issue}:{id}"``): it
+    is what makes cross-transport dedup possible (feature 013, R3/R6) — the
+    same webhook-vs-poll race a ``feedback_item`` primary key already
+    guards against for other event classes in this project.
+    """
+
+    external_id: str
+    origin: Literal["ticket", "review"]
+    author: str
+    body: str
+    created_at: datetime
+
+
+@dataclass
+class ChangeRequest:
+    """A pull/merge request's current lifecycle state (feature 013, US3/US4).
+
+    Returned by ``CodeHost.get_change_request`` — the read a run's own
+    review-feedback resume path (and, later, its terminal-run revive-vs-
+    successor decision) branches on. ``state`` is deliberately the three-
+    way GitHub/GitLab both expose natively rather than a boolean: a
+    ``merged`` request is never conflated with a plain ``closed`` one,
+    since only the latter is genuinely abandoned.
+    """
+
+    number: int
+    state: Literal["open", "merged", "closed"]
+    #: Browser-navigable URL, when the adapter has one to hand (best-effort).
+    url: str = ""
 
 
 @dataclass
@@ -198,6 +237,29 @@ class TaskSource(Protocol):
         """
         ...
 
+    async def list_comments(
+        self, ref: str, since: str | None = None
+    ) -> list[Feedback]:
+        """Comments on ``ref``, newest-cursor-forward (feature 013).
+
+        ``since`` is this adapter's own opaque cursor (from a prior call's
+        ``Feedback`` items, or a persisted ``feedback_cursor`` row), or
+        ``None`` to read from the beginning. The port stays ignorant of
+        each source's own pagination scheme (GitHub's ``since=``
+        timestamp, Jira's ``startAt``, fixture's line offset).
+        """
+        ...
+
+    async def acknowledge(
+        self, feedback: Feedback, token: str = "eyes"
+    ) -> bool:
+        """Best-effort reaction on the triggering comment (feature 013).
+
+        :returns: ``False`` (never raises) when this source has no such
+            capability.
+        """
+        ...
+
 
 class CodeHost(Protocol):
     """The repository role, keyed by ``owner/name`` (or a GitLab path)."""
@@ -229,4 +291,38 @@ class CodeHost(Protocol):
         draft: bool = True,
     ) -> str:
         """Open a pull/merge request; return its URL."""
+        ...
+
+    async def get_change_request(
+        self, repo: str, number: int
+    ) -> ChangeRequest:
+        """Fetch a pull/merge request's current lifecycle state.
+
+        The read a review-feedback resume decides on (feature 013,
+        US3/US4): an ``open`` request resumes the same branch, a
+        ``merged``/``closed`` one instead starts a linked successor.
+        """
+        ...
+
+    async def list_review_comments(
+        self, repo: str, number: int, since: str | None = None
+    ) -> list[Feedback]:
+        """Every reviewer-authored signal on the request, ``origin="review"``.
+
+        Merges the request's conversation comments, review-body comments,
+        and inline review comments into one newest-cursor-forward list —
+        the same ``since``-cursor contract as ``TaskSource.list_comments``.
+        """
+        ...
+
+    async def acknowledge(
+        self, feedback: Feedback, token: str = "eyes"
+    ) -> bool:
+        """Best-effort reaction on the triggering review comment.
+
+        :returns: ``False`` (never raises) when this source has no such
+            capability, or ``feedback`` does not carry a reactable
+            ``external_id`` (e.g. a review's own summary comment, which
+            GitHub exposes no reaction endpoint for).
+        """
         ...
