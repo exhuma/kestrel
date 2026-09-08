@@ -140,6 +140,20 @@ class LifecycleEvent:
     deep_link: str = ""
 
 
+class Acknowledgeable(Protocol):
+    """Shared by ``TaskSource`` and ``CodeHost`` (feature 013): whichever
+    one a piece of ``Feedback`` actually came from is acknowledged the
+    same way, so callers (``FeedbackIntakeService``, the poll transport)
+    don't need to know or care which port they're holding."""
+
+    async def acknowledge(
+        self, feedback: Feedback, token: str = "eyes"
+    ) -> bool:
+        """Best-effort reaction on the triggering comment/note. Returns
+        ``False`` (never raises) when the source has no such capability."""
+        ...
+
+
 class TaskSource(Protocol):
     """The ticket role, keyed by an opaque source-native ``ref``."""
 

@@ -106,6 +106,12 @@ class WorkflowRunRow(Base):
     parent_run_id: Mapped[str | None] = mapped_column(
         ForeignKey("workflow_run.id"), nullable=True
     )
+    #: When this run last entered a terminal status (feature 013,
+    #: US3/US4) — bounds FeedbackPollService's post-terminal re-poll
+    #: window. NULL for a run that has never gone terminal.
+    terminal_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
 
 class WorkflowStepRow(Base):

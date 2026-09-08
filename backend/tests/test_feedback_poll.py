@@ -1,7 +1,7 @@
 """Tests for FeedbackPollService (feature 013, US1)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -65,8 +65,16 @@ def _feedback(
     )
 
 
-def _run(run_id: str, task_ref: str, status: str = "coding") -> WorkflowRun:
-    return WorkflowRun(id=run_id, repo="o/r", task_ref=task_ref, status=status)
+def _run(
+    run_id: str,
+    task_ref: str,
+    status: str = "coding",
+    terminal_at: datetime | None = None,
+) -> WorkflowRun:
+    return WorkflowRun(
+        id=run_id, repo="o/r", task_ref=task_ref, status=status,
+        terminal_at=terminal_at,
+    )
 
 
 def _workflow_service(
@@ -85,12 +93,48 @@ def _workflow_service(
 
 
 @pytest.mark.asyncio
-async def test_run_cycle_skips_terminal_runs() -> None:
-    """A done/failed/rejected/escalated run is never polled."""
+async def test_run_cycle_skips_never_repollable_statuses() -> None:
+    """A failed/rejected/decomposed run is never polled: nothing published
+    or left to act on."""
     source = _FakeFeedbackSource()
     workflows = WorkflowRegistry()
-    for status in ("done", "failed", "rejected", "escalated"):
+    for status in ("failed", "rejected", "decomposed"):
         workflows.create(_run(f"wf-{status}", f"o/r#{status}", status=status))
+    svc = _workflow_service({"github-issue": source}, workflows)
+    poll = FeedbackPollService(svc, _FakeFeedbackStore(), _FakeIntake())
+
+    await poll.run_cycle()
+
+    assert source.calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_polls_done_and_escalated_within_window() -> None:
+    """A done/escalated run may still have an open change request or be
+    resumable, so it's polled — a pre-migration row with no ``terminal_at``
+    errs on the side of polling."""
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    for status in ("done", "escalated"):
+        workflows.create(_run(f"wf-{status}", f"o/r#{status}", status=status))
+    svc = _workflow_service({"github-issue": source}, workflows)
+    poll = FeedbackPollService(svc, _FakeFeedbackStore(), _FakeIntake())
+
+    await poll.run_cycle()
+
+    assert {ref for ref, _ in source.calls} == {"o/r#done", "o/r#escalated"}
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_skips_done_past_the_feedback_window() -> None:
+    """A done/escalated run older than ``feedback_window_days`` since going
+    terminal is no longer worth re-polling."""
+    stale = datetime.now() - timedelta(days=99)
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    workflows.create(
+        _run("wf-done", "o/r#done", status="done", terminal_at=stale)
+    )
     svc = _workflow_service({"github-issue": source}, workflows)
     poll = FeedbackPollService(svc, _FakeFeedbackStore(), _FakeIntake())
 

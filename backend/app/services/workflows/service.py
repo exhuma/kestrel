@@ -165,8 +165,10 @@ class WorkflowService:
 
         :param run: The run to checkpoint.
         """
-        if run.status in _TERMINAL_STATUSES and run.clock_state is not None:
-            set_clock(run, None, _now_utc())
+        if run.status in _TERMINAL_STATUSES:
+            run.terminal_at = _now_utc()
+            if run.clock_state is not None:
+                set_clock(run, None, _now_utc())
         self.workflows.save(run)
         self.notifier.notify(run)
         if self.bus is not None:

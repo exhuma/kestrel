@@ -62,6 +62,7 @@ class WorkflowStore:
                     clock_state=run.clock_state,
                     clock_since=run.clock_since,
                     parent_run_id=run.parent_run_id,
+                    terminal_at=run.terminal_at,
                 )
             )
             for i, step in enumerate(run.steps):
@@ -239,6 +240,7 @@ class WorkflowStore:
                         clock_state=row.clock_state,
                         clock_since=row.clock_since,
                         parent_run_id=row.parent_run_id,
+                        terminal_at=row.terminal_at,
                     )
                 )
             return runs

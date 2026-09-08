@@ -203,3 +203,10 @@ class WorkflowRun:
     #: for every run that isn't a successor (the overwhelming majority).
     #: Internal only — never surfaced to the API/UI in this phase.
     parent_run_id: str | None = None
+    #: Naive UTC timestamp this run last entered a terminal status
+    #: (feature 013, US3/US4) — bounds how long ``FeedbackPollService``
+    #: keeps re-polling a finished run for review/ticket feedback
+    #: (``settings.feedback_window_days``), rather than polling every
+    #: `done` run forever. Refreshed each time a terminal status is
+    #: (re-)entered, e.g. by a revived run reaching `done` again.
+    terminal_at: datetime | None = None

@@ -20,7 +20,7 @@ from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun
 from app.persistence.feedback_store import FeedbackStore, get_feedback_store
 from app.persistence.tables import FeedbackItemRow
-from app.ports import Feedback, TaskSource
+from app.ports import Acknowledgeable, Feedback
 from app.services.feedback.bootstrap import get_feedback_dispatcher
 from app.services.feedback.marker import has_marker, is_ignored_author
 from app.services.github import change_request_number
@@ -49,7 +49,7 @@ class FeedbackIntakeService:
         feedback: Feedback,
         *,
         task_ref: str,
-        source: TaskSource,
+        source: Acknowledgeable,
         is_bot: bool = False,
     ) -> None:
         """
@@ -64,8 +64,8 @@ class FeedbackIntakeService:
             comment, or a ``list_comments`` item).
         :param task_ref: The originating ticket's source-native ref —
             how ticket-origin feedback is routed to a run.
-        :param source: The ``TaskSource`` to acknowledge through
-            (whichever the caller read ``feedback`` from).
+        :param source: The ``TaskSource`` or ``CodeHost`` to acknowledge
+            through (whichever the caller read ``feedback`` from).
         :param is_bot: Whether the caller has already identified the
             author as a bot account (GitHub's ``user.type == "Bot"``);
             transports with no such concept leave this ``False``.
@@ -131,7 +131,7 @@ class FeedbackIntakeService:
         return matches[-1] if matches else None
 
     async def _acknowledge(
-        self, source: TaskSource, feedback: Feedback
+        self, source: Acknowledgeable, feedback: Feedback
     ) -> None:
         try:
             await source.acknowledge(feedback)

@@ -209,10 +209,11 @@ class Settings(BaseSettings):
     #: default; an operator adds kestrel's own configured identity here if
     #: it ever posts comments as an authenticated user rather than a bot.
     feedback_ignore_authors: list[str] = []
-    #: How far back a poll-based source's ``list_comments``/
-    #: ``list_review_comments`` call looks when no ``feedback_cursor`` row
-    #: exists yet (feature 013) — bounds the first read after a fresh
-    #: ticket/PR starts being watched.
+    #: How many days after a run goes terminal (done/failed/rejected/
+    #: escalated/decomposed) ``FeedbackPollService`` keeps re-polling it
+    #: for review/ticket feedback (feature 013), rather than polling every
+    #: finished run forever. A run still non-terminal is always polled
+    #: regardless of this setting.
     feedback_window_days: int = 14
 
     def github_sources(self) -> list[TaskSourceConfig]:
