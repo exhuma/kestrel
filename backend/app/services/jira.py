@@ -78,6 +78,19 @@ class JiraClient:
             )
         return resp
 
+    async def check_health(self) -> bool:
+        """Best-effort reachability + auth probe (feature 014).
+
+        A single cheap, issue-independent, authenticated call. Never
+        raises: any failure (network, auth, timeout, malformed response)
+        is caught and reported as ``False``.
+        """
+        try:
+            await self._request("GET", "/myself")
+        except Exception:  # noqa: BLE001 — health checks never raise
+            return False
+        return True
+
     @staticmethod
     def _to_task(issue: dict) -> Task:
         fields = issue.get("fields") or {}
@@ -239,6 +252,9 @@ class JiraTaskSource:
 
     async def get_task(self, ref: str) -> Task:
         return await self._client.get_issue(ref)
+
+    async def check_health(self) -> bool:
+        return await self._client.check_health()
 
     async def post_comment(self, ref: str, body: str) -> str:
         return await self._client.add_comment(ref, body)

@@ -69,8 +69,9 @@ def test_configured_poll_sources_gates_on_type(
     monkeypatch.setattr(poll_source, "get_reconcile_services", lambda: ("R",))
     monkeypatch.setattr(poll_source, "get_jira_poll_services", lambda: ("J",))
     monkeypatch.setattr(poll_source, "get_feedback_poll_service", lambda: "F")
+    monkeypatch.setattr(poll_source, "get_health_poll_service", lambda: "H")
     gh = TaskSourceConfig(type="github", watched_repos=["o/r"])
     jira = TaskSourceConfig(type="jira", base_url="https://j", jql="q", key="R")
     assert poll_source.configured_poll_sources(Settings(_env_file=None)) == []
     both = Settings(_env_file=None, task_sources=[gh, jira])
-    assert poll_source.configured_poll_sources(both) == ["R", "J", "F"]
+    assert poll_source.configured_poll_sources(both) == ["R", "J", "F", "H"]

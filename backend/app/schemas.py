@@ -204,6 +204,18 @@ class NotificationOut(BaseModel):
     read: bool
 
 
+class HealthOut(BaseModel):
+    """One configured source's current health (feature 014).
+
+    ``state`` is only ever ``"unknown"``/``"healthy"``/``"unhealthy"`` —
+    the underlying cause (network vs. auth) never crosses this boundary.
+    """
+
+    name: str
+    state: str
+    checked_at: datetime | None
+
+
 class IdentityOut(BaseModel):
     """The authenticated identity, as forwarded by oauth2-proxy.
 

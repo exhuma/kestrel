@@ -43,6 +43,11 @@ class FixtureTaskSource:
         data = self._load(ref)
         return Task(ref=ref, title=data["title"], body=data["body"])
 
+    async def check_health(self) -> bool:
+        """Always healthy: a local file adapter has nothing external to
+        reach (FR-012, feature 014) — no I/O is performed."""
+        return True
+
     async def post_comment(self, ref: str, body: str) -> str:
         log_path = os.path.join(self._dir, f"{_slug(ref)}.log")
         stamp = datetime.now(timezone.utc).isoformat()

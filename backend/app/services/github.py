@@ -126,6 +126,19 @@ class GitHubClient:
             "Pull requests), or the repo/resource does not exist."
         )
 
+    async def check_health(self) -> bool:
+        """Best-effort reachability + auth probe (feature 014).
+
+        A single cheap, repo-independent, authenticated call. Never
+        raises: any failure (network, auth, timeout, malformed response)
+        is caught and reported as ``False``.
+        """
+        try:
+            await self._request("GET", "/user")
+        except Exception:  # noqa: BLE001 — health checks never raise
+            return False
+        return True
+
     async def get_issue(self, repo: str, number: int) -> Issue:
         """Fetch an issue by number."""
         resp = await self._request("GET", f"/repos/{repo}/issues/{number}")
@@ -356,6 +369,11 @@ class GitHubCodeHost:
 
     async def get_default_branch(self, repo: str) -> str:
         return await self._client.get_default_branch(repo)
+
+    async def check_health(self) -> bool:
+        """Delegates to the shared client — same connection/credential
+        as this profile's task source, when GitHub plays both roles."""
+        return await self._client.check_health()
 
     def clone_remote(self, repo: str) -> str:
         return f"{self._git_base}/{repo}.git"

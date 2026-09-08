@@ -181,6 +181,15 @@ class Settings(BaseSettings):
     #: Single cadence (seconds) governing every source's re-check loop — the
     #: GitHub reconcile backstop and the Jira poll alike.
     poll_interval_seconds: int = 300
+    #: Cadence (seconds) for the background source-health check cycle
+    #: (feature 014) — deliberately independent of, and much shorter
+    #: than, ``poll_interval_seconds``: health is a much cheaper check
+    #: and its whole value is fast diagnostic feedback.
+    health_check_interval_seconds: int = 60
+    #: Per-adapter timeout (seconds) for one health check (feature 014):
+    #: bounds a single unresponsive integration so it cannot stall the
+    #: rest of the cycle.
+    health_check_timeout_seconds: int = 10
     #: Public base URL of the kestrel web UI, used to build gate-notification
     #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
     #: a link. Operator-exposed, same posture as the webhook endpoint.

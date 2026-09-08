@@ -210,3 +210,18 @@ the image small and lets a deploy attach or swap backends purely by config.
   the cost of depending on the CLI's stream format (isolated in one adapter).
 - **SQLite.** Right-sized for a single user; the `KESTREL_DATABASE_URL` seam
   leaves room to attach another database later.
+- **Source health is checked, not persisted.** Whether each configured
+  `TaskSource`/`CodeHost` adapter is currently reachable and authenticated
+  (feature 014) is a `check_health()` capability on the existing ports —
+  a single cheap, ticket-independent, authenticated read per adapter (e.g.
+  GitHub/GitLab `GET /user`, Jira `GET /myself`) — never a new port, and
+  never more than "healthy"/"unhealthy" to the UI: the underlying cause
+  (network vs. auth) is deliberately not surfaced, only logged
+  server-side. Status lives entirely in memory (`HealthStore`), re-derived
+  by a background cycle every `health_check_interval_seconds` plus an
+  on-demand manual refresh — a value from before a restart is not more
+  trustworthy than "unknown", so nothing is persisted. Displayed as a
+  persistent per-source indicator in the app bar (pushed over SSE, the
+  same `list()`-plus-bus pattern as the notification center), so a
+  misconfiguration is visible immediately instead of only surfacing later
+  as a failed run.

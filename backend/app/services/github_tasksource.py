@@ -52,6 +52,11 @@ class GitHubTaskSource:
         issue = await self._client.get_issue(repo, number)
         return Task(ref=ref, title=issue.title, body=issue.body)
 
+    async def check_health(self) -> bool:
+        """Delegates to the shared client — same connection/credential
+        as this profile's code host, when GitHub plays both roles."""
+        return await self._client.check_health()
+
     async def post_comment(self, ref: str, body: str) -> str:
         repo, number = parse_github_ref(ref)
         return await self._client.create_issue_comment(repo, number, body)

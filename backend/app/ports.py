@@ -274,12 +274,28 @@ class TaskSource(Protocol):
         """
         ...
 
+    async def check_health(self) -> bool:
+        """Best-effort reachability + auth probe (feature 014).
+
+        A single cheap, read-only, ticket-independent call (e.g. "who am
+        I") — never a specific ``ref``, since this checks the adapter
+        itself, not any one ticket. MUST NOT raise: any failure (network,
+        auth, timeout, malformed response) is caught internally and
+        reported as ``False`` (contracts/health-check-port.md).
+        """
+        ...
+
 
 class CodeHost(Protocol):
     """The repository role, keyed by ``owner/name`` (or a GitLab path)."""
 
     async def get_default_branch(self, repo: str) -> str:
-        """The repo's default branch (also the reachability probe)."""
+        """The repo's default branch.
+
+        Requires a specific, already-valid ``repo`` — for a repo-
+        independent reachability/auth check, see ``check_health``
+        (feature 014).
+        """
         ...
 
     def clone_remote(self, repo: str) -> str:
@@ -338,5 +354,15 @@ class CodeHost(Protocol):
             capability, or ``feedback`` does not carry a reactable
             ``external_id`` (e.g. a review's own summary comment, which
             GitHub exposes no reaction endpoint for).
+        """
+        ...
+
+    async def check_health(self) -> bool:
+        """Best-effort reachability + auth probe (feature 014).
+
+        A single cheap, read-only, repo-independent call (e.g. "who am
+        I"). MUST NOT raise: any failure (network, auth, timeout,
+        malformed response) is caught internally and reported as
+        ``False`` (contracts/health-check-port.md).
         """
         ...

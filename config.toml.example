@@ -26,6 +26,12 @@
 # Single cadence (seconds) governing how often every task source is re-checked
 # (the GitHub reconcile backstop and the Jira poll alike).
 poll_interval_seconds = 300
+# How often each configured source's health (reachable + authenticated) is
+# re-checked in the background; also re-checked on demand from the UI.
+health_check_interval_seconds = 60
+# How long a single source's health check may take before it's given up on
+# as unhealthy, so one unresponsive integration can't stall the others.
+health_check_timeout_seconds = 10
 # Max code↔verify iterations before the loop escalates.
 max_verify_iterations = 3
 

@@ -73,6 +73,8 @@ stays secret-free. Add more entries (including two of the same type) as needed.
 
 ```toml
 poll_interval_seconds = 300            # one cadence for every source
+health_check_interval_seconds = 60     # how often source health is re-checked
+health_check_timeout_seconds = 10      # per-check timeout before giving up
 
 [[task_sources]]
 type = "github"

@@ -112,9 +112,25 @@ class GitLabCodeHost:
         return quote(repo, safe="")
 
     async def get_default_branch(self, repo: str) -> str:
-        """Return the project's default branch (also the reachability probe)."""
+        """Return the project's default branch."""
         resp = await self._request("GET", f"/projects/{self._pid(repo)}")
         return resp.json()["default_branch"]
+
+    async def check_health(self) -> bool:
+        """Best-effort reachability + auth probe (feature 014).
+
+        A single cheap, project-independent, authenticated call — same
+        endpoint shape for a real GitLab instance and a Gitea instance
+        (this adapter already assumes GitLab-API-compatible endpoints for
+        both, e.g. ``get_default_branch``). Never raises: any failure
+        (network, auth, timeout, malformed response) is caught and
+        reported as ``False``.
+        """
+        try:
+            await self._request("GET", "/user")
+        except Exception:  # noqa: BLE001 — health checks never raise
+            return False
+        return True
 
     def clone_remote(self, repo: str) -> str:
         """The HTTPS git remote a worktree clones/fetches from."""

@@ -14,6 +14,7 @@ from app.config import Settings
 from app.ports import WorkItem
 from app.services.feedback.poll import get_feedback_poll_service
 from app.services.fixture_poll import get_fixture_poll_services
+from app.services.health import get_health_poll_service
 from app.services.jira_poll import get_jira_poll_services
 from app.services.reconcile import get_reconcile_services
 
@@ -48,4 +49,8 @@ def configured_poll_sources(settings: Settings) -> list[PollSource]:
     # missed-webhook-delivery backstop, research.md R2).
     if settings.task_sources:
         sources.append(get_feedback_poll_service())
+        # Source health checks (feature 014): also registered whenever
+        # any task source is configured — it has nothing to check
+        # otherwise (services/health.py::_health_checks).
+        sources.append(get_health_poll_service())
     return sources

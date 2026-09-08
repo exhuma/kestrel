@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, ref } from 'vue'
 import { useTheme } from 'vuetify'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
+import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
 import GithubLink from './components/GithubLink.vue'
 import IdentityBadge from './components/IdentityBadge.vue'
 import PanelLoading from './components/PanelLoading.vue'
@@ -121,6 +122,7 @@ function toggleTheme() {
         {{ running ? 'live' : 'idle' }}
       </v-chip>
 
+      <SourceHealthIndicator />
       <NotificationCenter @navigate="view = 'workflows'" />
       <v-btn
         :icon="isDark ? '$weatherNight' : '$weatherSunny'"

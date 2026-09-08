@@ -234,6 +234,7 @@ def create_app() -> FastAPI:
 
     from app.routers import (
         github_webhook,
+        health,
         identity,
         notifications,
         screenshots,
@@ -245,6 +246,7 @@ def create_app() -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(screenshots.router)
     app.include_router(notifications.router)
+    app.include_router(health.router)
     app.include_router(identity.router)
     app.include_router(github_webhook.router)
 
