@@ -360,7 +360,12 @@ describe('WorkflowPanel round chip history', () => {
 // feature 012: the understanding-checkpoint (describe) and
 // technical-analysis/decomposition (gap_analysis) steps.
 const SIX_STEP_NAMES = [
-  'describe', 'refine', 'gap_analysis', 'design', 'code', 'verify',
+  'describe',
+  'refine',
+  'gap_analysis',
+  'design',
+  'code',
+  'verify',
 ] as const
 
 // Build the full six-step pipeline, defaulting every step to 'pending'
@@ -383,7 +388,12 @@ describe('WorkflowPanel task decomposition pipeline', () => {
     state.current.value = sixStepDetail({})
     const html = mount(WorkflowPanel, withVuetify()).html()
     for (const step of [
-      'describe', 'refine', 'gap_analysis', 'design', 'code', 'verify',
+      'describe',
+      'refine',
+      'gap_analysis',
+      'design',
+      'code',
+      'verify',
     ]) {
       expect(html).toContain(step)
     }
