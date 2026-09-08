@@ -122,6 +122,7 @@ async def test_scenario1_marked_comment_redirects_a_parked_run(
     """
     _write_fixture_task(tmp_path, "widget", body="Add a vague widget")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Add a widget.</UNDERSTANDING>",
         _coord([]), _refined("v1"), _refined("v2 with feedback"),
     ])
     svc = _fixture_service(tmp_path, runner, _FakeGitHub())
@@ -131,6 +132,8 @@ async def test_scenario1_marked_comment_redirects_a_parked_run(
     wid = await svc.create(
         "me/sandbox", source="fixture-issue", task_ref="fixture:widget",
     )
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
 
     _append_comment(
@@ -139,7 +142,7 @@ async def test_scenario1_marked_comment_redirects_a_parked_run(
     )
     await poll.run_cycle()
     await _wait(
-        lambda: svc.get(wid).steps[0].deliverable == "v2 with feedback"
+        lambda: svc.get(wid).steps[1].deliverable == "v2 with feedback"
     )
 
     assert svc.get(wid).status == "awaiting_refine_approval"
@@ -154,7 +157,7 @@ async def test_scenario1_marked_comment_redirects_a_parked_run(
     )
     await poll.run_cycle()
 
-    assert svc.get(wid).steps[0].deliverable == "v2 with feedback"
+    assert svc.get(wid).steps[1].deliverable == "v2 with feedback"
     assert len(store.items) == 1
 
 
@@ -180,7 +183,9 @@ async def test_scenario2_marked_comment_queues_then_drains_at_round_start(
         source="fixture-issue", base_branch="main", branch="kestrel/worker",
         workspace=str(tmp_path), status="coding",
         steps=[
+            WorkflowStep(name="describe", status="done", deliverable="U"),
             WorkflowStep(name="refine", status="done", deliverable="PRD"),
+            WorkflowStep(name="gap_analysis", status="done", deliverable=""),
             WorkflowStep(name="design", status="done", deliverable="Design"),
             WorkflowStep(name="code", status="pending"),
             WorkflowStep(name="verify", status="pending"),

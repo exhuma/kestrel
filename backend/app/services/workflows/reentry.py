@@ -29,12 +29,13 @@ from app.models_workflow import Step, WorkflowRun
 _logger = logging.getLogger(__name__)
 
 #: Steps a review-feedback triage turn may re-enter at, in pipeline order.
-#: ``describe``/``gap_analysis`` (feature 012's decomposition pipeline)
-#: are not real steps on this branch — this repo's ``Step`` enum is only
-#: refine/design/code/verify, so only the first three are legal re-entry
-#: *targets* (re-entering "at verify" is meaningless: verify is always
-#: reached by falling through code, never re-entered on its own).
-REENTRY_STEPS = (Step.REFINE, Step.DESIGN, Step.CODE)
+#: ``gap_analysis`` is excluded: it is a fan-out/reconcile/critic turn, not
+#: a single prompt like describe/refine/design, and it is gateless and
+#: run-terminating on success (feature 012) — feeding drained feedback
+#: into it is left for a follow-up rather than bolted on here. ``verify``
+#: is excluded too: it is always reached by falling through ``code``,
+#: never re-entered on its own.
+REENTRY_STEPS = (Step.DESCRIBE, Step.REFINE, Step.DESIGN, Step.CODE)
 
 
 def rewind_to(run: WorkflowRun, step: Step, instruction: str) -> None:

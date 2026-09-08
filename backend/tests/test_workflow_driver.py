@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 import pytest
 
 from app.backends.base import BackendTurnError, Capability
+from app.models_workflow import WorkflowRun, WorkflowStep
 from app.persistence.tables import FeedbackItemRow
+from app.services.workflows.driver import continue_run
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
     _artifact_service,
@@ -21,6 +23,7 @@ from tests.conftest import (
     _refine_noquestions,
     _RoutingPolicy,
     _service,
+    _settings,
     _subtask_body,
     _verdict,
     _wait,
@@ -348,35 +351,56 @@ async def test_text_only_design_backend_inlines_the_prd(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_drained_feedback_folds_into_the_design_prompt() -> None:
-    """Feedback queued while a run sits between refine and design (feature
-    013, US2) has no open gate of its own to land on once approved — it
-    is drained at continue_run's step boundary, folded into the design
-    turn's prompt, and marked applied. The refine turn already in flight
-    (before approval) is never touched by this."""
+async def test_drained_feedback_folds_into_the_design_prompt(
+    tmp_path,
+) -> None:
+    """Feedback already queued for a run sitting just before design
+    (feature 013, US2) has no open gate of its own to land on — it is
+    drained at continue_run's pre-design step boundary, folded into the
+    design turn's prompt, and marked applied.
+
+    Drives ``continue_run`` directly on a run with describe/refine/
+    gap_analysis already "done" (mirroring how a SUBTASK_SENTINEL-tagged
+    follow-up ticket lands, feature 012) so this proves the pre-design
+    drain itself, without racing a real create()-to-gate window that a
+    gateless pipeline segment offers no synchronization point for.
+    """
     store = _FakeFeedbackStore()
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
-        *_refine_noquestions("Build a clear widget"),
         "<PLAN>\nStep 1\n</PLAN>",
         "Implemented",
         _verdict(accept=True),
     ])
-    svc = _service(gh, runner, git, feedback_store=store)
-    wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc = _service(
+        gh, runner, git,
+        settings=_settings(workspace_root=str(tmp_path)),
+        feedback_store=store,
+    )
+    run = WorkflowRun(
+        id="wf-1", repo="o/r", issue_number=5, task_ref="o/r#5",
+        base_branch="main", branch="kestrel/5", workspace=str(tmp_path),
+        status="refining",
+        steps=[
+            WorkflowStep(name="describe", status="done", deliverable="U"),
+            WorkflowStep(name="refine", status="done", deliverable="PRD"),
+            WorkflowStep(name="gap_analysis", status="done", deliverable=""),
+            WorkflowStep(name="design", status="pending"),
+            WorkflowStep(name="code", status="pending"),
+            WorkflowStep(name="verify", status="pending"),
+        ],
+    )
+    svc.workflows.create(run)
     store.claim(FeedbackItemRow(
-        external_id="fb-1", workflow_id=wid, task_ref="o/r#5",
+        external_id="fb-1", workflow_id="wf-1", task_ref="o/r#5",
         origin="ticket", author="octocat",
         body="Please also update the README",
         state="queued", created_at=datetime.now(timezone.utc),
     ))
 
-    svc.approve(wid)
-    await _wait(lambda: svc.get(wid).status == "done")
+    await continue_run(svc, run)
+    await _wait(lambda: svc.get("wf-1").status == "done")
 
-    # The refine coordinator's own turn also runs in "plan" mode, so
-    # pick out the design turn by its prompt content instead.
     design_call = next(
         c for c in runner.calls
         if "high-level design" in c["prompt"]

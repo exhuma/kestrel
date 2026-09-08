@@ -44,11 +44,14 @@ async def test_gate_branch_rejects_with_the_feedback_body() -> None:
     reject-with-feedback would, and the item is marked applied."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
         _coord([]), "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
         "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
 
     store = _FakeFeedbackStore()
@@ -58,7 +61,7 @@ async def test_gate_branch_rejects_with_the_feedback_body() -> None:
 
     dispatcher.dispatch(item)
     await _wait(
-        lambda: svc.get(wid).steps[0].deliverable == "v2 with feedback"
+        lambda: svc.get(wid).steps[1].deliverable == "v2 with feedback"
     )
 
     assert svc.get(wid).status == "awaiting_refine_approval"
@@ -76,10 +79,13 @@ async def test_stale_redispatch_of_an_applied_item_is_idempotent() -> None:
     item whose row is already marked applied (a stale re-dispatch)."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
         _coord([]), "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
 
     store = _FakeFeedbackStore()
@@ -350,7 +356,13 @@ def _escalated_run(**overrides) -> WorkflowRun:
         error="escalated: gave up after 3 rounds",
         branch="kestrel/issue-5", base_branch="main",
         steps=[
+            WorkflowStep(
+                name=Step.DESCRIBE, status="done", deliverable="understood"
+            ),
             WorkflowStep(name=Step.REFINE, status="done", deliverable="PRD"),
+            WorkflowStep(
+                name=Step.GAP_ANALYSIS, status="done", deliverable="",
+            ),
             WorkflowStep(
                 name=Step.DESIGN, status="done", deliverable="design"
             ),
