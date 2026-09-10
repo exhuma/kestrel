@@ -15,11 +15,15 @@ deterministic checks (tests, lint) are deliberately not part of this: that
 coverage is the coder's TDD responsibility, not something verify
 re-measures.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from app.models_workflow import WorkflowRun
 
 
 @dataclass
@@ -67,6 +71,25 @@ class Feedback:
     author: str
     body: str
     created_at: datetime
+
+
+@runtime_checkable
+class FeedbackSource(Protocol):
+    """Feedback enumeration and acknowledgement for one workflow run."""
+
+    async def list_feedback(
+        self, run: WorkflowRun, cursor: str | None
+    ) -> list[Feedback]:
+        """List feedback for ``run`` after the source-owned ``cursor``."""
+        ...
+
+    async def acknowledge(self, feedback: Feedback) -> bool:
+        """Best-effort acknowledgement of ``feedback``."""
+        ...
+
+    async def reply(self, feedback: Feedback, body: str) -> bool:
+        """Post an acknowledgement fallback for ``feedback``."""
+        ...
 
 
 @dataclass
@@ -151,6 +174,15 @@ class Acknowledgeable(Protocol):
     ) -> bool:
         """Best-effort reaction on the triggering comment/note. Returns
         ``False`` (never raises) when the source has no such capability."""
+        ...
+
+
+@runtime_checkable
+class Commentable(Protocol):
+    """A feedback origin that can publish a visible text reply."""
+
+    async def post_comment(self, ref: str, body: str) -> str:
+        """Post ``body`` on ``ref`` and return the resulting URL when known."""
         ...
 
 
@@ -323,9 +355,7 @@ class CodeHost(Protocol):
         """Open a pull/merge request; return its URL."""
         ...
 
-    async def get_change_request(
-        self, repo: str, number: int
-    ) -> ChangeRequest:
+    async def get_change_request(self, repo: str, number: int) -> ChangeRequest:
         """Fetch a pull/merge request's current lifecycle state.
 
         The read a review-feedback resume decides on (feature 013,

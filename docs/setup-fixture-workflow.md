@@ -44,7 +44,8 @@ referenced in logs and notifications.
   "title": "Add a hello endpoint",
   "body": "Add GET /hello returning {\"msg\": \"hello\"}.",
   "code_repo": "you/sandbox-repo",
-  "base_branch": "main"
+  "base_branch": "main",
+  "generation": "1"
 }
 ```
 
@@ -54,6 +55,7 @@ referenced in logs and notifications.
 | `body` | Yes | The task description the refine step starts from | — |
 | `code_repo` | Yes | `owner/name` of the repository to push branches to and open a change request against | — |
 | `base_branch` | No | Branch to base the work on | the repository's default branch |
+| `generation` | No | Explicitly retrigger a published child by changing it | — |
 
 Create, edit, and remove these files directly — there is no separate UI
 for authoring them. Kestrel reads a task's file fresh every time it uses
@@ -114,19 +116,22 @@ JSON file once you're done with it.
 ## Steering a run with feedback
 
 Append a line to `<slug>.comments.jsonl` (next to the task's `.json` file)
-containing kestrel's trigger marker (default `@kestrel`) and it's picked up
+containing kestrel's trigger marker (default `@kestrel`) and it is picked up
 on the next poll cycle, exactly like a real ticket comment:
 
 ```jsonl
-{"author": "you", "body": "@kestrel also handle the empty-input case", "created_at": "2026-01-01T12:00:00Z"}
+{
+  "author": "you",
+  "body": "@kestrel also handle the empty-input case",
+  "created_at": "2026-01-01T12:00:00Z"
+}
 ```
 
-A fixture task never causes kestrel to contact GitHub or Jira, so — like
-Jira — there is no reaction/acknowledgment: kestrel never writes to
-`<slug>.comments.jsonl` itself (only to `<slug>.log`, its own comment
-sink), so there's nothing to react with. See [Feedback
-intake](feedback-intake.md) for the full behaviour: what happens at each
-run state, and what a `done` fixture run reactivating vs. a linked
-successor run looks like in the **Workflows** tab. This is the easiest
-source to validate the feature against locally, since everything —
-task, comments, and kestrel's own replies — is a plain local file.
+A fixture task never causes kestrel to contact GitHub or Jira. It has no
+reaction concept, so kestrel writes `Acknowledged.` to `<slug>.log`, its own
+reply sink. To decide an external gate, include the active
+`[kestrel-review:<token>]` token and one of `@kestrel approve`,
+`@kestrel reject`, or `@kestrel request changes`. See [Feedback
+intake](feedback-intake.md) for token rules, translations, retirement, and
+revive-versus-successor behaviour. This is the easiest source to validate
+locally, since tasks, comments, and kestrel's replies are plain local files.

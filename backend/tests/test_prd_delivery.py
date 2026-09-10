@@ -86,8 +86,8 @@ async def test_jira_run_attaches_prd_on_approval() -> None:
     """Ensure an approved PRD is attached to the Jira RFC (FR-011).
 
     Approval publishes the PRD immediately, before gap_analysis ever runs
-    — so this still holds even though a plain ticket's run now always
-    ends by decomposing at gap_analysis rather than reaching design/
+    — so this still holds even though a plain ticket's run now pauses for
+    decomposition approval rather than reaching design/
     code/verify/deliver (FR-014); there is no change-request link to
     post back for the original ticket any more, only the
     technical-analysis summary (FR-012).
@@ -108,6 +108,10 @@ async def test_jira_run_attaches_prd_on_approval() -> None:
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert ("PRD.md", "the PRD") in source.attachments
     # The technical-analysis summary was posted back to the RFC.
@@ -119,7 +123,7 @@ async def test_github_run_publishes_refined_to_issue_body() -> None:
     """Ensure a GitHub run writes the refined body + sentinel (not attach).
 
     See test_jira_run_attaches_prd_on_approval: publish happens at
-    approval time, before the run decomposes at gap_analysis (FR-014).
+    approval time, before the decomposition approval gate (FR-014).
     """
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(SessionRegistry(), outputs=[
@@ -137,6 +141,10 @@ async def test_github_run_publishes_refined_to_issue_body() -> None:
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert gh.updated is not None and "kestrel:refined" in gh.updated

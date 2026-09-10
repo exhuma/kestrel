@@ -1,0 +1,42 @@
+"""Framework-neutral rendering for externally posted review revisions."""
+from __future__ import annotations
+
+from difflib import ndiff
+
+_MAX_DELTA_LINE_LENGTH = 120
+_MAX_DELTA_LINES = 3
+
+
+def _excerpt(line: str) -> str:
+    """Bound one changed line so a delta can never reproduce an artifact."""
+    cutoff = _MAX_DELTA_LINE_LENGTH - 3
+    if len(line) <= _MAX_DELTA_LINE_LENGTH:
+        return line
+    return f"{line[:cutoff]}..."
+
+
+def render_review_request(message: str, revision: int, token: str) -> str:
+    """Render a tokenized external review request and response instructions."""
+    return (
+        f"{message}\n\nRevision {revision}: `[kestrel-review:{token}]`\n\n"
+        "Reply to this review with its token and `@kestrel approve`, "
+        "`@kestrel reject`, or `@kestrel request changes`."
+    )
+
+
+def render_delta_summary(
+    previous: str, revised: str, canonical_reference: str
+) -> str:
+    """Render a concise, changed-lines-only artifact update and reference."""
+    changes = [
+        _excerpt(line[2:])
+        for line in ndiff(previous.splitlines(), revised.splitlines())
+        if line.startswith("+ ")
+    ]
+    excerpt = "\n".join(f"- {line}" for line in changes[:_MAX_DELTA_LINES])
+    if len(changes) > _MAX_DELTA_LINES:
+        excerpt += "\n- Additional requested changes applied."
+    return (
+        f"Requested changes applied:\n{excerpt or '- Content revised.'}\n\n"
+        f"Canonical artifact: {canonical_reference}"
+    )

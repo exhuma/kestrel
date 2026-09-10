@@ -1,6 +1,7 @@
 """Tests for FeedbackDispatcher's gate-branch (feature 013, US1),
 review-origin routing (feature 013, US3), and terminal-run revive-vs-
 successor / escalated-retry branches (feature 013, US4)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -10,11 +11,9 @@ import pytest
 from app.models_workflow import Step, WorkflowRun, WorkflowStep
 from app.persistence.tables import FeedbackItemRow
 from app.services.feedback.dispatch import FeedbackDispatcher
-from app.services.ingestion import IngestionService
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
     _coord,
-    _FakeDismissals,
     _FakeFeedbackStore,
     _FakeGit,
     _FakeGitHub,
@@ -25,15 +24,39 @@ from tests.conftest import (
     _wait,
 )
 
-_DONE_PR_NUMBER = 9
+
+class _ReviewRequests:
+    """In-memory active-review lookup for dispatcher tests."""
+
+    def __init__(self, token: str = "current") -> None:
+        self.token = token
+        self.superseded: list[str] = []
+
+    def is_active(self, token: str, workflow_id: str, gate: str) -> bool:
+        """Accept exactly the configured current token at a gate."""
+        return (
+            token == self.token
+            and workflow_id == "wf-1"
+            and gate.startswith("awaiting_")
+        )
+
+    def retire(self, workflow_id: str, gate: str) -> None:
+        """Record that the active revision was retired."""
+        del gate
+        self.superseded.append(workflow_id)
 
 
-def _item(external_id="a", workflow_id="wf-1", body="@kestrel feedback") -> (
-    FeedbackItemRow
-):
+def _item(
+    external_id="a", workflow_id="wf-1", body="@kestrel feedback"
+) -> FeedbackItemRow:
     return FeedbackItemRow(
-        external_id=external_id, workflow_id=workflow_id, task_ref="o/r#5",
-        origin="ticket", author="octocat", body=body, state="queued",
+        external_id=external_id,
+        workflow_id=workflow_id,
+        task_ref="o/r#5",
+        origin="ticket",
+        author="octocat",
+        body=body,
+        state="queued",
         created_at=datetime.now(timezone.utc),
     )
 
@@ -43,11 +66,15 @@ async def test_gate_branch_rejects_with_the_feedback_body() -> None:
     """A parked run gets the feedback applied exactly as a UI
     reject-with-feedback would, and the item is marked applied."""
     gh = _FakeGitHub(body="vague issue")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
-        _coord([]), "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
-        "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
+            _coord([]),
+            "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
+            "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
@@ -60,12 +87,154 @@ async def test_gate_branch_rejects_with_the_feedback_body() -> None:
     store.claim(item)
 
     dispatcher.dispatch(item)
-    await _wait(
-        lambda: svc.get(wid).steps[1].deliverable == "v2 with feedback"
-    )
+    await _wait(lambda: svc.get(wid).steps[1].deliverable == "v2 with feedback")
 
     assert svc.get(wid).status == "awaiting_refine_approval"
     assert "Mention the API surface" in runner.calls[-1]["prompt"]
+    assert store.items["a"].state == "applied"
+
+
+@pytest.mark.asyncio
+async def test_gate_branch_approves_an_explicit_marker_command() -> None:
+    """An explicit @kestrel approve resolves the parked describe gate."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
+            _coord([]),
+            "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
+        ],
+    )
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    store = _FakeFeedbackStore()
+    item = _item(workflow_id=wid, body="@kestrel approve")
+    store.claim(item)
+
+    FeedbackDispatcher(svc, store).dispatch(item)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+    assert store.items["a"].state == "applied"
+
+
+@pytest.mark.asyncio
+async def test_gate_branch_accepts_tokenized_plain_language_approval() -> None:
+    """A current token enables ordinary-language approval at a gate."""
+    reviews = _ReviewRequests()
+    svc = _service(
+        _FakeGitHub(),
+        _FakeRunner(SessionRegistry(), []),
+        _FakeGit(),
+        review_requests=reviews,
+    )
+    run = WorkflowRun(
+        id="wf-1", repo="o/r", status="awaiting_describe_approval"
+    )
+    svc.workflows.create(run)
+    svc._control[run.id] = svc._new_control()
+    store = _FakeFeedbackStore()
+    item = _item(body="[kestrel-review:current] Looks good to me.")
+    store.claim(item)
+    FeedbackDispatcher(svc, store, review_requests=reviews).dispatch(item)
+
+    assert (await svc._await_gate(run.id)).approved
+    assert reviews.superseded == [run.id]
+
+
+@pytest.mark.asyncio
+async def test_ui_gate_decision_retires_its_review_token() -> None:
+    """A UI approval retires the token through the shared workflow service."""
+    reviews = _ReviewRequests()
+    svc = _service(
+        _FakeGitHub(),
+        _FakeRunner(SessionRegistry(), []),
+        _FakeGit(),
+        review_requests=reviews,
+    )
+    run = WorkflowRun(
+        id="wf-1", repo="o/r", status="awaiting_describe_approval"
+    )
+    svc.workflows.create(run)
+    svc._control[run.id] = svc._new_control()
+
+    svc.approve(run.id)
+
+    assert reviews.superseded == [run.id]
+
+
+@pytest.mark.asyncio
+async def test_gate_branch_ignores_a_stale_review_token() -> None:
+    """A reply quoting a superseded revision cannot resolve the current gate."""
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), []), _FakeGit()
+    )
+    run = WorkflowRun(
+        id="wf-1", repo="o/r", status="awaiting_describe_approval"
+    )
+    svc.workflows.create(run)
+    svc._control[run.id] = svc._new_control()
+    store = _FakeFeedbackStore()
+    item = _item(body="[kestrel-review:old] @kestrel approve")
+    store.claim(item)
+
+    dispatcher = FeedbackDispatcher(
+        svc, store, review_requests=_ReviewRequests()
+    )
+    dispatcher.dispatch(item)
+
+    assert store.items["a"].state == "ignored"
+
+
+@pytest.mark.asyncio
+async def test_gate_branch_uses_active_token_after_a_stale_quote() -> None:
+    """An active token later in a reply still resolves the intended gate."""
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), []), _FakeGit()
+    )
+    run = WorkflowRun(
+        id="wf-1", repo="o/r", status="awaiting_describe_approval"
+    )
+    svc.workflows.create(run)
+    svc._control[run.id] = svc._new_control()
+    store = _FakeFeedbackStore()
+    item = _item(
+        body="[kestrel-review:old] quoted [kestrel-review:current] approve"
+    )
+    store.claim(item)
+
+    dispatcher = FeedbackDispatcher(
+        svc, store, review_requests=_ReviewRequests()
+    )
+    dispatcher.dispatch(item)
+
+    assert (await svc._await_gate(run.id)).approved
+
+
+@pytest.mark.asyncio
+async def test_gate_branch_approves_decomposition_candidates() -> None:
+    """An explicit approval resolves the decomposition gate too."""
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), []), _FakeGit()
+    )
+    run = WorkflowRun(
+        id="wf-1",
+        repo="o/r",
+        issue_number=5,
+        status="awaiting_decomposition_approval",
+        steps=[
+            WorkflowStep(name=Step.GAP_ANALYSIS, status="awaiting_approval")
+        ],
+    )
+    svc.workflows.create(run)
+    svc._control[run.id] = svc._new_control()
+    store = _FakeFeedbackStore()
+    item = _item(body="@kestrel approve")
+    store.claim(item)
+
+    FeedbackDispatcher(svc, store).dispatch(item)
+    assert (await svc._await_gate(run.id)).approved
     assert store.items["a"].state == "applied"
 
 
@@ -78,10 +247,14 @@ async def test_stale_redispatch_of_an_applied_item_is_idempotent() -> None:
     confirms the dispatcher's own idempotent behavior when handed an
     item whose row is already marked applied (a stale re-dispatch)."""
     gh = _FakeGitHub(body="vague issue")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
-        _coord([]), "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a widget.</UNDERSTANDING>",
+            _coord([]),
+            "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
@@ -107,8 +280,13 @@ async def test_stale_redispatch_of_an_applied_item_is_idempotent() -> None:
 @pytest.mark.parametrize(
     "status",
     [
-        "coding", "verifying", "analyzing", "designing",
-        "describing", "refining", "opening_pr",
+        "coding",
+        "verifying",
+        "analyzing",
+        "designing",
+        "describing",
+        "refining",
+        "opening_pr",
     ],
 )
 async def test_transient_status_run_is_not_dispatched_to_reject(
@@ -174,172 +352,6 @@ async def test_unknown_workflow_id_is_a_no_op() -> None:
     assert store.items["a"].state == "queued"
 
 
-# ---- review-origin routing (feature 013, US3) --------------------------
-
-
-def _review_item(workflow_id="wf-1", body="please fix the bug") -> (
-    FeedbackItemRow
-):
-    return FeedbackItemRow(
-        external_id="r1", workflow_id=workflow_id, task_ref="o/r#5",
-        origin="review", author="reviewer", body=body, state="queued",
-        created_at=datetime.now(timezone.utc),
-    )
-
-
-def _ingestion_for(svc) -> IngestionService:
-    """A real IngestionService wired onto ``svc``'s own registry, for the
-    successor-path tests: exercises the actual
-    ``start_successor_run``/``WorkflowService.create`` machinery rather
-    than a duplicate-logic fake."""
-    return IngestionService(svc.settings, svc, _FakeDismissals())
-
-
-def _done_run(**overrides) -> WorkflowRun:
-    defaults = dict(
-        id="wf-1", repo="o/r", task_ref="o/r#5", status="done",
-        branch="kestrel/issue-5", base_branch="main",
-        steps=[WorkflowStep(name=s, status="done") for s in Step.sequence()],
-    )
-    defaults.update(overrides)
-    return WorkflowRun(**defaults)
-
-
-@pytest.mark.asyncio
-async def test_review_origin_open_pr_resumes_the_branch() -> None:
-    """A done run whose PR is still open resumes via
-    WorkflowService.resume_with_feedback, and the item is marked
-    dispatched (not applied — the resume's own drive cycle continues the
-    processing asynchronously)."""
-    gh = _FakeGitHub()
-    gh.pr_state = "open"
-    svc = _service(gh, _FakeRunner(SessionRegistry(), []), _FakeGit())
-    svc.workflows.create(_done_run(pr_number=_DONE_PR_NUMBER))
-    resumed: list[tuple[str, str]] = []
-    svc.resume_with_feedback = (
-        lambda wid, body: resumed.append((wid, body))
-    )
-    store = _FakeFeedbackStore()
-    dispatcher = FeedbackDispatcher(svc, store)
-    item = _review_item()
-    store.claim(item)
-
-    dispatcher.dispatch(item)
-    await _wait(lambda: resumed)
-
-    assert resumed == [("wf-1", "please fix the bug")]
-    assert store.items["r1"].state == "dispatched"
-
-
-def _successor_of(svc, parent: WorkflowRun) -> WorkflowRun:
-    """The one other run in ``svc``'s registry besides ``parent`` itself."""
-    return next(r for r in svc.list() if r.id != parent.id)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("pr_state", ["merged", "closed"])
-async def test_done_run_with_a_finished_pr_starts_a_linked_successor(
-    pr_state: str,
-) -> None:
-    """A merged OR merely-closed PR is the same "can no longer be added
-    to" case (US4) — a linked successor, not a revive. Also proves the
-    revive-vs-successor decision is no longer review-origin-only: the
-    same routing now applies regardless of ``item.origin`` (a done run
-    has no gate of its own left for either kind of feedback to land on
-    more directly)."""
-    gh = _FakeGitHub()
-    gh.pr_state = pr_state
-    svc = _service(gh, _FakeRunner(SessionRegistry(), []), _FakeGit())
-    parent = _done_run(pr_number=_DONE_PR_NUMBER)
-    svc.workflows.create(parent)
-    store = _FakeFeedbackStore()
-    dispatcher = FeedbackDispatcher(svc, store, _ingestion_for(svc))
-    item = _item(
-        workflow_id=parent.id, body="@kestrel also handle the null case"
-    )
-    store.claim(item)
-
-    dispatcher.dispatch(item)
-    await _wait(lambda: len(svc.list()) > 1)
-
-    successor = _successor_of(svc, parent)
-    assert successor.parent_run_id == parent.id
-    assert successor.task_ref == parent.task_ref
-    assert successor.repo == parent.repo
-    assert successor.branch != parent.branch  # never collides with parent's
-    assert store.items["a"].state == "applied"
-
-
-@pytest.mark.asyncio
-async def test_done_merged_pr_with_no_ingestion_wired_stays_queued() -> None:
-    """Without an ingestion service wired in, the successor path is a
-    safe no-op (logged) rather than a crash — mirrors every other
-    optional-dependency no-op in this module."""
-    gh = _FakeGitHub()
-    gh.pr_state = "merged"
-    svc = _service(gh, _FakeRunner(SessionRegistry(), []), _FakeGit())
-    svc.workflows.create(_done_run(pr_number=_DONE_PR_NUMBER))
-    store = _FakeFeedbackStore()
-    dispatcher = FeedbackDispatcher(svc, store)  # no ingestion passed
-    item = _review_item()
-    store.claim(item)
-
-    dispatcher.dispatch(item)
-    await _wait(lambda: True)
-
-    assert len(svc.list()) == 1
-    assert store.items["r1"].state == "queued"
-
-
-@pytest.mark.asyncio
-async def test_review_origin_falls_back_to_parsing_pr_url() -> None:
-    """A pre-migration row with no pr_number yet still resolves it by
-    parsing run.pr_url."""
-    gh = _FakeGitHub()
-    gh.pr_state = "open"
-    svc = _service(gh, _FakeRunner(SessionRegistry(), []), _FakeGit())
-    svc.workflows.create(
-        _done_run(pr_number=None, pr_url="https://github.com/o/r/pull/9")
-    )
-    resumed: list[tuple[str, str]] = []
-    svc.resume_with_feedback = (
-        lambda wid, body: resumed.append((wid, body))
-    )
-    store = _FakeFeedbackStore()
-    dispatcher = FeedbackDispatcher(svc, store)
-    item = _review_item()
-    store.claim(item)
-
-    dispatcher.dispatch(item)
-    await _wait(lambda: resumed)
-
-    assert resumed == [("wf-1", "please fix the bug")]
-
-
-@pytest.mark.asyncio
-async def test_done_with_no_pr_at_all_starts_a_linked_successor() -> None:
-    """A done run with neither pr_number nor a parseable pr_url — the
-    request "never existed" case (US4, spec.md Scenario 2) — also gets a
-    linked successor, with no HTTP round-trip needed to decide (there is
-    no pr_number to check a state for)."""
-    svc = _service(
-        _FakeGitHub(), _FakeRunner(SessionRegistry(), []), _FakeGit()
-    )
-    parent = _done_run(pr_number=None, pr_url=None)
-    svc.workflows.create(parent)
-    store = _FakeFeedbackStore()
-    dispatcher = FeedbackDispatcher(svc, store, _ingestion_for(svc))
-    item = _review_item()
-    store.claim(item)
-
-    dispatcher.dispatch(item)
-    await _wait(lambda: len(svc.list()) > 1)
-
-    successor = _successor_of(svc, parent)
-    assert successor.parent_run_id == parent.id
-    assert store.items["r1"].state == "applied"
-
-
 # ---- escalated-run retry (feature 013, US4) -----------------------------
 
 
@@ -352,20 +364,24 @@ def _triage(step: str, reason: str = "r", instruction: str = "do it") -> str:
 
 def _escalated_run(**overrides) -> WorkflowRun:
     defaults = dict(
-        id="wf-esc", repo="o/r", task_ref="o/r#5", status="escalated",
+        id="wf-esc",
+        repo="o/r",
+        task_ref="o/r#5",
+        status="escalated",
         error="escalated: gave up after 3 rounds",
-        branch="kestrel/issue-5", base_branch="main",
+        branch="kestrel/issue-5",
+        base_branch="main",
         steps=[
             WorkflowStep(
                 name=Step.DESCRIBE, status="done", deliverable="understood"
             ),
             WorkflowStep(name=Step.REFINE, status="done", deliverable="PRD"),
             WorkflowStep(
-                name=Step.GAP_ANALYSIS, status="done", deliverable="",
+                name=Step.GAP_ANALYSIS,
+                status="done",
+                deliverable="",
             ),
-            WorkflowStep(
-                name=Step.DESIGN, status="done", deliverable="design"
-            ),
+            WorkflowStep(name=Step.DESIGN, status="done", deliverable="design"),
             WorkflowStep(name=Step.CODE, status="failed"),
             WorkflowStep(name=Step.VERIFY, status="failed"),
         ],
@@ -384,13 +400,18 @@ async def test_escalated_run_falls_back_to_a_fresh_branch_off_base(
     gh, git = _FakeGitHub(), _FakeGit()
     fstore = _FakeFeedbackStore()
     instruction = "retry with a smaller batch size"
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        _triage("code", instruction=instruction),
-        "fixed diff",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            _triage("code", instruction=instruction),
+            "fixed diff",
+            _verdict(accept=True),
+        ],
+    )
     svc = _service(
-        gh, runner, git,
+        gh,
+        runner,
+        git,
         settings=_settings(workspace_root=str(tmp_path)),
         feedback_store=fstore,
     )

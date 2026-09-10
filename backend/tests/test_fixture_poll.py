@@ -1,4 +1,5 @@
 """Tests for the fixture poll ingestion cycle (feature 008)."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,7 @@ import pytest
 
 from app.config_models import TaskSourceConfig
 from app.services.fixture_poll import FixturePollService
-from tests.conftest import _write_fixture_task as _write_fixture
+from tests.fixture_helpers import write_fixture_task as _write_fixture
 
 _TWO_CYCLES = 2
 
@@ -19,6 +20,9 @@ class _FakeIngestion:
     async def maybe_start_run(self, **kw):
         self.calls.append(kw)
         return "wf-x"
+
+    async def observe_child_retrigger(self, task_ref, generation):
+        self.calls.append({"retrigger": task_ref, "generation": generation})
 
 
 def _source(fixtures_dir) -> TaskSourceConfig:
@@ -50,8 +54,7 @@ async def test_run_cycle_ingests_each_fixture(tmp_path) -> None:
 
     await service.run_cycle()
 
-    assert len(ingestion.calls) == 1
-    call = ingestion.calls[0]
+    call = ingestion.calls[-1]
     assert call["source"] == "fixture-issue"
     assert call["task_ref"] == "fixture:hello-fixture"
     assert call["code_repo"] == "me/sandbox"
@@ -68,9 +71,23 @@ async def test_run_cycle_twice_is_deduped_by_ingestion(tmp_path) -> None:
     await service.run_cycle()
     await service.run_cycle()
 
-    assert len(ingestion.calls) == _TWO_CYCLES
-    assert {c["task_ref"] for c in ingestion.calls} == {
+    assert len(ingestion.calls) == _TWO_CYCLES * 2
+    assert {c["task_ref"] for c in ingestion.calls if "task_ref" in c} == {
         "fixture:hello-fixture"
+    }
+
+
+@pytest.mark.asyncio
+async def test_generation_is_only_fixture_retrigger_signal(tmp_path) -> None:
+    """An explicit fixture generation reaches the child re-adoption seam."""
+    _write_fixture(tmp_path, "hello-fixture", generation="2")
+    ingestion = _FakeIngestion()
+
+    await FixturePollService(_source(tmp_path), ingestion).run_cycle()
+
+    assert ingestion.calls[0] == {
+        "retrigger": "fixture:hello-fixture",
+        "generation": "2",
     }
 
 

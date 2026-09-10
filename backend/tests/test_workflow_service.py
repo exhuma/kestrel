@@ -32,11 +32,11 @@ from tests.conftest import (
 
 @pytest.mark.asyncio
 async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
-    """Ensure approving the describe and PRD gates publishes the refined
-    issue to the ticket, then the run proceeds autonomously through
-    gap_analysis to a decomposed terminal status (FR-011/FR-014) — a plain
-    ticket never reaches design/code/verify/PR; only a SUBTASK_SENTINEL
-    follow-up does (FR-015)."""
+    """Ensure approvals publish the PRD and decomposition before completion.
+
+    A plain ticket never reaches design/code/verify/PR; only a
+    SUBTASK_SENTINEL follow-up does (FR-011/FR-014/FR-015).
+    """
     gh = _FakeGitHub(body="vague issue")
     git = _FakeGit()
     runner = _FakeRunner(SessionRegistry(), outputs=[
@@ -53,8 +53,12 @@ async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     assert svc.get(wid).steps[1].deliverable == "Build a clear widget"
-    svc.approve(wid)  # PRD approved → gap_analysis runs and ends the run
+    svc.approve(wid)  # PRD approved → gap_analysis runs
 
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert gh.updated is not None and "kestrel:refined" in gh.updated
 

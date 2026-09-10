@@ -76,8 +76,12 @@ async def test_active_and_wait_seconds_accumulate_through_both_gates() -> (
     await asyncio.sleep(0.05)  # simulate the operator taking a moment
     svc.approve(wid)
 
-    # A plain ticket's run always ends at gap_analysis, decomposed into
-    # follow-up tasks (FR-014) — it never reaches design/code/verify.
+    # A plain ticket pauses after gap_analysis until its decomposition is
+    # approved, then it never reaches design/code/verify (FR-014).
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     run = svc.get(wid)
     assert run.clock_state is None
@@ -179,6 +183,10 @@ async def test_sentinel_skips_refine() -> None:
     ])
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert svc.get(wid).steps[0].status == "done"  # describe skipped
     assert svc.get(wid).steps[1].status == "done"  # refine skipped

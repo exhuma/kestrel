@@ -31,6 +31,7 @@ singleton — the one thing here that genuinely needs live instances of
 both — lives in ``feedback/bootstrap.py`` instead, mirroring
 ``app.services.workflows.bootstrap``'s existing split.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,8 +39,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.persistence.feedback_store import FeedbackStore
+from app.persistence.review_request_store import ReviewRequestStore
 from app.persistence.tables import FeedbackItemRow
 from app.services.exceptions import WorkflowNotFoundError
+from app.services.feedback.marker import gate_feedback_action
+from app.services.feedback.review import classify_review_response, review_tokens
 from app.services.github import change_request_number
 
 if TYPE_CHECKING:
@@ -55,7 +59,11 @@ _log = logging.getLogger("kestrel.feedback.dispatch")
 #: is included per the approved contract so no rewiring is needed once it
 #: is — it is simply always-false until then.
 _GATE_STATUSES = frozenset(
-    {"awaiting_describe_approval", "awaiting_refine_approval"}
+    {
+        "awaiting_describe_approval",
+        "awaiting_refine_approval",
+        "awaiting_decomposition_approval",
+    }
 )
 
 #: Fire-and-forget review-dispatch tasks, kept referenced so they are not
@@ -80,6 +88,7 @@ class FeedbackDispatcher:
         workflows: "WorkflowService",
         store: FeedbackStore,
         ingestion: "IngestionService | None" = None,
+        review_requests: ReviewRequestStore | None = None,
     ) -> None:
         self._workflows = workflows
         self._store = store
@@ -89,8 +98,9 @@ class FeedbackDispatcher:
         #: one; the real composition root (``feedback/bootstrap.py``)
         #: always wires the process-wide singleton.
         self._ingestion = ingestion
+        self._review_requests = review_requests
 
-    def dispatch(self, item: FeedbackItemRow) -> None:
+    def dispatch(self, item: FeedbackItemRow) -> str | None:
         """
         Act on ``item`` per its target run's *current* status.
 
@@ -107,13 +117,14 @@ class FeedbackDispatcher:
         """
         run = self._target_run(item)
         if run is None:
-            return
+            return None
         if run.status in _GATE_STATUSES:
-            self._dispatch_gate(item, run)
-        elif run.status == "escalated":
+            return self._dispatch_gate(item, run)
+        if run.status == "escalated":
             self._dispatch_escalated(item, run)
         elif run.status == "done":
             self._dispatch_done(item, run)
+        return None
 
     def _dispatch_escalated(
         self, item: FeedbackItemRow, run: "WorkflowRun"
@@ -131,9 +142,7 @@ class FeedbackDispatcher:
         self._store.mark(item.external_id, "dispatched")
         self._workflows.resume_with_feedback(run.id, item.body)
 
-    def _dispatch_done(
-        self, item: FeedbackItemRow, run: "WorkflowRun"
-    ) -> None:
+    def _dispatch_done(self, item: FeedbackItemRow, run: "WorkflowRun") -> None:
         """
         Revive-vs-successor for a finished run (US3's open-PR case, and
         US4's merged/closed/never-existed case).
@@ -149,7 +158,10 @@ class FeedbackDispatcher:
         _fire_and_forget(self._revive_or_start_successor(item, run, pr_number))
 
     async def _revive_or_start_successor(
-        self, item: FeedbackItemRow, run: "WorkflowRun", pr_number: int | None,
+        self,
+        item: FeedbackItemRow,
+        run: "WorkflowRun",
+        pr_number: int | None,
     ) -> None:
         """Resume ``run``'s branch if its PR is open; else a successor."""
         if pr_number is not None:
@@ -186,14 +198,17 @@ class FeedbackDispatcher:
         if self._ingestion is None:
             _log.warning(
                 "no ingestion service wired; cannot start a successor "
-                "for run %s", run.id,
+                "for run %s",
+                run.id,
             )
             return
         successor_id = await self._ingestion.start_successor_run(parent=run)
         self._store.mark(item.external_id, "applied")
         _log.info(
             "feedback %s started successor run %s from parent %s",
-            item.external_id, successor_id, run.id,
+            item.external_id,
+            successor_id,
+            run.id,
         )
 
     def _target_run(self, item: FeedbackItemRow):
@@ -204,13 +219,54 @@ class FeedbackDispatcher:
         except WorkflowNotFoundError:
             _log.warning(
                 "feedback %s targets unknown run %s",
-                item.external_id, item.workflow_id,
+                item.external_id,
+                item.workflow_id,
             )
             return None
 
-    def _dispatch_gate(self, item: FeedbackItemRow, run) -> None:
-        self._workflows.reject(run.id, refinement_prompt=item.body)
+    def _dispatch_gate(self, item: FeedbackItemRow, run) -> str | None:
+        """Resolve a parked gate from an explicit marker command.
+
+        Approval advances the current gate. An explicit rejection terminates
+        it, while requested changes and unclassified marked feedback retain
+        feature 013's regenerate-with-feedback behavior.
+
+        :param item: The claimed feedback carrying the marker command.
+        :param run: The workflow currently parked at a human gate.
+        """
+        action = self._gate_action(item, run.status)
+        if action is None:
+            self._store.mark(item.external_id, "ignored")
+            if self._has_active_token(item, run.status):
+                return "clarify"
+            return None
+        if action == "approve":
+            self._workflows.approve(run.id)
+        elif action == "reject":
+            self._workflows.reject(run.id)
+        else:
+            self._workflows.reject(run.id, refinement_prompt=item.body)
         self._store.mark(item.external_id, "applied")
+        return None
+
+    def _gate_action(self, item: FeedbackItemRow, gate: str) -> str | None:
+        """Classify a response only when it targets the active revision."""
+        if self._review_requests is None:
+            return gate_feedback_action(
+                item.body, self._workflows.settings.feedback_marker
+            )
+        if not self._has_active_token(item, gate):
+            return None
+        return classify_review_response(
+            item.body, self._workflows.settings.feedback_marker
+        )
+
+    def _has_active_token(self, item: FeedbackItemRow, gate: str) -> bool:
+        """Whether any token in ``item`` targets this gate's active revision."""
+        return self._review_requests is not None and any(
+            self._review_requests.is_active(token, item.workflow_id or "", gate)
+            for token in review_tokens(item.body)
+        )
 
 
 def drain_feedback(service: "WorkflowService", run: "WorkflowRun") -> str:

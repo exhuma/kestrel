@@ -13,7 +13,8 @@ tokens → Fine-grained tokens**.
 Required repository permissions:
 - **Contents**: Read and write (push the branch)
 - **Issues**: Read and write (read the issue, PATCH it with the refined text)
-- **Pull requests**: Read and write (open the draft PR)
+- **Pull requests**: Read and write (open the draft PR, read review feedback,
+  and add reactions)
 
 A classic PAT with the `repo` scope also works for a quick throwaway test.
 
@@ -74,8 +75,9 @@ In the repository's **Settings → Webhooks → Add webhook**:
 - **Payload URL**: `https://<your-public-host>/api/github/webhook`
 - **Content type**: `application/json`
 - **Secret**: the same value as `KESTREL_WEBHOOK_SECRET`
-- **Events**: select **Issues** (kestrel handles `labeled` to start a run and
-  `unlabeled` to clear a dismissal).
+- **Events**: select **Issues**, **Issue comments**, **Pull request reviews**,
+  and **Pull request review comments**. Kestrel uses issue labels to start
+  runs and the comment/review events for feedback decisions.
 
 ### Use it
 
@@ -97,11 +99,10 @@ support natively.
 
 ### Steering a run with feedback
 
-A marked comment (default trigger: `@kestrel`) on the issue *or* on the
-PR it opened redirects the run in flight — including a PR review comment,
-which is the only way to amend the **same** PR from review feedback rather
-than starting over. GitHub is the one source that also reacts (👀) to the
-triggering comment so you get visual confirmation it was picked up. See
-[Feedback intake](feedback-intake.md) for the full behaviour: what happens
-at each run state, and what a "done" run reactivating vs. a linked
-successor looks like in the **Workflows** tab.
+A marked comment (default trigger: `@kestrel`) on the issue *or* on the PR it
+opened redirects the run in flight. To decide an external gate, include the
+active `[kestrel-review:<token>]` token and one of `@kestrel approve`,
+`@kestrel reject`, or `@kestrel request changes`. GitHub prefers an eyes
+reaction as an acknowledgment and replies `Acknowledged.` if it cannot react.
+See [Feedback intake](feedback-intake.md) for token rules, translations,
+retirement, and revive-versus-successor behaviour.

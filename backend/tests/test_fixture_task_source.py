@@ -9,7 +9,7 @@ import pytest
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.fixture import FixtureTaskSource
 from app.services.workflow_text import has_subtask_sentinel
-from tests.conftest import _write_fixture_task as _write_task
+from tests.fixture_helpers import write_fixture_task as _write_task
 
 
 def _write_comments(tmp_path, slug: str, *comments: dict) -> None:
@@ -230,14 +230,17 @@ async def test_list_comments_missing_file_returns_empty(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_comments_since_cursor_excludes_prior_item(tmp_path) -> None:
-    """Ensure a second call using the first call's newest cursor never
-    re-returns that same comment (round-trip exclusivity)."""
+async def test_list_comments_since_cursor_includes_same_time_items(
+    tmp_path,
+) -> None:
+    """Ensure a cursor re-read includes same-time items for ID-based dedup."""
     _write_comments(
         tmp_path, "hello-fixture",
         {"author": "a", "body": "one",
          "created_at": "2026-01-01T00:00:00+00:00"},
         {"author": "a", "body": "two",
+         "created_at": "2026-01-02T00:00:00+00:00"},
+        {"author": "a", "body": "three",
          "created_at": "2026-01-02T00:00:00+00:00"},
     )
     source = FixtureTaskSource(str(tmp_path))
@@ -246,7 +249,9 @@ async def test_list_comments_since_cursor_excludes_prior_item(tmp_path) -> None:
     cursor = first[-1].created_at.isoformat()
     second = await source.list_comments("fixture:hello-fixture", since=cursor)
 
-    assert second == []
+    assert [item.external_id for item in second] == [
+        "fixture:hello-fixture:1", "fixture:hello-fixture:2",
+    ]
 
 
 @pytest.mark.asyncio

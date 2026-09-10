@@ -340,9 +340,9 @@ async def test_jira_list_comments_maps_fields_and_mints_external_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_jira_list_comments_since_cursor_excludes_prior_item() -> None:
-    """Ensure a second call using the first call's newest cursor never
-    re-returns that same comment (round-trip exclusivity)."""
+async def test_jira_list_comments_since_cursor_includes_same_time_items(
+) -> None:
+    """A cursor re-read includes all same-time comments for ID-based dedup."""
 
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -355,8 +355,11 @@ async def test_jira_list_comments_since_cursor_excludes_prior_item() -> None:
                     _jira_comment(
                         comment_id="2", created="2026-01-02T00:00:00.000+0000"
                     ),
+                    _jira_comment(
+                        comment_id="3", created="2026-01-02T00:00:00.000+0000"
+                    ),
                 ],
-                "startAt": 0, "maxResults": 50, "total": 2,
+                "startAt": 0, "maxResults": 50, "total": 3,
             },
         )
 
@@ -366,7 +369,9 @@ async def test_jira_list_comments_since_cursor_excludes_prior_item() -> None:
 
     second = await src.list_comments("RFC-1", since=cursor)
 
-    assert [i.external_id for i in second] == []
+    assert [i.external_id for i in second] == [
+        "jira-comment:RFC-1:2", "jira-comment:RFC-1:3",
+    ]
 
 
 @pytest.mark.asyncio

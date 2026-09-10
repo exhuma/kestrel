@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
+from app.review_requests import render_delta_summary
 from app.services.feedback.dispatch import drain_feedback
 from app.services.github import change_request_number
 from app.services.time_tracking import set_clock
@@ -181,10 +182,10 @@ async def continue_run(
     """Run every unfinished phase, then deliver.
 
     describe (understanding gate) -> refine (PRD approval gate) ->
-    gap_analysis (gateless, run-terminating on success) -> design ->
+    gap_analysis (decomposition approval gate) -> design ->
     autonomous code<->verify loop -> deliver. Everything after PRD
-    approval is gateless (FR-007/FR-014); gap_analysis, once genuinely
-    run (not pre-marked done by a sentinel skip — see
+    approval is autonomous except for decomposition approval; gap_analysis,
+    once genuinely run (not pre-marked done by a sentinel skip — see
     :func:`_seed_from_sentinel`), always ends the run, so the caller
     returns rather than falling through to design. The code<->verify
     loop may also escalate instead of delivering (FR-018/FR-020).
@@ -289,8 +290,16 @@ async def refine(
             return
         if decision.refinement is None:
             raise _Rejected()
+        previous = step.deliverable or ""
         step.deliverable = await interview.rewrite_refined(
             service, run, step.deliverable or "", decision.refinement
+        )
+        source = service._task_source(run)
+        await source.post_comment(
+            run.task_ref,
+            render_delta_summary(
+                previous, step.deliverable, source.deep_link_ref(run.task_ref)
+            ),
         )
         service._retire_sessions(run, step)  # chips off at the gate
         step.status = "awaiting_approval"

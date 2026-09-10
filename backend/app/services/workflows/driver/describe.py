@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
+from app.review_requests import render_delta_summary
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import extract_understanding
 from app.services.workflows.prompts import (
@@ -116,7 +117,15 @@ async def _run_feedback_turn(
         slot,
         _bind(step, slot),
     )
-    _park_awaiting_approval(service, run, step, result.final_text)
+    revised = extract_understanding(result.final_text) or result.final_text
+    await service._task_source(run).post_comment(
+        run.task_ref,
+        render_delta_summary(
+            step.deliverable or "", revised,
+            service._task_source(run).deep_link_ref(run.task_ref),
+        ),
+    )
+    _park_awaiting_approval(service, run, step, revised)
 
 
 def _park_awaiting_approval(

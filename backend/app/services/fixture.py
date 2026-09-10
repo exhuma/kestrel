@@ -124,7 +124,9 @@ class FixtureTaskSource:
         ``post_comment`` sink; reading it back would be a self-feedback
         loop by construction (feature 013, research.md R1). Each line is
         one JSON object: ``{"author", "body", "created_at"}``. ``since``
-        is an ISO-8601 cutoff, filtered client-side.
+        is an ISO-8601 cutoff, filtered client-side inclusively. Re-reading
+        the boundary preserves same-timestamp comments; external-ID dedup
+        removes already-processed comments.
         """
         path = os.path.join(self._dir, f"{_slug(ref)}.comments.jsonl")
         if not os.path.isfile(path):
@@ -148,7 +150,7 @@ class FixtureTaskSource:
             return None
         data = json.loads(line)
         created = parse_iso(data["created_at"])
-        if cutoff is not None and created <= cutoff:
+        if cutoff is not None and created < cutoff:
             return None
         return Feedback(
             external_id=f"fixture:{slug}:{line_no}",

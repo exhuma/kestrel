@@ -7,6 +7,7 @@ ingestion guard (``IngestionService.maybe_start_run``), which already
 handles dedup/dismissal — no extra bookkeeping needed here. One service
 instance is bound to one ``fixture`` task source.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -71,6 +72,11 @@ class FixturePollService:
             _log.info("ingest outcome=unresolved-repo fixture:%s", slug)
             return
         try:
+            generation = data.get("generation")
+            await self.ingestion.observe_child_retrigger(
+                f"fixture:{slug}",
+                str(generation) if generation is not None else None,
+            )
             await self.ingestion.maybe_start_run(
                 source="fixture-issue",
                 task_ref=f"fixture:{slug}",

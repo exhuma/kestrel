@@ -148,15 +148,17 @@ class GitHubTaskSource:
         at the source, rather than downstream in the intake pipeline —
         this is the one adapter with the metadata to tell (research.md
         R6). ``since`` is round-tripped as GitHub's own ISO-8601 filter,
-        with an extra client-side check so the boundary comment is never
-        re-returned regardless of the API's own inclusivity.
+        with an extra client-side inclusive check. Re-reading the boundary
+        preserves comments created at the same timestamp; durable external-ID
+        deduplication drops the already-processed comment.
         """
         repo, number = parse_github_ref(ref)
         raw = await self._client.list_issue_comments(repo, number, since=since)
         cutoff = parse_iso(since) if since else None
         return [
             item for item in (self._to_feedback(repo, c) for c in raw)
-            if item is not None and (cutoff is None or item.created_at > cutoff)
+            if item is not None
+            and (cutoff is None or item.created_at >= cutoff)
         ]
 
     def _to_feedback(self, repo: str, comment: dict) -> Feedback | None:

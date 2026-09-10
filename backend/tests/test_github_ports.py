@@ -302,9 +302,8 @@ async def test_list_comments_excludes_bot_authors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_comments_since_cursor_excludes_prior_item() -> None:
-    """Ensure a second call with the first call's newest cursor never
-    re-returns that same comment (round-trip exclusivity)."""
+async def test_list_comments_since_cursor_includes_same_time_items() -> None:
+    """Ensure a cursor re-read includes same-time items for ID-based dedup."""
 
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -312,6 +311,7 @@ async def test_list_comments_since_cursor_excludes_prior_item() -> None:
             json=[
                 _comment(comment_id=1, created="2026-01-01T00:00:00Z"),
                 _comment(comment_id=2, created="2026-01-02T00:00:00Z"),
+                _comment(comment_id=3, created="2026-01-02T00:00:00Z"),
             ],
         )
 
@@ -321,7 +321,9 @@ async def test_list_comments_since_cursor_excludes_prior_item() -> None:
 
     second = await src.list_comments("o/r#7", since=cursor)
 
-    assert [i.external_id for i in second] == []
+    assert [i.external_id for i in second] == [
+        "gh-issue-comment:o/r#2", "gh-issue-comment:o/r#3",
+    ]
 
 
 @pytest.mark.asyncio

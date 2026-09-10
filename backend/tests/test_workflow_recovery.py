@@ -86,10 +86,7 @@ async def test_recover_resumes_awaiting_input(
 async def test_recover_resumes_awaiting_refine_approval(
     tmp_path: Path,
 ) -> None:
-    """Ensure a run parked at the PRD-approval gate survives restart, then
-    runs gap_analysis to completion. A plain ticket's run always ends
-    there once refine is approved (FR-014) — it never reaches
-    design/code/verify."""
+    """Ensure a recovered PRD gate reaches the recovered decomposition gate."""
     store = _store(tmp_path)
     runner1 = _FakeRunner(SessionRegistry(), outputs=[
         "<UNDERSTANDING>vague issue understanding</UNDERSTANDING>",
@@ -118,8 +115,48 @@ async def test_recover_resumes_awaiting_refine_approval(
     await svc2.recover()
     assert svc2.get(wid).status == "awaiting_refine_approval"
 
-    svc2.approve(wid)  # PRD approved → gap_analysis, decomposed
+    svc2.approve(wid)  # PRD approved → decomposition approval
+    await _wait(
+        lambda: svc2.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc2.approve(wid)
     await _wait(lambda: svc2.get(wid).status == "decomposed")
+
+
+@pytest.mark.asyncio
+async def test_recover_publishes_the_checkpointed_decomposition(
+    tmp_path: Path,
+) -> None:
+    """Ensure restart approval publishes the persisted candidate."""
+    store = _store(tmp_path)
+    runner1 = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>understanding</UNDERSTANDING>",
+        _coord([]), _refined("refined issue"),
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>"
+        '<FOLLOWUP_TASKS>[{"title":"Task","body":"Body"}]'
+        "</FOLLOWUP_TASKS>",
+        '<CONTAINMENT>{"verdicts":[{"index":0,'
+        '"self_contained":true}]}</CONTAINMENT>',
+    ])
+    gh1 = _FakeGitHub(body="vague issue")
+    svc1 = _persistent_service(store, gh1, runner1, _FakeGit())
+    wid = await svc1.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc1.get(wid).status == "awaiting_describe_approval")
+    svc1.approve(wid)
+    await _wait(lambda: svc1.get(wid).status == "awaiting_refine_approval")
+    svc1.approve(wid)
+    await _wait(
+        lambda: svc1.get(wid).status == "awaiting_decomposition_approval"
+    )
+
+    gh2 = _FakeGitHub(body="vague issue")
+    svc2 = _persistent_service(
+        store, gh2, _FakeRunner(SessionRegistry(), outputs=[]), _FakeGit()
+    )
+    await svc2.recover()
+    svc2.approve(wid)
+    await _wait(lambda: svc2.get(wid).status == "decomposed")
+    assert [issue["title"] for issue in gh2.created_issues] == ["Task"]
 
 
 @pytest.mark.asyncio

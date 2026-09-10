@@ -213,8 +213,11 @@ async def test_waiver_reason_lands_in_refined_issue() -> None:
     await _wait(lambda: gh.updated is not None)
     assert "Assumptions & accepted risks" in (gh.updated or "")
 
-    # A plain ticket's run always ends at gap_analysis (FR-014); let it
-    # settle rather than leaving the driver task dangling.
+    # Approve the decomposition review so the driver finishes cleanly.
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
 
 

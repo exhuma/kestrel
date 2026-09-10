@@ -100,6 +100,7 @@ def test_ingestion_settings_have_defaults() -> None:
     assert s.task_sources == []
     assert s.poll_interval_seconds == 300
     assert s.public_base_url == ""
+    assert s.child_task_closure_retention_days == 183
 
 
 def test_github_source_for_matches_by_repo() -> None:

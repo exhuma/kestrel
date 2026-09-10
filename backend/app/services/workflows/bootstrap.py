@@ -1,4 +1,5 @@
 """Composition root: builds the process-wide WorkflowService singleton."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -11,10 +12,13 @@ from app.notifications import (
     InAppNotifier,
     TaskSourceNotifier,
 )
+from app.persistence.child_task_store import get_child_task_store
 from app.persistence.dismissal_store import get_dismissal_store
 from app.persistence.feedback_store import get_feedback_store
 from app.persistence.notification_store import get_notification_store
+from app.persistence.review_request_store import get_review_request_store
 from app.policy import get_backend_policy
+from app.services.feedback.source import compose_feedback_source
 from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost, parse_github_ref
 from app.services.github_tasksource import GitHubTaskSource
@@ -101,7 +105,9 @@ def get_workflow_service() -> WorkflowService:
     notifier = CompositeNotifier(
         [
             InAppNotifier(get_notification_store(), get_notification_bus()),
-            TaskSourceNotifier(sources, settings.public_base_url),
+            TaskSourceNotifier(
+                sources, settings.public_base_url, get_review_request_store()
+            ),
             LifecycleTransitioner(
                 sources, settings.public_base_url, hooks_dir_for
             ),
@@ -120,6 +126,9 @@ def get_workflow_service() -> WorkflowService:
         sources=sources,
         code_hosts=code_hosts,
         feedback_store=get_feedback_store(),
+        review_requests=get_review_request_store(),
+        child_tasks=get_child_task_store(),
+        feedback_source_factory=compose_feedback_source,
     )
 
 

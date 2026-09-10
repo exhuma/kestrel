@@ -53,8 +53,8 @@ from tests.conftest import (
     _settings,
     _verdict,
     _wait,
-    _write_fixture_task,
 )
+from tests.fixture_helpers import write_fixture_task as _write_fixture_task
 
 
 def _fixture_service(

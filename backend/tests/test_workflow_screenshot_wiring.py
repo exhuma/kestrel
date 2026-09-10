@@ -24,7 +24,7 @@ async def test_refine_screenshots_uploaded_at_prd_approval(
     """Refine mockups are uploaded at PRD approval time (inside refine()
     itself, before gap_analysis runs).
 
-    A plain ticket's run always ends at gap_analysis after refine approval
+    A plain ticket parks for decomposition approval after gap_analysis
     (FR-014) — it never reaches deliver(), so this only exercises the
     refine-stage upload; the verify-stage one is covered by the
     autonomous-design/code/verify test below.
@@ -49,6 +49,10 @@ async def test_refine_screenshots_uploaded_at_prd_approval(
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
 

@@ -1,9 +1,10 @@
 """ORM table definitions for kestrel."""
+
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text, text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -23,9 +24,7 @@ class SessionRow(Base):
     session_id: Mapped[str] = mapped_column(primary_key=True)
     cwd: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class EventRow(Base):
@@ -33,12 +32,8 @@ class EventRow(Base):
 
     __tablename__ = "event"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=True
-    )
-    session_id: Mapped[str] = mapped_column(
-        ForeignKey("session.session_id")
-    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("session.session_id"))
     type: Mapped[str] = mapped_column()
     raw: Mapped[str] = mapped_column(Text)
 
@@ -62,9 +57,7 @@ class WorkflowRunRow(Base):
     #: NULL for pre-migration rows and runs with no open request yet; those
     #: still resolve by matching on ``pr_url`` (no backfill).
     pr_number: Mapped[int | None] = mapped_column(nullable=True)
-    error: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Run origin: "github-issue" | "jira-issue" | "fixture-issue".
     #: Internal-only (not in the API). Migration 0014 relabelled the retired
     #: "manual" origin onto "github-issue" and moved the server-default.
@@ -90,9 +83,7 @@ class WorkflowRunRow(Base):
     active_seconds: Mapped[float] = mapped_column(
         default=0.0, server_default="0"
     )
-    wait_seconds: Mapped[float] = mapped_column(
-        default=0.0, server_default="0"
-    )
+    wait_seconds: Mapped[float] = mapped_column(default=0.0, server_default="0")
     #: Which clock is running now ("active" | "waiting"); NULL before
     #: start / after a terminal. Feature 006.
     clock_state: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -124,13 +115,9 @@ class WorkflowStepRow(Base):
     )
     position: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column()
-    session_id: Mapped[str | None] = mapped_column(
-        nullable=True
-    )
+    session_id: Mapped[str | None] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(default="pending")
-    deliverable: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
+    deliverable: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(nullable=True)
     #: Monotonic counter bumped only when the refine step's interview
     #: genuinely advances to a new round (see WorkflowStep.refine_round).
@@ -138,9 +125,7 @@ class WorkflowStepRow(Base):
     #: 1-based count of code↔verify iterations the verify step has entered
     #: (see WorkflowStep.verify_round). Server-default 0 keeps pre-existing
     #: rows valid.
-    verify_round: Mapped[int] = mapped_column(
-        default=0, server_default="0"
-    )
+    verify_round: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class WorkflowRoundChipRow(Base):
@@ -156,14 +141,13 @@ class WorkflowRoundChipRow(Base):
     __table_args__ = (
         Index(
             "ix_workflow_round_chip_workflow_step",
-            "workflow_id", "step_name",
+            "workflow_id",
+            "step_name",
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("workflow_run.id")
-    )
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("workflow_run.id"))
     step_name: Mapped[str] = mapped_column()
     round_index: Mapped[int] = mapped_column()
     profile_id: Mapped[str] = mapped_column()
@@ -212,12 +196,8 @@ class NotificationRow(Base):
 
     __tablename__ = "notification"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=True
-    )
-    workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("workflow_run.id")
-    )
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("workflow_run.id"))
     repo: Mapped[str] = mapped_column()
     #: GitHub issue number; ``NULL`` for a Jira-sourced run (feature 003),
     #: whose ticket has no numeric id — identify the run via ``workflow_id``.
@@ -243,7 +223,8 @@ class FeedbackItemRow(Base):
     __table_args__ = (
         Index(
             "ix_feedback_item_workflow_state",
-            "workflow_id", "state",
+            "workflow_id",
+            "state",
         ),
     )
 
@@ -283,3 +264,45 @@ class FeedbackCursorRow(Base):
     #: list_review_comments' ``since`` parameter verbatim.
     cursor: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ReviewRequestRow(Base):
+    """One revision-specific external review request for a workflow gate."""
+
+    __tablename__ = "review_request"
+    __table_args__ = (
+        Index(
+            "uq_review_request_active_gate",
+            "workflow_id",
+            "gate",
+            unique=True,
+            sqlite_where=text("active = 1"),
+        ),
+    )
+
+    token: Mapped[str] = mapped_column(Text, primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("workflow_run.id"))
+    gate: Mapped[str] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column()
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ChildTaskLinkRow(Base):
+    """One published decomposition child and its latest workflow generation."""
+
+    __tablename__ = "child_task_link"
+
+    task_ref: Mapped[str] = mapped_column(Text, primary_key=True)
+    parent_workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflow_run.id")
+    )
+    latest_workflow_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workflow_run.id"), nullable=True
+    )
+    #: "open" | "closed" | "reopening" | "retiring". The last two are claims.
+    source_state: Mapped[str] = mapped_column(Text)
+    #: Fixture source's explicit re-adoption generation, when supplied.
+    source_generation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

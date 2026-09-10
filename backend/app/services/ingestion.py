@@ -4,6 +4,7 @@ Called by both the webhook handler and the reconciliation loop so the
 one-run-per-issue and dismissal rules live in exactly one place (feature
 002, FR-007/FR-008/FR-008a/FR-013a).
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,6 +12,10 @@ from functools import lru_cache
 
 from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun
+from app.persistence.child_task_store import (
+    ChildTaskLinks,
+    get_child_task_store,
+)
 from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.services.workflows import WorkflowService, get_workflow_service
 
@@ -25,10 +30,12 @@ class IngestionService:
         settings: Settings,
         workflows: WorkflowService,
         dismissals: DismissalStore,
+        child_tasks: ChildTaskLinks | None = None,
     ) -> None:
         self.settings = settings
         self.workflows = workflows
         self.dismissals = dismissals
+        self.child_tasks = child_tasks
 
     def is_watched(self, repo: str) -> bool:
         """Return whether ``repo`` is in a github source's allow-list."""
@@ -84,7 +91,75 @@ class IngestionService:
             task_ref=task_ref,
             base_branch=base_branch,
         )
+        if self.child_tasks is not None:
+            self.child_tasks.record_run(task_ref, run_id)
         _log.info("ingest outcome=started %s -> %s", task_ref, run_id)
+        return run_id
+
+    async def observe_child_source_state(
+        self, task_ref: str, state: str
+    ) -> None:
+        """Observe a linked child's source lifecycle state and re-adopt reopen.
+
+        An open observation attempts a successor before recording open, so only
+        a durable prior closed observation can satisfy the store's claim.
+        Unknown tasks are harmless because every store operation is conditional
+        on an existing child link.
+        """
+        if self.child_tasks is None:
+            return
+        if state == "closed":
+            self.child_tasks.observe_source_state(task_ref, state)
+            return
+        for run in reversed(self.workflows.list()):
+            if run.task_ref != task_ref:
+                continue
+            if await self.maybe_start_reopened_successor(parent=run):
+                return
+        self.child_tasks.observe_source_state(task_ref, state)
+
+    async def observe_missing_child_source_tasks(
+        self, prefix: str, qualifying: set[str]
+    ) -> None:
+        """Close linked children that left a poll source's qualifying set."""
+        if self.child_tasks is None:
+            return
+        for task_ref in self.child_tasks.linked_refs(prefix) - qualifying:
+            await self.observe_child_source_state(task_ref, "closed")
+
+    async def observe_child_retrigger(
+        self, task_ref: str, generation: str | None
+    ) -> None:
+        """Re-adopt a linked fixture child after a generation change."""
+        if generation is None or self.child_tasks is None:
+            return
+        if self.child_tasks.observe_generation(task_ref, generation):
+            await self.observe_child_source_state(task_ref, "open")
+
+    async def maybe_start_reopened_successor(
+        self, *, parent: WorkflowRun
+    ) -> str | None:
+        """Start one linked successor after a claimed child reopen.
+
+        This intentionally does not call :meth:`has_run`: the parent itself
+        proves a run exists, while the child-store claim limits a validated
+        closed-to-open transition to exactly one successor. Ordinary ingestion
+        retains its existing duplicate filter.
+        """
+        if self.child_tasks is None:
+            return None
+        if self.dismissals.is_dismissed(parent.task_ref):
+            _log.info("re-adoption outcome=dismissed %s", parent.task_ref)
+            return None
+        if not self.child_tasks.claim_reopen(parent.task_ref, parent.id):
+            _log.info("re-adoption outcome=skipped %s", parent.task_ref)
+            return None
+        try:
+            run_id = await self.start_successor_run(parent=parent)
+        except Exception:
+            self.child_tasks.release_reopen(parent.task_ref)
+            raise
+        self.child_tasks.complete_reopen(parent.task_ref, run_id)
         return run_id
 
     async def start_successor_run(self, *, parent: WorkflowRun) -> str:
@@ -113,14 +188,14 @@ class IngestionService:
         :returns: The new run's id.
         """
         run_id = await self.workflows.create(
-            parent.repo, parent.issue_number,
-            source=parent.source, task_ref=parent.task_ref,
+            parent.repo,
+            parent.issue_number,
+            source=parent.source,
+            task_ref=parent.task_ref,
             base_branch=parent.base_branch or None,
             parent_run_id=parent.id,
         )
-        _log.info(
-            "ingest outcome=successor parent=%s -> %s", parent.id, run_id
-        )
+        _log.info("ingest outcome=successor parent=%s -> %s", parent.id, run_id)
         return run_id
 
 
@@ -128,5 +203,8 @@ class IngestionService:
 def get_ingestion_service() -> IngestionService:
     """Return the process-wide IngestionService singleton."""
     return IngestionService(
-        get_settings(), get_workflow_service(), get_dismissal_store()
+        get_settings(),
+        get_workflow_service(),
+        get_dismissal_store(),
+        get_child_task_store(),
     )

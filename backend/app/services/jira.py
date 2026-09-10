@@ -341,7 +341,7 @@ class JiraTaskSource:
         raw = await self._client.list_comments(ref)
         cutoff = parse_iso(since) if since else None
         items = [self._to_feedback(ref, c) for c in raw]
-        return [f for f in items if cutoff is None or f.created_at > cutoff]
+        return [f for f in items if cutoff is None or f.created_at >= cutoff]
 
     @staticmethod
     def _to_feedback(ref: str, comment: dict) -> Feedback:

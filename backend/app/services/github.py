@@ -60,6 +60,8 @@ class Issue:
     number: int
     title: str
     body: str
+    state: Literal["open", "closed"] = "open"
+    labels: frozenset[str] = frozenset()
 
 
 class GitHubClient:
@@ -147,6 +149,10 @@ class GitHubClient:
             number=data["number"],
             title=data.get("title", ""),
             body=data.get("body") or "",
+            state="closed" if data.get("state") == "closed" else "open",
+            labels=frozenset(
+                label["name"] for label in data.get("labels", [])
+            ),
         )
 
     async def create_issue_comment(
@@ -163,17 +169,36 @@ class GitHubClient:
     async def list_issues_by_label(
         self, repo: str, label: str, *, state: str = "open"
     ) -> list[Issue]:
+        """List real issues carrying ``label``, following pagination."""
+        return await self._list_issues(
+            repo, state=state, params={"labels": label}
+        )
+
+    async def list_issues(
+        self, repo: str, *, state: str = "open"
+    ) -> list[Issue]:
+        """List every real issue in ``repo``, following pagination."""
+        return await self._list_issues(repo, state=state)
+
+    async def _list_issues(
+        self,
+        repo: str,
+        *,
+        state: str,
+        params: dict[str, str] | None = None,
+    ) -> list[Issue]:
         """
-        List issues carrying ``label``, following pagination.
+        List real issues matching ``params``, following pagination.
 
         The issues API also returns pull requests; those (items with a
         ``pull_request`` key) are excluded so only real issues are returned.
         """
         issues: list[Issue] = []
+        request_params = {"state": state, "per_page": 100, **(params or {})}
         resp = await self._request(
             "GET",
             f"/repos/{repo}/issues",
-            params={"labels": label, "state": state, "per_page": 100},
+            params=request_params,
         )
         while True:
             for item in resp.json():
@@ -184,6 +209,14 @@ class GitHubClient:
                         number=item["number"],
                         title=item.get("title", ""),
                         body=item.get("body") or "",
+                        state=(
+                            "closed"
+                            if item.get("state") == "closed"
+                            else "open"
+                        ),
+                        labels=frozenset(
+                            label["name"] for label in item.get("labels", [])
+                        ),
                     )
                 )
             nxt = resp.links.get("next")
@@ -451,5 +484,3 @@ class GitHubCodeHost:
             return True
         except Exception:  # noqa: BLE001 — best-effort acknowledgment
             return False
-
-

@@ -42,12 +42,13 @@ class ReconcileService:
         """Display label for the poll dry-run listing."""
         return f"github [{', '.join(self.source.watched_repos)}]"
 
-    async def _list_labelled(self, repo: str) -> list[Issue]:
-        """List ``repo``'s trigger-labelled issues; ``[]`` on error."""
+    async def _list_issues(self, repo: str) -> list[Issue]:
+        """List every real issue in ``repo`` in every state.
+
+        Return ``[]`` if GitHub cannot be reached.
+        """
         try:
-            return await self.github.list_issues_by_label(
-                repo, self.source.trigger_label
-            )
+            return await self.github.list_issues(repo, state="all")
         except Exception:  # noqa: BLE001 — unreachable/rate-limited/etc.
             _log.exception("reconcile: could not list issues for %s", repo)
             return []
@@ -58,11 +59,15 @@ class ReconcileService:
             await self._reconcile_repo(repo)
 
     async def _reconcile_repo(self, repo: str) -> None:
-        issues = await self._list_labelled(repo)
-        labelled = {issue.number for issue in issues}
+        issues = await self._list_issues(repo)
+        labelled = {
+            issue.number
+            for issue in issues
+            if self.source.trigger_label in issue.labels
+        }
         self._clear_stale_dismissals(repo, labelled)
         for issue in issues:
-            await self._maybe_start(repo, issue)
+            await self._observe_or_start(repo, issue, issue.number in labelled)
 
     def _clear_stale_dismissals(self, repo: str, labelled: set[int]) -> None:
         # Clear dismissals whose trigger label is gone (self-heal a missed
@@ -79,8 +84,16 @@ class ReconcileService:
             if number not in labelled:
                 self.dismissals.clear(ref)
 
-    async def _maybe_start(self, repo: str, issue: Issue) -> None:
+    async def _observe_or_start(
+        self, repo: str, issue: Issue, is_labelled: bool
+    ) -> None:
+        """Observe every issue while ingesting only labelled open issues."""
         try:
+            await self.ingestion.observe_child_source_state(
+                f"{repo}#{issue.number}", issue.state
+            )
+            if issue.state == "closed" or not is_labelled:
+                return
             await self.ingestion.maybe_start_run(
                 source="github-issue",
                 task_ref=f"{repo}#{issue.number}",
@@ -96,7 +109,9 @@ class ReconcileService:
         """List this source's qualifying issues; starts no run (dry-run)."""
         items: list[WorkItem] = []
         for repo in self.source.watched_repos:
-            for issue in await self._list_labelled(repo):
+            for issue in await self._list_issues(repo):
+                if self.source.trigger_label not in issue.labels:
+                    continue
                 items.append(
                     WorkItem(
                         "github-issue",

@@ -1,7 +1,9 @@
 """Tests for the source-dispatching TaskSourceNotifier (feature 003)."""
+
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 import pytest
 
@@ -11,6 +13,8 @@ from app.notifications import (
     TaskSourceNotifier,
     gate_deep_link,
 )
+from app.persistence.tables import ReviewRequestRow
+from app.review_requests import render_delta_summary
 
 
 class _FakeSource:
@@ -35,11 +39,62 @@ class _Recording:
         self.seen.append(run.id)
 
 
-def _run(status: str, *, source: str = "github-issue",
-         task_ref: str = "o/r#5") -> WorkflowRun:
+class _ReviewRequests:
+    """In-memory review-request ledger for notifier tests."""
+
+    def __init__(self) -> None:
+        self.rows: list[ReviewRequestRow] = []
+
+    def active_for(
+        self, workflow_id: str, gate: str
+    ) -> ReviewRequestRow | None:
+        """Return the active row for this workflow gate, if present."""
+        return next(
+            (
+                row
+                for row in self.rows
+                if row.workflow_id == workflow_id
+                and row.gate == gate
+                and row.active
+            ),
+            None,
+        )
+
+    def token(self) -> str:
+        """Return a predictable token for the next review request."""
+        return f"token-{len(self.rows) + 1}"
+
+    def next_revision(self, workflow_id: str) -> int:
+        """Return a predictable revision for the next review request."""
+        del workflow_id
+        return len(self.rows) + 1
+
+    def create(
+        self, workflow_id: str, gate: str, revision: int, token: str
+    ) -> ReviewRequestRow:
+        """Create a predictable active revision for a workflow gate."""
+        row = ReviewRequestRow(
+            token=token,
+            workflow_id=workflow_id,
+            gate=gate,
+            revision=revision,
+            active=True,
+            created_at=datetime.now(),
+        )
+        self.rows.append(row)
+        return row
+
+
+def _run(
+    status: str, *, source: str = "github-issue", task_ref: str = "o/r#5"
+) -> WorkflowRun:
     return WorkflowRun(
-        id="wf-1", repo="o/r", issue_number=5, status=status,
-        source=source, task_ref=task_ref,
+        id="wf-1",
+        repo="o/r",
+        issue_number=5,
+        status=status,
+        source=source,
+        task_ref=task_ref,
     )
 
 
@@ -71,9 +126,52 @@ async def test_posts_thin_comment_with_deep_link() -> None:
     task_ref, body = gh.comments[0]
     assert task_ref == "o/r#5"
     assert "Kestrel needs your input refining o/r#5." in body
+    assert "@kestrel" not in body
+    assert "answer the questionnaire" in body
     assert "Open in kestrel: https://k.example/?run=wf-1" in body
     # Thin: no PRD/plan content, only status + link.
     assert "PRD" not in body or "PRD ready" in body
+
+
+@pytest.mark.asyncio
+async def test_gate_post_includes_a_durable_revision_token() -> None:
+    """External gate posts state their revision and how to respond to it."""
+    source, reviews = _FakeSource(), _ReviewRequests()
+    TaskSourceNotifier({"github-issue": source}, "", reviews).notify(
+        _run("awaiting_refine_approval")
+    )
+    await _tick()
+
+    assert len(reviews.rows) == 1
+    assert "Revision 1: `[kestrel-review:token-1]`" in source.comments[0][1]
+    assert "Reply to this review with its token" in source.comments[0][1]
+
+
+def test_delta_summary_references_canonical_artifact() -> None:
+    """A revised review post is concise and sends readers to the source."""
+    summary = render_delta_summary(
+        "One\nOld value", "One\nNew value", "https://k.example/?run=wf-1"
+    )
+
+    assert "New value" in summary
+    assert "Old value" not in summary
+    assert "https://k.example/?run=wf-1" in summary
+    assert "kestrel-review:" not in summary
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_post_never_creates_a_review_request() -> None:
+    """Refine interview input remains a UI-only questionnaire interaction."""
+    source, reviews = _FakeSource(), _ReviewRequests()
+    notifier = TaskSourceNotifier(
+        {"github-issue": source}, "https://k.example", reviews
+    )
+    notifier.notify(_run("awaiting_refine_input"))
+    await _tick()
+
+    assert reviews.rows == []
+    assert "kestrel-review:" not in source.comments[0][1]
+    assert "@kestrel" not in source.comments[0][1]
 
 
 @pytest.mark.asyncio
@@ -83,8 +181,9 @@ async def test_dispatches_to_the_runs_own_source() -> None:
     notifier = TaskSourceNotifier(
         {"github-issue": gh, "jira-issue": jira}, "https://k.example"
     )
-    notifier.notify(_run("awaiting_refine_approval", source="jira-issue",
-                         task_ref="RFC-1"))
+    notifier.notify(
+        _run("awaiting_refine_approval", source="jira-issue", task_ref="RFC-1")
+    )
     await _tick()
     assert len(jira.comments) == 1 and jira.comments[0][0] == "RFC-1"
     assert gh.comments == []
@@ -105,8 +204,11 @@ async def test_posts_without_link_when_base_unset() -> None:
 @pytest.mark.asyncio
 async def test_gates_and_escalation_each_post_one_comment() -> None:
     """Ensure each awaiting_* gate and an escalation posts a single comment."""
-    for status in ("awaiting_refine_input", "awaiting_refine_approval",
-                   "escalated"):
+    for status in (
+        "awaiting_refine_input",
+        "awaiting_refine_approval",
+        "escalated",
+    ):
         gh = _FakeSource()
         TaskSourceNotifier({"github-issue": gh}, "https://k.example").notify(
             _run(status)
@@ -157,8 +259,14 @@ async def test_same_status_reposts_after_leaving_the_gate() -> None:
 @pytest.mark.asyncio
 async def test_non_attention_status_posts_nothing() -> None:
     """Ensure done/failed/rejected and transient phases post no comment."""
-    for status in ("done", "failed", "rejected", "designing", "coding",
-                   "verifying"):
+    for status in (
+        "done",
+        "failed",
+        "rejected",
+        "designing",
+        "coding",
+        "verifying",
+    ):
         gh = _FakeSource()
         TaskSourceNotifier({"github-issue": gh}, "https://k.example").notify(
             _run(status)
@@ -187,6 +295,24 @@ async def test_post_failure_is_swallowed() -> None:
     )
     await _tick()
     assert gh.comments == []
+
+
+@pytest.mark.asyncio
+async def test_failed_gate_post_is_retried_without_recording_a_token() -> None:
+    """A failed post leaves no active token and does not suppress a retry."""
+    source, reviews = _FakeSource(fail=True), _ReviewRequests()
+    notifier = TaskSourceNotifier({"github-issue": source}, "", reviews)
+    run = _run("awaiting_refine_approval")
+    notifier.notify(run)
+    await _tick()
+
+    assert reviews.rows == []
+    source._fail = False
+    notifier.notify(run)
+    await _tick()
+
+    assert len(source.comments) == 1
+    assert len(reviews.rows) == 1
 
 
 @pytest.mark.asyncio

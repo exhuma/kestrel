@@ -54,11 +54,15 @@ class _FakeDismissals:
 class _FakeIngestion:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int | None]] = []
+        self.lifecycle_calls: list[tuple[str, str]] = []
 
     async def maybe_start_run(self, *, source, task_ref, code_repo,
                               issue_number=None, base_branch=None):
         self.calls.append((code_repo, issue_number))
         return "wf-x"
+
+    async def observe_child_source_state(self, task_ref, state):
+        self.lifecycle_calls.append((task_ref, state))
 
 
 class _FakeFeedbackIntake:
@@ -279,6 +283,35 @@ async def test_unlabeled_clears_dismissal_then_relabel_starts() -> None:
     assert r_unlabel.status_code == 200
     assert r_relabel.status_code == 202
     assert ing.calls == [("o/r", 5)]
+
+
+@pytest.mark.asyncio
+async def test_issue_closed_and_reopened_observe_child_lifecycle() -> None:
+    """Lifecycle webhooks observe state without entering normal ingestion."""
+    ing = _FakeIngestion()
+    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+        closed = await _post(c, _payload(action="closed"), delivery="closed")
+        reopened = await _post(
+            c, _payload(action="reopened"), delivery="reopened"
+        )
+        await _tick()
+    assert closed.status_code == 202
+    assert reopened.status_code == 202
+    assert ing.lifecycle_calls == [("o/r#5", "closed"), ("o/r#5", "open")]
+    assert ing.calls == []
+
+
+@pytest.mark.asyncio
+async def test_reopened_delivery_is_deduplicated() -> None:
+    """A redelivered reopen does not queue another lifecycle observation."""
+    ing = _FakeIngestion()
+    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+        first = await _post(c, _payload(action="reopened"), delivery="reopen")
+        second = await _post(c, _payload(action="reopened"), delivery="reopen")
+        await _tick()
+    assert first.status_code == 202
+    assert second.json()["status"] == "duplicate"
+    assert ing.lifecycle_calls == [("o/r#5", "open")]
 
 
 # ---- issue_comment (feedback intake, feature 013) --------------------

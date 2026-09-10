@@ -126,9 +126,11 @@ the image small and lets a deploy attach or swap backends purely by config.
   architecture/technical-decision record and one or more independent,
   self-contained follow-up tasks — checked by a completeness self-review
   turn before publishing — which are published back to the task source as
-  subdivisions of the original ticket, without themselves satisfying that
-  source's ingestion trigger (so publishing them starts no new run). The
-  original run then ends (`status = "decomposed"`); it never itself reaches
+  subdivisions of the original ticket. Feature 015 adds a decomposition
+  approval gate: kestrel holds the candidate analysis and children until the
+  requester approves its tokenized review revision. Publishing starts no new
+  run because child creation does not satisfy the source's ingestion trigger.
+  The original run then ends (`status = "decomposed"`); it never itself reaches
   `design`/`code`/`verify`. A promoted follow-up task, recognized via a
   second sentinel marker in its body (`SUBTASK_SENTINEL`, alongside the
   existing "already refined" `SENTINEL`), skips `describe`/`refine`/
@@ -141,6 +143,20 @@ the image small and lets a deploy attach or swap backends purely by config.
   **escalates** to the ticket on exhaustion. The task source is only the
   human↔agent boundary — the process behind it is the same, so the system is
   predictable.
+- **External feedback decisions and bounded child monitoring (feature 015).**
+  Each externally posted understanding, PRD, or decomposition review has a
+  durable revision and an opaque `[kestrel-review:<token>]` token. A response
+  must target the active revision and choose `@kestrel approve`,
+  `@kestrel reject`, or `@kestrel request changes`; old or unclassified
+  responses cannot change a gate. Revised posts give a delta-only summary,
+  leaving the linked or attached artifact canonical. Feedback acknowledgement
+  prefers a source reaction and falls back to a concise reply. An optional,
+  separate OpenAI-compatible translation backing service posts an English
+  translation with a mistake warning without blocking workflow processing.
+  Published children retain source-state and successor lineage: a closed to
+  open transition creates exactly one linked successor. A child still closed
+  after `child_task_closure_retention_days` (183 by default) receives one
+  retirement notice and is excluded from later feedback and reopening polls.
 - **Behavioral verify evidence, grounded in real, observed behaviour.** The
   `design` step classifies the project's user-facing boundary — HTTP API, web
   UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.

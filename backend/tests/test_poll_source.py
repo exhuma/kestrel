@@ -35,7 +35,12 @@ async def test_reconcile_list_work_items_starts_no_run() -> None:
         Settings(_env_file=None, task_sources=[source]), wf, dis
     )
     svc = ReconcileService(
-        source, _FakeGitHub(issues=[Issue(5, "Fix", "b")]), ingestion, dis
+        source,
+        _FakeGitHub(
+            issues=[Issue(5, "Fix", "b", labels=frozenset({"kestrel"}))]
+        ),
+        ingestion,
+        dis,
     )
     items = await svc.list_work_items()
     assert items == [WorkItem("github-issue", "o/r#5", "Fix", "o/r")]

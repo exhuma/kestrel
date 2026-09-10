@@ -1,26 +1,23 @@
-"""The gap_analysis step: technical analysis and decomposition into
-self-contained follow-up tasks (feature 012).
+"""The gap_analysis step: propose and publish self-contained follow-up tasks.
 
-Gateless and run-terminating on success — unlike refine, no human
-approval gate sits here (matches design's existing autonomy). A single
-rich analysis turn covers every technical altitude (engineering,
-security, data, architecture, ops, test strategy) at once rather than
-refine's parallel per-profile fan-out: gap_analysis is autonomous, so
-refine's "don't overwhelm the human with duplicate questions" rationale
-for that fan-out does not apply here. A dedicated self-containment
-critic turn then stands in for the missing human reviewer, checking each
-candidate follow-up task the way `critique_coverage` checks a folded
-questionnaire for a lost stakeholder concern.
+The agent creates and critiques a candidate decomposition, then a human gate
+holds that candidate before any task-source write.  The pending proposal lives
+in the step deliverable so it uses the existing workflow checkpointing.
 """
+
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping, Sequence, cast
 
 from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
+from app.ports import TaskSource
+from app.review_requests import render_delta_summary
+from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
     append_subtask_sentinel,
     extract_containment_verdicts,
@@ -33,6 +30,7 @@ from app.services.workflows.prompts import (
     GAP_ANALYSIS_REVISION_PROMPT,
 )
 from app.services.workflows.sessions import _bind
+from app.services.workflows.shared import _now_utc, _Rejected
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
@@ -45,6 +43,14 @@ _logger = logging.getLogger(__name__)
 #: anyway rather than looping — mirroring the project's other bounded
 #: agent loops (MAX_REFINE_ROUNDS, max_verify_iterations).
 _MAX_CONTAINMENT_PASSES = 2
+
+
+@dataclass
+class _Candidate:
+    """A reviewed technical analysis and the tasks it proposes to publish."""
+
+    technical_analysis: str
+    tasks: list[dict[str, str]]
 
 
 @dataclass
@@ -88,13 +94,14 @@ def _failing_indices(
 ) -> list[int]:
     """Indices whose verdict is explicitly self_contained=False."""
     return [
-        i for i in range(len(tasks))
+        i
+        for i in range(len(tasks))
         if not verdicts.get(i, {"self_contained": True})["self_contained"]
     ]
 
 
 def _apply_revisions(
-    tasks: list[dict[str, str]], revised: list[dict[str, object]]
+    tasks: list[dict[str, str]], revised: Sequence[Mapping[str, object]]
 ) -> None:
     """Merge a revision turn's output back into ``tasks``, in place."""
     for item in revised:
@@ -104,6 +111,33 @@ def _apply_revisions(
                 "title": str(item.get("title", tasks[index]["title"])),
                 "body": str(item.get("body", tasks[index]["body"])),
             }
+
+
+def _encode_candidate(candidate: _Candidate) -> str:
+    """Serialize a pending proposal into the step's durable deliverable."""
+    return json.dumps(
+        {
+            "technical_analysis": candidate.technical_analysis,
+            "tasks": candidate.tasks,
+        }
+    )
+
+
+def _decode_candidate(deliverable: str) -> _Candidate:
+    """Restore a pending proposal or reject malformed persisted state."""
+    payload = json.loads(deliverable)
+    analysis = payload["technical_analysis"]
+    tasks = payload["tasks"]
+    if not isinstance(analysis, str) or not isinstance(tasks, list):
+        raise ValueError("invalid decomposition candidate")
+    normalized = [
+        {"title": str(task["title"]), "body": str(task["body"])}
+        for task in tasks
+        if isinstance(task, dict)
+    ]
+    if not normalized or len(normalized) != len(tasks):
+        raise ValueError("invalid decomposition candidate tasks")
+    return _Candidate(technical_analysis=analysis, tasks=normalized)
 
 
 async def _check_self_containment(
@@ -139,11 +173,16 @@ async def _check_self_containment(
                 failing_tasks=failing_payload,
             )
         )
-        _apply_revisions(tasks, extract_followup_tasks(revision_text) or [])
+        revised = cast(
+            Sequence[Mapping[str, object]],
+            extract_followup_tasks(revision_text) or [],
+        )
+        _apply_revisions(tasks, revised)
     _logger.warning(
-        "workflow %s: gap_analysis published with unresolved "
+        "workflow %s: gap_analysis proposed tasks with unresolved "
         "self-containment gaps after %d passes",
-        turn.wf_run.id, _MAX_CONTAINMENT_PASSES,
+        turn.wf_run.id,
+        _MAX_CONTAINMENT_PASSES,
     )
     return tasks
 
@@ -151,18 +190,35 @@ async def _check_self_containment(
 async def run_gap_analysis(
     service: "WorkflowService", run: WorkflowRun
 ) -> None:
-    """Run the gap_analysis step to completion.
+    """Create a candidate decomposition, await approval, then publish it.
 
-    Produces a technical-analysis summary and one or more self-contained
-    follow-up tasks, publishes both back to the task source, and ends the
-    run (``run.status = "decomposed"``) without proceeding to design —
-    the original ticket is never itself designed/coded/verified. A
-    failure anywhere (including a create_subtask call after the
-    self-containment gate passed) propagates to the caller and fails the
-    run, exactly like any other unhandled exception during a gateless
-    step — never a silently partial publish.
+    A request for changes reruns analysis before parking again.  A bare
+    rejection raises the driver's usual terminal-rejection signal.
     """
     step = run.steps[2]
+    revised_from: str | None = None
+    while True:
+        if step.status != "awaiting_approval":
+            await _create_candidate(service, run, step, revised_from)
+            revised_from = None
+        decision = await service._await_gate(run.id)
+        set_clock(run, "active", _now_utc())
+        if decision.approved:
+            await _publish_candidate(service, run, step)
+            return
+        if decision.refinement is None:
+            raise _Rejected()
+        revised_from = step.deliverable
+        step.status = "pending"
+
+
+async def _create_candidate(
+    service: "WorkflowService",
+    run: WorkflowRun,
+    step: WorkflowStep,
+    revised_from: str | None,
+) -> None:
+    """Run analysis and containment checking, then checkpoint its proposal."""
     prd = run.steps[1].deliverable or ""
     understanding = run.steps[0].deliverable or ""
     step.model = get_policy().model_for(Step.GAP_ANALYSIS)
@@ -185,22 +241,47 @@ async def run_gap_analysis(
     tasks = await _check_self_containment(turn, tech_analysis, tasks)
 
     service._write_artifact(run, "technical-analysis.md", tech_analysis)
+    service._retire_sessions(run, step)
+    step.deliverable = _encode_candidate(_Candidate(tech_analysis, tasks))
+    if revised_from is not None:
+        source = cast(TaskSource, service._task_source(run))
+        await source.post_comment(
+            run.task_ref,
+            render_delta_summary(
+                revised_from,
+                step.deliverable,
+                source.deep_link_ref(run.task_ref),
+            ),
+        )
+    step.status = "awaiting_approval"
+    run.status = "awaiting_decomposition_approval"
+    set_clock(run, "waiting", _now_utc())
+    service._save(run)
 
-    source = service._task_source(run)
-    for task in tasks:
+
+async def _publish_candidate(
+    service: "WorkflowService", run: WorkflowRun, step: WorkflowStep
+) -> None:
+    """Publish the approved, checkpointed candidate and finish the run."""
+    candidate = _decode_candidate(step.deliverable or "")
+
+    source = cast(TaskSource, service._task_source(run))
+    for task in candidate.tasks:
         body = append_subtask_sentinel(task["body"])
-        await source.create_subtask(run.task_ref, task["title"], body)
+        task_ref = await source.create_subtask(
+            run.task_ref, task["title"], body
+        )
+        if service.child_tasks is not None:
+            service.child_tasks.record(run.id, task_ref)
     # Distinct from the per-follow-up create_subtask calls above: the
     # summary goes back to the *original* ticket, for human reference
     # (spec.md FR-012) — post_comment works uniformly across every
     # source, unlike attach (a GitHub no-op) or publish_refined (which
     # would overwrite the ticket body rather than add to it).
     await source.post_comment(
-        run.task_ref, f"## Technical analysis\n\n{tech_analysis}"
+        run.task_ref, f"## Technical analysis\n\n{candidate.technical_analysis}"
     )
 
-    service._retire_sessions(run, step)
-    step.deliverable = tech_analysis
     step.status = "done"
     run.status = "decomposed"
     service._save(run)

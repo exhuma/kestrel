@@ -9,6 +9,9 @@ kestrel talking to itself.
 from __future__ import annotations
 
 import re
+from typing import Literal
+
+GateFeedbackAction = Literal["approve", "reject", "request_changes"]
 
 
 def has_marker(body: str, marker: str) -> bool:
@@ -25,6 +28,26 @@ def has_marker(body: str, marker: str) -> bool:
     """
     pattern = re.compile(rf"(?<!\w){re.escape(marker)}(?!\w)", re.IGNORECASE)
     return pattern.search(body) is not None
+
+
+def gate_feedback_action(body: str, marker: str) -> GateFeedbackAction:
+    """
+    Classify an explicit marker command, defaulting to requested changes.
+
+    This deliberately recognizes only the three stable commands after the
+    marker. A marked comment without one preserves the existing behavior:
+    regenerate the parked artifact using the comment as feedback.
+
+    :param body: Raw feedback body, already admitted by :func:`has_marker`.
+    :param marker: The configured trigger token.
+    :returns: The deterministic gate action to apply.
+    """
+    marker_end = re.escape(marker) + r"\s+"
+    if re.search(marker_end + r"approve\b", body, re.IGNORECASE):
+        return "approve"
+    if re.search(marker_end + r"reject\b", body, re.IGNORECASE):
+        return "reject"
+    return "request_changes"
 
 
 def is_ignored_author(

@@ -13,6 +13,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.persistence.feedback_store import get_feedback_store
+from app.persistence.review_request_store import get_review_request_store
 from app.services.feedback.dispatch import FeedbackDispatcher
 from app.services.ingestion import get_ingestion_service
 from app.services.workflows import get_workflow_service
@@ -22,5 +23,6 @@ from app.services.workflows import get_workflow_service
 def get_feedback_dispatcher() -> FeedbackDispatcher:
     """Return the process-wide FeedbackDispatcher singleton."""
     return FeedbackDispatcher(
-        get_workflow_service(), get_feedback_store(), get_ingestion_service()
+        get_workflow_service(), get_feedback_store(), get_ingestion_service(),
+        get_review_request_store(),
     )

@@ -4,6 +4,7 @@ into self-contained follow-up tasks (feature 012, spec.md User Story 3).
 See specs/012-task-decomposition-pipeline/contracts/gap-analysis-output.md
 for the contract these tests verify.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,6 +20,18 @@ from tests.conftest import (
     _service,
     _wait,
 )
+
+
+class _ChildTasks:
+    """Records child links without requiring persistence in driver tests."""
+
+    def __init__(self) -> None:
+        """Create an empty recorded-link collection."""
+        self.links: list[tuple[str, str]] = []
+
+    def record(self, parent_workflow_id: str, task_ref: str) -> None:
+        """Record one parent-child source reference pair."""
+        self.links.append((parent_workflow_id, task_ref))
 
 
 class _GHDouble(_FakeGitHub):
@@ -39,9 +52,7 @@ class _GHDouble(_FakeGitHub):
             and len(self.created_issues) >= self.fail_create_after
         ):
             raise RuntimeError("simulated create_issue failure")
-        self.created_issues.append(
-            {"repo": repo, "title": title, "body": body}
-        )
+        self.created_issues.append({"repo": repo, "title": title, "body": body})
         return 100 + len(self.created_issues)
 
     async def create_issue_comment(
@@ -90,9 +101,8 @@ async def _reach_gap_analysis(gh: _FakeGitHub, extra_outputs: list[str]):
 
 
 @pytest.mark.asyncio
-async def test_decomposes_and_publishes_follow_up_tasks() -> None:
-    """Ensure a successful gap_analysis publishes the follow-up task(s)
-    and the technical-analysis summary, then ends the run decomposed."""
+async def test_parks_candidates_until_decomposition_is_approved() -> None:
+    """Ensure analysis creates no task-source writes before approval."""
     gh = _GHDouble()
     svc, wid = await _reach_gap_analysis(
         gh,
@@ -105,12 +115,21 @@ async def test_decomposes_and_publishes_follow_up_tasks() -> None:
         ],
     )
 
-    await _wait(lambda: svc.get(wid).status == "decomposed")
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
 
     run = svc.get(wid)
     assert run.steps[2].name == "gap_analysis"
-    assert run.steps[2].status == "done"
+    assert run.steps[2].status == "awaiting_approval"
     assert "Use a REST endpoint." in (run.steps[2].deliverable or "")
+    assert len(gh.created_issues) == 0
+    assert len(gh.comments) == 0
+
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "decomposed")
+
+    assert run.steps[2].status == "done"
     assert len(gh.created_issues) == 1
     assert gh.created_issues[0]["title"] == "Add the endpoint"
     assert "kestrel:subtask" in gh.created_issues[0]["body"]
@@ -136,8 +155,42 @@ async def test_indivisible_work_still_yields_exactly_one_task() -> None:
         ],
     )
 
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert len(gh.created_issues) == 1
+
+
+@pytest.mark.asyncio
+async def test_publication_records_each_created_child_reference() -> None:
+    """Approved publication persists each returned source task reference."""
+    gh = _GHDouble()
+    children = _ChildTasks()
+    svc, wid = await _reach_gap_analysis(
+        gh,
+        [
+            _gap_analysis_output(
+                "Two pieces.",
+                {"title": "First", "body": "First body"},
+                {"title": "Second", "body": "Second body"},
+            ),
+            _containment(
+                {"index": 0, "self_contained": True},
+                {"index": 1, "self_contained": True},
+            ),
+        ],
+    )
+    svc.child_tasks = children
+
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "decomposed")
+
+    assert children.links == [(wid, "o/r#101"), (wid, "o/r#102")]
 
 
 @pytest.mark.asyncio
@@ -168,6 +221,10 @@ async def test_failing_self_containment_is_revised_before_publishing() -> None:
         ],
     )
 
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert len(gh.created_issues) == 1
     assert "inlines the shared schema decision" in gh.created_issues[0]["body"]
@@ -197,5 +254,68 @@ async def test_create_subtask_failure_fails_the_run() -> None:
         ],
     )
 
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "failed")
     assert svc.get(wid).status != "decomposed"
+
+
+@pytest.mark.asyncio
+async def test_request_changes_reruns_analysis_before_publishing() -> None:
+    """Ensure requested changes replace candidates without stale publication."""
+    gh = _GHDouble()
+    svc, wid = await _reach_gap_analysis(
+        gh,
+        [
+            _gap_analysis_output(
+                "First analysis.", {"title": "First", "body": "First"}
+            ),
+            _containment({"index": 0, "self_contained": True}),
+            _gap_analysis_output(
+                "Revised analysis.",
+                {"title": "Revised", "body": "Revised body"},
+            ),
+            _containment({"index": 0, "self_contained": True}),
+        ],
+    )
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+
+    svc.reject(wid, refinement_prompt="Use a smaller task")
+    await _wait(
+        lambda: "Revised analysis." in (svc.get(wid).steps[2].deliverable or "")
+    )
+    assert gh.created_issues == []
+    assert len(gh.comments) == 1
+    assert "Requested changes applied:" in gh.comments[0]["body"]
+    assert "Canonical artifact:" in gh.comments[0]["body"]
+
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "decomposed")
+    assert [issue["title"] for issue in gh.created_issues] == ["Revised"]
+
+
+@pytest.mark.asyncio
+async def test_rejecting_decomposition_ends_the_run() -> None:
+    """Ensure a bare rejection ends a parked decomposition run."""
+    gh = _GHDouble()
+    svc, wid = await _reach_gap_analysis(
+        gh,
+        [
+            _gap_analysis_output(
+                "Analysis.", {"title": "Task", "body": "Body"}
+            ),
+            _containment({"index": 0, "self_contained": True}),
+        ],
+    )
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+
+    svc.reject(wid)
+    await _wait(lambda: svc.get(wid).status == "rejected")
+    assert gh.created_issues == []
+    assert gh.comments == []

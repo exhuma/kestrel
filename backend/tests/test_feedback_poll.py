@@ -30,6 +30,7 @@ class _FakeFeedbackSource:
         self.items_by_ref = items_by_ref or {}
         self.fail_refs = fail_refs or set()
         self.calls: list[tuple[str, str | None]] = []
+        self.posts: list[tuple[str, str]] = []
 
     async def list_comments(
         self, ref: str, since: str | None = None
@@ -44,6 +45,11 @@ class _FakeFeedbackSource:
     ) -> bool:
         return False
 
+    async def post_comment(self, ref: str, body: str) -> str:
+        """Record a visible ticket post and return a synthetic URL."""
+        self.posts.append((ref, body))
+        return ""
+
 
 class _FakeIntake:
     def __init__(self) -> None:
@@ -54,6 +60,48 @@ class _FakeIntake:
             "task_ref": task_ref, "feedback": feedback,
             "source": source, "is_bot": is_bot,
         })
+
+
+class _FakeChildTasks:
+    """Child-link double with explicit retirement candidates and marks."""
+
+    def __init__(
+        self,
+        candidates: list[tuple[str, str]] | None = None,
+        linked: set[str] | None = None,
+    ) -> None:
+        self.candidates = candidates or []
+        self.linked = linked or set()
+        self.claimed: set[str] = set()
+        self.retired: set[str] = set()
+
+    def retirement_candidates(self, _cutoff):
+        """Return the preconfigured due children."""
+        return self.candidates
+
+    def claim_retirement(self, task_ref: str) -> bool:
+        """Claim a child once, as the production store does atomically."""
+        if task_ref in self.claimed:
+            return False
+        self.claimed.add(task_ref)
+        return True
+
+    def mark_retired(self, task_ref: str, _now) -> bool:
+        """Record a successful retirement notice."""
+        self.retired.add(task_ref)
+        return True
+
+    def release_retirement(self, task_ref: str) -> None:
+        """Release a failed notice for a later retry."""
+        self.claimed.discard(task_ref)
+
+    def is_retired(self, task_ref: str) -> bool:
+        """Return whether feedback polling should exclude this child."""
+        return task_ref in self.retired
+
+    def is_linked(self, task_ref: str) -> bool:
+        """Return whether the configured child remains linked."""
+        return task_ref in self.linked
 
 
 def _feedback(
@@ -144,14 +192,34 @@ async def test_run_cycle_skips_done_past_the_feedback_window() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_keeps_non_retired_child_past_feedback_window() -> None:
+    """A linked child stays feedback-polled until its own retirement."""
+    stale = datetime.now() - timedelta(days=99)
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    workflows.create(
+        _run("wf-child", "o/r#child", status="done", terminal_at=stale)
+    )
+    children = _FakeChildTasks(linked={"o/r#child"})
+    poll = FeedbackPollService(
+        _workflow_service({"github-issue": source}, workflows),
+        _FakeFeedbackStore(), _FakeIntake(), children,
+    )
+
+    await poll.run_cycle()
+
+    assert [ref for ref, _ in source.calls] == ["o/r#child"]
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_uses_the_stored_cursor() -> None:
-    """list_comments is called with the persisted cursor for that ref."""
+    """The composed source receives the persisted cursor for this run."""
     source = _FakeFeedbackSource()
     workflows = WorkflowRegistry()
     workflows.create(_run("wf-1", "o/r#1"))
     svc = _workflow_service({"github-issue": source}, workflows)
     store = _FakeFeedbackStore()
-    store.set_cursor("ticket:o/r#1", "2026-01-01T00:00:00+00:00")
+    store.set_cursor("feedback:wf-1", "2026-01-01T00:00:00+00:00")
     poll = FeedbackPollService(svc, store, _FakeIntake())
 
     await poll.run_cycle()
@@ -177,7 +245,7 @@ async def test_run_cycle_advances_the_cursor_to_the_newest_item() -> None:
 
     await poll.run_cycle()
 
-    assert store.cursor("ticket:o/r#1") == "2026-01-03T00:00:00+00:00"
+    assert store.cursor("feedback:wf-1") == "2026-01-03T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
@@ -188,12 +256,12 @@ async def test_run_cycle_leaves_cursor_unchanged_with_no_new_items() -> None:
     workflows.create(_run("wf-1", "o/r#1"))
     svc = _workflow_service({"github-issue": source}, workflows)
     store = _FakeFeedbackStore()
-    store.set_cursor("ticket:o/r#1", "2026-01-01T00:00:00+00:00")
+    store.set_cursor("feedback:wf-1", "2026-01-01T00:00:00+00:00")
     poll = FeedbackPollService(svc, store, _FakeIntake())
 
     await poll.run_cycle()
 
-    assert store.cursor("ticket:o/r#1") == "2026-01-01T00:00:00+00:00"
+    assert store.cursor("feedback:wf-1") == "2026-01-01T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
@@ -244,3 +312,52 @@ async def test_list_work_items_is_always_empty() -> None:
     )
 
     assert await poll.list_work_items() == []
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_retires_due_child_and_stops_feedback_poll() -> None:
+    """A due closed child gets one exact notice and is not feedback-polled."""
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    workflows.create(_run("wf-1", "o/r#1"))
+    children = _FakeChildTasks([("o/r#1", "wf-1")])
+    poll = FeedbackPollService(
+        _workflow_service({"github-issue": source}, workflows),
+        _FakeFeedbackStore(), _FakeIntake(), children,
+    )
+
+    await poll.run_cycle()
+    await poll.run_cycle()
+
+    assert source.posts == [
+        (
+            "o/r#1",
+            "Kestrel has retired this closed child task. "
+            "Create a new task for further work.",
+        )
+    ]
+    assert source.calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_retries_retirement_after_a_source_failure() -> None:
+    """A failed notice releases the claim instead of silencing it forever."""
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    workflows.create(_run("wf-1", "o/r#1"))
+    children = _FakeChildTasks([("o/r#1", "wf-1")])
+    poll = FeedbackPollService(
+        _workflow_service({"github-issue": source}, workflows),
+        _FakeFeedbackStore(), _FakeIntake(), children,
+    )
+    source.post_comment = _failing_post_comment
+
+    await poll.run_cycle()
+
+    assert children.claimed == set()
+    assert children.retired == set()
+
+
+async def _failing_post_comment(_ref: str, _body: str) -> str:
+    """Raise a source failure while attempting to post a retirement notice."""
+    raise RuntimeError("source unavailable")

@@ -1,33 +1,34 @@
 """WorkflowService: lifecycle/CRUD and gate-decision handling."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable
+from typing import cast
 
-from app.backends.base import Backend, TurnRequest, TurnResult
 from app.config import Settings
-from app.models_workflow import (
-    RoundChip,
-    StepSession,
-    WorkflowRun,
-    WorkflowStep,
-)
+from app.models_workflow import WorkflowRun, WorkflowStep
 from app.notifications import Notifier
+from app.persistence.child_task_store import ChildTaskLinks
 from app.persistence.dismissal_store import DismissalStore
 from app.persistence.feedback_store import FeedbackStore
+from app.persistence.review_request_store import ReviewRequestStore
 from app.policy import BackendPolicy
+from app.ports import CodeHost, TaskSource
 from app.questionnaire import InterviewEnvelope
 from app.services.exceptions import WorkflowNotFoundError
+from app.services.feedback.source import (
+    FeedbackSourceFactory,
+    compose_feedback_source,
+)
 from app.services.git import GitService
 from app.services.github import GitHubClient, GitHubCodeHost
 from app.services.github_tasksource import GitHubTaskSource
 from app.services.time_tracking import set_clock
 from app.services.workflows import artifacts, driver, gate, reset
-from app.services.workflows import liveness as wf_liveness
-from app.services.workflows import sessions as sessions_mod
 from app.services.workflows.driver import branch_resume
 from app.services.workflows.gate import _Control, _Decision
+from app.services.workflows.service_sessions import WorkflowSessionService
 from app.services.workflows.shared import (
     _TERMINAL_STATUSES,
     TicketRef,
@@ -42,7 +43,7 @@ from app.storage.workflow_registry import WorkflowRegistry
 _logger = logging.getLogger(__name__)
 
 
-class WorkflowService:
+class WorkflowService(WorkflowSessionService):
     """Drives workflow runs through refine -> plan -> implement -> PR."""
 
     def __init__(
@@ -60,6 +61,11 @@ class WorkflowService:
         sources: dict[str, object] | None = None,
         code_hosts: dict[str, object] | None = None,
         feedback_store: FeedbackStore | None = None,
+        review_requests: ReviewRequestStore | None = None,
+        child_tasks: ChildTaskLinks | None = None,
+        feedback_source_factory: FeedbackSourceFactory = (
+            compose_feedback_source
+        ),
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -88,6 +94,11 @@ class WorkflowService:
         #: step boundary. ``None`` is a safe no-op (nothing to drain):
         #: unit tests that don't exercise feedback need not provide one.
         self.feedback_store = feedback_store
+        self.review_requests = review_requests
+        #: Approved decomposition children, optional for isolated workflow
+        #: tests.
+        self.child_tasks = child_tasks
+        self._feedback_source_factory = feedback_source_factory
         self._control: dict[str, _Control] = {}
         #: Driver task per run, so an abandon can cancel the in-flight
         #: orchestration for exactly that run.
@@ -109,11 +120,15 @@ class WorkflowService:
 
     def _task_source(self, run: WorkflowRun):
         """The bound TaskSource for a run's origin (feature 003)."""
-        return self.sources.get(run.source, self._fallback_source)
+        return cast(
+            TaskSource, self.sources.get(run.source, self._fallback_source)
+        )
 
     def _code_host(self, run: WorkflowRun):
         """The bound CodeHost for a run's target repository (feature 003)."""
-        return self.code_hosts.get(run.source, self._fallback_host)
+        return cast(
+            CodeHost, self.code_hosts.get(run.source, self._fallback_host)
+        )
 
     def task_source_for(self, run: WorkflowRun):
         """Public accessor for a run's bound TaskSource (feature 013).
@@ -132,6 +147,12 @@ class WorkflowService:
         ``_code_host`` — mirrors :meth:`task_source_for`.
         """
         return self._code_host(run)
+
+    def feedback_source_for(self, run: WorkflowRun):
+        """Compose the feedback source bound to this run's existing ports."""
+        return self._feedback_source_factory(
+            run, self._task_source(run), self._code_host(run)
+        )
 
     def rerunnable(self, run: WorkflowRun) -> bool:
         """Whether rerun is available for this run (feature 008)."""
@@ -192,7 +213,8 @@ class WorkflowService:
         except Exception:
             _logger.exception(
                 "workflow %s: failed to persist status %r",
-                run.id, run.status,
+                run.id,
+                run.status,
             )
 
     # ---- queries -------------------------------------------------------
@@ -239,9 +261,7 @@ class WorkflowService:
             step, run, filename, content, self.backends.backend_for
         )
 
-    def _debug_log(
-        self, run: WorkflowRun, heading: str, content: str
-    ) -> None:
+    def _debug_log(self, run: WorkflowRun, heading: str, content: str) -> None:
         """Append one entry to the run's coder<->verifier dialogue log."""
         artifacts.debug_log(
             run, heading, content, enabled=self.settings.workflow_debug
@@ -298,6 +318,7 @@ class WorkflowService:
     def reply(self, workflow_id: str, text: str) -> None:
         run = self.get(workflow_id)
         gate.reply(run, self._control[workflow_id], text)
+        self._retire_review_request(run)
 
     def _interview_state(
         self, workflow_id: str
@@ -305,9 +326,7 @@ class WorkflowService:
         """Return the run/step/envelope for a pending refine interview."""
         return gate.interview_state(self.get(workflow_id))
 
-    def save_draft(
-        self, workflow_id: str, answers: dict[str, object]
-    ) -> None:
+    def save_draft(self, workflow_id: str, answers: dict[str, object]) -> None:
         """Persist a partial answer set without finalizing the interview."""
         run, step, envelope = self._interview_state(workflow_id)
         gate.save_draft(run, step, envelope, answers, self.workflows.save)
@@ -321,9 +340,12 @@ class WorkflowService:
         # Safety net: with the flag on, tolerate missing required answers
         # (they go through blank) while still rejecting malformed ones.
         gate.submit_answers(
-            self._control[workflow_id], step, answers,
+            self._control[workflow_id],
+            step,
+            answers,
             partial=self.settings.allow_incomplete_answers,
         )
+        self._retire_review_request(run)
 
     def approve(self, workflow_id: str, deliverable: str | None = None) -> None:
         self._resolve(workflow_id, _Decision(True, deliverable))
@@ -352,6 +374,15 @@ class WorkflowService:
     def _resolve(self, workflow_id: str, decision: _Decision) -> None:
         run = self.get(workflow_id)
         gate.resolve(run, self._control[workflow_id], decision)
+        self._retire_review_request(run)
+
+    def _retire_review_request(self, run: WorkflowRun) -> None:
+        """Retire a resolved gate's external review token, if one exists."""
+        if (
+            self.review_requests is not None
+            and run.status.startswith("awaiting_")
+        ):
+            self.review_requests.retire(run.id, run.status)
 
     async def _abandon_common(self, workflow_id: str) -> WorkflowRun:
         """Cancel a run and drop every trace of its local work.
@@ -425,62 +456,3 @@ class WorkflowService:
     async def _deliver(self, run: WorkflowRun) -> None:
         """Commit, push, open the change request, and finish the run."""
         await driver.deliver(self, run)
-
-    def _retire_sessions(
-        self, run: WorkflowRun, step: WorkflowStep
-    ) -> None:
-        """Freeze a step's live chips into durable round history, then
-        clear them.
-
-        The single choke point every "chips off" call site uses instead
-        of assigning ``step.active_sessions`` directly, so no clear
-        point can silently drop the round it's discarding. A no-op
-        (nothing persisted) when the step has no live chips right now.
-        """
-        self.workflows.save_round_chips(
-            run.id, step.name, step.active_sessions, _now_utc()
-        )
-        step.active_sessions = []
-
-    def _show_sessions(
-        self, run: WorkflowRun, slots: list[StepSession]
-    ) -> None:
-        """Publish the sessions active on the refine step right now,
-        freezing whatever was showing before into history first."""
-        step = run.steps[1]
-        self._retire_sessions(run, step)
-        step.active_sessions = slots
-        self._save(run)
-
-    def round_history(self, workflow_id: str) -> list[RoundChip]:
-        """All retired (completed-round) chips for a run, oldest first."""
-        return self.workflows.load_round_chips(workflow_id)
-
-    def _watch_activity(
-        self, run: WorkflowRun, session_id: str, slot: StepSession
-    ) -> asyncio.Task:
-        """Track a session's live activity onto its chip."""
-        return sessions_mod.watch_activity(
-            self.sessions, self._save, run, session_id, slot
-        )
-
-    async def _run_turn_tracked(
-        self,
-        run: WorkflowRun,
-        backend: Backend,
-        req: TurnRequest,
-        slot: StepSession,
-        bind: Callable[[str], None],
-    ) -> TurnResult:
-        """Run one turn while streaming its live activity onto the chip."""
-        tracker = sessions_mod.ChipTracker(slot, bind, self._watch_activity)
-        return await sessions_mod.run_turn_tracked(
-            run, backend, req, tracker
-        )
-
-    async def poll_active_step(self, workflow_id: str) -> None:
-        """Actively probe every live chip on the run's running step."""
-        run = self.get(workflow_id)
-        await wf_liveness.poll_active_step(
-            self.backends.backend_for, self.sessions, self._save, run
-        )

@@ -1,8 +1,8 @@
 """Shared pytest configuration."""
+
 from __future__ import annotations
 
 import asyncio
-import json
 
 import pytest
 
@@ -25,7 +25,11 @@ from tests.fixtures_text import (
 
 #: Re-exported for other test modules' ``from tests.conftest import ...``.
 __all__ = [
-    "_coord", "_coverage", "_qs", "_refined", "_refine_noquestions",
+    "_coord",
+    "_coverage",
+    "_qs",
+    "_refined",
+    "_refine_noquestions",
     "_verdict",
 ]
 
@@ -82,9 +86,7 @@ class _FakeGit:
         self.pushed: list[str] = []
         self.deleted_local: list[tuple[str, str]] = []
         self.deleted_remote: list[tuple[str, str, object]] = []
-        self.rounds: list[tuple[str, bool]] = [
-            ("diff --git a/x b/x", False)
-        ]
+        self.rounds: list[tuple[str, bool]] = [("diff --git a/x b/x", False)]
         self._round_idx = 0
         #: Diff text of each commit made so far, in order (the "committed
         #: history" half of the fake's state).
@@ -134,13 +136,19 @@ class _FakeGit:
         return sha
 
     async def diff(
-        self, dest: str, exclude: str | None = None, ref: str | None = None,
+        self,
+        dest: str,
+        exclude: str | None = None,
+        ref: str | None = None,
     ) -> str:
         self.diff_excludes.append(exclude)
         return self._diff_since(ref)
 
     async def diff_stat(
-        self, dest: str, exclude: str | None = None, ref: str | None = None,
+        self,
+        dest: str,
+        exclude: str | None = None,
+        ref: str | None = None,
     ) -> str:
         self.diff_excludes.append(exclude)
         content = self._diff_since(ref)
@@ -149,7 +157,7 @@ class _FakeGit:
     def _diff_since(self, ref: str | None) -> str:
         if ref is None:
             return self._pending
-        parts = [d for d in self._committed[self._sha_index(ref):] if d]
+        parts = [d for d in self._committed[self._sha_index(ref) :] if d]
         if self._pending:
             parts.append(self._pending)
         return "\n".join(parts)
@@ -212,25 +220,36 @@ class _FakeGitHub:
 
     async def get_issue(self, repo: str, number: int) -> Issue:
         return Issue(number=number, title="Add widget", body=self.body)
+
     async def get_default_branch(self, repo: str) -> str:
         return "main"
+
     async def update_issue(self, repo: str, number: int, body: str) -> None:
         self.updated = body
-    async def create_pull_request(self, repo, head, base, title, body,
-                                  draft=True) -> str:
+
+    async def create_pull_request(
+        self, repo, head, base, title, body, draft=True
+    ) -> str:
         return "https://github.com/o/r/pull/1"
+
     async def create_issue(self, repo: str, title: str, body: str) -> int:
         self._next_issue_number += 1
         self.created_issues.append(
-            {"repo": repo, "title": title, "body": body,
-             "number": self._next_issue_number}
+            {
+                "repo": repo,
+                "title": title,
+                "body": body,
+                "number": self._next_issue_number,
+            }
         )
         return self._next_issue_number
+
     async def create_issue_comment(
         self, repo: str, number: int, body: str
     ) -> str:
         self.comments.append((repo, number, body))
         return f"https://github.com/{repo}/issues/{number}#comment"
+
     async def get_pull_request(self, repo: str, number: int) -> dict:
         return {
             "state": "closed" if self.pr_state != "open" else "open",
@@ -265,9 +284,12 @@ class _FakeRunner:
         sid = req.resume_id or f"{self._id_prefix}{self._n}"
         self._n += 1
         self.calls.append(
-            {"resume_id": req.resume_id, "model": req.model,
-             "permission_mode": req.permission_mode,
-             "prompt": req.prompt}
+            {
+                "resume_id": req.resume_id,
+                "model": req.model,
+                "permission_mode": req.permission_mode,
+                "prompt": req.prompt,
+            }
         )
         text = self._outputs.pop(0)
         if self.sessions.get(sid) is None:
@@ -275,9 +297,7 @@ class _FakeRunner:
                 session_id=sid, cwd=req.cwd
             )
         rec = self.sessions.get(sid)
-        rec.events.append(
-            CanonicalEvent(EventKind.RESULT, sid, text=text)
-        )
+        rec.events.append(CanonicalEvent(EventKind.RESULT, sid, text=text))
         rec.status = "idle"
         if on_session_id:
             on_session_id(sid)
@@ -312,16 +332,14 @@ class _RoutingPolicy:
     opencode (``ses-…`` ids). Every other step uses the code backend.
     """
 
-    def __init__(
-        self, sessions: SessionRegistry, design, code
-    ) -> None:
+    def __init__(self, sessions: SessionRegistry, design, code) -> None:
         self.sessions = sessions
         self._design = design
         self._code = code
 
     def backend_for(self, step: str):
-        return self._design if step.split(".", 1)[0] == "design" else (
-            self._code
+        return (
+            self._design if step.split(".", 1)[0] == "design" else (self._code)
         )
 
     def backend_id_for(self, step: str) -> str:
@@ -335,12 +353,17 @@ class _RoutingPolicy:
 
 
 def _service(
-    github, runner, git, settings=None, feedback_store=None
+    github,
+    runner,
+    git,
+    settings=None,
+    feedback_store=None,
+    child_tasks=None,
+    review_requests=None,
 ) -> WorkflowService:
     return WorkflowService(
-        settings=settings or Settings(
-            git_base="https://github.com", github_token="t"
-        ),
+        settings=settings
+        or Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=WorkflowRegistry(),
         backends=runner,
@@ -348,6 +371,8 @@ def _service(
         github=github,
         notifier=_FakeNotifier(),
         feedback_store=feedback_store,
+        child_tasks=child_tasks,
+        review_requests=review_requests,
     )
 
 
@@ -367,17 +392,23 @@ def _artifact_service(tmp_path, policy, github=None):
     )
 
 
-def _q(qid="q1", prompt="Which auth?", qtype="single_select",
-       required=True, options=None, waiver_label=None,
-       audience=None, folded_from=None) -> dict:
+def _q(
+    qid="q1",
+    prompt="Which auth?",
+    qtype="single_select",
+    required=True,
+    options=None,
+    waiver_label=None,
+    audience=None,
+    folded_from=None,
+) -> dict:
     """One question dict for a QUESTIONS block.
 
     ``audience`` and ``folded_from`` are set only on reconciler output,
     where each consolidated question names the profile that owns it and
     the pool ids it absorbed.
     """
-    q: dict = {"id": qid, "prompt": prompt, "type": qtype,
-               "required": required}
+    q: dict = {"id": qid, "prompt": prompt, "type": qtype, "required": required}
     if options is not None:
         q["options"] = options
     if waiver_label is not None:
@@ -444,7 +475,8 @@ class _FakeFeedbackStore:
 
     def queued_for(self, workflow_id: str) -> list:
         return [
-            item for item in self.items.values()
+            item
+            for item in self.items.values()
             if item.workflow_id == workflow_id and item.state == "queued"
         ]
 
@@ -461,16 +493,3 @@ class _FakeFeedbackStore:
 
     def set_cursor(self, scope: str, value: str) -> None:
         self.cursors[scope] = value
-
-
-def _write_fixture_task(fixtures_dir, slug: str, **fields) -> None:
-    """Write one fixture-source task file (feature 008), for
-    FixtureTaskSource/FixturePollService tests."""
-    data = {
-        "title": "Add a hello endpoint",
-        "body": "Add GET /hello.",
-        "code_repo": "me/sandbox",
-        "base_branch": None,
-    }
-    data.update(fields)
-    (fixtures_dir / f"{slug}.json").write_text(json.dumps(data))
