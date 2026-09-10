@@ -140,6 +140,23 @@ def test_mark_unknown_external_id_is_a_no_op(tmp_path: Path) -> None:
     store.mark("does-not-exist", "applied")
 
 
+def test_requeue_dispatched_recovers_only_interrupted_dispatches(
+    tmp_path: Path,
+) -> None:
+    """Startup recovery returns only in-progress background dispatches."""
+    store = FeedbackStore(_factory(tmp_path))
+    store.claim(_item("dispatched"))
+    store.claim(_item("applied"))
+    store.mark("dispatched", "dispatched")
+    store.mark("applied", "applied")
+
+    assert store.requeue_dispatched() == 1
+    dispatched = store.get("dispatched")
+    applied = store.get("applied")
+    assert dispatched is not None and dispatched.state == "queued"
+    assert applied is not None and applied.state == "applied"
+
+
 def test_cursor_round_trip(tmp_path: Path) -> None:
     """set_cursor then cursor reads back the same value; unset is None."""
     store = FeedbackStore(_factory(tmp_path))

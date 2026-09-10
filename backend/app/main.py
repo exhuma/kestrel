@@ -73,6 +73,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         _logger.exception("workflow recovery failed; continuing startup")
 
+    # A done-run dispatch records its claim before scheduling its background
+    # work. Recover claims left in that in-progress state by a prior process.
+    from app.persistence.feedback_store import get_feedback_store
+
+    requeued = get_feedback_store().requeue_dispatched()
+    if requeued:
+        _logger.info("requeued %s interrupted feedback dispatches", requeued)
+
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
     # (its sole transport). Each runs an initial cycle promptly, then every

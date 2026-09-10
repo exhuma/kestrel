@@ -85,11 +85,11 @@ async def test_composed_source_reads_ticket_and_review_feedback() -> None:
 
     source = compose_feedback_source(run, task_source, code_host)
 
-    assert await source.list_feedback(run, "cursor") == [
+    assert await source.list_feedback(run, "ticket", "review") == [
         _feedback("ticket"), _feedback("review")
     ]
-    assert task_source.comments == [("owner/repo#1", "cursor")]
-    assert code_host.comments == [("owner/repo", 7, "cursor")]
+    assert task_source.comments == [("owner/repo#1", "ticket")]
+    assert code_host.comments == [("owner/repo", 7, "review")]
 
 
 @pytest.mark.asyncio

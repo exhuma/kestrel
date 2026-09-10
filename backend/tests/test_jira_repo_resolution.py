@@ -1,9 +1,12 @@
 """Tests for Jira repo resolution: field, web link, and URL parsing (004)."""
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
+from app.ports import SubtaskContextError
+from app.services.jira import JiraClient, JiraTaskSource
 from app.services.jira_poll import JiraPollService, _repo_from_url
 
 
@@ -49,6 +52,16 @@ def _svc(
 
 def _link(title, url):
     return {"object": {"title": title, "url": url}}
+
+
+def _client(handler) -> JiraClient:
+    """Build a Jira client whose HTTP calls are handled in memory."""
+    client = JiraClient("https://jira.example", token="t")
+    client._http = httpx.AsyncClient(
+        base_url="https://jira.example/rest/api/2",
+        transport=httpx.MockTransport(handler),
+    )
+    return client
 
 
 @pytest.mark.parametrize(
@@ -110,6 +123,50 @@ async def test_resolves_from_web_link_when_field_absent() -> None:
         links=[_link("Repository", "https://github.com/team/svc")],
     )
     assert await svc._resolve_repo("RFC-1") == ("team/svc", "main")
+
+
+@pytest.mark.asyncio
+async def test_resolves_generated_child_from_inherited_repository_link(
+) -> None:
+    """Ensure a later poll resolves a child via its copied repository link."""
+    svc = _svc(
+        None,
+        repo_field="",
+        links=[_link("Repository", "https://gitlab.example/team/service")],
+    )
+    assert await svc._resolve_repo("RFC-2") == ("team/service", "main")
+
+
+@pytest.mark.asyncio
+async def test_subtask_link_failure_exposes_created_child_for_repair() -> None:
+    """A link-copy failure retains the created Jira ref for a safe retry."""
+    creates = 0
+    link_attempts = 0
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal creates, link_attempts
+        if req.url.path.endswith("/issue"):
+            creates += 1
+            return httpx.Response(201, json={"key": "RFC-2"})
+        if req.method == "GET":
+            return httpx.Response(200, json=[_link(
+                "Repository", "https://gitlab.example/team/service"
+            )])
+        link_attempts += 1
+        return httpx.Response(500 if link_attempts == 1 else 201, json={})
+
+    config = TaskSourceConfig(
+        type="jira", base_url="https://jira.example", jql="x", key="RFC",
+        repo_field="",
+    )
+    src = JiraTaskSource(_client(handler), config=config)
+
+    with pytest.raises(SubtaskContextError) as exc:
+        await src.create_subtask("RFC-1", "Child", "body")
+    await src.complete_subtask("RFC-1", exc.value.task_ref)
+
+    assert exc.value.task_ref == "RFC-2"
+    assert creates == 1
 
 
 @pytest.mark.asyncio

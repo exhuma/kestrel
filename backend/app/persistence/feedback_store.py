@@ -98,6 +98,24 @@ class FeedbackStore:
             if state in _TERMINAL_STATES:
                 item.processed_at = datetime.now(timezone.utc)
 
+    def requeue_dispatched(self) -> int:
+        """Requeue items stranded during a prior process's async dispatch.
+
+        This is called only during process startup, before feedback polling,
+        so no live in-process dispatch can be moved back to ``queued``.
+        """
+        with self._factory.begin() as db:
+            items = list(
+                db.scalars(
+                    select(FeedbackItemRow).where(
+                        FeedbackItemRow.state == "dispatched"
+                    )
+                )
+            )
+            for item in items:
+                item.state = "queued"
+            return len(items)
+
     def cursor(self, scope: str) -> str | None:
         """
         Return the last-read cursor for ``scope``, or ``None``.

@@ -15,7 +15,7 @@ from typing import Literal
 import httpx
 
 from app.config_models import TaskSourceConfig
-from app.ports import Feedback, LifecycleEvent, Task
+from app.ports import Feedback, LifecycleEvent, SubtaskContextError, Task
 from app.services.exceptions import GitError
 from app.services.feedback.timeparse import parse_iso
 
@@ -172,7 +172,12 @@ class JiraClient:
         )
 
     async def create_subtask(
-        self, parent_key: str, project_key: str, summary: str, body: str
+        self,
+        parent_key: str,
+        project_key: str,
+        summary: str,
+        body: str,
+        extra_fields: dict[str, object] | None = None,
     ) -> str:
         """Create a native Sub-task issue linked to ``parent_key``.
 
@@ -180,20 +185,29 @@ class JiraClient:
         issue) — feature 012's follow-up tasks use it so the parent/child
         relationship is native, not just a body reference.
         """
+        fields = {
+            "project": {"key": project_key},
+            "summary": summary,
+            "description": body,
+            "issuetype": {"name": "Sub-task"},
+            "parent": {"key": parent_key},
+        }
+        if extra_fields:
+            fields.update(extra_fields)
         resp = await self._request(
             "POST",
             "/issue",
-            json={
-                "fields": {
-                    "project": {"key": project_key},
-                    "summary": summary,
-                    "description": body,
-                    "issuetype": {"name": "Sub-task"},
-                    "parent": {"key": parent_key},
-                }
-            },
+            json={"fields": fields},
         )
         return resp.json()["key"]
+
+    async def add_remote_link(self, key: str, url: str, title: str) -> None:
+        """Add a titled web link to an issue for repository resolution."""
+        await self._request(
+            "POST",
+            f"/issue/{key}/remotelink",
+            json={"object": {"url": url, "title": title}},
+        )
 
     async def transition_issue(self, key: str, transition_id: str) -> None:
         """Apply a configured workflow transition (feature 006)."""
@@ -273,11 +287,49 @@ class JiraTaskSource:
     async def create_subtask(
         self, parent_ref: str, title: str, body: str
     ) -> str:
-        """Create a native Sub-task issue in the parent's project."""
+        """Create a child that inherits its parent's repository binding."""
         project_key = parent_ref.split("-", 1)[0]
-        return await self._client.create_subtask(
-            parent_ref, project_key, title, body
+        repo_field = self._config.repo_field if self._config else ""
+        extra_fields = await self._repository_fields(parent_ref, repo_field)
+        child_ref = await self._client.create_subtask(
+            parent_ref, project_key, title, body, extra_fields
         )
+        await self.complete_subtask(parent_ref, child_ref)
+        return child_ref
+
+    async def complete_subtask(self, parent_ref: str, task_ref: str) -> None:
+        """Repair an existing child's repository binding when it uses links."""
+        if not self._config or self._config.repo_field:
+            return
+        try:
+            await self._copy_repository_link(parent_ref, task_ref)
+        except Exception as exc:
+            raise SubtaskContextError(task_ref) from exc
+
+    async def _repository_fields(
+        self, parent_ref: str, repo_field: str
+    ) -> dict[str, object] | None:
+        """Return the parent field binding when configured and populated."""
+        if not repo_field:
+            return None
+        value = await self._client.get_field(parent_ref, repo_field)
+        return {repo_field: value} if value and value.strip() else None
+
+    async def _copy_repository_link(
+        self, parent_ref: str, child_ref: str
+    ) -> None:
+        """Copy the configured repository link when no field binding exists."""
+        wanted = (
+            self._config.repo_link_text if self._config else "Repository"
+        ).casefold()
+        for link in await self._client.get_remote_links(parent_ref):
+            obj = link.get("object") or {}
+            if (obj.get("title") or "").casefold() != wanted:
+                continue
+            url = obj.get("url") or ""
+            if url:
+                await self._client.add_remote_link(child_ref, url, obj["title"])
+            return
 
     def display_label(self, ref: str) -> str:
         """The ref itself: already the issue key, e.g. "RFC-123"."""

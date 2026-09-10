@@ -44,10 +44,13 @@ class _FakeSource:
         return True
 
     async def list_feedback(
-        self, run: WorkflowRun, cursor: str | None
+        self,
+        run: WorkflowRun,
+        ticket_cursor: str | None,
+        review_cursor: str | None,
     ) -> list[Feedback]:
         """Provide the complete source shape without polling test data."""
-        del run, cursor
+        del run, ticket_cursor, review_cursor
         return []
 
     async def list_comments(
@@ -187,6 +190,31 @@ async def test_bot_flag_is_never_persisted() -> None:
         task_ref="o/r#1",
         source=_FakeSource(),
         is_bot=True,
+    )
+
+    assert store.items == {}
+    assert dispatched == []
+
+
+@pytest.mark.asyncio
+async def test_stale_token_only_feedback_is_not_queued_mid_run() -> None:
+    """A token for an old revision cannot enter a transient run's queue."""
+    class _Reviews:
+        """Report no supplied token as the active review revision."""
+
+        def is_active(self, _token: str, _workflow_id: str, _gate: str) -> bool:
+            """Reject the stale token used by this regression test."""
+            return False
+
+    workflows = WorkflowRegistry()
+    workflows.create(WorkflowRun(id="wf-1", repo="o/r", task_ref="o/r#1"))
+    store = _FakeFeedbackStore()
+    workflows.review_requests = _Reviews()
+    service, dispatched = _intake(store=store, workflows=workflows)
+
+    await service.intake(
+        _feedback(body="[kestrel-review:old] looks good"),
+        task_ref="o/r#1", source=_FakeSource(),
     )
 
     assert store.items == {}

@@ -116,9 +116,19 @@ class LocalTaskSource:
             number += 1
         child = children / f"subtask-{number}"
         child.mkdir(parents=True)
-        data = {"title": title, "body": body, "parent": parent_ref}
+        parent_data = self._load(parent_ref)
+        data = {
+            "title": title,
+            "body": body,
+            "parent": parent_ref,
+            "code_repo": parent_data.get("code_repo"),
+            "base_branch": parent_data.get("base_branch"),
+        }
         (child / "task.json").write_text(json.dumps(data), encoding="utf-8")
         return local_task_ref(child, self._root)
+
+    async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
+        """No-op because local child creation copies repository context."""
 
     def display_label(self, ref: str) -> str:
         """Return the root-relative local task path without its prefix."""

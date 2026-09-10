@@ -123,7 +123,7 @@ async def test_done_merged_pr_with_no_ingestion_wired_stays_queued() -> None:
     store.claim(item)
 
     FeedbackDispatcher(svc, store).dispatch(item)
-    await _wait(lambda: True)
+    await _wait(lambda: store.items["r1"].state == "queued")
 
     assert len(svc.list()) == 1
     assert store.items["r1"].state == "queued"

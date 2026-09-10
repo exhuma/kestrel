@@ -217,6 +217,41 @@ async def test_run_cycle_keeps_non_retired_child_past_feedback_window() -> None:
 
 
 @pytest.mark.asyncio
+async def test_feedback_poll_with_decomposed_linked_child_is_polled() -> None:
+    """A decomposed linked child remains feedback-polled until retirement."""
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    workflows.create(_run("wf-child", "o/r#child", status="decomposed"))
+    children = _FakeChildTasks(linked={"o/r#child"})
+    poll = FeedbackPollService(
+        _workflow_service({"github-issue": source}, workflows),
+        _FakeFeedbackStore(), _FakeIntake(), children,
+    )
+
+    await poll.run_cycle()
+
+    assert [ref for ref, _ in source.calls] == ["o/r#child"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_poll_with_retired_linked_child_is_excluded() -> None:
+    """A retired linked child is excluded even when its run is decomposed."""
+    source = _FakeFeedbackSource()
+    workflows = WorkflowRegistry()
+    workflows.create(_run("wf-child", "o/r#child", status="decomposed"))
+    children = _FakeChildTasks(linked={"o/r#child"})
+    children.retired.add("o/r#child")
+    poll = FeedbackPollService(
+        _workflow_service({"github-issue": source}, workflows),
+        _FakeFeedbackStore(), _FakeIntake(), children,
+    )
+
+    await poll.run_cycle()
+
+    assert source.calls == []
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_uses_the_stored_cursor() -> None:
     """The composed source receives the persisted cursor for this run."""
     source = _FakeFeedbackSource()
@@ -224,7 +259,7 @@ async def test_run_cycle_uses_the_stored_cursor() -> None:
     workflows.create(_run("wf-1", "o/r#1"))
     svc = _workflow_service({"github-issue": source}, workflows)
     store = _FakeFeedbackStore()
-    store.set_cursor("feedback:wf-1", "2026-01-01T00:00:00+00:00")
+    store.set_cursor("feedback:wf-1:ticket", "2026-01-01T00:00:00+00:00")
     poll = FeedbackPollService(svc, store, _FakeIntake())
 
     await poll.run_cycle()
@@ -250,7 +285,33 @@ async def test_run_cycle_advances_the_cursor_to_the_newest_item() -> None:
 
     await poll.run_cycle()
 
-    assert store.cursor("feedback:wf-1") == "2026-01-03T00:00:00+00:00"
+    assert store.cursor("feedback:wf-1:ticket") == "2026-01-03T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_keeps_ticket_and_review_cursors_separate() -> None:
+    """A newer ticket item cannot advance the review stream's cursor."""
+    items = [
+        _feedback(created="2026-01-03T00:00:00+00:00"),
+        Feedback(
+            external_id="review", origin="review", author="a",
+            body="@kestrel hi",
+            created_at=datetime.fromisoformat("2026-01-02T00:00:00+00:00"),
+        ),
+    ]
+    source = _FakeFeedbackSource(items_by_ref={"o/r#1": items})
+    workflows = WorkflowRegistry()
+    workflows.create(_run("wf-1", "o/r#1"))
+    store = _FakeFeedbackStore()
+    poll = FeedbackPollService(
+        _workflow_service({"github-issue": source}, workflows), store,
+        _FakeIntake(),
+    )
+
+    await poll.run_cycle()
+
+    assert store.cursor("feedback:wf-1:ticket") == "2026-01-03T00:00:00+00:00"
+    assert store.cursor("feedback:wf-1:review") == "2026-01-02T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
@@ -261,12 +322,12 @@ async def test_run_cycle_leaves_cursor_unchanged_with_no_new_items() -> None:
     workflows.create(_run("wf-1", "o/r#1"))
     svc = _workflow_service({"github-issue": source}, workflows)
     store = _FakeFeedbackStore()
-    store.set_cursor("feedback:wf-1", "2026-01-01T00:00:00+00:00")
+    store.set_cursor("feedback:wf-1:ticket", "2026-01-01T00:00:00+00:00")
     poll = FeedbackPollService(svc, store, _FakeIntake())
 
     await poll.run_cycle()
 
-    assert store.cursor("feedback:wf-1") == "2026-01-01T00:00:00+00:00"
+    assert store.cursor("feedback:wf-1:ticket") == "2026-01-01T00:00:00+00:00"
 
 
 @pytest.mark.asyncio

@@ -155,6 +155,7 @@ class FeedbackDispatcher:
         this method is called synchronously.
         """
         pr_number = run.pr_number or change_request_number(run.pr_url or "")
+        self._store.mark(item.external_id, "dispatched")
         _fire_and_forget(self._revive_or_start_successor(item, run, pr_number))
 
     async def _revive_or_start_successor(
@@ -164,15 +165,21 @@ class FeedbackDispatcher:
         pr_number: int | None,
     ) -> None:
         """Resume ``run``'s branch if its PR is open; else a successor."""
-        if pr_number is not None:
-            state = await self._change_request_state(run, pr_number)
-            if state is None:
-                return  # a failed read stays queued, retried later
-            if state == "open":
-                self._store.mark(item.external_id, "dispatched")
-                self._workflows.resume_with_feedback(run.id, item.body)
-                return
-        await self._start_successor(item, run)
+        try:
+            if pr_number is not None:
+                state = await self._change_request_state(run, pr_number)
+                if state is None:
+                    self._store.mark(item.external_id, "queued")
+                    return
+                if state == "open":
+                    self._workflows.resume_with_feedback(run.id, item.body)
+                    return
+            await self._start_successor(item, run)
+        except Exception:  # noqa: BLE001 — retry transient async failures
+            self._store.mark(item.external_id, "queued")
+            _log.exception(
+                "failed to dispatch done feedback %s", item.external_id
+            )
 
     async def _change_request_state(
         self, run: "WorkflowRun", pr_number: int
@@ -196,12 +203,9 @@ class FeedbackDispatcher:
     ) -> None:
         """Start a linked successor run continuing ``run`` (US4)."""
         if self._ingestion is None:
-            _log.warning(
-                "no ingestion service wired; cannot start a successor "
-                "for run %s",
-                run.id,
+            raise RuntimeError(
+                f"no ingestion service wired for successor of run {run.id}"
             )
-            return
         successor_id = await self._ingestion.start_successor_run(parent=run)
         self._store.mark(item.external_id, "applied")
         _log.info(

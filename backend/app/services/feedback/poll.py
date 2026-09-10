@@ -43,7 +43,7 @@ _log = logging.getLogger("kestrel.feedback.poll")
 #: (``done``, ``escalated``) US3/US4 can still act on — duplicated here
 #: rather than imported since that name is private to the workflows
 #: package.
-_NEVER_REPOLL_STATUSES = frozenset({"failed", "rejected", "decomposed"})
+_NEVER_REPOLL_STATUSES = frozenset({"failed", "rejected"})
 
 #: Terminal statuses still worth re-polling, bounded by
 #: ``settings.feedback_window_days`` (research.md R7/R9, US3/US4): a
@@ -101,8 +101,9 @@ class FeedbackPollService:
     def _worth_polling(self, run: WorkflowRun) -> bool:
         """Whether ``run`` still has anything left to poll for.
 
-        Non-terminal: always. ``failed``/``rejected``/``decomposed``:
-        never (nothing left to act on). ``done``/``escalated``: only
+        Non-terminal: always. ``failed``/``rejected`` and non-child
+        ``decomposed`` runs: never. A linked, non-retired decomposed child
+        remains eligible until retirement. ``done``/``escalated``: only
         within ``feedback_window_days`` of last going terminal.
         """
         if self._never_repoll(run):
@@ -117,11 +118,11 @@ class FeedbackPollService:
 
     def _never_repoll(self, run: WorkflowRun) -> bool:
         """Return whether a terminal state permanently excludes feedback."""
-        return bool(
-            run.task_ref
-            and self._is_retired_child(run.task_ref)
-            or run.status in _NEVER_REPOLL_STATUSES
-        )
+        if run.task_ref and self._is_retired_child(run.task_ref):
+            return True
+        if run.status == "decomposed":
+            return not (run.task_ref and self._is_linked_child(run.task_ref))
+        return run.status in _NEVER_REPOLL_STATUSES
 
     def _always_repoll(self, run: WorkflowRun) -> bool:
         """Return whether this run bypasses the generic terminal window."""
@@ -146,22 +147,33 @@ class FeedbackPollService:
         """Read and route one run through its composed feedback source."""
         self._intake.redispatch_queued(run.id)
         source = self._workflows.feedback_source_for(run)
-        scope = f"feedback:{run.id}"
-        cursor = self._store.cursor(scope)
+        ticket_scope = f"feedback:{run.id}:ticket"
+        review_scope = f"feedback:{run.id}:review"
+        ticket_cursor = self._store.cursor(ticket_scope)
+        review_cursor = self._store.cursor(review_scope)
         try:
-            items: list[Feedback] = await source.list_feedback(run, cursor)
+            items: list[Feedback] = await source.list_feedback(
+                run, ticket_cursor, review_cursor
+            )
         except Exception:  # noqa: BLE001 — one run must not stop the rest
-            _log.exception("feedback poll failed for %s", scope)
+            _log.exception("feedback poll failed for run %s", run.id)
             return
         _log.info(
-            "feedback poll discovery scope=%s count=%s", scope, len(items)
+            "feedback poll discovery run_id=%s count=%s", run.id, len(items)
         )
         for feedback in items:
             ref = self._feedback_ref(run, feedback)
             await self._intake.intake(feedback, task_ref=ref, source=source)
-        if items:
-            newest = max(item.created_at for item in items)
-            self._store.set_cursor(scope, newest.isoformat())
+        self._advance_cursor(ticket_scope, items, "ticket")
+        self._advance_cursor(review_scope, items, "review")
+
+    def _advance_cursor(
+        self, scope: str, items: list[Feedback], origin: str
+    ) -> None:
+        """Advance one origin cursor without letting another stream skip it."""
+        matching = [item.created_at for item in items if item.origin == origin]
+        if matching:
+            self._store.set_cursor(scope, max(matching).isoformat())
 
     def _feedback_ref(self, run: WorkflowRun, feedback: Feedback) -> str:
         """Return the ticket or change-request identity for ``feedback``."""

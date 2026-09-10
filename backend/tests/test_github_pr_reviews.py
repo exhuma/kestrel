@@ -147,9 +147,8 @@ async def test_list_review_comments_excludes_empty_review_body() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_review_comments_since_cursor_excludes_prior_item() -> None:
-    """Ensure a second call with the first call's newest cursor never
-    re-returns that same item (round-trip exclusivity)."""
+async def test_list_review_comments_since_cursor_rereads_boundary() -> None:
+    """Ensure a second call re-reads the cursor boundary for deduplication."""
     handler = _pr_router(
         conversation=[
             _comment(comment_id=1, created="2026-01-01T00:00:00Z"),
@@ -162,7 +161,23 @@ async def test_list_review_comments_since_cursor_excludes_prior_item() -> None:
 
     second = await host.list_review_comments("o/r", _PR_NUMBER, since=cursor)
 
-    assert second == []
+    assert [item.external_id for item in second] == ["gh-pr-comment:o/r#2"]
+
+
+@pytest.mark.asyncio
+async def test_list_review_comments_excludes_bot_review_summaries() -> None:
+    """Ensure a bot-authored review summary is not actionable feedback."""
+    handler = _pr_router(reviews=[{
+        "id": 55, "body": "@kestrel automated review",
+        "user": {"login": "bot", "type": "Bot"},
+        "submitted_at": "2026-01-02T00:00:00Z",
+    }])
+
+    items = await GitHubCodeHost(
+        _client(handler), "https://github.com"
+    ).list_review_comments("o/r", _PR_NUMBER)
+
+    assert items == []
 
 
 @pytest.mark.asyncio

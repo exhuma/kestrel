@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Mapping, Sequence, cast
 from app.backends.base import TurnRequest
 from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
-from app.ports import TaskSource
+from app.ports import SubtaskContextError, TaskSource
 from app.review_requests import render_delta_summary
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
@@ -131,7 +131,12 @@ def _decode_candidate(deliverable: str) -> _Candidate:
     if not isinstance(analysis, str) or not isinstance(tasks, list):
         raise ValueError("invalid decomposition candidate")
     normalized = [
-        {"title": str(task["title"]), "body": str(task["body"])}
+        {
+            "title": str(task["title"]),
+            "body": str(task["body"]),
+            **({"published_ref": str(task["published_ref"])}
+               if task.get("published_ref") else {}),
+        }
         for task in tasks
         if isinstance(task, dict)
     ]
@@ -267,12 +272,27 @@ async def _publish_candidate(
 
     source = cast(TaskSource, service._task_source(run))
     for task in candidate.tasks:
-        body = append_subtask_sentinel(task["body"])
-        task_ref = await source.create_subtask(
-            run.task_ref, task["title"], body
-        )
-        if service.child_tasks is not None:
-            service.child_tasks.record(run.id, task_ref)
+        task_ref = task.get("published_ref")
+        if task_ref is None:
+            body = append_subtask_sentinel(task["body"])
+            try:
+                task_ref = await source.create_subtask(
+                    run.task_ref, task["title"], body
+                )
+            except SubtaskContextError as exc:
+                task["published_ref"] = exc.task_ref
+                step.deliverable = _encode_candidate(candidate)
+                service._save(run)
+                if service.child_tasks is not None:
+                    service.child_tasks.record(run.id, exc.task_ref)
+                raise
+            task["published_ref"] = task_ref
+            step.deliverable = _encode_candidate(candidate)
+            service._save(run)
+            if service.child_tasks is not None:
+                service.child_tasks.record(run.id, task_ref)
+            continue
+        await source.complete_subtask(run.task_ref, task_ref)
     # Distinct from the per-follow-up create_subtask calls above: the
     # summary goes back to the *original* ticket, for human reference
     # (spec.md FR-012) — post_comment works uniformly across every

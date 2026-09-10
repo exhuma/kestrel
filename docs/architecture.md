@@ -154,9 +154,11 @@ the image small and lets a deploy attach or swap backends purely by config.
   separate OpenAI-compatible translation backing service posts an English
   translation with a mistake warning without blocking workflow processing.
   Published children retain source-state and successor lineage: a closed to
-  open transition creates exactly one linked successor. A child still closed
-  after `child_task_closure_retention_days` (183 by default) receives one
-  retirement notice and is excluded from later feedback and reopening polls.
+  open transition creates exactly one linked successor. A decomposed linked
+  child continues to receive feedback polling after completion, including
+  while it is closed. A child still closed after
+  `child_task_closure_retention_days` (183 by default) receives one retirement
+  notice and is excluded from later feedback and reopening polls.
 - **Behavioral verify evidence, grounded in real, observed behaviour.** The
   `design` step classifies the project's user-facing boundary — HTTP API, web
   UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.

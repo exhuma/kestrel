@@ -34,11 +34,12 @@ every configured source.
   appended to a local task's `comments/` directory) — redirects the run
   that ticket started.
 - **On the pull/merge request** — a review comment, a review's own summary
-  comment, or (GitHub only) an issue-style comment on the PR's conversation
-  tab — redirects the run that opened that PR specifically, even if several
-  runs share the same originating ticket over time. Reading review comments
-  back is wired for a `github` or `gitlab` code host; a `gitea` code host
-  does not support it yet.
+  comment, or an issue-style conversation comment — redirects the run that
+  opened that PR specifically, even if several runs share the same originating
+  ticket over time. GitLab reads MR conversation notes, review summaries, and
+  inline discussions across every available page; GitHub supports its PR
+  conversation and review comments. A `gitea` code host does not support
+  reading review comments yet.
 
 ## What happens once a marked comment lands
 
@@ -111,9 +112,11 @@ translation for accepted feedback, kestrel preserves the original and replies:
 The translation is quoted below that warning. Translation is best-effort: an
 unavailable or invalid service is logged and never blocks feedback processing.
 
-A published child task remains monitored after its source is closed. After
-`child_task_closure_retention_days` (183 days by default, approximately six
-months) from the first observed closure, kestrel posts exactly this notice:
+A published child task remains monitored after its source is closed, even if
+its workflow completed through decomposition. It continues to receive marked
+feedback until retirement. After `child_task_closure_retention_days` (183 days
+by default, approximately six months) from the first observed closure, kestrel
+posts exactly this notice:
 
 > Kestrel has retired this closed child task. Create a new task for further
 > work.

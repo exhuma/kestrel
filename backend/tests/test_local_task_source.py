@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -81,7 +82,7 @@ async def test_comment_filenames_require_a_valid_markdown_file(
 @pytest.mark.asyncio
 async def test_attachments_and_children_stay_inside_task(tmp_path) -> None:
     """Ensure generated task data remains below the parent task folder."""
-    _write_task(tmp_path, "hello")
+    _write_task(tmp_path, "hello", base_branch="release")
     source = LocalTaskSource(str(tmp_path))
 
     await source.attach("local:hello", "note.txt", b"hi", "text/plain")
@@ -92,6 +93,13 @@ async def test_attachments_and_children_stay_inside_task(tmp_path) -> None:
     assert child == "local:hello/children/subtask-1"
     child_task = tmp_path / "hello" / "children" / "subtask-1" / "task.json"
     assert child_task.is_file()
+    assert json.loads(child_task.read_text()) == {
+        "title": "Child",
+        "body": "body",
+        "parent": "local:hello",
+        "code_repo": "/tmp/sandbox.git",
+        "base_branch": "release",
+    }
 
 
 @pytest.mark.asyncio

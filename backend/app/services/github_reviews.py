@@ -47,6 +47,8 @@ def _review_feedback(repo: str, review: dict) -> Feedback | None:
     if not body.strip() or not submitted:
         return None
     user = review.get("user") or {}
+    if user.get("type") == "Bot":
+        return None
     return Feedback(
         external_id=f"{_PR_REVIEW_PREFIX}{repo}#{review['id']}",
         origin="review",
@@ -94,7 +96,7 @@ def merge_review_feedback(
     )
     items = [
         item for item in mapped
-        if item is not None and (cutoff is None or item.created_at > cutoff)
+        if item is not None and (cutoff is None or item.created_at >= cutoff)
     ]
     items.sort(key=lambda item: item.created_at)
     return items

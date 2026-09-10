@@ -25,7 +25,11 @@ from app.persistence.tables import FeedbackItemRow
 from app.ports import Acknowledgeable, Feedback, FeedbackSource
 from app.services.feedback.bootstrap import get_feedback_dispatcher
 from app.services.feedback.marker import has_marker, is_ignored_author
-from app.services.feedback.review import is_kestrel_review_request, review_token
+from app.services.feedback.review import (
+    is_kestrel_review_request,
+    review_token,
+    review_tokens,
+)
 from app.services.feedback.source import feedback_source_for
 from app.services.github import change_request_number
 from app.services.translation import Translator, get_translator
@@ -92,6 +96,9 @@ class FeedbackIntakeService:
             _log.info("feedback intake ignored reason=ignored_author")
             return
         run = self._route(feedback, task_ref)
+        if self._is_stale_token_only(feedback.body, run):
+            _log.info("feedback intake ignored reason=stale_review_token")
+            return
         item = FeedbackItemRow(
             external_id=feedback.external_id,
             workflow_id=run.id if run else None,
@@ -169,6 +176,20 @@ class FeedbackIntakeService:
         return (
             has_marker(body, self._settings.feedback_marker)
             or review_token(body) is not None
+        )
+
+    def _is_stale_token_only(
+        self, body: str, run: WorkflowRun | None
+    ) -> bool:
+        """Reject token-only feedback unless it targets the current gate."""
+        if has_marker(body, self._settings.feedback_marker):
+            return False
+        reviews = getattr(self._workflows, "review_requests", None)
+        if run is None or reviews is None:
+            return False
+        return not any(
+            reviews.is_active(token, run.id, run.status)
+            for token in review_tokens(body)
         )
 
     def _route(self, feedback: Feedback, task_ref: str) -> WorkflowRun | None:

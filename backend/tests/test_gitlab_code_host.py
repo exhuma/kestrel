@@ -198,9 +198,8 @@ async def test_list_review_comments_excludes_system_notes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_review_comments_since_cursor_excludes_prior_item() -> None:
-    """Ensure a second call with the first call's newest cursor never
-    re-returns that same note (round-trip exclusivity)."""
+async def test_list_review_comments_since_cursor_rereads_boundary() -> None:
+    """Ensure a second call re-reads the cursor boundary for deduplication."""
 
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -219,7 +218,82 @@ async def test_list_review_comments_since_cursor_excludes_prior_item() -> None:
         "group/svc", _MR_NUMBER, since=cursor
     )
 
-    assert second == []
+    assert [item.external_id for item in second] == ["gl-note:group/svc#12#2"]
+
+
+@pytest.mark.asyncio
+async def test_list_review_comments_pages_notes_and_discussions() -> None:
+    """Ensure normal and inline discussion notes are read across pages."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        page = req.url.params.get("page")
+        if req.url.path.endswith("/notes"):
+            notes = [_note(1)] if page == "1" else [_note(2)]
+            headers = {"x-next-page": "2"} if page == "1" else {}
+            return httpx.Response(200, json=notes, headers=headers)
+        if req.url.path.endswith("/discussions"):
+            return httpx.Response(200, json=[{
+                "id": "diff-1", "notes": [{
+                    **_note(3, body="inline"), "position": {"new_line": 1},
+                }],
+            }])
+        raise AssertionError(f"unexpected path: {req.url.path}")
+
+    items = await _host(handler).list_review_comments("group/svc", _MR_NUMBER)
+
+    assert [item.external_id for item in items] == [
+        "gl-note:group/svc#12#1",
+        "gl-note:group/svc#12#2",
+        "gl-discussion-note:group/svc#12#diff-1#3",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_inline_discussion_includes_root_and_unpositioned_reply() -> None:
+    """An inline anchor qualifies its whole discussion, including replies."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/notes"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[{
+            "id": "diff-1",
+            "notes": [
+                {**_note(3, body="root"), "position": {"new_line": 1}},
+                {**_note(4, body="reply"), "position": None},
+            ],
+        }])
+
+    items = await _host(handler).list_review_comments("group/svc", _MR_NUMBER)
+
+    assert [item.external_id for item in items] == [
+        "gl-discussion-note:group/svc#12#diff-1#3",
+        "gl-discussion-note:group/svc#12#diff-1#4",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_review_comments_excludes_deleted_authors() -> None:
+    """Normal and inline notes without a live author are not feedback."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/notes"):
+            return httpx.Response(200, json=[
+                {**_note(1), "author": None},
+                {**_note(2), "author": {"username": "gone", "deleted": True}},
+                _note(3),
+            ])
+        return httpx.Response(200, json=[{
+            "id": "diff-1",
+            "notes": [
+                {**_note(4), "position": {"new_line": 1}},
+                {**_note(5), "position": None,
+                 "author": {"username": "gone", "state": "deleted"}},
+            ],
+        }])
+
+    items = await _host(handler).list_review_comments("group/svc", _MR_NUMBER)
+
+    assert [item.external_id for item in items] == [
+        "gl-note:group/svc#12#3",
+        "gl-discussion-note:group/svc#12#diff-1#4",
+    ]
 
 
 @pytest.mark.asyncio
@@ -255,6 +329,26 @@ async def test_acknowledge_awards_the_eyes_emoji() -> None:
         "/projects/group%2Fsvc/merge_requests/12/notes/9/award_emoji"
     )
     assert "eyes" in seen["body"]
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_awards_inline_discussion_note() -> None:
+    """Ensure acknowledgement follows GitLab's nested discussion-note path."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["url"] = str(req.url)
+        return httpx.Response(201, json={"id": 1})
+
+    feedback = Feedback(
+        external_id="gl-discussion-note:group/svc#12#diff-1#9",
+        origin="review", author="alice", body="hi", created_at=_NOW,
+    )
+
+    assert await _host(handler).acknowledge(feedback) is True
+    assert seen["url"].endswith(
+        "/merge_requests/12/discussions/diff-1/notes/9/award_emoji"
+    )
 
 
 @pytest.mark.asyncio

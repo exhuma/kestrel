@@ -117,8 +117,9 @@ on the RFC and stops rather than shipping unverified work.
 5. On approval, kestrel performs technical analysis and decomposes the
    approved work into one or more independent, self-contained follow-up
    RFCs — each a native Jira **Sub-task** linked to the parent — plus an
-   attached technical-analysis summary. The original RFC's run then ends;
-   kestrel does not implement it directly.
+   attached technical-analysis summary. Each child inherits the resolved
+   repository context needed to run independently. The original RFC's run
+   then ends; kestrel does not implement it directly.
 6. To implement a follow-up sub-task, transition **it** into the qualifying
    filter the same way you would any RFC. Kestrel recognizes it as already
    scoped and starts directly at `design` — no repeat of steps 2-5. From
@@ -167,3 +168,8 @@ merge/pull request from a review comment is supported when `code_host` is
 `gitlab` or `github`; `gitea` does not yet support reading review comments.
 See [Feedback intake](feedback-intake.md) for token rules, translations,
 retirement, and revive-versus-successor behaviour.
+
+Published child RFCs continue to accept marked feedback after their workflow
+completes, including when it completes by decomposition. This monitoring ends
+only when the child reaches its configured retirement deadline; see
+[Feedback intake](feedback-intake.md#translation-and-retirement).

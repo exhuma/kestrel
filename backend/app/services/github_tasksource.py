@@ -87,6 +87,9 @@ class GitHubTaskSource:
         number = await self._client.create_issue(repo, title, full_body)
         return f"{repo}#{number}"
 
+    async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
+        """No-op because GitHub child creation includes all required context."""
+
     def display_label(self, ref: str) -> str:
         """The ref itself: already "owner/name#123"."""
         return ref

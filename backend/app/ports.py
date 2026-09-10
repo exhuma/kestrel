@@ -73,14 +73,29 @@ class Feedback:
     created_at: datetime
 
 
+class SubtaskContextError(Exception):
+    """A child was created but its required source context was not completed.
+
+    ``task_ref`` lets the workflow checkpoint the created child before surfacing
+    the failure, so a retry can repair it without creating another child.
+    """
+
+    def __init__(self, task_ref: str) -> None:
+        super().__init__(f"subtask context incomplete for {task_ref}")
+        self.task_ref = task_ref
+
+
 @runtime_checkable
 class FeedbackSource(Protocol):
     """Feedback enumeration and acknowledgement for one workflow run."""
 
     async def list_feedback(
-        self, run: WorkflowRun, cursor: str | None
+        self,
+        run: WorkflowRun,
+        ticket_cursor: str | None,
+        review_cursor: str | None,
     ) -> list[Feedback]:
-        """List feedback for ``run`` after the source-owned ``cursor``."""
+        """List feedback for ``run`` after its origin-specific cursors."""
         ...
 
     async def acknowledge(self, feedback: Feedback) -> bool:
@@ -225,6 +240,14 @@ class TaskSource(Protocol):
         follow-up task never itself starts a new run.
 
         :returns: The new ticket's source-native ref.
+        """
+        ...
+
+    async def complete_subtask(self, parent_ref: str, task_ref: str) -> None:
+        """Ensure an existing child has source context needed for discovery.
+
+        May raise :class:`SubtaskContextError` after a remote write failure;
+        callers retain ``task_ref`` and retry this operation rather than create.
         """
         ...
 

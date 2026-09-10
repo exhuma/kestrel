@@ -19,6 +19,7 @@ from app.services.feedback.timeparse import parse_iso
 #: US3) — carries the repo and MR iid so ``acknowledge`` can reconstruct
 #: the award-emoji endpoint from just the ``Feedback`` object.
 _NOTE_ID_PREFIX = "gl-note:"
+_DISCUSSION_NOTE_ID_PREFIX = "gl-discussion-note:"
 
 #: GitLab's own three MR states, mapped 1:1 onto ``ChangeRequest.state``
 #: ("opened" is GitLab's spelling; the port uses "open" everywhere else).
@@ -43,7 +44,27 @@ def _parse_note_external_id(external_id: str) -> tuple[str, int, int] | None:
     return repo, int(mr_iid), int(note_id)
 
 
-def _note_feedback(repo: str, number: int, note: dict) -> Feedback | None:
+def _parse_discussion_note_external_id(
+    external_id: str,
+) -> tuple[str, int, str, int] | None:
+    """Recover a discussion note's location from its minted external id."""
+    if not external_id.startswith(_DISCUSSION_NOTE_ID_PREFIX):
+        return None
+    rest = external_id[len(_DISCUSSION_NOTE_ID_PREFIX):]
+    parts = rest.rsplit("#", 3)
+    if len(parts) != 4:
+        return None
+    repo, mr_iid, discussion, note_id = parts
+    if not (
+        repo and mr_iid.isdigit() and discussion and note_id.isdigit()
+    ):
+        return None
+    return repo, int(mr_iid), discussion, int(note_id)
+
+
+def _note_feedback(
+    repo: str, number: int, note: dict, discussion_id: str = ""
+) -> Feedback | None:
     """Map one raw MR note to review-origin ``Feedback``.
 
     System notes (GitLab's auto-generated activity log entries — "changed
@@ -51,16 +72,31 @@ def _note_feedback(repo: str, number: int, note: dict) -> Feedback | None:
     the same way GitHub's Bot-typed comments are (research.md R6): they
     are not reviewer-authored signal.
     """
-    if note.get("system"):
+    if note.get("system") or _deleted_author(note.get("author")):
         return None
-    author = note.get("author") or {}
+    author = note["author"]
+    prefix = _DISCUSSION_NOTE_ID_PREFIX if discussion_id else _NOTE_ID_PREFIX
+    location = f"#{discussion_id}" if discussion_id else ""
     return Feedback(
-        external_id=f"{_NOTE_ID_PREFIX}{repo}#{number}#{note['id']}",
+        external_id=f"{prefix}{repo}#{number}{location}#{note['id']}",
         origin="review",
         author=author.get("username", ""),
         body=note.get("body") or "",
         created_at=parse_iso(note["created_at"]),
     )
+
+
+def _deleted_author(author: object) -> bool:
+    """Return whether a GitLab note's author is absent or marked deleted."""
+    if not isinstance(author, dict):
+        return True
+    return bool(author.get("deleted") or author.get("state") == "deleted")
+
+
+def _is_inline_discussion(discussion: dict) -> bool:
+    """Return whether any note anchors this GitLab discussion to a diff."""
+    notes = discussion.get("notes", [])
+    return any(note.get("position") is not None for note in notes)
 
 
 class GitLabCodeHost:
@@ -196,19 +232,43 @@ class GitLabCodeHost:
         """
         if self._is_gitea:
             return []
-        resp = await self._request(
-            "GET",
-            f"/projects/{self._pid(repo)}/merge_requests/{number}/notes",
-            params={"order_by": "created_at", "sort": "asc"},
-        )
+        path = f"/projects/{self._pid(repo)}/merge_requests/{number}"
+        notes = await self._list_pages(f"{path}/notes")
+        discussions = await self._list_pages(f"{path}/discussions")
         cutoff = parse_iso(since) if since else None
-        mapped = (
-            _note_feedback(repo, number, note) for note in resp.json()
+        mapped = [_note_feedback(repo, number, note) for note in notes]
+        mapped.extend(
+            _note_feedback(repo, number, note, discussion["id"])
+            for discussion in discussions
+            if _is_inline_discussion(discussion)
+            for note in discussion.get("notes", [])
         )
-        return [
-            item for item in mapped
-            if item is not None and (cutoff is None or item.created_at > cutoff)
-        ]
+        items = {
+            item.external_id: item for item in mapped if item is not None
+        }.values()
+        return sorted(
+            (item for item in items
+             if cutoff is None or item.created_at >= cutoff),
+            key=lambda item: item.created_at,
+        )
+
+    async def _list_pages(self, path: str) -> list[dict]:
+        """Read every ascending GitLab page at ``path``."""
+        page = 1
+        items: list[dict] = []
+        while True:
+            resp = await self._request(
+                "GET", path,
+                params={
+                    "order_by": "created_at", "sort": "asc",
+                    "per_page": 100, "page": page,
+                },
+            )
+            items.extend(resp.json())
+            next_page = resp.headers.get("x-next-page")
+            if not next_page:
+                return items
+            page = int(next_page)
 
     async def acknowledge(
         self, feedback: Feedback, token: str = "eyes"
@@ -221,14 +281,22 @@ class GitLabCodeHost:
         if self._is_gitea:
             return False
         parsed = _parse_note_external_id(feedback.external_id)
-        if parsed is None:
+        discussion = _parse_discussion_note_external_id(feedback.external_id)
+        if parsed is None and discussion is None:
             return False
-        repo, mr_iid, note_id = parsed
+        if parsed is not None:
+            repo, mr_iid, note_id = parsed
+            path = f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
+            path += f"/notes/{note_id}/award_emoji"
+        elif discussion is not None:
+            repo, mr_iid, discussion_id, note_id = discussion
+            path = f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
+            path += f"/discussions/{discussion_id}/notes/{note_id}/award_emoji"
+        else:
+            return False
         try:
             await self._request(
-                "POST",
-                f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
-                f"/notes/{note_id}/award_emoji",
+                "POST", path,
                 json={"name": token},
             )
             return True

@@ -67,15 +67,18 @@ class RunFeedbackSource:
         self._code_host = code_host
 
     async def list_feedback(
-        self, run: WorkflowRun, cursor: str | None
+        self,
+        run: WorkflowRun,
+        ticket_cursor: str | None,
+        review_cursor: str | None,
     ) -> list[Feedback]:
-        """Read ticket and, when present, review feedback for ``run``."""
+        """Read ticket and review feedback with independent cursors."""
         ref = run.task_ref or f"{run.repo}#{run.issue_number}"
-        items = await self._task_source.list_comments(ref, since=cursor)
+        items = await self._task_source.list_comments(ref, since=ticket_cursor)
         if run.pr_number is not None and self._supports_change_requests():
             items.extend(
                 await self._code_host.list_review_comments(
-                    run.repo, run.pr_number, since=cursor
+                    run.repo, run.pr_number, since=review_cursor
                 )
             )
         return items
@@ -110,10 +113,13 @@ class DirectFeedbackSource:
         self._task_ref = task_ref
 
     async def list_feedback(
-        self, run: WorkflowRun, cursor: str | None
+        self,
+        run: WorkflowRun,
+        ticket_cursor: str | None,
+        review_cursor: str | None,
     ) -> list[Feedback]:
         """Reject polling through an adapter intended only for webhooks."""
-        del run, cursor
+        del run, ticket_cursor, review_cursor
         raise NotImplementedError("direct feedback sources cannot poll")
 
     async def acknowledge(self, feedback: Feedback) -> bool:

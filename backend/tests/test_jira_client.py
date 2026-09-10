@@ -211,6 +211,72 @@ async def test_task_source_create_subtask_derives_project_key() -> None:
     assert has_subtask_sentinel(seen["body"]["fields"]["description"])
 
 
+@pytest.mark.asyncio
+async def test_task_source_subtask_inherits_parent_repo_field() -> None:
+    """Ensure a child receives its parent's configured repository field."""
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path, req.url.query, req.content))
+        if req.method == "GET":
+            return httpx.Response(
+                200,
+                json={"fields": {"customfield_1": "team/service@stable"}},
+            )
+        return httpx.Response(201, json={"key": "RFC-2"})
+
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"),
+        config=_config(repo_field="customfield_1"),
+    )
+
+    assert await src.create_subtask("RFC-1", "Child", "body") == "RFC-2"
+    assert [(method, path) for method, path, _, _ in seen] == [
+        ("GET", "/rest/api/2/issue/RFC-1"),
+        ("POST", "/rest/api/2/issue"),
+    ]
+    assert json.loads(seen[1][3])["fields"]["customfield_1"] == (
+        "team/service@stable"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_source_subtask_inherits_parent_repository_link() -> None:
+    """Ensure a child copies the repository link when no field is configured."""
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path, req.content))
+        if req.method == "GET":
+            return httpx.Response(200, json=[{
+                "object": {
+                    "title": "Repository",
+                    "url": "https://gitlab.example/team/service",
+                }
+            }])
+        if req.url.path.endswith("/issue"):
+            return httpx.Response(201, json={"key": "RFC-2"})
+        return httpx.Response(201, json={})
+
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"),
+        config=_config(repo_field=""),
+    )
+
+    assert await src.create_subtask("RFC-1", "Child", "body") == "RFC-2"
+    assert [(method, path) for method, path, _ in seen] == [
+        ("POST", "/rest/api/2/issue"),
+        ("GET", "/rest/api/2/issue/RFC-1/remotelink"),
+        ("POST", "/rest/api/2/issue/RFC-2/remotelink"),
+    ]
+    assert json.loads(seen[-1][2]) == {
+        "object": {
+            "title": "Repository",
+            "url": "https://gitlab.example/team/service",
+        }
+    }
+
+
 def _config(**overrides) -> TaskSourceConfig:
     base = dict(
         type="jira", base_url="https://jira.example", jql="x", key="RFC"
