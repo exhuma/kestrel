@@ -51,6 +51,18 @@ configured backend already has available — this is verify's only evidence
 source; durable, deterministic checks (tests, lint) are the coder's TDD
 responsibility, not something kestrel re-runs during verify.
 
+### Feedback environment variables
+
+- `KESTREL_FEEDBACK_MARKER` defaults to `@kestrel`. It is a whole-token,
+  case-insensitive marker that admits ticket and review feedback.
+- `KESTREL_FEEDBACK_IGNORE_AUTHORS` is empty by default. It is a
+  comma-separated list of authors whose marked feedback is ignored; GitHub
+  bot authors are also ignored.
+- `KESTREL_FEEDBACK_WINDOW_DAYS` defaults to `14`. It is the polling window
+  after a `done` or `escalated` run became terminal.
+- `KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS` defaults to `183`. It is the
+  time a closed published child stays monitored before one retirement notice.
+
 **Task sources are configured in `config.toml`, not via env vars.** Which
 GitHub repos and Jira instances kestrel pulls from — the former
 `KESTREL_WATCHED_REPOS`, `KESTREL_TRIGGER_LABEL`, `KESTREL_JIRA_*`, and
@@ -111,6 +123,34 @@ touching a real GitHub issue or Jira ticket. Its runs are the only ones
 that offer the **Rerun** action. See [Fixture
 workflow](setup-fixture-workflow.md) for the task file format and how
 Rerun works.
+
+### Translation
+
+Translation is disabled unless `config.toml` contains a separate
+OpenAI-compatible service. It is not a workflow backend: kestrel makes one
+stateless request for accepted feedback and continues if that request fails.
+Keep the key in the environment by using `api_key_env`.
+
+```toml
+[translation]
+base_url = "https://translation.example.com/v1"
+model = "translation-model"
+api_key_env = "KESTREL_TRANSLATION_API_KEY"
+# timeout = 30.0
+```
+
+When a translation differs from the submitted text, kestrel posts it with an
+automated-translation warning. The original feedback remains the source text.
+
+### Child-task retirement
+
+Kestrel tracks published child tasks separately from ordinary source tasks. A
+closed child is still monitored for
+`child_task_closure_retention_days` (183 days by default). It then receives
+one notice, `Kestrel has retired this closed child task. Create a new task for
+further work.`, and is never automatically reopened or polled again. This
+setting can be placed in `config.toml` as shown in the example or supplied as
+`KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS`.
 
 A Jira RFC's target repository is resolved from `repo_field` when set, otherwise
 from a remote/web link on the issue whose title matches `repo_link_text`

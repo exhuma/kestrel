@@ -9,9 +9,11 @@ dedup (feature 013,
 enforced, so no transport can bypass any of the three (research.md
 R1/R3/R6).
 """
+
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Callable
@@ -20,10 +22,13 @@ from app.config import Settings, get_settings
 from app.models_workflow import WorkflowRun
 from app.persistence.feedback_store import FeedbackStore, get_feedback_store
 from app.persistence.tables import FeedbackItemRow
-from app.ports import Acknowledgeable, Feedback
+from app.ports import Acknowledgeable, Feedback, FeedbackSource
 from app.services.feedback.bootstrap import get_feedback_dispatcher
 from app.services.feedback.marker import has_marker, is_ignored_author
+from app.services.feedback.review import is_kestrel_review_request, review_token
+from app.services.feedback.source import feedback_source_for
 from app.services.github import change_request_number
+from app.services.translation import Translator, get_translator
 from app.services.workflows import WorkflowService, get_workflow_service
 
 _log = logging.getLogger("kestrel.feedback.intake")
@@ -37,19 +42,21 @@ class FeedbackIntakeService:
         settings: Settings,
         store: FeedbackStore,
         workflows: WorkflowService,
-        dispatch: Callable[[FeedbackItemRow], None],
+        dispatch: Callable[[FeedbackItemRow], str | None],
+        translator: Translator | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
         self._workflows = workflows
         self._dispatch = dispatch
+        self._translator = translator
 
     async def intake(
         self,
         feedback: Feedback,
         *,
         task_ref: str,
-        source: Acknowledgeable,
+        source: Acknowledgeable | FeedbackSource,
         is_bot: bool = False,
     ) -> None:
         """
@@ -64,16 +71,20 @@ class FeedbackIntakeService:
             comment, or a ``list_comments`` item).
         :param task_ref: The originating ticket's source-native ref —
             how ticket-origin feedback is routed to a run.
-        :param source: The ``TaskSource`` or ``CodeHost`` to acknowledge
-            through (whichever the caller read ``feedback`` from).
+        :param source: The feedback source that read ``feedback``. Direct
+            webhook ``TaskSource``/``CodeHost`` callers are adapted for
+            compatibility.
         :param is_bot: Whether the caller has already identified the
             author as a bot account (GitHub's ``user.type == "Bot"``);
             transports with no such concept leave this ``False``.
         """
-        if not has_marker(feedback.body, self._settings.feedback_marker):
+        if not self._is_review_response(feedback.body):
+            return
+        if is_kestrel_review_request(feedback.body):
             return
         if is_ignored_author(
-            feedback.author, self._settings.feedback_ignore_authors,
+            feedback.author,
+            self._settings.feedback_ignore_authors,
             is_bot=is_bot,
         ):
             return
@@ -90,12 +101,24 @@ class FeedbackIntakeService:
         )
         if not self._store.claim(item):
             return  # dedup hit: a webhook/poll race, or a re-delivery
-        self._dispatch(item)
-        await self._acknowledge(source, feedback)
+        feedback_source = feedback_source_for(source, task_ref)
+        outcome = self._dispatch(item)
+        await self._acknowledge(feedback_source, feedback)
+        if outcome == "clarify":
+            await feedback_source.reply(
+                feedback,
+                "Please reply with approve, reject, or request changes.",
+            )
+        await self._translate_and_reply(feedback_source, feedback)
 
-    def _route(
-        self, feedback: Feedback, task_ref: str
-    ) -> WorkflowRun | None:
+    def _is_review_response(self, body: str) -> bool:
+        """Whether ``body`` has the marker or a candidate revision token."""
+        return (
+            has_marker(body, self._settings.feedback_marker)
+            or review_token(body) is not None
+        )
+
+    def _route(self, feedback: Feedback, task_ref: str) -> WorkflowRun | None:
         """
         The run this feedback targets, or ``None`` (not yet routable).
 
@@ -114,9 +137,7 @@ class FeedbackIntakeService:
         return None
 
     def _route_ticket(self, task_ref: str) -> WorkflowRun | None:
-        matches = [
-            r for r in self._workflows.list() if r.task_ref == task_ref
-        ]
+        matches = [r for r in self._workflows.list() if r.task_ref == task_ref]
         return matches[-1] if matches else None
 
     def _route_review(self, pr_ref: str) -> WorkflowRun | None:
@@ -125,19 +146,41 @@ class FeedbackIntakeService:
             return None
         number = int(num_str)
         matches = [
-            r for r in self._workflows.list()
+            r
+            for r in self._workflows.list()
             if r.repo == repo and _run_pr_number(r) == number
         ]
         return matches[-1] if matches else None
 
     async def _acknowledge(
-        self, source: Acknowledgeable, feedback: Feedback
+        self, source: FeedbackSource, feedback: Feedback
     ) -> None:
         try:
-            await source.acknowledge(feedback)
-        except Exception:  # noqa: BLE001 — best-effort, never blocks intake
+            if not await source.acknowledge(feedback):
+                await source.reply(feedback, "Acknowledged.")
+        except Exception:  # best-effort, never blocks intake
             _log.exception(
                 "failed to acknowledge feedback %s", feedback.external_id
+            )
+
+    async def _translate_and_reply(
+        self, source: FeedbackSource, feedback: Feedback
+    ) -> None:
+        """Post a translation disclaimer when a configured client needs one."""
+        if self._translator is None:
+            return
+        try:
+            translated = await self._translator.translate(feedback.body)
+            if translated != feedback.body:
+                await source.reply(
+                    feedback,
+                    _translation_reply(
+                        translated, self._settings.feedback_marker
+                    ),
+                )
+        except Exception:  # translation must not block workflow
+            _log.exception(
+                "failed to translate feedback %s", feedback.external_id
             )
 
 
@@ -147,10 +190,23 @@ def _run_pr_number(run: WorkflowRun) -> int | None:
     return run.pr_number or change_request_number(run.pr_url or "")
 
 
+def _translation_reply(translation: str, marker: str) -> str:
+    """Render the visible warning accompanying automated English text."""
+    quoted = re.sub(
+        re.escape(marker), "", translation, flags=re.IGNORECASE
+    ).strip()
+    return (
+        f"Automated English translation (may contain mistakes):\n\n> {quoted}"
+    )
+
+
 @lru_cache
 def get_feedback_intake_service() -> FeedbackIntakeService:
     """Return the process-wide FeedbackIntakeService singleton."""
     return FeedbackIntakeService(
-        get_settings(), get_feedback_store(), get_workflow_service(),
+        get_settings(),
+        get_feedback_store(),
+        get_workflow_service(),
         get_feedback_dispatcher().dispatch,
+        get_translator(),
     )

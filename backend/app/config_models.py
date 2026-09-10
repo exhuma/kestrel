@@ -58,6 +58,26 @@ class BackendConfig(BaseModel):
         return os.environ.get(self.api_key_env) if self.api_key_env else None
 
 
+class TranslationConfig(BaseModel):
+    """One explicitly configured OpenAI-compatible translation service.
+
+    This is deliberately distinct from ``BackendConfig``: translation makes a
+    single stateless request and must not consume a workflow backend or session.
+    """
+
+    base_url: str
+    model: str
+    api_key: str | None = None
+    api_key_env: str | None = None
+    timeout: float = 30.0
+
+    def secret(self) -> str | None:
+        """Return an inline API key, or the configured environment value."""
+        if self.api_key:
+            return self.api_key
+        return os.environ.get(self.api_key_env) if self.api_key_env else None
+
+
 class TaskSourceConfig(BaseModel):
     """One configured origin of work items (a GitHub or Jira source).
 

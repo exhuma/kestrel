@@ -14,7 +14,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from app.config_models import BackendConfig, TaskSourceConfig
+from app.config_models import BackendConfig, TaskSourceConfig, TranslationConfig
 from app.models_workflow import Step
 
 _log = logging.getLogger("kestrel.config")
@@ -23,7 +23,13 @@ _log = logging.getLogger("kestrel.config")
 # named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
-    {"backends", "step_backends", "default_session_backend", "task_sources"}
+    {
+        "backends",
+        "step_backends",
+        "default_session_backend",
+        "task_sources",
+        "translation",
+    }
 )
 
 # Applicative (non-secret) settings the TOML config file may override. Unlike
@@ -34,6 +40,7 @@ _CONFIG_FILE_FIELDS = frozenset(
     {
         "poll_interval_seconds",
         "max_verify_iterations",
+        "child_task_closure_retention_days",
     }
 )
 
@@ -178,6 +185,9 @@ class Settings(BaseSettings):
     #: each entry declares a ``type`` and that source's selection criteria.
     #: See :class:`app.config_models.TaskSourceConfig`.
     task_sources: list[TaskSourceConfig] = []
+    #: Dedicated, stateless translation backing service. File-only so it cannot
+    #: be confused with a workflow backend; secrets remain env-backed.
+    translation: TranslationConfig | None = None
     #: Single cadence (seconds) governing every source's re-check loop — the
     #: GitHub reconcile backstop and the Jira poll alike.
     poll_interval_seconds: int = 300
@@ -224,6 +234,10 @@ class Settings(BaseSettings):
     #: finished run forever. A run still non-terminal is always polled
     #: regardless of this setting.
     feedback_window_days: int = 14
+    #: How many days a closed published child remains actively monitored before
+    #: Kestrel posts its retirement notice. Environment variable:
+    #: ``KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS``. Six months is the default.
+    child_task_closure_retention_days: int = 183
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""
@@ -285,6 +299,8 @@ class Settings(BaseSettings):
             self.task_sources = [
                 TaskSourceConfig(**entry) for entry in data["task_sources"]
             ]
+        if "translation" in data:
+            self.translation = TranslationConfig(**data["translation"])
         # Applicative overrides: file wins, but only for keys it sets.
         for key in _CONFIG_FILE_FIELDS:
             if key in data:

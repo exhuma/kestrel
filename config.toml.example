@@ -34,6 +34,17 @@ health_check_interval_seconds = 60
 health_check_timeout_seconds = 10
 # Max code↔verify iterations before the loop escalates.
 max_verify_iterations = 3
+# How long a closed published child remains monitored before Kestrel posts one
+# retirement notice. The default is six months.
+child_task_closure_retention_days = 183
+
+# Optional, stateless OpenAI-compatible feedback translation. It is not a
+# workflow backend. Keep its credential in the named environment variable.
+# [translation]
+# base_url = "https://translation.example.com/v1"
+# model = "translation-model"
+# api_key_env = "KESTREL_TRANSLATION_API_KEY"
+# timeout = 30.0
 
 # --- task sources -----------------------------------------------------------
 # Each [[task_sources]] entry declares where kestrel pulls work from. Secrets
