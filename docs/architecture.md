@@ -82,7 +82,7 @@ the image small and lets a deploy attach or swap backends purely by config.
   GitHub's bot-account flag, and the `external_id` primary key that caps
   any breach of the first two guards at exactly one iteration. See
   `docs/setup-github-workflow.md`, `docs/setup-jira-workflow.md`, and
-  `docs/setup-fixture-workflow.md` for the per-source operator picture
+   `docs/setup-local-tasks.md` for the per-source operator picture
   (configuration, acknowledgment behaviour, revive-vs-successor).
 - **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
   (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)**
@@ -99,20 +99,20 @@ the image small and lets a deploy attach or swap backends purely by config.
   posting thin gate/escalation comments to *the run's own* ticket. Jira is
   poll-only, so it adds **no** off-loopback endpoint (no amendment); the entry
   point is shaped so a future Jira webhook is one added caller. A third
-  `TaskSource`, **fixture (feature 008)**, is file-backed: one JSON task per
-  file under a configured `fixtures_dir`, for disposable local testing/retry
-  without touching a real GitHub issue or Jira ticket — it reuses an existing
-  `CodeHost` rather than adding a fourth one. Every `TaskSource` now also
+   `TaskSource`, **local**, is file-backed: recursive local task folders with
+  root-contained `task.json`, Markdown feedback, attachments, and children.
+  It uses a local `CodeHost` for an absolute bare repository, publishing a
+  branch without a change request or review. Every `TaskSource` now also
   declares a `visibility()` capability (`"public"` | `"private"`): GitHub and
   Jira are `"public"` — their tickets are externally shared and only ever
-  move forward in time; fixture is `"private"`. The **rerun** action (abandon
+   move forward in time; local tasks are `"private"`. The **rerun** action (abandon
   a run, delete its branch, and immediately restart it against the same
   task) is permitted only when `visibility() == "private"`, so it can never
   be exposed for a GitHub- or Jira-sourced run (see the constitution's access
   model, amendment 1.4.0).
-- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or
-  fixture — traverses the identical `describe → refine → gap_analysis →
-  design → code → verify → change request` sequence
+- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or local
+   task — traverses the identical `describe → refine → gap_analysis →
+  design → code → verify → delivery` sequence
   (`services/workflows/driver/`). There is no hand-entered run: a run exists
   because a task source produced a task. **Two** human gates open the
   pipeline: `describe` restates kestrel's understanding of the task in plain

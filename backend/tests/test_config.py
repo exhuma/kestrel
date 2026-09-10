@@ -350,6 +350,8 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
     assert gh.verify_ssl is True  # default
 
 
+
+
 def test_poll_interval_settable_via_config_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

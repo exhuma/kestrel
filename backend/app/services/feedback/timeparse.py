@@ -2,7 +2,7 @@
 
 Centralizes tolerance for the minor format variations task sources emit
 (GitHub's trailing ``Z``, Jira's offset with no colon) so the three
-adapters (``github.py``/``jira.py``/``fixture.py``) don't each reimplement
+adapters (GitHub, Jira, and local task sources) don't each reimplement
 the same few lines — avoids tripping the repo's copy-paste budget.
 """
 from __future__ import annotations

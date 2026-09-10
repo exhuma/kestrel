@@ -33,7 +33,7 @@ class ChildTaskLinks(Protocol):
         ...
 
     def observe_generation(self, task_ref: str, generation: str) -> bool:
-        """Record a fixture generation and report a changed repeat value."""
+        """Record a local task generation and report a changed repeat value."""
         ...
 
     def claim_reopen(self, task_ref: str, workflow_id: str) -> bool:
@@ -139,9 +139,9 @@ class ChildTaskStore:
             return {task_ref for (task_ref,) in rows}
 
     def observe_generation(self, task_ref: str, generation: str) -> bool:
-        """Record a fixture generation and close a child on a changed value.
+        """Record a local task generation and close a child on a changed value.
 
-        The first value is only a baseline. A changed later value is the fixture
+        The first value is only a baseline. A changed later value is the local
         source's explicit retrigger gesture and creates a close/open edge.
         """
         with self._factory.begin() as db:

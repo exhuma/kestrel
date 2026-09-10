@@ -1,7 +1,7 @@
 """Single convergence point every feedback transport funnels through.
 
 Both the GitHub webhook (``issue_comment``) and the poll backstop (Jira,
-fixture, and GitHub's own missed-delivery recovery) call
+local tasks, and GitHub's own missed-delivery recovery) call
 :meth:`FeedbackIntakeService.intake` with one piece of raw ``Feedback`` —
 this is the one place the marker gate, author guard, and cross-transport
 dedup (feature 013,
@@ -79,14 +79,17 @@ class FeedbackIntakeService:
             transports with no such concept leave this ``False``.
         """
         if not self._is_review_response(feedback.body):
+            _log.info("feedback intake ignored reason=missing_marker")
             return
         if is_kestrel_review_request(feedback.body):
+            _log.info("feedback intake ignored reason=review_request")
             return
         if is_ignored_author(
             feedback.author,
             self._settings.feedback_ignore_authors,
             is_bot=is_bot,
         ):
+            _log.info("feedback intake ignored reason=ignored_author")
             return
         run = self._route(feedback, task_ref)
         item = FeedbackItemRow(
@@ -100,9 +103,15 @@ class FeedbackIntakeService:
             created_at=datetime.now(timezone.utc),
         )
         if not self._store.claim(item):
+            _log.info("feedback intake ignored reason=duplicate")
             return  # dedup hit: a webhook/poll race, or a re-delivery
+        _log.info(
+            "feedback intake claimed workflow_id=%s origin=%s",
+            item.workflow_id,
+            item.origin,
+        )
         feedback_source = feedback_source_for(source, task_ref)
-        outcome = self._dispatch(item)
+        outcome = self._dispatch_claimed(item)
         await self._acknowledge(feedback_source, feedback)
         if outcome == "clarify":
             await feedback_source.reply(
@@ -110,6 +119,50 @@ class FeedbackIntakeService:
                 "Please reply with approve, reject, or request changes.",
             )
         await self._translate_and_reply(feedback_source, feedback)
+
+    def redispatch_queued(self, workflow_id: str) -> None:
+        """Retry a workflow's durable queued feedback through dispatch.
+
+        The dispatcher evaluates the run's current state. It marks feedback
+        applied when a gate has opened and otherwise leaves transient work
+        queued for a future poll or driver boundary.
+
+        :param workflow_id: The workflow whose queued feedback is retried.
+        """
+        items = self._store.queued_for(workflow_id)
+        _log.info(
+            "feedback queued redispatch count=%s workflow_id=%s",
+            len(items),
+            workflow_id,
+        )
+        for item in items:
+            self._dispatch_claimed(item, redispatch=True)
+
+    def _dispatch_claimed(
+        self, item: FeedbackItemRow, *, redispatch: bool = False
+    ) -> str | None:
+        """Dispatch a persisted item, logging and isolating failures.
+
+        A failed dispatch deliberately leaves the durable item queued so a
+        later poll can retry it. Feedback content is never logged.
+        """
+        try:
+            outcome = self._dispatch(item)
+        except Exception as exc:
+            _log.exception(
+                "feedback dispatch error_type=%s workflow_id=%s redispatch=%s",
+                type(exc).__name__,
+                item.workflow_id,
+                redispatch,
+            )
+            return None
+        _log.info(
+            "feedback dispatch result=%s workflow_id=%s redispatch=%s",
+            outcome or "queued",
+            item.workflow_id,
+            redispatch,
+        )
+        return outcome
 
     def _is_review_response(self, body: str) -> bool:
         """Whether ``body`` has the marker or a candidate revision token."""

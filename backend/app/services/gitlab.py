@@ -116,6 +116,10 @@ class GitLabCodeHost:
         resp = await self._request("GET", f"/projects/{self._pid(repo)}")
         return resp.json()["default_branch"]
 
+    def supports_change_requests(self) -> bool:
+        """Report GitLab and Gitea merge-request support."""
+        return True
+
     async def check_health(self) -> bool:
         """Best-effort reachability + auth probe (feature 014).
 

@@ -24,8 +24,11 @@ function describe(e: unknown): string {
 export function useWorkflows() {
   async function refresh(): Promise<void> {
     loading.value = true
+    error.value = null
     try {
       workflows.value = await api.get<WorkflowSummary[]>('/api/workflows')
+    } catch (e) {
+      error.value = describe(e)
     } finally {
       loading.value = false
     }

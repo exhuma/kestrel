@@ -291,6 +291,7 @@ async def refine(
         if decision.refinement is None:
             raise _Rejected()
         previous = step.deliverable or ""
+        _start_refine_revision(service, run, step)
         step.deliverable = await interview.rewrite_refined(
             service, run, step.deliverable or "", decision.refinement
         )
@@ -306,6 +307,15 @@ async def refine(
         run.status = "awaiting_refine_approval"
         set_clock(run, "waiting", _now_utc())
         service._save(run)
+
+
+def _start_refine_revision(
+    service: "WorkflowService", run: WorkflowRun, step
+) -> None:
+    """Persist refine's active state before its feedback rewrite blocks."""
+    run.status = "refining"
+    step.status = "running"
+    service._save(run)
 
 
 async def design(
@@ -395,15 +405,33 @@ async def _open_or_confirm_change_request(
     :returns: ``True`` if a NEW change request was opened this call
         (governs which landing comment ``deliver`` posts).
     """
+    code_host = service._code_host(run)
+    if not _supports_change_requests(code_host):
+        run.pr_url = f"local branch published: {run.branch}"
+        return True
     if run.pr_number is not None:
         return False
     _, cr_title, cr_body = _change_request_texts(run)
-    run.pr_url = await service._code_host(run).open_change_request(
+    run.pr_url = await code_host.open_change_request(
         run.repo, head=run.branch, base=run.base_branch,
         title=cr_title, body=cr_body,
     )
     run.pr_number = change_request_number(run.pr_url)
     return True
+
+
+def _supports_change_requests(code_host) -> bool:
+    """Return a host's capability, preserving existing test-double defaults."""
+    return getattr(code_host, "supports_change_requests", lambda: True)()
+
+
+def _delivery_message(run: WorkflowRun, opened: bool, code_host) -> str:
+    """Describe delivery according to the code host's review capability."""
+    if not _supports_change_requests(code_host):
+        return f"Branch published locally: {run.branch}"
+    if opened:
+        return f"Change request opened: {run.pr_url}"
+    return f"Updated the change request: {run.pr_url}"
 
 
 async def deliver(service: "WorkflowService", run: WorkflowRun) -> None:
@@ -423,13 +451,10 @@ async def deliver(service: "WorkflowService", run: WorkflowRun) -> None:
     opened = await _open_or_confirm_change_request(service, run)
     run.status = "done"
     service._save(run)
-    # Post the change-request link to the ticket (best-effort — FR-019).
+    # Post the delivery location to the ticket (best-effort — FR-019).
     # A resumed run (idempotent path above) gets an "Updated" comment
     # instead — never a second "opened" announcement for the same request.
-    message = (
-        f"Change request opened: {run.pr_url}" if opened
-        else f"Updated the change request: {run.pr_url}"
-    )
+    message = _delivery_message(run, opened, service._code_host(run))
     try:
         await service._task_source(run).post_comment(run.task_ref, message)
     except Exception:  # noqa: BLE001 — best-effort; run is already done

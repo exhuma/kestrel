@@ -1,6 +1,6 @@
 """Poll transport for feedback: walks every run through its feedback source.
 
-Mirrors ``JiraPollService``/``FixturePollService``/``ReconcileService``'s
+Mirrors ``JiraPollService``/``LocalTaskPollService``/``ReconcileService``'s
 ``PollSource`` shape (feature 004) so it plugs into the same lifespan/CLI
 loop (``services/poll_source.py``) as every other source's background
 cycle. One instance covers every task source AND every code host
@@ -88,9 +88,14 @@ class FeedbackPollService:
         """Poll every still-relevant run once; failures are isolated."""
         if self._retention is not None:
             await self._retention.run_cycle()
-        for run in self._workflows.list():
-            if not self._worth_polling(run):
-                continue
+        runs = self._workflows.list()
+        eligible = [run for run in runs if self._worth_polling(run)]
+        _log.info(
+            "feedback poll discovery count=%s eligible_count=%s",
+            len(runs),
+            len(eligible),
+        )
+        for run in eligible:
             await self._poll_run(run)
 
     def _worth_polling(self, run: WorkflowRun) -> bool:
@@ -139,6 +144,7 @@ class FeedbackPollService:
 
     async def _poll_run(self, run: WorkflowRun) -> None:
         """Read and route one run through its composed feedback source."""
+        self._intake.redispatch_queued(run.id)
         source = self._workflows.feedback_source_for(run)
         scope = f"feedback:{run.id}"
         cursor = self._store.cursor(scope)
@@ -147,6 +153,9 @@ class FeedbackPollService:
         except Exception:  # noqa: BLE001 — one run must not stop the rest
             _log.exception("feedback poll failed for %s", scope)
             return
+        _log.info(
+            "feedback poll discovery scope=%s count=%s", scope, len(items)
+        )
         for feedback in items:
             ref = self._feedback_ref(run, feedback)
             await self._intake.intake(feedback, task_ref=ref, source=source)

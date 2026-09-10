@@ -36,7 +36,7 @@ and how your host Claude config is used.
 - [Backends](docs/backends.md) — dispatch to opencode or a self-hosted LLM.
 - [GitHub workflow](docs/setup-github-workflow.md) — the issue → PR feature.
 - [Jira workflow](docs/setup-jira-workflow.md) — the RFC → change request feature.
-- [Fixture workflow](docs/setup-fixture-workflow.md) — disposable local
+- [Local tasks workflow](docs/setup-local-tasks.md) — disposable local
   tasks for testing/retrying the pipeline, plus the Rerun action.
 - [Feedback intake](docs/feedback-intake.md) — steer a run in flight from a
   marked ticket/PR comment, across every task source.

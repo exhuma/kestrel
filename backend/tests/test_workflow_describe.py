@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.persistence.workflow_store import WorkflowStore
 from app.storage.registry import SessionRegistry
+from tests.blocked_runner import BlockedRunner
 from tests.conftest import (
     _FakeDismissals,
     _FakeGit,
@@ -113,6 +114,35 @@ async def test_reject_with_feedback_revises_and_reparks() -> None:
     assert svc.get(wid).steps[1].status == "pending"
     assert "Actually it's about the sidebar" in runner.calls[-1]["prompt"]
     assert "v1" in runner.calls[-1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_revision_publishes_active_status_before_reparking() -> (
+    None
+):
+    """Ensure feedback revisions expose their active status while blocked."""
+    runner = BlockedRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>v1</UNDERSTANDING>",
+            "<UNDERSTANDING>v2 with correction</UNDERSTANDING>",
+        ],
+        blocked_call=1,
+    )
+    svc = _service(_FakeGitHub(body="vague ask"), runner, _FakeGit())
+
+    wid = await _create_and_park(svc)
+    svc.reject(wid, refinement_prompt="Actually it's about the sidebar")
+    await runner.started.wait()
+
+    active = svc.get(wid)
+    assert active.status == "describing"
+    assert active.steps[0].status == "running"
+    assert active.steps[0].active_sessions[0].profile_id == "describer"
+
+    runner.release.set()
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    assert svc.get(wid).steps[0].status == "awaiting_approval"
 
 
 @pytest.mark.asyncio

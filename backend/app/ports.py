@@ -292,7 +292,7 @@ class TaskSource(Protocol):
         ``Feedback`` items, or a persisted ``feedback_cursor`` row), or
         ``None`` to read from the beginning. The port stays ignorant of
         each source's own pagination scheme (GitHub's ``since=``
-        timestamp, Jira's ``startAt``, fixture's line offset).
+        timestamp, Jira's ``startAt``, local task's comment timestamp).
         """
         ...
 
@@ -334,12 +334,16 @@ class CodeHost(Protocol):
         """The HTTPS git remote a worktree clones/fetches from."""
         ...
 
-    def git_credential(self) -> tuple[str, str]:
+    def git_credential(self) -> tuple[str, str] | None:
         """The ``(username, token)`` for git-over-HTTPS Basic auth.
 
         ``x-access-token`` for GitHub, ``oauth2`` for GitLab — the username
         git's smart-HTTP endpoint expects alongside the code-host token.
         """
+        ...
+
+    def supports_change_requests(self) -> bool:
+        """Whether this host can open and provide change-request reviews."""
         ...
 
     async def open_change_request(

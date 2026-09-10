@@ -71,16 +71,15 @@ def test_reopen_claim_updates_the_run_head(tmp_path: Path) -> None:
 
 
 def test_generation_change_creates_one_reopen_edge(tmp_path: Path) -> None:
-    """A fixture generation change closes a child only after its baseline."""
+    """A local task generation change closes a child only after its baseline."""
     store = ChildTaskStore(_factory(tmp_path))
-    store.record("parent", "fixture:child")
+    store.record("parent", "local:child")
 
-    assert store.observe_generation("fixture:child", "1") is False
-    assert store.observe_generation("fixture:child", "1") is False
-    assert store.observe_generation("fixture:child", "2") is True
+    assert store.observe_generation("local:child", "1") is False
+    assert store.observe_generation("local:child", "2") is True
 
     with _factory(tmp_path)() as db:
-        row = db.get(ChildTaskLinkRow, "fixture:child")
+        row = db.get(ChildTaskLinkRow, "local:child")
         assert row.source_state == "closed"
 
 

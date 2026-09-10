@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from app.models_workflow import WorkflowRun
+from app.models_workflow import WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
     TaskSourceNotifier,
@@ -98,6 +98,24 @@ def _run(
     )
 
 
+def _review_run(status: str) -> WorkflowRun:
+    """Build a run containing each type of external-review artifact."""
+    run = _run(status)
+    run.steps = [
+        WorkflowStep(name="describe"),
+        WorkflowStep(name="refine"),
+        WorkflowStep(name="gap_analysis"),
+    ]
+    run.steps[0].deliverable = "Understand the requested widget."
+    run.steps[1].deliverable = "# PRD\n\nThe widget must be accessible."
+    run.steps[2].deliverable = (
+        '{"technical_analysis": "Use a REST endpoint.", "tasks": ['
+        '{"title": "Add endpoint", "body": "Expose GET /widgets."}, '
+        '{"title": "Add UI", "body": "Render the widget list."}]}'
+    )
+    return run
+
+
 async def _tick() -> None:
     await asyncio.sleep(0)
     await asyncio.sleep(0)
@@ -145,6 +163,67 @@ async def test_gate_post_includes_a_durable_revision_token() -> None:
     assert len(reviews.rows) == 1
     assert "Revision 1: `[kestrel-review:token-1]`" in source.comments[0][1]
     assert "Reply to this review with its token" in source.comments[0][1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "artifact"),
+    [
+        ("awaiting_describe_approval", "Understand the requested widget."),
+        ("awaiting_refine_approval", "The widget must be accessible."),
+        ("awaiting_decomposition_approval", "Use a REST endpoint."),
+    ],
+)
+async def test_external_review_post_contains_its_artifact_before_link(
+    status: str, artifact: str
+) -> None:
+    """External reviews lead with a complete artifact, not the Kestrel UI."""
+    source, reviews = _FakeSource(), _ReviewRequests()
+    notifier = TaskSourceNotifier(
+        {"github-issue": source}, "https://k.example", reviews
+    )
+    notifier.notify(_review_run(status))
+    await _tick()
+
+    body = source.comments[0][1]
+    assert artifact in body
+    assert body.index(artifact) < body.index("[kestrel-review:token-1]")
+    assert body.index("[kestrel-review:token-1]") < body.index(
+        "Open in kestrel"
+    )
+
+
+@pytest.mark.asyncio
+async def test_decomposition_review_renders_numbered_candidate_tasks() -> None:
+    """Persisted candidate JSON is readable in the external review post."""
+    source, reviews = _FakeSource(), _ReviewRequests()
+    TaskSourceNotifier({"github-issue": source}, "", reviews).notify(
+        _review_run("awaiting_decomposition_approval")
+    )
+    await _tick()
+
+    body = source.comments[0][1]
+    assert "## Technical analysis" in body
+    assert "## Proposed child tasks" in body
+    assert "1. **Add endpoint**" in body
+    assert "2. **Add UI**" in body
+
+
+@pytest.mark.asyncio
+async def test_external_review_without_ledger_still_posts_the_artifact() -> (
+    None
+):
+    """A legacy notifier cannot turn an external review into a UI-only gate."""
+    source = _FakeSource()
+    TaskSourceNotifier({"github-issue": source}, "https://k.example").notify(
+        _review_run("awaiting_refine_approval")
+    )
+    await _tick()
+
+    body = source.comments[0][1]
+    assert body.index("The widget must be accessible.") < body.index(
+        "Open in kestrel"
+    )
 
 
 def test_delta_summary_references_canonical_artifact() -> None:

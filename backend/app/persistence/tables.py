@@ -58,7 +58,7 @@ class WorkflowRunRow(Base):
     #: still resolve by matching on ``pr_url`` (no backfill).
     pr_number: Mapped[int | None] = mapped_column(nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: Run origin: "github-issue" | "jira-issue" | "fixture-issue".
+    #: Run origin: "github-issue" | "jira-issue" | "local-task".
     #: Internal-only (not in the API). Migration 0014 relabelled the retired
     #: "manual" origin onto "github-issue" and moved the server-default.
     source: Mapped[str] = mapped_column(
@@ -102,6 +102,11 @@ class WorkflowRunRow(Base):
     #: window. NULL for a run that has never gone terminal.
     terminal_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
+    )
+    #: Serialized decision accepted at an approval gate but not yet consumed
+    #: by the asynchronous workflow driver.
+    pending_gate_decision: Mapped[str | None] = mapped_column(
+        Text, nullable=True
     )
 
 

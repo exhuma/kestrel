@@ -41,6 +41,10 @@ _CONFIG_FILE_FIELDS = frozenset(
         "poll_interval_seconds",
         "max_verify_iterations",
         "child_task_closure_retention_days",
+        "port",
+        "database_url",
+        "workspace_root",
+        "screenshots_root",
     }
 )
 
@@ -181,7 +185,7 @@ class Settings(BaseSettings):
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
     #: off-loopback endpoint (constitution v1.2.0). Never logged.
     webhook_secret: str = ""
-    #: Configured task sources (GitHub / Jira). File-only (like ``backends``);
+    #: Configured task sources (GitHub / Jira / local). File-only (like
     #: each entry declares a ``type`` and that source's selection criteria.
     #: See :class:`app.config_models.TaskSourceConfig`.
     task_sources: list[TaskSourceConfig] = []
@@ -247,9 +251,11 @@ class Settings(BaseSettings):
         """The configured Jira task sources."""
         return [s for s in self.task_sources if s.type == "jira"]
 
-    def fixture_sources(self) -> list[TaskSourceConfig]:
-        """The configured fixture task sources (feature 008)."""
-        return [s for s in self.task_sources if s.type == "fixture"]
+    def local_sources(self) -> list[TaskSourceConfig]:
+        """Return the configured local task sources."""
+        return [
+            source for source in self.task_sources if source.type == "local"
+        ]
 
     def github_source_for(self, repo: str) -> TaskSourceConfig | None:
         """The GitHub source whose allow-list has ``repo`` (first match)."""

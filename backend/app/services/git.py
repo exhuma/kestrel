@@ -230,10 +230,14 @@ class GitService:
         ``user.email``/``user.name`` identity lines are not duplicated —
         this repo's jscpd copy-paste budget is thin.
         """
+        worktree_dest = os.path.abspath(dest)
+        args = [worktree_dest if arg == dest else arg for arg in args]
         async with self._lock_for(mirror_dir):
             await self._git("-C", mirror_dir, "worktree", "add", *args)
-        await self._git("config", "user.email", "kestrel@local", cwd=dest)
-        await self._git("config", "user.name", "kestrel", cwd=dest)
+        await self._git(
+            "config", "user.email", "kestrel@local", cwd=worktree_dest
+        )
+        await self._git("config", "user.name", "kestrel", cwd=worktree_dest)
 
     async def add_worktree(
         self, mirror_dir: str, dest: str, base_branch: str, new_branch: str

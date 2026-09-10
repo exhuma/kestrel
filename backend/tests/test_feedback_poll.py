@@ -54,6 +54,11 @@ class _FakeFeedbackSource:
 class _FakeIntake:
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.redispatched: list[str] = []
+
+    def redispatch_queued(self, workflow_id: str) -> None:
+        """Record queued-feedback recovery for the supplied workflow."""
+        self.redispatched.append(workflow_id)
 
     async def intake(self, feedback, *, task_ref, source=None, is_bot=False):
         self.calls.append({

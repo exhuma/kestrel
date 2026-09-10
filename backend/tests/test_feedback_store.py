@@ -92,6 +92,16 @@ def test_claim_is_atomic_insert_if_absent(tmp_path: Path) -> None:
     assert store.claim(_item("gh-issue-comment:1")) is False
 
 
+def test_claim_returns_a_dispatchable_detached_row(tmp_path: Path) -> None:
+    """A claimed row remains readable after its write transaction closes."""
+    item = _item("handoff")
+
+    assert FeedbackStore(_factory(tmp_path)).claim(item) is True
+
+    assert item.workflow_id == "wf-1"
+    assert item.body == "@kestrel please rename this"
+
+
 def test_queued_for_returns_only_that_runs_queued_items(
     tmp_path: Path,
 ) -> None:

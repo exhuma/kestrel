@@ -1,4 +1,5 @@
 """Framework-neutral rendering for externally posted review revisions."""
+
 from __future__ import annotations
 
 from difflib import ndiff
@@ -15,10 +16,21 @@ def _excerpt(line: str) -> str:
     return f"{line[:cutoff]}..."
 
 
-def render_review_request(message: str, revision: int, token: str) -> str:
-    """Render a tokenized external review request and response instructions."""
+def render_review_request(
+    message: str, revision: int, token: str, artifact: str = ""
+) -> str:
+    """Render an external review with its artifact before response metadata.
+
+    :param message: Brief description of the review gate.
+    :param revision: Durable revision number for this post.
+    :param token: Opaque token required when responding to this revision.
+    :param artifact: Complete reviewable artifact, or empty for legacy callers.
+    :returns: A tokenized review post whose artifact, when present, is first.
+    """
+    artifact_prefix = f"{artifact}\n\n---\n\n" if artifact else ""
     return (
-        f"{message}\n\nRevision {revision}: `[kestrel-review:{token}]`\n\n"
+        f"{artifact_prefix}{message}\n\n"
+        f"Revision {revision}: `[kestrel-review:{token}]`\n\n"
         "Reply to this review with its token and `@kestrel approve`, "
         "`@kestrel reject`, or `@kestrel request changes`."
     )

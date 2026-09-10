@@ -99,6 +99,8 @@ async def _run_feedback_turn(
     slot = StepSession(
         profile_id="describer", label="Understanding", badge="agent"
     )
+    run.status = "describing"
+    step.status = "running"
     service._retire_sessions(run, step)
     step.active_sessions = [slot]
     service._save(run)

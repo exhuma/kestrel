@@ -8,10 +8,10 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.services.fixture import FixtureTaskSource
 from app.services.github import GitHubClient
 from app.services.gitlab import GitLabCodeHost
 from app.services.jira import JiraClient
+from app.services.local_task_source import LocalTaskSource
 
 
 def _github(handler) -> GitHubClient:
@@ -109,9 +109,9 @@ async def test_gitea_check_health_uses_the_same_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fixture_check_health_is_always_true_with_no_io(
+async def test_local_task_check_health_is_always_true_with_no_io(
     tmp_path,
 ) -> None:
-    """Ensure the fixture adapter reports healthy without touching disk."""
-    source = FixtureTaskSource(str(tmp_path / "does-not-exist"))
+    """Ensure the local task adapter reports healthy without touching disk."""
+    source = LocalTaskSource(str(tmp_path / "does-not-exist"))
     assert await source.check_health() is True

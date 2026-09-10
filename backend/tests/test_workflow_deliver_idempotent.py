@@ -15,6 +15,18 @@ _OPENED_PR_NUMBER = 1
 _RESUMED_PR_NUMBER = 9
 
 
+class _LocalHost:
+    """Delivery host stand-in that has no change-request capability."""
+
+    def supports_change_requests(self) -> bool:
+        """Report that local branch delivery does not create pull requests."""
+        return False
+
+    def git_credential(self):
+        """Return no local-repository credential."""
+        pass
+
+
 def _delivery_run(workspace: str, **overrides) -> WorkflowRun:
     """A minimal, already-verified run ready for ``_deliver`` directly."""
     defaults = dict(
@@ -69,6 +81,27 @@ async def test_deliver_is_idempotent_for_an_already_open_pr(tmp_path) -> None:
     assert comments == [
         "Updated the change request: https://github.com/o/r/pull/9"
     ]
+
+
+@pytest.mark.asyncio
+async def test_deliver_publishes_local_branch_without_change_request(
+    tmp_path,
+) -> None:
+    """Ensure local delivery pushes a branch without opening a pull request."""
+    gh, git = _FakeGitHub(body="x"), _FakeGit()
+    svc = _service(gh, _FakeRunner(SessionRegistry(), []), git)
+    run = _delivery_run(str(tmp_path), source="local-task")
+    svc.code_hosts["local-task"] = _LocalHost()
+    svc.workflows.create(run)
+    comments: list[str] = []
+    svc._task_source(run).post_comment = _record_comment(comments)
+
+    await svc._deliver(run)
+
+    assert git.pushed == [run.branch]
+    assert run.pr_number is None
+    assert run.pr_url == f"local branch published: {run.branch}"
+    assert comments == [f"Branch published locally: {run.branch}"]
 
 
 def _track_calls(original, calls: list[str]):

@@ -7,6 +7,7 @@ from app.models_workflow import WorkflowRun, WorkflowStep
 from app.questionnaire import AnswerValidationError, parse_envelope
 from app.services.exceptions import InvalidWorkflowStateError
 from app.storage.registry import SessionRegistry
+from tests.blocked_runner import BlockedRunner
 from tests.conftest import (
     _coord,
     _FakeGit,
@@ -59,6 +60,40 @@ async def test_reject_with_refinement_regenerates() -> None:
     # The writer sees the current body and the feedback.
     assert "Mention the API surface" in runner.calls[-1]["prompt"]
     assert "v1" in runner.calls[-1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_refine_feedback_publishes_active_status_before_reparking(
+) -> None:
+    """Ensure a blocked rewrite makes refine visibly active before it parks."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = BlockedRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+            _coord([]),
+            "<REFINED_ISSUE>\nv1\n</REFINED_ISSUE>",
+            "<REFINED_ISSUE>\nv2 with feedback\n</REFINED_ISSUE>",
+        ],
+        blocked_call=3,
+    )
+    svc = _service(gh, runner, _FakeGit())
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+    svc.reject(wid, refinement_prompt="Mention the API surface")
+    await runner.started.wait()
+
+    active = svc.get(wid)
+    assert active.status == "refining"
+    assert active.steps[1].status == "running"
+    assert active.steps[1].active_sessions[0].profile_id == "writer"
+
+    runner.release.set()
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    assert svc.get(wid).steps[1].status == "awaiting_approval"
 
 
 @pytest.mark.asyncio

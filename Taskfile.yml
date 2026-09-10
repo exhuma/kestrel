@@ -12,6 +12,10 @@
 
 version: '3'
 
+includes:
+  local-tasks:
+    taskfile: ./tasks/local-tasks.yml
+
 tasks:
   default:
     desc: 'List available tasks.'
@@ -33,7 +37,9 @@ tasks:
       # Seed a local .env from the example on first run (gitignored, never
       # overwritten if it already exists).
       - 'test -f .env || cp .env.example .env'
-      - uv run alembic upgrade head
+      # Migrations need only the database URL. Do not let an optional runtime
+      # config path in an existing .env block a fresh setup.
+      - KESTREL_CONFIG_FILE= uv run alembic upgrade head
 
   setup:frontend:
     desc: 'Install frontend dependencies.'
@@ -53,13 +59,17 @@ tasks:
     env:
       # The package launcher gives the same unified logging the container uses,
       # with hot-reload — see docs/development.md.
+      KESTREL_CONFIG_FILE: '../config.toml'
       KESTREL_RELOAD: '1'
+      KESTREL_PORT: '8000'
     cmds:
       - uv run python -m app
 
   frontend:
     desc: 'Run the Vite frontend dev server on :5173.'
     dir: frontend
+    env:
+      VITE_API_BASE: 'http://localhost:8000'
     cmds:
       - npm run dev
 

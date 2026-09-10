@@ -7,6 +7,7 @@ Structurally a ``Notifier`` (see ``app.notifications``): a synchronous
 entry in the existing ``CompositeNotifier`` fan-out so a broken lifecycle
 dispatch never blocks another notifier or the run itself.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -135,10 +136,17 @@ class LifecycleTransitioner:
         self._hooks = hook_runner or HookRunner()
         #: Keep fire-and-forget tasks referenced so they are not GC'd.
         self._tasks: set[asyncio.Task] = set()
+        #: The lifecycle status last dispatched for each run.  ``_save()``
+        #: checkpoints a run during cloning and terminal cleanup, so it can
+        #: notify more than once without a new lifecycle transition.
+        self._last_dispatched: dict[str, str] = {}
 
     def notify(self, run: "WorkflowRun") -> None:
         """Schedule this run's lifecycle dispatch, if status warrants one."""
         if not _is_lifecycle_event(run.status):
+            self._last_dispatched.pop(run.id, None)
+            return
+        if self._last_dispatched.get(run.id) == run.status:
             return
         source = self._sources.get(run.source)
         if source is None or not run.task_ref:
@@ -151,6 +159,7 @@ class LifecycleTransitioner:
                 "no running loop; skipping lifecycle dispatch for %s", run.id
             )
             return
+        self._last_dispatched[run.id] = run.status
         task = loop.create_task(self._dispatch(source, run, event))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)

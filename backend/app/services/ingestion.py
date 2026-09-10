@@ -130,7 +130,7 @@ class IngestionService:
     async def observe_child_retrigger(
         self, task_ref: str, generation: str | None
     ) -> None:
-        """Re-adopt a linked fixture child after a generation change."""
+        """Re-adopt a linked local child after a generation change."""
         if generation is None or self.child_tasks is None:
             return
         if self.child_tasks.observe_generation(task_ref, generation):

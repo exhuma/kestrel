@@ -46,6 +46,18 @@ describe('useWorkflows', () => {
     expect(workflows.value.map((w) => w.id)).toContain('wf-1')
   })
 
+  it('refresh surfaces a request failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('unavailable', { status: 503 })),
+    )
+    const { error, refresh } = useWorkflows()
+
+    await refresh()
+
+    expect(error.value).toBe('Request failed (503)')
+  })
+
   it('select opens a workflow event stream and applies snapshots', async () => {
     const { select, current } = useWorkflows()
     select('wf-1')

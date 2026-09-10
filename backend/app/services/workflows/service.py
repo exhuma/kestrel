@@ -77,7 +77,7 @@ class WorkflowService(WorkflowSessionService):
         self.bus = bus
         #: Task Source / Code Host per ``run.source`` (feature 003). GitHub
         #: runs use the GitHub adapters over ``github``; the factory registers
-        #: the Jira/fixture sources and a self-hosted code host. Built from
+        #: the Jira/local sources and a self-hosted code host. Built from
         #: ``github`` by default so existing callers need no change.
         _gh_source = GitHubTaskSource(github, settings.public_base_url)
         _gh_host = GitHubCodeHost(github, settings.git_base)
@@ -186,6 +186,7 @@ class WorkflowService(WorkflowSessionService):
 
         :param run: The run to checkpoint.
         """
+        gate.clear_consumed_decision(run)
         if run.status in _TERMINAL_STATUSES:
             run.terminal_at = _now_utc()
             if run.clock_state is not None:
@@ -374,6 +375,11 @@ class WorkflowService(WorkflowSessionService):
     def _resolve(self, workflow_id: str, decision: _Decision) -> None:
         run = self.get(workflow_id)
         gate.resolve(run, self._control[workflow_id], decision)
+        gate.checkpoint_decision(run, decision)
+        # The feedback item is marked applied immediately after this returns.
+        # Checkpoint the decision first, so a restart cannot lose it while the
+        # driver is still parked on its in-memory future.
+        self._save(run)
         self._retire_review_request(run)
 
     def _retire_review_request(self, run: WorkflowRun) -> None:
@@ -414,7 +420,14 @@ class WorkflowService(WorkflowSessionService):
 
     # ---- orchestration -------------------------------------------------
     async def _await_gate(self, workflow_id: str) -> _Decision:
-        return await gate.await_gate(self._control[workflow_id])
+        run = self.get(workflow_id)
+        decision = gate.pending_decision(run)
+        if decision is None:
+            return await gate.await_gate(self._control[workflow_id])
+        # The decision's future may have been resolved before a restart. A
+        # fresh control makes the next gate wait for a new decision.
+        self._control[workflow_id] = self._new_control()
+        return decision
 
     async def recover(self) -> None:
         """Resume persisted runs after a process restart."""

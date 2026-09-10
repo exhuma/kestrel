@@ -13,9 +13,9 @@ from typing import Protocol
 from app.config import Settings
 from app.ports import WorkItem
 from app.services.feedback.poll import get_feedback_poll_service
-from app.services.fixture_poll import get_fixture_poll_services
 from app.services.health import get_health_poll_service
 from app.services.jira_poll import get_jira_poll_services
+from app.services.local_task_poll import get_local_task_poll_services
 from app.services.reconcile import get_reconcile_services
 
 
@@ -34,14 +34,14 @@ class PollSource(Protocol):
 
 
 def configured_poll_sources(settings: Settings) -> list[PollSource]:
-    """Every configured task source as a ``PollSource`` (github + jira)."""
+    """Return every configured task source as a ``PollSource``."""
     sources: list[PollSource] = []
     if settings.github_sources():
         sources.extend(get_reconcile_services())
     if settings.jira_sources():
         sources.extend(get_jira_poll_services())
-    if settings.fixture_sources():
-        sources.extend(get_fixture_poll_services())
+    if settings.local_sources():
+        sources.extend(get_local_task_poll_services())
     # Feedback polling (feature 013) is source-agnostic — it walks live
     # runs rather than a specific source's ticket list — so it registers
     # once whenever *any* task source is configured, covering every

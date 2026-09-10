@@ -43,6 +43,10 @@ class FeedbackStore:
         try:
             with self._factory.begin() as db:
                 db.add(item)
+                # Dispatch follows immediately after claim. Detach this fully
+                # loaded row before commit expires ORM attributes.
+                db.flush()
+                db.expunge(item)
             return True
         except IntegrityError:
             return False
@@ -64,6 +68,11 @@ class FeedbackStore:
                 .order_by(FeedbackItemRow.created_at)
             )
             return list(db.scalars(stmt))
+
+    def get(self, external_id: str) -> FeedbackItemRow | None:
+        """Return one feedback item by external id, if it was claimed."""
+        with self._factory() as db:
+            return db.get(FeedbackItemRow, external_id)
 
     def mark(
         self,

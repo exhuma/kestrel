@@ -109,7 +109,7 @@ class WorkflowSummary(BaseModel):
     #: when the run's task source is private (never GitHub/Jira).
     rerunnable: bool
     #: Short human-readable ticket identity from the run's task source
-    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-fixture".
+    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-task".
     task_label: str
 
 
@@ -151,10 +151,10 @@ class WorkflowDetail(BaseModel):
     #: when the run's task source is private (never GitHub/Jira).
     rerunnable: bool
     #: Short human-readable ticket identity from the run's task source
-    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-fixture".
+    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-task".
     task_label: str
     #: Browser-navigable link to the ticket, or ``null`` when the source
-    #: has none to offer (feature 009) — e.g. a fixture task.
+    #: has none to offer (feature 009) — e.g. a local task.
     task_link: str | None
     pr_url: str | None
     error: str | None

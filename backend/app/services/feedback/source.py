@@ -72,13 +72,18 @@ class RunFeedbackSource:
         """Read ticket and, when present, review feedback for ``run``."""
         ref = run.task_ref or f"{run.repo}#{run.issue_number}"
         items = await self._task_source.list_comments(ref, since=cursor)
-        if run.pr_number is not None:
+        if run.pr_number is not None and self._supports_change_requests():
             items.extend(
                 await self._code_host.list_review_comments(
                     run.repo, run.pr_number, since=cursor
                 )
             )
         return items
+
+    def _supports_change_requests(self) -> bool:
+        """Return review capability, defaulting legacy doubles to true."""
+        capability = getattr(self._code_host, "supports_change_requests", None)
+        return True if capability is None else capability()
 
     async def acknowledge(self, feedback: Feedback) -> bool:
         """Delegate acknowledgement to the port that produced ``feedback``."""

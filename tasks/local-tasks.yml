@@ -1,0 +1,81 @@
+version: '3'
+
+tasks:
+  init:
+    desc: 'Create the ignored local task root and example task.'
+    dir: backend
+    env:
+      KESTREL_CONFIG_FILE: ../config.toml
+    cmds:
+      - >-
+        mkdir -p ../.kestrel-local-tasks/hello/comments
+        ../.kestrel-local-tasks/hello/attachments
+        ../.kestrel-local-tasks/hello/children
+      - >-
+        test -f ../.kestrel-local-tasks/hello/task.json || printf '%s\n'
+        '{"title":"Hello local task","body":"Add a hello endpoint.","code_repo":"/tmp/pyaltiplano.git","base_branch":"master"}'
+        > ../.kestrel-local-tasks/hello/task.json
+      - uv run alembic upgrade head
+
+  list:
+    desc: 'List local task folders.'
+    cmds:
+      - test -d .kestrel-local-tasks && find .kestrel-local-tasks -name task.json -printf '%h\n' | sort || true
+
+  poll:
+    desc: 'List local task work items without starting a run.'
+    dir: backend
+    env:
+      KESTREL_CONFIG_FILE: ../config.toml
+    cmds:
+      - uv run python -m app poll
+
+  add-comment:
+    desc: 'Add a human Markdown comment. Requires LOCAL_TASK and BODY.'
+    cmds:
+      - |
+        set -eu
+         test -n "${LOCAL_TASK:-}"
+        test -n "${BODY:-}"
+         test "${LOCAL_TASK#/}" = "$LOCAL_TASK"
+         test "${LOCAL_TASK#*..}" = "$LOCAL_TASK"
+         mkdir -p ".kestrel-local-tasks/$LOCAL_TASK/comments"
+         stamp=$(date -u +%Y-%m-%dT%H.%M.%S-%N)
+         author=$(printf '%s' "${LOCAL_AUTHOR:-}" | tr -cs '[:alnum:]_-' '-')
+         author=${author#-}
+         author=${author%-}
+         suffix=${author:+-$author}
+         printf '%s\n' "$BODY" > \
+            ".kestrel-local-tasks/$LOCAL_TASK/comments/$stamp$suffix.md"
+
+  show-comments:
+    desc: 'Show a task comments directory. Requires LOCAL_TASK.'
+    cmds:
+      - >-
+        test -n "${LOCAL_TASK:-}" &&
+        test "${LOCAL_TASK#/}" = "$LOCAL_TASK" &&
+        test "${LOCAL_TASK#*..}" = "$LOCAL_TASK" &&
+        find ".kestrel-local-tasks/$LOCAL_TASK/comments" -type f -name '*.md'
+        -print -exec cat {} \;
+
+  show-task:
+    desc: 'Show a task metadata file. Requires LOCAL_TASK.'
+    cmds:
+      - >-
+        test -n "${LOCAL_TASK:-}" &&
+        test "${LOCAL_TASK#/}" = "$LOCAL_TASK" &&
+        test "${LOCAL_TASK#*..}" = "$LOCAL_TASK" &&
+        cat ".kestrel-local-tasks/$LOCAL_TASK/task.json"
+
+  reset:
+    desc: 'Remove all local tasks and Kestrel development persistence.'
+    cmds:
+      - >-
+        rm -rf .kestrel-local-tasks backend/.kestrel-workspaces
+        backend/.kestrel-screenshots backend/kestrel.db backend/kestrel.db-shm
+        backend/kestrel.db-wal
+
+  branches:
+    desc: 'List branches in the local task bare repository.'
+    cmds:
+      - git --git-dir=/tmp/pyaltiplano.git branch

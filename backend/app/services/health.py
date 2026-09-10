@@ -156,9 +156,9 @@ def _health_checks() -> list[tuple[str, CheckFn]]:
         code_host_label = settings.jira_sources()[0].code_host
         code_host_check = service.code_hosts["jira-issue"].check_health
         checks.append((code_host_label, code_host_check))
-    if settings.fixture_sources():
-        fixture = service.sources["fixture-issue"].check_health
-        checks.append(("fixture", fixture))
+    if settings.local_sources():
+        local = service.sources["local-task"].check_health
+        checks.append(("local", local))
     return checks
 
 

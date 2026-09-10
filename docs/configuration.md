@@ -110,18 +110,16 @@ code_host_base_url = ""                # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
 
 [[task_sources]]
-type = "fixture"
-fixtures_dir = "/path/to/kestrel-fixtures"  # required; one JSON file per task
-code_host = "github"                   # github | gitlab | gitea (self-hostable)
-code_host_base_url = ""                # for a self-hosted gitlab/gitea
-# code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
+type = "local"
+tasks_dir = "/path/to/kestrel-local-tasks"  # required task-folder root
+code_host = "local"                    # required; no credential
 ```
 
-A `fixture` source runs local, disposable tasks — one JSON file per task
-under `fixtures_dir`, for testing or retrying the pipeline without
-touching a real GitHub issue or Jira ticket. Its runs are the only ones
-that offer the **Rerun** action. See [Fixture
-workflow](setup-fixture-workflow.md) for the task file format and how
+A `local` source runs disposable task folders, each with `task.json`, under
+`tasks_dir`. It uses an absolute local bare repository path from the
+task's `code_repo`, publishes a branch there, and never opens a change request.
+Its runs are the only ones that offer the **Rerun** action. See [Fixture
+workflow](setup-local-tasks.md) for the task file format and how
 Rerun works.
 
 ### Translation

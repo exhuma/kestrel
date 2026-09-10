@@ -201,6 +201,41 @@ async def test_worktree_isolation_and_cleanup(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_worktree_add_uses_absolute_destination_from_relative_paths(
+    tmp_path, monkeypatch,
+) -> None:
+    """Create and resume worktrees outside a relative bare mirror."""
+    bare = _seed_bare_remote(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    svc = GitService(token="unused-locally")
+    mirror = "mirror.git"
+    fresh = "workspaces/fresh"
+    resumed = "workspaces/resumed"
+
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, fresh, "main", "kestrel/issue-1")
+
+    fresh_path = tmp_path / fresh
+    assert fresh_path.is_dir()
+    assert not (tmp_path / mirror / fresh).exists()
+    assert subprocess.run(
+        ["git", "config", "user.email"], cwd=fresh_path,
+        check=True, capture_output=True, text=True,
+    ).stdout.strip() == "kestrel@local"
+
+    await svc.remove_worktree(mirror, str(fresh_path))
+    await svc.add_worktree_existing(mirror, resumed, "kestrel/issue-1")
+
+    resumed_path = tmp_path / resumed
+    assert resumed_path.is_dir()
+    assert not (tmp_path / mirror / resumed).exists()
+    assert subprocess.run(
+        ["git", "config", "user.name"], cwd=resumed_path,
+        check=True, capture_output=True, text=True,
+    ).stdout.strip() == "kestrel"
+
+
+@pytest.mark.asyncio
 async def test_ensure_mirror_is_idempotent(tmp_path) -> None:
     """Ensure a second ensure_mirror fetches rather than re-cloning."""
     bare = _seed_bare_remote(tmp_path)

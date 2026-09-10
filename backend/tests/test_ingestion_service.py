@@ -102,7 +102,7 @@ class _FakeChildTasks:
         }
 
     def observe_generation(self, task_ref: str, generation: str) -> bool:
-        """Report whether a fixture child changed its explicit generation."""
+        """Report whether a local task child changed its explicit generation."""
         previous = getattr(self, "generations", {}).get(task_ref)
         if not hasattr(self, "generations"):
             self.generations: dict[str, str] = {}
@@ -255,10 +255,10 @@ async def test_missing_qualifying_child_is_closed_then_re_adopted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_changed_fixture_generation_re_adopts_a_linked_child() -> None:
-    """A fixture generation changes only after its initial baseline."""
+async def test_changed_local_task_generation_re_adopts_a_linked_child() -> None:
+    """A local task generation changes only after its initial baseline."""
     wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    parent = WorkflowRun(id="wf-parent", repo="o/r", task_ref="fixture:child")
+    parent = WorkflowRun(id="wf-parent", repo="o/r", task_ref="local:child")
     wf.runs.append(parent)
     children.states[parent.task_ref] = "open"
     children.latest[parent.task_ref] = parent.id

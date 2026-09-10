@@ -1,4 +1,5 @@
 """Tests for LifecycleTransitioner / render_footer (feature 006)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,11 +39,16 @@ class _FakeSource:
         return self._time_supported
 
 
-def _run(status: str, *, source: str = "github-issue",
-         task_ref: str = "o/r#5") -> WorkflowRun:
+def _run(
+    status: str, *, source: str = "github-issue", task_ref: str = "o/r#5"
+) -> WorkflowRun:
     return WorkflowRun(
-        id="wf-1", repo="o/r", issue_number=5, status=status,
-        source=source, task_ref=task_ref,
+        id="wf-1",
+        repo="o/r",
+        issue_number=5,
+        status=status,
+        source=source,
+        task_ref=task_ref,
     )
 
 
@@ -52,6 +58,7 @@ async def _tick() -> None:
 
 
 # --- kind-exclusivity invariant (T006) --------------------------------
+
 
 @pytest.mark.parametrize(
     ("status", "kind"),
@@ -79,8 +86,16 @@ def test_failure_terminals_never_yield_done(status: str) -> None:
 
 @pytest.mark.parametrize(
     "status",
-    ["pending", "refining", "designing", "coding", "verifying",
-     "opening_pr", "awaiting_refine_input", "awaiting_refine_approval"],
+    [
+        "pending",
+        "refining",
+        "designing",
+        "coding",
+        "verifying",
+        "opening_pr",
+        "awaiting_refine_input",
+        "awaiting_refine_approval",
+    ],
 )
 def test_non_terminal_non_start_statuses_are_not_lifecycle_events(
     status: str,
@@ -90,6 +105,7 @@ def test_non_terminal_non_start_statuses_are_not_lifecycle_events(
 
 
 # --- render_footer (T009) ----------------------------------------------
+
 
 def test_render_footer_status_only() -> None:
     """Ensure a status-only footer carries the status, not time."""
@@ -114,6 +130,7 @@ def test_render_footer_time_without_a_value_is_empty() -> None:
 
 
 # --- integration: start -> done, start -> failed (T014) ----------------
+
 
 @pytest.mark.asyncio
 async def test_start_then_done_applies_native_status_and_no_footer() -> None:
@@ -156,6 +173,29 @@ async def test_start_then_failed_never_reports_done() -> None:
     kinds = [e.kind for e in source.transitions]
     assert kinds == ["start", "failed"]
     assert "done" not in kinds
+
+
+@pytest.mark.asyncio
+async def test_repeated_lifecycle_status_dispatches_once_until_it_changes() -> (
+    None
+):
+    """Repeated saves dispatch once, but a later re-entry dispatches again."""
+    source = _FakeSource(native_status=False)
+    transitioner = LifecycleTransitioner({"github-issue": source})
+    run = _run("cloning")
+    transitioner.notify(run)
+    transitioner.notify(run)
+    transitioner.notify(run)
+    await _tick()
+
+    run.status = "pending"
+    transitioner.notify(run)
+    run.status = "cloning"
+    transitioner.notify(run)
+    await _tick()
+
+    assert [event.kind for event in source.transitions] == ["start", "start"]
+    assert len(source.comments) == len(source.transitions)
 
 
 @pytest.mark.asyncio

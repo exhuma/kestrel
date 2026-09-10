@@ -3,9 +3,9 @@
 A run is never a fire-and-forget dispatch. Once it has started, you can
 steer it — from the ticket or the pull/merge request, in whatever tool you
 already have open — by leaving a comment that carries kestrel's trigger
-marker. This applies across every task source (GitHub, Jira, fixture); the
+marker. This applies across every task source (GitHub, Jira, local); the
 per-source setup docs ([GitHub](setup-github-workflow.md),
-[Jira](setup-jira-workflow.md), [fixture](setup-fixture-workflow.md)) link
+[Jira](setup-jira-workflow.md), [local tasks](setup-local-tasks.md)) link
 here rather than repeating this section three times.
 
 ## The trigger marker
@@ -31,7 +31,7 @@ every configured source.
 ## Where a marked comment can land
 
 - **On the ticket** (a GitHub issue comment, a Jira RFC comment, or a line
-  appended to a fixture task's `<slug>.comments.jsonl`) — redirects the run
+  appended to a local task's `comments/` directory) — redirects the run
   that ticket started.
 - **On the pull/merge request** — a review comment, a review's own summary
   comment, or (GitHub only) an issue-style comment on the PR's conversation
@@ -97,9 +97,9 @@ applied.
 | Source | Acknowledgment |
 | --- | --- |
 | GitHub | An "eyes" reaction, otherwise a reply. |
-| GitLab (code host for a Jira- or fixture-sourced run) | An "eyes" award, otherwise a reply. |
+| GitLab (code host for a Jira- or local-sourced run) | An "eyes" award, otherwise a reply. |
 | Jira | A reply: the targeted Jira REST API has no comment-reaction endpoint. |
-| Fixture | A local reply: fixture files have no reaction concept. |
+| Local | A local reply: local task files have no reaction concept. |
 
 ## Translation and retirement
 

@@ -79,7 +79,7 @@ class TranslationConfig(BaseModel):
 
 
 class TaskSourceConfig(BaseModel):
-    """One configured origin of work items (a GitHub or Jira source).
+    """One configured origin of work items.
 
     ``type`` discriminates the entry; the per-type fields below carry that
     source's selection criteria and (for Jira) its repository-resolution and
@@ -88,7 +88,7 @@ class TaskSourceConfig(BaseModel):
     lives in the file-only ``task_sources`` list.
     """
 
-    type: Literal["github", "jira", "fixture"]
+    type: Literal["github", "jira", "local"]
     #: Name of the env var holding this source's token; defaults per type.
     token_env: str | None = None
     #: Verify TLS certificates on this source's REST/API calls (Jira and the
@@ -113,7 +113,7 @@ class TaskSourceConfig(BaseModel):
     repo_field: str = ""
     repo_link_text: str = "Repository"
     #: Jira: code host for resolved repos and its (self-hosted) URL + token env.
-    code_host: Literal["github", "gitlab", "gitea"] = "github"
+    code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""
     code_host_token_env: str | None = None
     #: Both: per-source operator-hooks directory (feature 006). Empty
@@ -141,12 +141,10 @@ class TaskSourceConfig(BaseModel):
     #: "timespent" or a custom field id). Unset ⇒ no native write; active
     #: time falls back to the comment footer like every other source.
     time_spent_field: str = ""
-    #: Fixture (feature 008): directory of local, disposable task files, one
-    #: JSON file per task. Code hosting for fixture tasks reuses the
-    #: code_host/code_host_base_url/code_host_token_env fields above (the
-    #: same fields Jira uses) — a fixture entry still targets a real,
-    #: reachable repository.
-    fixtures_dir: str = ""
+    #: Local tasks are root-contained directories, each with ``task.json``.
+    #: Their code host is always local; ``code_repo`` is an absolute bare
+    #: repository path and never needs a credential.
+    tasks_dir: str = ""
 
     @model_validator(mode="after")
     def _check_required(self) -> TaskSourceConfig:
@@ -159,8 +157,10 @@ class TaskSourceConfig(BaseModel):
             raise ValueError(
                 "jira task source requires base_url, jql, and key"
             )
-        if self.type == "fixture" and not self.fixtures_dir:
-            raise ValueError("fixture task source requires fixtures_dir")
+        if self.type == "local" and not self.tasks_dir:
+            raise ValueError("local task source requires tasks_dir")
+        if self.type == "local" and self.code_host != "local":
+            raise ValueError("local task source requires code_host = local")
         return self
 
     def token(self) -> str | None:

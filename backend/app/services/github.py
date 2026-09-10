@@ -403,6 +403,10 @@ class GitHubCodeHost:
     async def get_default_branch(self, repo: str) -> str:
         return await self._client.get_default_branch(repo)
 
+    def supports_change_requests(self) -> bool:
+        """Report GitHub pull-request support."""
+        return True
+
     async def check_health(self) -> bool:
         """Delegates to the shared client — same connection/credential
         as this profile's task source, when GitHub plays both roles."""

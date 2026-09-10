@@ -16,3 +16,5 @@ frontend/dist/
 .playwright-mcp/
 *.png
 .claude/
+.kestrel-local-tasks/
+backend/.kestrel-screenshots/

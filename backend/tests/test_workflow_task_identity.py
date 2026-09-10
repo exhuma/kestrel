@@ -4,7 +4,7 @@ rerunnable()'s visibility gate."""
 from __future__ import annotations
 
 from app.models_workflow import WorkflowRun
-from app.services.fixture import FixtureTaskSource
+from app.services.local_task_source import LocalTaskSource
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
@@ -57,14 +57,14 @@ def test_task_label_falls_back_when_task_ref_is_empty() -> None:
 
 
 def test_task_link_is_none_for_a_source_with_no_link(tmp_path) -> None:
-    """Ensure a fixture-sourced run's task_link is None, not a file path."""
+    """Ensure a local-task run's task_link is None, not a file path."""
     svc = _service(
-        sources={"fixture-issue": FixtureTaskSource(str(tmp_path))}
+        sources={"local-task": LocalTaskSource(str(tmp_path))}
     )
     run = WorkflowRun(
         id="wf-1", repo="me/sandbox", issue_number=None,
-        source="fixture-issue", task_ref="fixture:hello-fixture",
+        source="local-task", task_ref="local:hello-task",
     )
 
     assert svc.task_link(run) is None
-    assert svc.task_label(run) == "hello-fixture"
+    assert svc.task_label(run) == "hello-task"

@@ -155,7 +155,7 @@ class WorkflowRun:
     pr_number: int | None = None
     error: str | None = None
     #: Origin of the run: ``"github-issue"``, ``"jira-issue"`` or
-    #: ``"fixture-issue"`` — the task source that produced it. Internal
+    #: ``"local-task"`` — the task source that produced it. Internal
     #: attribution / notification routing only — never surfaced to the API/UI,
     #: and never changes which phases/gates a run traverses (feature 002
     #: FR-019; feature 003 FR-026). Every run is ingested or rerun; feature
@@ -210,3 +210,7 @@ class WorkflowRun:
     #: `done` run forever. Refreshed each time a terminal status is
     #: (re-)entered, e.g. by a revived run reaching `done` again.
     terminal_at: datetime | None = None
+    #: Serialized approval decision waiting for the driver to consume. This
+    #: closes the restart window between an external decision being accepted
+    #: and the awaiting driver waking up. Internal-only.
+    pending_gate_decision: str | None = None

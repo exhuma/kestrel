@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import Callable
 
@@ -155,3 +156,46 @@ def resolve(run: WorkflowRun, control: _Control, decision: _Decision) -> None:
     if not run.status.endswith("_approval"):
         raise InvalidWorkflowStateError("no gate awaiting a decision")
     control.gate.set_result(decision)
+
+
+def checkpoint_decision(run: WorkflowRun, decision: _Decision) -> None:
+    """Serialize an accepted decision until the asynchronous driver uses it."""
+    run.pending_gate_decision = json.dumps(
+        {
+            "gate": run.status,
+            "approved": decision.approved,
+            "deliverable": decision.deliverable,
+            "refinement": decision.refinement,
+        }
+    )
+
+
+def pending_decision(run: WorkflowRun) -> _Decision | None:
+    """Return a valid checkpointed decision for ``run``'s current gate."""
+    if run.pending_gate_decision is None:
+        return None
+    try:
+        data = json.loads(run.pending_gate_decision)
+    except json.JSONDecodeError:
+        return None
+    valid_gate = data.get("gate") == run.status
+    valid_approval = isinstance(data.get("approved"), bool)
+    if not valid_gate or not valid_approval:
+        return None
+    return _Decision(
+        approved=data["approved"],
+        deliverable=data.get("deliverable"),
+        refinement=data.get("refinement"),
+    )
+
+
+def clear_consumed_decision(run: WorkflowRun) -> None:
+    """Clear a checkpoint after its associated gate status has been left."""
+    if run.pending_gate_decision is None:
+        return
+    try:
+        gate_name = json.loads(run.pending_gate_decision).get("gate")
+    except json.JSONDecodeError:
+        return
+    if gate_name != run.status:
+        run.pending_gate_decision = None
