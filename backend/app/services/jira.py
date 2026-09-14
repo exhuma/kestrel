@@ -1,9 +1,9 @@
 """Async Jira REST client + ``TaskSource`` adapter (feature 003).
 
 Jira is a *task source* whose code lives in a separate repository. This client
-reuses ``httpx`` (no new dependency) and targets the REST **v2** API, whose
-plain-text comment/description bodies keep the integration simple and work on
-self-hosted Jira Server/DC — the sovereignty target. Auth is configurable:
+reuses ``httpx`` (no new dependency) and targets REST v3 with ADF documents
+for Cloud or v2 plain-text bodies for self-hosted Jira Server/DC. Auth is
+configurable:
 ``basic`` (Cloud — email + API token) or ``bearer`` (Server/DC — PAT). The
 token is a secret and is never logged.
 """
@@ -18,6 +18,7 @@ from app.config_models import TaskSourceConfig
 from app.ports import Feedback, LifecycleEvent, SubtaskContextError, Task
 from app.services.exceptions import GitError
 from app.services.feedback.timeparse import parse_iso
+from app.services.jira_document import to_adf, to_text
 
 _log = logging.getLogger("kestrel.jira")
 
@@ -36,28 +37,32 @@ class JiraError(GitError):
 
 
 class JiraClient:
-    """Thin async wrapper over the Jira REST v2 API."""
+    """Thin async wrapper over the configured Jira REST API deployment."""
 
     def __init__(
         self,
         base_url: str,
-        *,
-        auth: str = "basic",
-        email: str = "",
-        token: str = "",
-        verify: bool = True,
+        **options: str | bool,
     ) -> None:
+        auth = str(options.get("auth", "basic"))
+        email = str(options.get("email", ""))
+        token = str(options.get("token", ""))
+        verify = bool(options.get("verify", True))
+        deployment = options.get("deployment", "server")
         self._base = base_url.rstrip("/")
         self._auth_mode = auth
         self._email = email
         self._token = token
+        self._cloud = deployment == "cloud"
         http_auth = (
             httpx.BasicAuth(email, token)
             if auth == "basic" and token
             else None
         )
         self._http = httpx.AsyncClient(
-            base_url=f"{self._base}/rest/api/2", auth=http_auth, verify=verify
+            base_url=f"{self._base}/rest/api/{'3' if self._cloud else '2'}",
+            auth=http_auth,
+            verify=verify,
         )
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -97,7 +102,7 @@ class JiraClient:
         return Task(
             ref=issue["key"],
             title=fields.get("summary") or "",
-            body=fields.get("description") or "",
+            body=to_text(fields.get("description")),
         )
 
     async def search(
@@ -105,29 +110,51 @@ class JiraClient:
     ) -> list[Task]:
         """Return the qualifying issues for ``jql`` as ``Task``s.
 
-        Uses the enhanced ``/search/jql`` endpoint (Jira Cloud removed the
-        legacy ``/search``). Pagination is token-based: the old ``startAt``/
-        ``total`` model is gone, so every page is followed via
-        ``nextPageToken`` until the response reports ``isLast``. Collecting
-        every page keeps the poll's dismissal-clear logic correct.
+        Cloud uses enhanced ``/search/jql`` token pagination. Server/DC keeps
+        the v2 ``/search`` ``startAt``/``total`` page model. Collecting every
+        page keeps the poll's dismissal-clear logic correct.
         """
         body = {"jql": jql, "fields": fields, "maxResults": max_results}
+        if self._cloud:
+            return await self._search_cloud(body)
+        return await self._search_server(body)
+
+    async def _search_cloud(self, body: dict) -> list[Task]:
+        """Collect all Cloud enhanced-search pages into source-neutral tasks."""
         issues: list[dict] = []
         token: str | None = None
         while True:
-            page = await self._search_page(body, token)
+            page = await self._search_cloud_page(body, token)
             issues.extend(page.get("issues", []))
             token = None if page.get("isLast") else page.get("nextPageToken")
             if not token:
                 break
         return [self._to_task(i) for i in issues]
 
-    async def _search_page(
+    async def _search_cloud_page(
         self, body: dict, token: str | None
     ) -> dict:
-        """POST one enhanced-search page; ``token`` continues a prior page."""
+        """POST one Cloud enhanced-search page, continuing with ``token``."""
         payload = body if token is None else {**body, "nextPageToken": token}
         resp = await self._request("POST", "/search/jql", json=payload)
+        return resp.json()
+
+    async def _search_server(self, body: dict) -> list[Task]:
+        """Collect all Jira Server/DC v2 offset-search pages into tasks."""
+        issues: list[dict] = []
+        start = 0
+        while True:
+            page = await self._search_server_page(body, start)
+            page_issues = page.get("issues", [])
+            issues.extend(page_issues)
+            start += len(page_issues)
+            if not page_issues or start >= page.get("total", start):
+                return [self._to_task(issue) for issue in issues]
+
+    async def _search_server_page(self, body: dict, start: int) -> dict:
+        """POST one Jira Server/DC v2 search page at the requested offset."""
+        payload = {**body, "startAt": start}
+        resp = await self._request("POST", "/search", json=payload)
         return resp.json()
 
     async def get_issue(self, key: str) -> Task:
@@ -156,7 +183,9 @@ class JiraClient:
     async def add_comment(self, key: str, body: str) -> str:
         """Post a comment; return its API URL."""
         resp = await self._request(
-            "POST", f"/issue/{key}/comment", json={"body": body}
+            "POST",
+            f"/issue/{key}/comment",
+            json={"body": to_adf(body) if self._cloud else body},
         )
         return resp.json().get("self", "")
 
@@ -188,7 +217,7 @@ class JiraClient:
         fields = {
             "project": {"key": project_key},
             "summary": summary,
-            "description": body,
+            "description": to_adf(body) if self._cloud else body,
             "issuetype": {"name": "Sub-task"},
             "parent": {"key": parent_key},
         }
@@ -402,7 +431,7 @@ class JiraTaskSource:
             external_id=f"jira-comment:{ref}:{comment['id']}",
             origin="ticket",
             author=author,
-            body=comment.get("body") or "",
+            body=to_text(comment.get("body")),
             created_at=parse_iso(comment["created"]),
         )
 

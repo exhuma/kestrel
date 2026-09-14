@@ -79,6 +79,7 @@ trigger_label = "kestrel"
 # [[task_sources]]
 # type = "jira"
 # base_url = "https://acme.atlassian.net"
+# deployment = "cloud"                # "cloud" (ADF/v3) | "server" (text/v2)
 # auth = "basic"                       # "basic" (Cloud) | "bearer" (Server/DC PAT)
 # email = "me@acme.com"
 # jql = 'project = "RFC" AND status = "Ready"'

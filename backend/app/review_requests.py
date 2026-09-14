@@ -31,8 +31,11 @@ def render_review_request(
     return (
         f"{artifact_prefix}{message}\n\n"
         f"Revision {revision}: `[kestrel-review:{token}]`\n\n"
-        "Reply to this review with its token and `@kestrel approve`, "
-        "`@kestrel reject`, or `@kestrel request changes`."
+        "Reply with one command:\n"
+        f"- Approve with `@kestrel approve [kestrel-review:{token}]`\n"
+        f"- Reject with `@kestrel reject [kestrel-review:{token}]`\n"
+        "- Request changes with "
+        f"`@kestrel request changes [kestrel-review:{token}]`."
     )
 
 

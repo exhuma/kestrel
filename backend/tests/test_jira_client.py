@@ -16,8 +16,9 @@ from app.services.workflow_text import has_subtask_sentinel
 
 def _client(handler, **kw) -> JiraClient:
     client = JiraClient("https://jira.example", **kw)
+    version = "3" if kw.get("deployment") == "cloud" else "2"
     client._http = httpx.AsyncClient(
-        base_url="https://jira.example/rest/api/2",
+        base_url=f"https://jira.example/rest/api/{version}",
         transport=httpx.MockTransport(handler),
         auth=client._http.auth,
     )
@@ -63,7 +64,9 @@ async def test_search_parses_issues_and_paginates() -> None:
         })
 
     page_size = 25
-    tasks = await _client(handler, auth="basic", email="e", token="t").search(
+    tasks = await _client(
+        handler, auth="basic", email="e", token="t", deployment="cloud"
+    ).search(
         'project = "RFC"', fields=["summary", "description"],
         max_results=page_size,
     )

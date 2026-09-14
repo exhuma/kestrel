@@ -179,6 +179,34 @@ async def test_kestrel_review_post_is_excluded_by_its_source_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_current_review_post_is_excluded_by_its_source_id() -> None:
+    """The copyable-command review template must not self-trigger feedback."""
+    store = _FakeFeedbackStore()
+    service, dispatched = _intake(store=store)
+
+    await service.intake(
+        _feedback(
+            external_id="jira-comment:RFC-1:9",
+            author="Kestrel Service",
+            body=(
+                "PRD ready for review: RFC-1.\n\n"
+                "Revision 1: `[kestrel-review:current]`\n\n"
+                "Reply with one command:\n"
+                "- Approve with `@kestrel approve "
+                "[kestrel-review:current]`\n"
+                "- Reject with `@kestrel reject [kestrel-review:current]`\n"
+                "- Request changes with `@kestrel request changes "
+                "[kestrel-review:current]`."
+            ),
+        ),
+        task_ref="RFC-1", source=_FakeSource(),
+    )
+
+    assert store.items == {}
+    assert dispatched == []
+
+
+@pytest.mark.asyncio
 async def test_bot_flag_is_never_persisted() -> None:
     """A caller-flagged bot author is discarded even without a denylist
     entry (GitHub's user.type == "Bot" guard)."""

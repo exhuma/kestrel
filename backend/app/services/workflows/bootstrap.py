@@ -59,6 +59,7 @@ def get_workflow_service() -> WorkflowService:
             email=entry.email,
             token=entry.token() or "",
             verify=entry.verify_ssl,
+            deployment=entry.deployment,
         )
         sources["jira-issue"] = JiraTaskSource(
             jira, settings.public_base_url, config=entry

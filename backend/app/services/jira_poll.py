@@ -213,6 +213,7 @@ def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
         email=source.email,
         token=source.token() or "",
         verify=source.verify_ssl,
+        deployment=source.deployment,
     )
     return JiraPollService(
         source,

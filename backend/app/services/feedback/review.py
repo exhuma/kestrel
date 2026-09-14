@@ -13,7 +13,7 @@ ReviewDecision = GateFeedbackAction | None
 _TOKEN_PATTERN = re.compile(r"\[kestrel-review:([A-Za-z0-9_-]+)\]")
 _REQUEST_PATTERN = re.compile(
     r"Revision \d+: `\[kestrel-review:[A-Za-z0-9_-]+\]`\n\n"
-    r"Reply to this review with its token",
+    r"(?:Reply to this review with its token|Reply with one command:)",
 )
 _APPROVAL = re.compile(r"\b(?:approve|approved|looks? good|ship it)\b", re.I)
 _REJECTION = re.compile(r"\b(?:reject|rejected|do not proceed)\b", re.I)

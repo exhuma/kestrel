@@ -19,6 +19,7 @@ poll_interval_seconds = 300            # how often every source is re-checked
 [[task_sources]]
 type = "jira"
 base_url = "https://jira.internal.example.com"
+deployment = "server"                 # cloud (ADF/v3) | server (text/v2)
 auth = "basic"                         # basic (Cloud email+API token) | bearer (Server/DC PAT)
 email = "you@example.com"              # basic only
 jql = 'project = "RFC" AND status = "Ready for Kestrel"'  # the whole query, yours to write
@@ -42,6 +43,12 @@ Kestrel stays agnostic of your Jira conventions: the whole `jql` query and the
 repository resolution are configuration. You write the entire JQL (there is no
 separate project key); `key` is only the issue-key prefix used to scope the
 re-trigger gesture.
+
+Set `deployment = "cloud"` for an `atlassian.net` site. Cloud requests use
+REST v3 and render Kestrel's controlled Markdown as Atlassian Document Format
+(ADF), including review gates, requested-change summaries, and lifecycle
+footers. Jira Server/DC keeps REST v2 and plain-text bodies with
+`deployment = "server"`.
 
 ### Target repository resolution
 

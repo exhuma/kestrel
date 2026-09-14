@@ -102,6 +102,8 @@ class TaskSourceConfig(BaseModel):
     #: Jira: instance URL, auth, and the one whole JQL selecting qualifying
     #: RFCs (folds the former project key + filter).
     base_url: str = ""
+    #: Jira deployment API/body variant. Cloud requires API v3 and ADF text.
+    deployment: Literal["cloud", "server"] = "server"
     auth: Literal["basic", "bearer"] = "basic"
     email: str = ""
     jql: str = ""

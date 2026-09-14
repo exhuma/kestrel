@@ -162,7 +162,11 @@ async def test_gate_post_includes_a_durable_revision_token() -> None:
 
     assert len(reviews.rows) == 1
     assert "Revision 1: `[kestrel-review:token-1]`" in source.comments[0][1]
-    assert "Reply to this review with its token" in source.comments[0][1]
+    assert "Reply with one command:" in source.comments[0][1]
+    commands = source.comments[0][1]
+    assert "@kestrel approve [kestrel-review:token-1]" in commands
+    assert "@kestrel reject [kestrel-review:token-1]" in commands
+    assert "@kestrel request changes [kestrel-review:token-1]" in commands
 
 
 @pytest.mark.asyncio

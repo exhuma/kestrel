@@ -1,0 +1,101 @@
+"""Tests for the controlled Jira Cloud document renderer."""
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from app.services.jira import JiraClient, JiraTaskSource
+from app.services.jira_document import to_adf, to_text
+
+
+def _client(handler) -> JiraClient:
+    """Build a Cloud Jira client against an in-memory HTTP transport."""
+    client = JiraClient("https://jira.example", deployment="cloud")
+    client._http = httpx.AsyncClient(
+        base_url="https://jira.example/rest/api/3",
+        transport=httpx.MockTransport(handler),
+    )
+    return client
+
+
+def test_adf_keeps_ordered_and_bullet_lists_separate() -> None:
+    """Adjacent list styles produce flat independent ADF lists."""
+    document = to_adf("1. First\n2. Second\n\n- Third")
+
+    assert [node["type"] for node in document["content"]] == [
+        "orderedList",
+        "bulletList",
+    ]
+
+
+def test_to_text_preserves_token_from_adf() -> None:
+    """ADF flattening retains the token used by review feedback parsing."""
+    document = {
+        "type": "doc",
+        "version": 1,
+        "content": [{
+            "type": "paragraph",
+            "content": [{
+                "type": "text",
+                "text": "[kestrel-review:token] @kestrel approve",
+            }],
+        }],
+    }
+
+    assert to_text(document) == "[kestrel-review:token] @kestrel approve"
+
+
+@pytest.mark.asyncio
+async def test_cloud_comments_use_adf_v3_payloads() -> None:
+    """Cloud comments use v3 and preserve controlled review-list structure."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["path"] = req.url.path
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(201, json={"self": "https://jira/c/1"})
+
+    await _client(handler).add_comment(
+        "RFC-1", "## Review\n\n- Approve with `token`"
+    )
+
+    assert seen["path"] == "/rest/api/3/issue/RFC-1/comment"
+    document = seen["body"]["body"]
+    assert document["type"] == "doc"
+    assert [node["type"] for node in document["content"]] == [
+        "heading",
+        "bulletList",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cloud_feedback_normalizes_adf_review_token() -> None:
+    """ADF feedback is normalized before review-token classification."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"comments": [_comment()], "total": 1})
+
+    items = await JiraTaskSource(_client(handler)).list_comments("RFC-1")
+    assert items[0].body == "@kestrel approve [kestrel-review:abc]"
+
+
+def _comment() -> dict:
+    """Build an ADF ticket comment containing a review response token."""
+    return {
+        "id": "1",
+        "author": {"displayName": "Jane Reviewer"},
+        "created": "2026-01-01T00:00:00.000+0000",
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [{
+                "type": "paragraph",
+                "content": [{
+                    "type": "text",
+                    "text": "@kestrel approve [kestrel-review:abc]",
+                }],
+            }],
+        },
+    }
