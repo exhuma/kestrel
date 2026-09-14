@@ -148,6 +148,10 @@ class WorkflowService(WorkflowSessionService):
         """
         return self._code_host(run)
 
+    def required_ci_statuses(self, run: WorkflowRun) -> list[str]:
+        """Return configured required CI checks for ``run``'s repository."""
+        return self.settings.required_ci_statuses_for(run.source, run.repo)
+
     def feedback_source_for(self, run: WorkflowRun):
         """Compose the feedback source bound to this run's existing ports."""
         return self._feedback_source_factory(
@@ -375,6 +379,8 @@ class WorkflowService(WorkflowSessionService):
     def _resolve(self, workflow_id: str, decision: _Decision) -> None:
         run = self.get(workflow_id)
         gate.resolve(run, self._control[workflow_id], decision)
+        if run.status == "awaiting_refine_approval" and decision.approved:
+            run.prd_approved = True
         gate.checkpoint_decision(run, decision)
         # The feedback item is marked applied immediately after this returns.
         # Checkpoint the decision first, so a restart cannot lose it while the
@@ -384,9 +390,8 @@ class WorkflowService(WorkflowSessionService):
 
     def _retire_review_request(self, run: WorkflowRun) -> None:
         """Retire a resolved gate's external review token, if one exists."""
-        if (
-            self.review_requests is not None
-            and run.status.startswith("awaiting_")
+        if self.review_requests is not None and run.status.startswith(
+            "awaiting_"
         ):
             self.review_requests.retire(run.id, run.status)
 

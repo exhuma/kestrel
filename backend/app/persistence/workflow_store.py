@@ -64,6 +64,8 @@ class WorkflowStore:
                     parent_run_id=run.parent_run_id,
                     terminal_at=run.terminal_at,
                     pending_gate_decision=run.pending_gate_decision,
+                    prd_approved=run.prd_approved,
+                    ci_repair_round=run.ci_repair_round,
                 )
             )
             for i, step in enumerate(run.steps):
@@ -243,6 +245,8 @@ class WorkflowStore:
                         parent_run_id=row.parent_run_id,
                         terminal_at=row.terminal_at,
                         pending_gate_decision=row.pending_gate_decision,
+                        prd_approved=row.prd_approved,
+                        ci_repair_round=row.ci_repair_round,
                     )
                 )
             return runs

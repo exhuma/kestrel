@@ -1,4 +1,5 @@
 """A blocked coder escalates instead of parking on a gate (US3)."""
+
 from __future__ import annotations
 
 import pytest
@@ -8,6 +9,7 @@ from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
 from tests.conftest import (
+    _approve_prd,
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
@@ -36,10 +38,13 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
             seen.append(run.status)
             super().notify(run)
 
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>d</PLAN>",       # design
-        "I couldn't make changes",   # code — yields an empty diff
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>d</PLAN>",  # design
+            "I couldn't make changes",  # code — yields an empty diff
+        ],
+    )
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
@@ -50,6 +55,7 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
         notifier=_Recorder(),
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
 
     assert "awaiting_implement_input" not in seen

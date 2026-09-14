@@ -9,6 +9,7 @@ from app.policy import get_policy
 from app.ports import Evidence
 from app.services.feedback.dispatch import drain_feedback
 from app.services.workflows import artifacts, screenshots
+from app.services.workflows.check_runner import run_recorded_checks
 from app.services.workflows.driver.escalate import escalate
 from app.services.workflows.prompts import (
     CODE_FEEDBACK_PROMPT,
@@ -20,6 +21,8 @@ from app.services.workflows.prompts import (
 )
 from app.services.workflows.sessions import _bind
 from app.services.workflows.verify import (
+    _boundary_evidence_feedback,
+    _check_feedback,
     _evidence_feedback,
     _parse_verdict,
     _render_verify_report,
@@ -29,7 +32,9 @@ if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
 
 
-async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
+async def code_and_verify(
+    service: "WorkflowService", run: WorkflowRun, initial_feedback: str = ""
+) -> bool:
     """Run the autonomous code<->verify loop.
 
     The coder implements the design; the verifier adjudicates it against
@@ -57,7 +62,18 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
     prompt = CODE_PROMPT.format(
         prd=service._artifact_slot(Step.CODE, run, "prd.md", prd),
         design=service._artifact_slot(Step.CODE, run, "design.md", design),
+        acceptance=service._artifact_slot(
+            Step.CODE, run, "acceptance.md", "# Acceptance Contract\n"
+        ),
+        task_graph=service._artifact_slot(
+            Step.CODE, run, "task-graph.json", '{"version": 1, "tasks": []}'
+        ),
+        checks=service._artifact_slot(
+            Step.CODE, run, "check-contract.json",
+            '{"version": 1, "commands": []}',
+        ),
     )
+    prompt = _initial_prompt(service, run, design, prompt, initial_feedback)
     # Every attempted verify round's summary, written once the loop
     # concludes as a committed audit-trail artifact (feature 005, US3)
     # — history for a human reading the PR, never read back as verify
@@ -168,6 +184,23 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
         code_step.status = "done"
         service._save(run)
 
+        check_feedback = await _run_local_checks(service, run, iteration)
+        if check_feedback:
+            feedback = check_feedback
+            rounds.append({
+                "round": len(rounds) + 1, "boundary": run.boundary,
+                "accept": False, "feedback": feedback, "evidence": Evidence(),
+            })
+            code_step.status = "pending"
+            service._save(run)
+            prompt = CODE_FEEDBACK_PROMPT.format(
+                feedback=feedback,
+                design=service._artifact_slot(
+                    Step.CODE, run, "design.md", design
+                ),
+            )
+            continue
+
         # ---- verify (gateless, evidence-grounded) ----
         verify_step.model = verify_model
         run.status = "verifying"
@@ -214,7 +247,13 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
                 run, f"Round {iteration + 1} — EXPLORE RESULT",
                 explore_result.final_text,
             )
-        verify_prompt = VERIFY_PROMPT.format(prd=prd, design=design)
+        verify_prompt = VERIFY_PROMPT.format(
+            prd=prd,
+            design=design,
+            acceptance=service._artifact_slot(
+                Step.VERIFY, run, "acceptance.md", "# Acceptance Contract\n"
+            ),
+        )
         service._debug_log(
             run, f"Round {iteration + 1} — VERIFY PROMPT", verify_prompt
         )
@@ -252,10 +291,9 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
         evidence.observations.extend(observations)
         # Failing-observation invariant: a failing observation never
         # accepts, regardless of what the verdict's own text says.
-        if not evidence.all_passed():
-            ev_fb = _evidence_feedback(evidence)
-            feedback = f"{ev_fb}\n\n{feedback}".strip()
-            accept = False
+        accept, feedback = _enforce_evidence(
+            accept, feedback, evidence, run.boundary
+        )
         service._retire_sessions(run, verify_step)
         verify_step.deliverable = (
             "accepted" if accept else f"rejected: {feedback}"
@@ -283,4 +321,50 @@ async def code_and_verify(service: "WorkflowService", run: WorkflowRun) -> bool:
     _flush_report()
     return await escalate(
         service, run, "verification did not pass within the iteration limit"
+    )
+
+
+async def _run_local_checks(
+    service: "WorkflowService", run: WorkflowRun, iteration: int
+) -> str:
+    """Execute a round's recorded checks and persist their structured report."""
+    report = await run_recorded_checks(run.workspace, run.artifact_dir)
+    report_json = report.to_json()
+    service._write_artifact(run, "check-report.json", report_json)
+    service._debug_log(
+        run, f"Round {iteration + 1} — CHECK REPORT", report_json
+    )
+    return "" if report.passed() else _check_feedback(report)
+
+
+def _initial_prompt(
+    service: "WorkflowService",
+    run: WorkflowRun,
+    design: str,
+    prompt: str,
+    feedback: str,
+) -> str:
+    """Return the normal code prompt or CI repair feedback prompt."""
+    if not feedback:
+        return prompt
+    return CODE_FEEDBACK_PROMPT.format(
+        feedback=feedback,
+        design=service._artifact_slot(Step.CODE, run, "design.md", design),
+    )
+
+
+def _enforce_evidence(
+    accept: bool, feedback: str, evidence: Evidence, boundary: str | None
+) -> tuple[bool, str]:
+    """Reject a verdict when observed or required evidence is absent."""
+    evidence_feedback = _evidence_feedback(evidence)
+    boundary_feedback = _boundary_evidence_feedback(evidence, boundary)
+    feedbacks = [
+        item
+        for item in (evidence_feedback, boundary_feedback, feedback)
+        if item
+    ]
+    return (
+        accept and not evidence_feedback and not boundary_feedback,
+        "\n\n".join(feedbacks),
     )

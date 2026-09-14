@@ -1,4 +1,5 @@
 """Every task source traverses the identical workflow (feature 003, US4)."""
+
 from __future__ import annotations
 
 import pytest
@@ -9,6 +10,7 @@ from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
 from tests.conftest import (
+    _approve_prd,
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
@@ -33,6 +35,7 @@ async def _drive_and_record(svc: WorkflowService, wid: str) -> list[str]:
             if st in ("done", "failed", "rejected", "escalated"):
                 return
             import asyncio
+
             await asyncio.sleep(0.01)
 
     await watch()
@@ -51,27 +54,43 @@ async def test_github_and_jira_traverse_identical_status_sequence() -> None:
     gateless design/code/verify leg both sources share.
     """
     # GitHub run.
-    gh_runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
-    ])
+    gh_runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>d</PLAN>",
+            "coded",
+            _verdict(accept=True),
+        ],
+    )
     gh_svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
-        sessions=gh_runner.sessions, workflows=WorkflowRegistry(),
-        backends=gh_runner, git=_FakeGit(),
+        sessions=gh_runner.sessions,
+        workflows=WorkflowRegistry(),
+        backends=gh_runner,
+        git=_FakeGit(),
         github=_FakeGitHub(body=_subtask_body("vague")),
         notifier=_FakeNotifier(),
     )
     gh_wid = await gh_svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(gh_svc, gh_wid)
     gh_seq = await _drive_and_record(gh_svc, gh_wid)
 
     # Jira run (Jira task source + GitLab-style code host).
-    jira_runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
-    ])
+    jira_runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>d</PLAN>",
+            "coded",
+            _verdict(accept=True),
+        ],
+    )
     jira_svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
-        sessions=jira_runner.sessions, workflows=WorkflowRegistry(),
-        backends=jira_runner, git=_FakeGit(), github=_FakeGitHub(),
+        sessions=jira_runner.sessions,
+        workflows=WorkflowRegistry(),
+        backends=jira_runner,
+        git=_FakeGit(),
+        github=_FakeGitHub(),
         notifier=_FakeNotifier(),
         sources={
             "jira-issue": _FakeJiraSource(body=_subtask_body("vague RFC")),
@@ -79,9 +98,13 @@ async def test_github_and_jira_traverse_identical_status_sequence() -> None:
         code_hosts={"jira-issue": _FakeJiraHost()},
     )
     jira_wid = await jira_svc.create(
-        "team/svc", None, source="jira-issue", task_ref="RFC-1",
+        "team/svc",
+        None,
+        source="jira-issue",
+        task_ref="RFC-1",
         base_branch="main",
     )
+    await _approve_prd(jira_svc, jira_wid)
     jira_seq = await _drive_and_record(jira_svc, jira_wid)
 
     # Identical process; only the bound source/host and surface differ.

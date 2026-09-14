@@ -33,6 +33,7 @@ _Kind = Literal["start", "done", "failed", "escalated", "rejected"]
 _KIND_BY_STATUS: dict[str, _Kind] = {
     "cloning": "start",
     "done": "done",
+    "technically_ready": "done",
     "failed": "failed",
     "escalated": "escalated",
     "rejected": "rejected",

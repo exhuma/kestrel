@@ -142,8 +142,15 @@ automated-translation warning. The original feedback remains the source text.
 
 ### Child-task retirement
 
-Kestrel tracks published child tasks separately from ordinary source tasks. A
-closed child is still monitored for
+Kestrel tracks published child tasks separately from ordinary source tasks.
+When an approved decomposition is published, Kestrel first publishes the
+parent feature integration branch. Each child then starts from that branch.
+For links persisted by an earlier Kestrel version, Kestrel restores a missing
+remote integration branch only when the shared mirror still holds the exact
+parent branch. If that local ref is gone, scheduling fails without creating a
+replacement branch; restore the parent workspace or branch, then retry.
+
+A closed child is still monitored for
 `child_task_closure_retention_days` (183 days by default). It then receives
 one notice, `Kestrel has retired this closed child task. Create a new task for
 further work.`, and is never automatically reopened or polled again. This

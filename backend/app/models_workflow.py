@@ -214,3 +214,9 @@ class WorkflowRun:
     #: closes the restart window between an external decision being accepted
     #: and the awaiting driver waking up. Internal-only.
     pending_gate_decision: str | None = None
+    #: True only after this run's current PRD passed the refine approval gate.
+    #: Ticket-body sentinels are not approval provenance. Internal-only.
+    prd_approved: bool = False
+    #: Number of CI-triggered repair rounds already dispatched. Separate from
+    #: behavioural verification's retry budget.
+    ci_repair_round: int = 0

@@ -40,6 +40,7 @@ _CONFIG_FILE_FIELDS = frozenset(
     {
         "poll_interval_seconds",
         "max_verify_iterations",
+        "max_ci_repair_iterations",
         "child_task_closure_retention_days",
         "port",
         "database_url",
@@ -213,6 +214,8 @@ class Settings(BaseSettings):
     jira_api_token: str = ""
     #: Max code↔verify iterations before the loop escalates (feature 003).
     max_verify_iterations: int = 3
+    #: Independent cap for repair attempts triggered by required CI failures.
+    max_ci_repair_iterations: int = Field(default=2, ge=0)
     #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,
     #: every prompt/result exchanged between the coder and the verifier is
     #: appended to a plain-text transcript next to the run's worktree, and
@@ -263,6 +266,15 @@ class Settings(BaseSettings):
             if repo in source.watched_repos:
                 return source
         return None
+
+    def required_ci_statuses_for(self, source: str, repo: str) -> list[str]:
+        """Return the configured required CI checks for a run's source."""
+        if source == "github-issue":
+            config = self.github_source_for(repo)
+            return config.required_ci_statuses if config else []
+        if source == "jira-issue" and self.jira_sources():
+            return self.jira_sources()[0].required_ci_statuses
+        return []
 
     @model_validator(mode="after")
     def _apply_config_file(self) -> Settings:

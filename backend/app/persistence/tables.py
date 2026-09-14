@@ -108,6 +108,13 @@ class WorkflowRunRow(Base):
     pending_gate_decision: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    #: Explicit approval provenance for the PRD used by design and later
+    #: phases. Never inferred from a ticket-body sentinel.
+    prd_approved: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    #: CI repair attempts consumed by this run. Kept separate from verify.
+    ci_repair_round: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class WorkflowStepRow(Base):
@@ -294,7 +301,7 @@ class ReviewRequestRow(Base):
 
 
 class ChildTaskLinkRow(Base):
-    """One published decomposition child and its latest workflow generation."""
+    """One published child, its DAG position, and latest workflow generation."""
 
     __tablename__ = "child_task_link"
 
@@ -302,6 +309,9 @@ class ChildTaskLinkRow(Base):
     parent_workflow_id: Mapped[str] = mapped_column(
         ForeignKey("workflow_run.id")
     )
+    task_node_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prerequisites: Mapped[str] = mapped_column(Text, default="[]")
+    integration_branch: Mapped[str] = mapped_column(Text, default="")
     latest_workflow_id: Mapped[str | None] = mapped_column(
         ForeignKey("workflow_run.id"), nullable=True
     )

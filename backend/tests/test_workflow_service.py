@@ -1,27 +1,23 @@
 """Tests for WorkflowService lifecycle/CRUD, persistence, and artifacts."""
-from __future__ import annotations
 
-import os
-from datetime import datetime, timezone
+from __future__ import annotations
 
 import pytest
 
-from app.backends.base import Capability
 from app.config import Settings
-from app.models_workflow import Step, WorkflowRun, WorkflowStep
+from app.models_workflow import WorkflowRun
 from app.services.exceptions import WorkflowNotFoundError
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
 from tests.conftest import (
-    _artifact_service,
+    _approve_prd,
     _FakeDismissals,
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
     _FakeRunner,
     _refine_noquestions,
-    _RoutingPolicy,
     _service,
     _settings,
     _subtask_body,
@@ -39,12 +35,15 @@ async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
     """
     gh = _FakeGitHub(body="vague issue")
     git = _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",  # describe
-        *_refine_noquestions("Build a clear widget"),              # refine
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",              # gap_analysis
-        "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",             # critic
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",  # describe
+            *_refine_noquestions("Build a clear widget"),  # refine
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
+        ],
+    )
     svc = _service(gh, runner, git)
 
     wid = await svc.create("o/r", 5, source="github-issue")
@@ -65,8 +64,9 @@ async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
 
 def test_get_unknown_raises() -> None:
     """Ensure get on an unknown id raises WorkflowNotFoundError."""
-    svc = _service(_FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]),
-                   _FakeGit())
+    svc = _service(
+        _FakeGitHub(), _FakeRunner(SessionRegistry(), ["x"]), _FakeGit()
+    )
     with pytest.raises(WorkflowNotFoundError):
         svc.get("nope")
 
@@ -98,6 +98,7 @@ async def test_save_publishes_to_bus() -> None:
         bus=bus,
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert bus.ticks  # at least one push happened
     assert all(t == wid for t in bus.ticks)
@@ -121,6 +122,7 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
         notifier=notifier,
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert "done" in notifier.notified
     # The gateless autonomous phases are transient and never notified.
@@ -131,13 +133,14 @@ async def test_notifier_fires_on_awaiting_and_done() -> None:
 
 @pytest.mark.asyncio
 async def test_notifier_does_not_fire_on_reject() -> None:
-    """Ensure a bare reject of the PRD gate does not produce a notification."""
+    """Ensure a bare PRD rejection does not produce a notification."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(
-        SessionRegistry(), outputs=[
+        SessionRegistry(),
+        outputs=[
             "<UNDERSTANDING>refined</UNDERSTANDING>",
             *_refine_noquestions("refined"),
-        ]
+        ],
     )
     notifier = _FakeNotifier()
     svc = WorkflowService(
@@ -169,8 +172,9 @@ class _SpyGitHub(_FakeGitHub):
         self.mutations.append("update_issue")
         await super().update_issue(repo, number, body)
 
-    async def create_pull_request(self, repo, head, base, title, body,
-                                  draft=True) -> str:
+    async def create_pull_request(
+        self, repo, head, base, title, body, draft=True
+    ) -> str:
         self.mutations.append("create_pull_request")
         return await super().create_pull_request(
             repo, head, base, title, body, draft
@@ -181,17 +185,18 @@ class _SpyGitHub(_FakeGitHub):
 async def test_delete_drops_run_without_touching_github() -> None:
     """Ensure abandoning a run removes it and makes no GitHub calls."""
     gh = _SpyGitHub(body="vague issue")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>v1</UNDERSTANDING>",
-        *_refine_noquestions("v1"),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>v1</UNDERSTANDING>",
+            *_refine_noquestions("v1"),
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_refine_approval"
-    )
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     before = list(gh.mutations)
 
     await svc.delete(wid)
@@ -207,18 +212,17 @@ async def test_delete_removes_workspace_dir(tmp_path) -> None:
     """Ensure abandoning a run deletes its local workspace clone."""
     gh = _FakeGitHub(body="vague issue")
     runner = _FakeRunner(
-        SessionRegistry(), outputs=[
+        SessionRegistry(),
+        outputs=[
             "<UNDERSTANDING>v1</UNDERSTANDING>",
             *_refine_noquestions("v1"),
-        ]
+        ],
     )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_refine_approval"
-    )
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     workspace = tmp_path / "clone"
     workspace.mkdir()
     (workspace / "file.txt").write_text("work")
@@ -236,17 +240,18 @@ async def test_delete_removes_all_workspace_sessions() -> None:
     """Ensure abandoning a run terminates and deletes every session it
     spawned in its workspace, not just the ids a step still points at."""
     gh = _FakeGitHub(body="vague issue")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>v1</UNDERSTANDING>",
-        *_refine_noquestions("v1"),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>v1</UNDERSTANDING>",
+            *_refine_noquestions("v1"),
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
     await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_refine_approval"
-    )
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     workspace = svc.get(wid).workspace
     workspace_sids = [
         record.session_id
@@ -262,7 +267,7 @@ async def test_delete_removes_all_workspace_sessions() -> None:
 
     for sid in workspace_sids:
         assert runner.sessions.get(sid) is None  # record + rows dropped
-        assert sid in runner.terminated          # subprocess terminated
+        assert sid in runner.terminated  # subprocess terminated
 
 
 @pytest.mark.asyncio
@@ -332,9 +337,7 @@ async def test_teardown_removes_worktree_and_directory(tmp_path) -> None:
     debug = tmp_path / "wf-x-debug"
     debug.mkdir()
     (debug / "dialogue.log").write_text("debug")
-    run = WorkflowRun(
-        id="wf-x", repo="o/r", issue_number=1, workspace=str(ws)
-    )
+    run = WorkflowRun(id="wf-x", repo="o/r", issue_number=1, workspace=str(ws))
 
     await svc._teardown_workspace(run)
 
@@ -373,126 +376,3 @@ async def test_abandon_one_run_leaves_others_worktree_intact(tmp_path) -> None:
 
     assert not ws_a.exists()
     assert ws_b.exists()
-
-
-# ---- step-handover artifacts (.kestrel/) -------------------------------
-
-
-@pytest.mark.asyncio
-async def test_ensure_artifact_dir_picks_next_free_serial(tmp_path) -> None:
-    """The run's artifact folder is the next free serial for today's date.
-
-    Scanning the worktree means a repo that already carries an earlier run's
-    committed ``.kestrel/<date>-001`` gets ``-002``, never a collision.
-    """
-    sessions = SessionRegistry()
-    runner = _FakeRunner(sessions, outputs=[])
-    svc = _service(
-        _FakeGitHub(), runner, _FakeGit(),
-        settings=_settings(workspace_root=str(tmp_path)),
-    )
-    ws = tmp_path / "wf-1"
-    ws.mkdir()
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    (ws / ".kestrel" / f"{date}-001").mkdir(parents=True)
-
-    run = WorkflowRun(id="wf-1", repo="o/r", workspace=str(ws))
-    svc.workflows.create(run)
-    svc._ensure_artifact_dir(run)
-
-    assert run.artifact_dir == os.path.join(".kestrel", f"{date}-002")
-    assert (ws / run.artifact_dir).is_dir()
-    # Idempotent: a second call keeps the same folder (restart stability).
-    svc._ensure_artifact_dir(run)
-    assert run.artifact_dir == os.path.join(".kestrel", f"{date}-002")
-
-
-@pytest.mark.asyncio
-async def test_write_artifact_persists_file(tmp_path) -> None:
-    """_write_artifact writes the content into the run's artifact folder."""
-    sessions = SessionRegistry()
-    runner = _FakeRunner(sessions, outputs=[])
-    svc = _service(
-        _FakeGitHub(), runner, _FakeGit(),
-        settings=_settings(workspace_root=str(tmp_path)),
-    )
-    ws = tmp_path / "wf-2"
-    ws.mkdir()
-    run = WorkflowRun(id="wf-2", repo="o/r", workspace=str(ws))
-    svc.workflows.create(run)
-
-    svc._write_artifact(run, "prd.md", "PRD BODY")
-
-    written = ws / run.artifact_dir / "prd.md"
-    assert written.read_text() == "PRD BODY"
-
-
-@pytest.mark.asyncio
-async def test_artifact_slot_refs_file_or_inlines_by_capability(
-    tmp_path,
-) -> None:
-    """File-capable step gets a file reference; text-only step gets inline."""
-    sessions = SessionRegistry()
-    design = _FakeRunner(sessions, outputs=[])
-    design.caps = frozenset({Capability.TEXT})  # text-only: cannot read files
-    code = _FakeRunner(sessions, outputs=[])  # file-capable (TEXT+FILE_EDITS)
-    policy = _RoutingPolicy(sessions, design, code)
-    svc = _artifact_service(tmp_path, policy)
-    ws = tmp_path / "wf-3"
-    ws.mkdir()
-    run = WorkflowRun(id="wf-3", repo="o/r", workspace=str(ws))
-    svc.workflows.create(run)
-    svc._ensure_artifact_dir(run)
-
-    text_slot = svc._artifact_slot("design", run, "prd.md", "FULL PRD TEXT")
-    file_slot = svc._artifact_slot("code", run, "prd.md", "FULL PRD TEXT")
-
-    assert text_slot == "FULL PRD TEXT"  # inlined for a text-only backend
-    assert "prd.md" in file_slot  # a file reference for a file-capable one
-    assert "FULL PRD TEXT" not in file_slot
-
-
-def _delivery_run(workspace: str) -> WorkflowRun:
-    """A minimal, already-verified run ready for ``_deliver`` directly,
-    bypassing the full refine/design/code/verify drive."""
-    return WorkflowRun(
-        id="wf-deliver", repo="o/r", issue_number=5,
-        issue_title="Add widget", task_ref="o/r#5",
-        base_branch="main", branch="kestrel/issue-5",
-        workspace=workspace,
-        steps=[WorkflowStep(name=s) for s in Step.sequence()],
-    )
-
-
-@pytest.mark.asyncio
-async def test_deliver_commits_when_tree_is_dirty(tmp_path) -> None:
-    """Ensure _deliver still commits (then pushes) when something is left
-    uncommitted at delivery time (feature 006, Phase C)."""
-    gh, git = _FakeGitHub(body="x"), _FakeGit()
-    git.mark_dirty("diff --git a/z b/z")
-    svc = _service(gh, _FakeRunner(SessionRegistry(), []), git)
-    run = _delivery_run(str(tmp_path))
-    svc.workflows.create(run)
-
-    await svc._deliver(run)
-
-    assert git.commit_messages == ["Implement #5"]
-    assert git.pushed == [run.branch]
-    assert run.status == "done"
-
-
-@pytest.mark.asyncio
-async def test_deliver_skips_commit_when_tree_is_clean(tmp_path) -> None:
-    """Ensure _deliver succeeds (and skips the commit) with nothing left to
-    commit — the coder/safety-net already committed everything, and an
-    empty `git commit` would otherwise error (feature 006, Phase C)."""
-    gh, git = _FakeGitHub(body="x"), _FakeGit()  # nothing pending
-    svc = _service(gh, _FakeRunner(SessionRegistry(), []), git)
-    run = _delivery_run(str(tmp_path))
-    svc.workflows.create(run)
-
-    await svc._deliver(run)
-
-    assert git.commit_messages == []
-    assert git.pushed == [run.branch]
-    assert run.status == "done"

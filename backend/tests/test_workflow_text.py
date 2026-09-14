@@ -10,6 +10,7 @@ from app.services.workflow_text import (
     append_subtask_sentinel,
     extract_boundary,
     extract_containment_verdicts,
+    extract_design_contract,
     extract_feedback_triage,
     extract_followup_tasks,
     extract_mockups,
@@ -170,6 +171,25 @@ def test_extract_plan_between_delimiters() -> None:
 def test_extract_plan_absent_returns_none() -> None:
     """Ensure output without the delimiter yields None."""
     assert extract_plan("no tags here") is None
+
+
+def test_extract_design_contract_returns_valid_structured_output() -> None:
+    """Structured design output is parsed only when every contract is valid."""
+    text = '''<DESIGN_CONTRACT>{
+      "version": 1,
+      "plan": "Implement it.",
+      "boundary": "none",
+      "acceptance": [{"id": "AC-1", "parent_prd": "FR-1",
+        "description": "It works.", "disposition": "automated",
+        "rationale": "A test can cover it."}],
+      "tasks": [{"id": "TASK-1", "title": "Implement",
+        "prerequisites": []}],
+      "checks": [{"command": "pytest", "cwd": "backend",
+        "timeout_seconds": 60, "rationale": "Runs tests."}]
+    }</DESIGN_CONTRACT>'''
+    contract = extract_design_contract(text)
+    assert contract is not None
+    assert contract.acceptance[0].id == "AC-1"
 
 
 def test_extract_boundary_accepts_each_valid_value() -> None:

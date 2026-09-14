@@ -1,4 +1,5 @@
 """Tests for the autonomous coder<->verifier loop (driver/code_verify)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from app.persistence.tables import FeedbackItemRow
 from app.services.workflows.driver.code_verify import code_and_verify
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
+    _approve_prd,
     _FakeFeedbackStore,
     _FakeGit,
     _FakeGitHub,
@@ -28,14 +30,18 @@ async def test_code_step_reuses_same_backend_design_session() -> None:
     """When design and code share a backend, the coder resumes the
     designer's session for context continuity (the intended handoff)."""
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\ndo X\n</PLAN>",          # design → mints a session id
-        "Implemented X",                   # code → should resume it
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\ndo X\n</PLAN>",  # design → mints a session id
+            "Implemented X",  # code → should resume it
+            _verdict(accept=True),
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
 
     design_sid = svc.get(wid).steps[3].session_id
@@ -64,8 +70,8 @@ async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
     code = _FakeRunner(
         sessions,
         outputs=[
-            "Implemented X",                                # code
-            _verdict(accept=True),                          # verify
+            "Implemented X",  # code
+            _verdict(accept=True),  # verify
         ],
         id_prefix="ses-",
     )
@@ -73,6 +79,7 @@ async def test_code_step_does_not_reuse_foreign_backend_session() -> None:
     svc = _service(gh, policy, _FakeGit())
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
 
     # The design step really did mint an id that would have leaked...
@@ -97,7 +104,8 @@ async def test_code_handover_via_file_on_cross_backend() -> None:
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     sessions = SessionRegistry()
     design = _FakeRunner(
-        sessions, outputs=["<PLAN>\nAdd a shiny widget\n</PLAN>"],
+        sessions,
+        outputs=["<PLAN>\nAdd a shiny widget\n</PLAN>"],
         id_prefix="llm-",
     )
     code = _FakeRunner(
@@ -112,6 +120,7 @@ async def test_code_handover_via_file_on_cross_backend() -> None:
     svc = _service(gh, policy, _FakeGit())
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
 
     code_call = next(
@@ -120,6 +129,9 @@ async def test_code_handover_via_file_on_cross_backend() -> None:
     assert code_call["resume_id"] is None  # fresh session, no memory
     # Handover is by file reference, not inlined plan text.
     assert "design.md" in code_call["prompt"]
+    assert "acceptance.md" in code_call["prompt"]
+    assert "task-graph.json" in code_call["prompt"]
+    assert "check-contract.json" in code_call["prompt"]
     assert "Add a shiny widget" not in code_call["prompt"]
 
 
@@ -134,13 +146,17 @@ async def test_no_changes_escalation_fails_code_step() -> None:
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     git = _FakeGit()
     git.diffs = [""]  # coder produces no changes
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\ndo X\n</PLAN>",
-        "I looked but changed nothing",
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\ndo X\n</PLAN>",
+            "I looked but changed nothing",
+        ],
+    )
     svc = _service(gh, runner, git)
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "escalated")
 
     run = svc.get(wid)
@@ -169,6 +185,7 @@ async def test_verifier_diff_excludes_artifact_folder(tmp_path) -> None:
     )
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
 
     assert ".kestrel" in git.diff_excludes
@@ -191,14 +208,22 @@ async def test_drained_feedback_folds_into_the_round_start(tmp_path) -> None:
         SessionRegistry(), outputs=["Implemented X", _verdict(accept=True)]
     )
     svc = _service(
-        gh, runner, _FakeGit(),
+        gh,
+        runner,
+        _FakeGit(),
         settings=_settings(workspace_root=str(tmp_path)),
         feedback_store=store,
     )
     run = WorkflowRun(
-        id="wf-1", repo="o/r", issue_number=5, task_ref="o/r#5",
-        base_branch="main", branch="kestrel/5", workspace=str(tmp_path),
+        id="wf-1",
+        repo="o/r",
+        issue_number=5,
+        task_ref="o/r#5",
+        base_branch="main",
+        branch="kestrel/5",
+        workspace=str(tmp_path),
         status="coding",
+        prd_approved=True,
         steps=[
             WorkflowStep(name="describe", status="done", deliverable="U"),
             WorkflowStep(name="refine", status="done", deliverable="PRD"),
@@ -209,12 +234,18 @@ async def test_drained_feedback_folds_into_the_round_start(tmp_path) -> None:
         ],
     )
     svc.workflows.create(run)
-    store.claim(FeedbackItemRow(
-        external_id="fb-1", workflow_id="wf-1", task_ref="o/r#5",
-        origin="ticket", author="octocat",
-        body="Also handle the empty-input case",
-        state="queued", created_at=datetime.now(timezone.utc),
-    ))
+    store.claim(
+        FeedbackItemRow(
+            external_id="fb-1",
+            workflow_id="wf-1",
+            task_ref="o/r#5",
+            origin="ticket",
+            author="octocat",
+            body="Also handle the empty-input case",
+            state="queued",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
 
     escalated = await code_and_verify(svc, run)
 

@@ -1,4 +1,5 @@
 """Tests for the reshaped unified workflow skeleton (feature 003)."""
+
 from __future__ import annotations
 
 import pytest
@@ -9,6 +10,7 @@ from app.services.workflows.shared import TicketRef, build_run
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
 from tests.conftest import (
+    _approve_prd,
     _FakeGit,
     _FakeGitHub,
     _FakeNotifier,
@@ -44,7 +46,12 @@ def test_build_run_sets_task_ref_and_reshaped_steps() -> None:
     )
     assert run.task_ref == "o/r#5"
     assert [s.name for s in run.steps] == [
-        "describe", "refine", "gap_analysis", "design", "code", "verify",
+        "describe",
+        "refine",
+        "gap_analysis",
+        "design",
+        "code",
+        "verify",
     ]
 
 
@@ -68,20 +75,35 @@ async def test_github_run_traverses_reshaped_status_sequence() -> None:
             super().notify(run)
 
     gh, git = _FakeGitHub(body=_subtask_body("vague")), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>d</PLAN>", "coded", _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>d</PLAN>",
+            "coded",
+            _verdict(accept=True),
+        ],
+    )
     svc = WorkflowService(
         settings=Settings(git_base="https://github.com", github_token="t"),
-        sessions=runner.sessions, workflows=WorkflowRegistry(),
-        backends=runner, git=git, github=gh, notifier=_Recorder(),
+        sessions=runner.sessions,
+        workflows=WorkflowRegistry(),
+        backends=runner,
+        git=git,
+        github=gh,
+        notifier=_Recorder(),
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
 
     # The reshaped statuses appear; the removed ones never do.
     for s in ("designing", "coding", "verifying", "opening_pr", "done"):
         assert s in seen, s
-    for removed in ("planning", "implementing", "awaiting_plan_approval",
-                    "awaiting_implement_approval", "awaiting_implement_input"):
+    for removed in (
+        "planning",
+        "implementing",
+        "awaiting_plan_approval",
+        "awaiting_implement_approval",
+        "awaiting_implement_input",
+    ):
         assert removed not in seen, removed

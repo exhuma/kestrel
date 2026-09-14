@@ -251,6 +251,30 @@ async def test_code_host_open_change_request_opens_draft_pr() -> None:
     assert payload["body"] == "Closes #7"
 
 
+@pytest.mark.asyncio
+async def test_code_host_normalizes_required_ci_statuses() -> None:
+    """Required GitHub checks include absent, passing, and failed states."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/pulls/9"):
+            return httpx.Response(200, json={"head": {"sha": "abc"}})
+        if req.url.path.endswith("/check-runs"):
+            return httpx.Response(
+                200, json={"check_runs": [{"name": "tests",
+                                               "conclusion": "success"}]},
+            )
+        return httpx.Response(
+            200, json={"statuses": [{"context": "lint", "state": "failure"}]},
+        )
+
+    host = GitHubCodeHost(_client(handler), "https://github.com")
+    statuses = await host.required_ci_statuses(
+        "o/r", 9, ["tests", "lint", "ui"]
+    )
+    assert [status.state for status in statuses] == [
+        "passed", "failed", "pending"
+    ]
+
+
 # ---- feedback intake (feature 013) -------------------------------------
 
 

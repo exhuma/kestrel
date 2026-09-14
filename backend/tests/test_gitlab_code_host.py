@@ -378,3 +378,26 @@ async def test_acknowledge_returns_false_for_gitea() -> None:
         author="alice", body="hi", created_at=_NOW,
     )
     assert await _host(handler, is_gitea=True).acknowledge(feedback) is False
+
+
+@pytest.mark.asyncio
+async def test_required_ci_statuses_use_newest_pipeline_jobs() -> None:
+    """Required GitLab job results normalize absent, pass, and failure."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/pipelines"):
+            return httpx.Response(200, json=[{"id": 7}])
+        return httpx.Response(
+            200,
+            json=[
+                {"name": "tests", "status": "success"},
+                {"name": "lint", "status": "failed"},
+            ],
+            headers={"x-next-page": ""},
+        )
+
+    statuses = await _host(handler).required_ci_statuses(
+        "group/svc", _MR_NUMBER, ["tests", "lint", "ui"]
+    )
+    assert [status.state for status in statuses] == [
+        "passed", "failed", "pending"
+    ]

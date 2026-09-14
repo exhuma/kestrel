@@ -22,11 +22,13 @@ from tests.fixtures_text import (
     _refined,
     _verdict,
 )
+from tests.workflow_doubles import _FakeFeedbackStore
 
 #: Re-exported for other test modules' ``from tests.conftest import ...``.
 __all__ = [
     "_coord",
     "_coverage",
+    "_FakeFeedbackStore",
     "_qs",
     "_refined",
     "_refine_noquestions",
@@ -117,6 +119,10 @@ class _FakeGit:
     async def add_worktree_existing(
         self, mirror_dir: str, dest: str, branch: str
     ) -> None: ...
+    async def ensure_remote_branch(
+        self, mirror_dir: str, branch: str, cred=None
+    ) -> None:
+        self.pushed.append(branch)
     async def remove_worktree(self, mirror_dir: str, dest: str) -> None: ...
 
     def mark_dirty(self, diff_text: str) -> None:
@@ -422,11 +428,9 @@ def _q(
 
 def _subtask_body(text: str) -> str:
     """A follow-up-task ticket body (feature 012): tagged with
-    ``SUBTASK_SENTINEL`` so ``_seed_from_sentinel`` marks
-    describe/refine/gap_analysis all pre-done and the run lands straight
-    at design (FR-015) — the shortcut every design/code/verify-focused
-    test now needs, since a fresh (untagged) ticket always terminates at
-    gap_analysis without ever reaching design (FR-014)."""
+    ``SUBTASK_SENTINEL`` so ``_seed_from_sentinel`` skips describe and
+    gap_analysis but parks at the PRD approval gate. Tests using this helper
+    must approve that gate before asserting design/code/verify behaviour."""
     return append_subtask_sentinel(text)
 
 
@@ -436,6 +440,14 @@ async def _wait(pred, timeout=2.0) -> None:
             return
         await asyncio.sleep(0.02)
     raise AssertionError("condition not reached")
+
+
+async def _approve_prd(svc: WorkflowService, workflow_id: str) -> None:
+    """Approve a sentinel-seeded PRD before exercising later phases."""
+    await _wait(
+        lambda: svc.get(workflow_id).status == "awaiting_refine_approval"
+    )
+    svc.approve(workflow_id)
 
 
 class _FakeDismissals:
@@ -455,41 +467,3 @@ class _FakeDismissals:
 
     def clear(self, task_ref: str) -> None:
         self.added = [p for p in self.added if p != task_ref]
-
-
-class _FakeFeedbackStore:
-    """In-memory FeedbackStore double for the feedback-intake pipeline
-    tests (feature 013) — avoids standing up a real sqlite DB/migration
-    for tests that only exercise pipeline logic (persistence internals
-    are already covered by test_feedback_store.py)."""
-
-    def __init__(self) -> None:
-        self.items: dict[str, object] = {}
-        self.cursors: dict[str, str] = {}
-
-    def claim(self, item) -> bool:
-        if item.external_id in self.items:
-            return False
-        self.items[item.external_id] = item
-        return True
-
-    def queued_for(self, workflow_id: str) -> list:
-        return [
-            item
-            for item in self.items.values()
-            if item.workflow_id == workflow_id and item.state == "queued"
-        ]
-
-    def mark(self, external_id: str, state: str, target_step=None) -> None:
-        item = self.items.get(external_id)
-        if item is None:
-            return
-        item.state = state
-        if target_step is not None:
-            item.target_step = target_step
-
-    def cursor(self, scope: str) -> str | None:
-        return self.cursors.get(scope)
-
-    def set_cursor(self, scope: str, value: str) -> None:
-        self.cursors[scope] = value

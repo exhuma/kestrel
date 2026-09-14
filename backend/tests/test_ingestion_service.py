@@ -7,6 +7,7 @@ import pytest
 from app.config import Settings
 from app.config_models import TaskSourceConfig
 from app.models_workflow import WorkflowRun
+from app.persistence.child_task_store import ChildTaskSchedule
 from app.services.ingestion import IngestionService
 
 _PARENT_AND_SUCCESSOR = 2
@@ -18,6 +19,7 @@ class _FakeWorkflows:
     def __init__(self, fail: bool = False) -> None:
         self.runs: list[WorkflowRun] = []
         self.created: list[tuple[str, int | None, str]] = []
+        self.base_branches: list[str | None] = []
         self._fail = fail
 
     def list(self) -> list[WorkflowRun]:
@@ -37,6 +39,7 @@ class _FakeWorkflows:
             raise RuntimeError("create failed")
         rid = f"wf-{len(self.created)}"
         self.created.append((repo, issue_number, source))
+        self.base_branches.append(base_branch)
         parent_run_id = kwargs.get("parent_run_id")
         self.runs.append(
             WorkflowRun(
@@ -79,6 +82,7 @@ class _FakeChildTasks:
         """Create an empty linked-child state map."""
         self.states: dict[str, str] = {}
         self.latest: dict[str, str] = {}
+        self.schedules: dict[str, ChildTaskSchedule] = {}
 
     def record_run(self, task_ref: str, workflow_id: str) -> None:
         """Record a normal first-run association when the task is linked."""
@@ -89,6 +93,18 @@ class _FakeChildTasks:
         """Add a child link, matching the production persistence contract."""
         del parent_workflow_id
         self.states[task_ref] = "open"
+
+    def scheduling_details(self, task_ref: str) -> ChildTaskSchedule | None:
+        """Return scheduling metadata configured for one linked child."""
+        return self.schedules.get(task_ref)
+
+    def ready_task_node_ids(self, workflow_ids: set[str]) -> set[str]:
+        """Map ready workflow IDs to their linked child node IDs."""
+        return {
+            schedule.task_node_id
+            for task_ref, schedule in self.schedules.items()
+            if self.latest.get(task_ref) in workflow_ids
+        }
 
     def observe_source_state(self, task_ref: str, state: str) -> None:
         """Set the observed lifecycle state for a linked child."""
@@ -185,6 +201,42 @@ async def test_never_starts_second_run_for_same_issue() -> None:
     await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
     assert await svc.maybe_start_run(**_gh("o/r#5", "o/r")) is None
     assert len(wf.created) == 1
+
+
+@pytest.mark.asyncio
+async def test_child_waits_for_ready_prerequisites_and_availability() -> None:
+    """DAG children start only after ready dependencies and no repo modifier."""
+    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
+    children.schedules["o/r#2"] = ChildTaskSchedule(
+        "TASK-2", ("TASK-1",), "kestrel/issue-1"
+    )
+    svc = IngestionService(_service(wf, dis).settings, wf, dis, children)
+
+    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) is None
+    children.schedules["o/r#1"] = ChildTaskSchedule(
+        "TASK-1", (), "kestrel/issue-1"
+    )
+    children.latest["o/r#1"] = "ready"
+    wf.runs.append(
+        WorkflowRun(id="ready", repo="o/r", status="technically_ready")
+    )
+    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) == "wf-0"
+
+
+@pytest.mark.asyncio
+async def test_child_uses_parent_branch_and_waits_for_repo_modifier() -> None:
+    """An eligible child bases on its parent branch, not a task-specific one."""
+    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
+    children.schedules["o/r#2"] = ChildTaskSchedule(
+        "TASK-2", (), "kestrel/issue-1"
+    )
+    wf.runs.append(WorkflowRun(id="busy", repo="o/r", status="coding"))
+    svc = IngestionService(_service(wf, dis).settings, wf, dis, children)
+
+    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) is None
+    wf.runs.clear()
+    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) == "wf-0"
+    assert wf.base_branches == ["kestrel/issue-1"]
 
 
 @pytest.mark.asyncio

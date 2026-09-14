@@ -34,6 +34,8 @@ health_check_interval_seconds = 60
 health_check_timeout_seconds = 10
 # Max code↔verify iterations before the loop escalates.
 max_verify_iterations = 3
+# Max CI-triggered repair attempts. This does not consume verify iterations.
+max_ci_repair_iterations = 2
 # How long a closed published child remains monitored before Kestrel posts one
 # retirement notice. The default is six months.
 child_task_closure_retention_days = 183
@@ -72,6 +74,8 @@ trigger_label = "kestrel"
 # including every configured token — only point this at a directory you trust
 # as much as this file itself. See docs/hooks.md before setting this.
 # hooks_dir = "/path/to/hooks/github"
+# Required check-run/status names. Empty or omitted preserves terminal `done`.
+# required_ci_statuses = ["backend", "frontend"]
 
 # Jira: poll one instance with a whole JQL query (you write the project clause
 # yourself). The target repo is resolved from `repo_field` or a web link titled

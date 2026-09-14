@@ -126,6 +126,20 @@ class ChangeRequest:
     url: str = ""
 
 
+@dataclass(frozen=True)
+class RequiredCiStatus:
+    """One required check's normalized result for a change request.
+
+    ``state`` is intentionally small: providers may expose many native
+    terminal names, but callers only need to decide whether to wait, repair,
+    or declare technical readiness.
+    """
+
+    name: str
+    state: Literal["pending", "passed", "failed"]
+    detail: str = ""
+
+
 @dataclass
 class Observation:
     """One self-reported outcome the verifier weighs.
@@ -389,6 +403,17 @@ class CodeHost(Protocol):
         The read a review-feedback resume decides on (feature 013,
         US3/US4): an ``open`` request resumes the same branch, a
         ``merged``/``closed`` one instead starts a linked successor.
+        """
+        ...
+
+    async def required_ci_statuses(
+        self, repo: str, number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Return normalized states for the requested CR checks.
+
+        The result contains one entry for every requested name. A check not
+        yet reported is ``pending``; no provider-specific status leaks above
+        this boundary.
         """
         ...
 

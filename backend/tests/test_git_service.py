@@ -201,6 +201,31 @@ async def test_worktree_isolation_and_cleanup(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ensure_remote_branch_publishes_a_decomposition_base(
+    tmp_path,
+) -> None:
+    """A child can start from a parent integration branch not yet on origin."""
+    bare = _seed_bare_remote(tmp_path)
+    mirror = str(tmp_path / "mirror.git")
+    parent = str(tmp_path / "parent")
+    child = str(tmp_path / "child")
+    svc = GitService(token="unused-locally")
+    parent_branch = "kestrel/parent"
+
+    await svc.ensure_mirror(str(bare), mirror)
+    await svc.add_worktree(mirror, parent, "main", parent_branch)
+    await svc.ensure_remote_branch(mirror, parent_branch)
+    await svc.add_worktree(mirror, child, parent_branch, "kestrel/child")
+
+    branches = subprocess.run(
+        ["git", "branch", "--list", parent_branch], cwd=bare,
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert parent_branch in branches
+    assert (Path(child) / "README.md").exists()
+
+
+@pytest.mark.asyncio
 async def test_worktree_add_uses_absolute_destination_from_relative_paths(
     tmp_path, monkeypatch,
 ) -> None:

@@ -30,7 +30,9 @@ _log = logging.getLogger("kestrel.notifications")
 #: needed (any "awaiting_*" gate) or the run reached a terminal
 #: outcome worth knowing about. "rejected" is excluded — the human
 #: caused it themselves by rejecting with no feedback.
-NOTIFY_STATUSES = frozenset({"done", "failed", "escalated"})
+NOTIFY_STATUSES = frozenset({
+    "done", "failed", "escalated", "technically_ready",
+})
 
 #: A notification's signal class (see module-notification-alarm-discipline).
 #: An ``action_required`` item is a gate blocking on the human; a ``summary``
@@ -58,6 +60,7 @@ _MESSAGES: dict[str, str] = {
         "Proposed decomposition ready for review: {task}."
     ),
     "done": "Change request opened for {task}.",
+    "technically_ready": "Required CI passed for {task}.",
     "failed": "Workflow failed for {task}.",
     "escalated": "Autonomous run escalated — needs attention: {task}.",
 }

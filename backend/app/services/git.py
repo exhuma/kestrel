@@ -248,16 +248,53 @@ class GitService:
             ["-b", new_branch, dest, f"origin/{base_branch}"],
         )
 
-    async def _has_local_branch(self, mirror_dir: str, branch: str) -> bool:
-        """Whether ``branch`` has a local ref in the mirror (no network I/O)."""
+    async def ensure_remote_branch(
+        self,
+        mirror_dir: str,
+        branch: str,
+        cred: tuple[str, str] | None = None,
+    ) -> None:
+        """Publish ``branch`` only when the remote does not already have it.
+
+        A decomposed parent leaves its integration branch in the shared mirror
+        even though it does not follow the normal delivery path. This restores
+        a missing remote ref from that exact local ref; it never invents a new
+        branch or changes an already-published remote branch.
+        """
+        remote_ref = f"refs/remotes/origin/{branch}"
+        local_ref = f"refs/heads/{branch}"
+        async with self._lock_for(mirror_dir):
+            if await self._has_ref(mirror_dir, remote_ref):
+                return
+            if not await self._has_ref(mirror_dir, local_ref):
+                raise GitError(
+                    f"cannot publish missing origin/{branch}: no local "
+                    f"{local_ref}; retain or restore the parent workspace "
+                    "before scheduling this persisted child"
+                )
+            await self._git(
+                *self._auth(cred), "-C", mirror_dir, "push", "origin",
+                f"{local_ref}:{local_ref}",
+            )
+            await self._git(
+                *self._auth(cred), "-C", mirror_dir, "fetch", "origin",
+                f"{local_ref}:{remote_ref}",
+            )
+
+    async def _has_ref(self, mirror_dir: str, ref: str) -> bool:
+        """Return whether ``ref`` exists in the mirror without network I/O."""
         try:
             await self._git(
                 "-C", mirror_dir, "show-ref", "--verify", "--quiet",
-                f"refs/heads/{branch}",
+                ref,
             )
             return True
         except GitError:
             return False
+
+    async def _has_local_branch(self, mirror_dir: str, branch: str) -> bool:
+        """Whether ``branch`` has a local ref in the mirror (no network I/O)."""
+        return await self._has_ref(mirror_dir, f"refs/heads/{branch}")
 
     async def add_worktree_existing(
         self, mirror_dir: str, dest: str, branch: str

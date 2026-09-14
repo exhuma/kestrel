@@ -13,10 +13,11 @@ from urllib.parse import quote
 
 import httpx
 
-from app.ports import ChangeRequest, Feedback
+from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services import github_reviews
 from app.services.exceptions import GitHubError
 from app.services.feedback.timeparse import parse_iso
+from app.services.github_ci import required_ci_statuses
 
 #: Extracts a PR/MR number from the tail of a change-request URL —
 #: GitHub's ``.../pull/123`` or GitLab's ``.../merge_requests/123``.
@@ -446,6 +447,12 @@ class GitHubCodeHost:
         return ChangeRequest(
             number=number, state=state, url=data.get("html_url") or ""
         )
+
+    async def required_ci_statuses(
+        self, repo: str, number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Normalize requested GitHub check-run and commit-status states."""
+        return await required_ci_statuses(self._client, repo, number, names)
 
     async def list_review_comments(
         self, repo: str, number: int, since: str | None = None

@@ -1,4 +1,5 @@
 """Tests for durable workflow run persistence."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,9 +33,7 @@ def _persistent_service(
     reg = WorkflowRegistry(store=store)
     reg.preload(store.load_all())
     return WorkflowService(
-        settings=Settings(
-            git_base="https://github.com", github_token="t"
-        ),
+        settings=Settings(git_base="https://github.com", github_token="t"),
         sessions=runner.sessions,
         workflows=reg,
         backends=runner,
@@ -56,9 +55,7 @@ def _migrate(db_path: Path) -> str:
 def _store(tmp_path: Path) -> WorkflowStore:
     """Build a store on a freshly migrated SQLite file."""
     url = _migrate(tmp_path / "wf.db")
-    return WorkflowStore(
-        sessionmaker(bind=sa.create_engine(url))
-    )
+    return WorkflowStore(sessionmaker(bind=sa.create_engine(url)))
 
 
 def _run() -> WorkflowRun:
@@ -90,9 +87,7 @@ def test_migrations_create_workflow_tables(
 ) -> None:
     """Ensure migrations create the workflow tables."""
     url = _migrate(tmp_path / "t.db")
-    names = set(
-        sa.inspect(sa.create_engine(url)).get_table_names()
-    )
+    names = set(sa.inspect(sa.create_engine(url)).get_table_names())
     assert {"workflow_run", "workflow_step"} <= names
 
 
@@ -103,9 +98,7 @@ def test_migrations_add_refine_round_column(
     url = _migrate(tmp_path / "t2.db")
     columns = {
         c["name"]
-        for c in sa.inspect(sa.create_engine(url)).get_columns(
-            "workflow_step"
-        )
+        for c in sa.inspect(sa.create_engine(url)).get_columns("workflow_step")
     }
     assert "refine_round" in columns
 
@@ -131,11 +124,22 @@ def test_save_and_load_round_trip(tmp_path: Path) -> None:
     assert run.status == "awaiting_refine_input"
     assert run.workspace == "/tmp/wf-1"
     assert [s.name for s in run.steps] == [
-        "refine", "plan", "implement",
+        "refine",
+        "plan",
+        "implement",
     ]
     assert run.steps[0].session_id == "s1"
     assert run.steps[0].deliverable == "Round 1 questions"
     assert run.steps[0].model == "sonnet"
+
+
+def test_prd_approval_provenance_round_trips(tmp_path: Path) -> None:
+    """Ensure explicit PRD approval provenance survives a save/load cycle."""
+    store = _store(tmp_path)
+    run = _run()
+    run.prd_approved = True
+    store.save(run)
+    assert store.load_all()[0].prd_approved is True
 
 
 def test_registry_survives_restart(tmp_path: Path) -> None:
@@ -164,23 +168,21 @@ async def test_gate_state_is_checkpointed(
     from tests.conftest import _coord, _q, _qs
 
     store = _store(tmp_path)
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
-        _coord(["developer"]),
-        _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+            _coord(["developer"]),
+            _qs(_q(prompt="What colour?", qtype="free_text", options=[])),
+        ],
+    )
     svc = _persistent_service(
         store, _FakeGitHub(body="vague"), runner, _FakeGit()
     )
     wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_describe_approval"
-    )
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
     svc.approve(wid)
-    await _wait(
-        lambda: svc.get(wid).status
-        == "awaiting_refine_input"
-    )
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_input")
     persisted = {r.id: r for r in store.load_all()}[wid]
     assert persisted.status == "awaiting_refine_input"
     assert persisted.steps[1].status == "awaiting_input"
@@ -255,9 +257,7 @@ def test_migrations_add_artifact_dir_column(tmp_path: Path) -> None:
     url = _migrate(tmp_path / "art.db")
     columns = {
         c["name"]
-        for c in sa.inspect(sa.create_engine(url)).get_columns(
-            "workflow_run"
-        )
+        for c in sa.inspect(sa.create_engine(url)).get_columns("workflow_run")
     }
     assert "artifact_dir" in columns
 
@@ -283,9 +283,7 @@ def test_migrations_add_boundary_column(tmp_path: Path) -> None:
     url = _migrate(tmp_path / "bnd.db")
     columns = {
         c["name"]
-        for c in sa.inspect(sa.create_engine(url)).get_columns(
-            "workflow_run"
-        )
+        for c in sa.inspect(sa.create_engine(url)).get_columns("workflow_run")
     }
     assert "boundary" in columns
 

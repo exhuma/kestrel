@@ -1,20 +1,18 @@
 """Tests for the refine/design/deliver orchestration (driver/__init__)."""
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 
 import pytest
 
 from app.backends.base import BackendTurnError, Capability
 from app.models_workflow import WorkflowRun, WorkflowStep
-from app.persistence.tables import FeedbackItemRow
-from app.services.workflows.driver import continue_run
+from app.services.exceptions import InvalidWorkflowStateError
+from app.services.workflows.driver import design
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
-    _artifact_service,
     _coord,
-    _FakeFeedbackStore,
     _FakeGit,
     _FakeGitHub,
     _FakeRunner,
@@ -43,23 +41,24 @@ async def _reach_refine_approval(gh, outputs: list[str]):
 
 
 @pytest.mark.asyncio
-async def test_active_and_wait_seconds_accumulate_through_both_gates() -> (
-    None
-):
+async def test_active_and_wait_seconds_accumulate_through_both_gates() -> None:
     """Ensure the run-level clock (feature 006) tracks real elapsed time
     across an input-gate round and the approval gate, excluding both
     waits from active_seconds and stopping entirely once the run is done.
     """
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
-        _coord(["developer"]),
-        _qs(_q(prompt="Which?", options=[{"value": "a", "label": "A"}])),
-        _coord([]),
-        "<REFINED_ISSUE>\nBuild a clear widget\n</REFINED_ISSUE>",
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
-        "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",  # critic
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+            _coord(["developer"]),
+            _qs(_q(prompt="Which?", options=[{"value": "a", "label": "A"}])),
+            _coord([]),
+            "<REFINED_ISSUE>\nBuild a clear widget\n</REFINED_ISSUE>",
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
+        ],
+    )
     svc = _service(gh, runner, git)
 
     wid = await svc.create("o/r", 5, source="github-issue")
@@ -100,14 +99,29 @@ async def test_design_sets_boundary_from_tag() -> None:
     """
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     git = _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>\n<BOUNDARY>http</BOUNDARY>",
-        "Implemented",
-        "explored",  # http boundary -> an explore turn runs before verdict
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nStep 1\n</PLAN>\n<BOUNDARY>http</BOUNDARY>",
+            "Implemented",
+            "explored",  # http boundary -> an explore turn runs before verdict
+            _verdict(
+                accept=True,
+                observations=[
+                    {
+                        "name": "GET /widget",
+                        "kind": "http",
+                        "passed": True,
+                        "detail": "200 OK",
+                    }
+                ],
+            ),
+        ],
+    )
     svc = _service(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert svc.get(wid).boundary == "http"
 
@@ -118,13 +132,18 @@ async def test_design_missing_boundary_tag_leaves_it_none() -> None:
     failing the design step (feature 005)."""
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     git = _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>",  # no <BOUNDARY> tag at all
-        "Implemented",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nStep 1\n</PLAN>",  # no <BOUNDARY> tag at all
+            "Implemented",
+            _verdict(accept=True),
+        ],
+    )
     svc = _service(gh, runner, git)
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert svc.get(wid).boundary is None
 
@@ -161,6 +180,8 @@ async def test_step_exception_marks_active_step_failed() -> None:
     svc = _service(gh, policy, _FakeGit())
 
     wid = await svc.create("o/r", 5, source="github-issue")  # design raises
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "failed")
 
     run = svc.get(wid)
@@ -172,17 +193,20 @@ async def test_step_exception_marks_active_step_failed() -> None:
 
 @pytest.mark.asyncio
 async def test_sentinel_skips_refine() -> None:
-    """Ensure an already-refined issue jumps straight to gap_analysis
-    (FR-015's SUBTASK_SENTINEL is what jumps straight to design; the
-    plain SENTINEL only ever meant "skip the front end", not "skip
-    decomposition too" — see gap_analysis for that leg)."""
+    """Ensure an already-refined issue still waits for PRD approval."""
     gh = _FakeGitHub(body="clear issue\n\n<!-- kestrel:refined -->")
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
-        "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",  # critic
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    assert svc.get(wid).prd_approved is False
+    svc.approve(wid)
     await _wait(
         lambda: svc.get(wid).status == "awaiting_decomposition_approval"
     )
@@ -191,6 +215,45 @@ async def test_sentinel_skips_refine() -> None:
     assert svc.get(wid).steps[0].status == "done"  # describe skipped
     assert svc.get(wid).steps[1].status == "done"  # refine skipped
     assert svc.get(wid).steps[1].deliverable == gh.body
+    assert svc.get(wid).prd_approved is True
+
+
+@pytest.mark.asyncio
+async def test_subtask_sentinel_waits_for_prd_approval() -> None:
+    """Ensure a follow-up marker cannot bypass the PRD approval gate."""
+    gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
+    svc = _service(gh, _FakeRunner(SessionRegistry(), []), _FakeGit())
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    run = svc.get(wid)
+    assert run.steps[0].status == "done"
+    assert run.steps[2].status == "done"
+    assert run.prd_approved is False
+
+
+@pytest.mark.asyncio
+async def test_design_requires_explicit_prd_approval(tmp_path) -> None:
+    """Ensure completed refine without provenance cannot start design."""
+    svc = _service(
+        _FakeGitHub(),
+        _FakeRunner(SessionRegistry(), []),
+        _FakeGit(),
+        settings=_settings(workspace_root=str(tmp_path)),
+    )
+    run = WorkflowRun(
+        id="wf-prd-gate",
+        repo="o/r",
+        task_ref="o/r#5",
+        workspace=str(tmp_path),
+        steps=[
+            WorkflowStep(name="describe", status="done"),
+            WorkflowStep(name="refine", status="done", deliverable="PRD"),
+            WorkflowStep(name="gap_analysis", status="done"),
+            WorkflowStep(name="design"),
+        ],
+    )
+    with pytest.raises(InvalidWorkflowStateError, match="approved PRD"):
+        await design(svc, run)
 
 
 @pytest.mark.asyncio
@@ -282,17 +345,27 @@ async def test_steps_use_policy_models() -> None:
     gap_analysis never run for it, so they keep their initial ``None``
     model."""
     gh = _FakeGitHub(body=_subtask_body("Build it"))
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nDo it\n</PLAN>",
-        "Implemented",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nDo it\n</PLAN>",
+            "Implemented",
+            _verdict(accept=True),
+        ],
+    )
     svc = _service(gh, runner, _FakeGit())
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+    svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "done")
     assert {c["model"] for c in runner.calls} == {"sonnet"}
     assert [s.model for s in svc.get(wid).steps] == [
-        None, None, None, "sonnet", "sonnet", "sonnet",
+        None,
+        "sonnet",
+        None,
+        "sonnet",
+        "sonnet",
+        "sonnet",
     ]
 
 
@@ -328,90 +401,3 @@ async def test_backend_error_result_fails_run_loudly() -> None:
 
     await _wait(lambda: svc.get(wid).status == "failed")
     assert "Not logged in" in (svc.get(wid).error or "")
-
-
-@pytest.mark.asyncio
-async def test_text_only_design_backend_inlines_the_prd(tmp_path) -> None:
-    """A text-only design backend still receives the PRD inlined in-prompt.
-
-    A follow-up (SUBTASK_SENTINEL) body lands straight at design (FR-015)
-    — a plain ticket's run always ends at gap_analysis instead (FR-014).
-    """
-    gh = _FakeGitHub(body=_subtask_body("UNIQUE-PRD-MARKER body"))
-    sessions = SessionRegistry()
-    design = _FakeRunner(
-        sessions, outputs=["<PLAN>the plan</PLAN>"], id_prefix="llm-"
-    )
-    design.caps = frozenset({Capability.TEXT})  # cannot read the worktree
-    code = _FakeRunner(
-        sessions,
-        outputs=["Implemented X", _verdict(accept=True)],
-        id_prefix="ses-",
-    )
-    policy = _RoutingPolicy(sessions, design, code)
-    svc = _artifact_service(tmp_path, policy, github=gh)
-
-    wid = await svc.create("o/r", 5, source="github-issue")
-    await _wait(lambda: svc.get(wid).status == "done")
-
-    design_call = design.calls[0]
-    assert "UNIQUE-PRD-MARKER" in design_call["prompt"]  # PRD inlined
-
-
-@pytest.mark.asyncio
-async def test_drained_feedback_folds_into_the_design_prompt(
-    tmp_path,
-) -> None:
-    """Feedback already queued for a run sitting just before design
-    (feature 013, US2) has no open gate of its own to land on — it is
-    drained at continue_run's pre-design step boundary, folded into the
-    design turn's prompt, and marked applied.
-
-    Drives ``continue_run`` directly on a run with describe/refine/
-    gap_analysis already "done" (mirroring how a SUBTASK_SENTINEL-tagged
-    follow-up ticket lands, feature 012) so this proves the pre-design
-    drain itself, without racing a real create()-to-gate window that a
-    gateless pipeline segment offers no synchronization point for.
-    """
-    store = _FakeFeedbackStore()
-    gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1\n</PLAN>",
-        "Implemented",
-        _verdict(accept=True),
-    ])
-    svc = _service(
-        gh, runner, git,
-        settings=_settings(workspace_root=str(tmp_path)),
-        feedback_store=store,
-    )
-    run = WorkflowRun(
-        id="wf-1", repo="o/r", issue_number=5, task_ref="o/r#5",
-        base_branch="main", branch="kestrel/5", workspace=str(tmp_path),
-        status="refining",
-        steps=[
-            WorkflowStep(name="describe", status="done", deliverable="U"),
-            WorkflowStep(name="refine", status="done", deliverable="PRD"),
-            WorkflowStep(name="gap_analysis", status="done", deliverable=""),
-            WorkflowStep(name="design", status="pending"),
-            WorkflowStep(name="code", status="pending"),
-            WorkflowStep(name="verify", status="pending"),
-        ],
-    )
-    svc.workflows.create(run)
-    store.claim(FeedbackItemRow(
-        external_id="fb-1", workflow_id="wf-1", task_ref="o/r#5",
-        origin="ticket", author="octocat",
-        body="Please also update the README",
-        state="queued", created_at=datetime.now(timezone.utc),
-    ))
-
-    await continue_run(svc, run)
-    await _wait(lambda: svc.get("wf-1").status == "done")
-
-    design_call = next(
-        c for c in runner.calls
-        if "high-level design" in c["prompt"]
-    )
-    assert "Please also update the README" in design_call["prompt"]
-    assert store.items["fb-1"].state == "applied"

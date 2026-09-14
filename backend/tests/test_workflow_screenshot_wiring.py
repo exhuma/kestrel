@@ -1,4 +1,5 @@
 """Ensure the driver uploads/persists screenshots at the right points."""
+
 from __future__ import annotations
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from app.services.workflows import screenshots
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
+    _approve_prd,
     _FakeGit,
     _FakeGitHub,
     _FakeRunner,
@@ -37,12 +39,15 @@ async def test_refine_screenshots_uploaded_at_prd_approval(
     monkeypatch.setattr(screenshots, "upload_screenshots", _fake_upload)
 
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
-        *_refine_noquestions("Build a clear widget"),
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
-        "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",  # critic
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+            *_refine_noquestions("Build a clear widget"),
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
+        ],
+    )
     svc = _service(gh, runner, git)
 
     wid = await svc.create("o/r", 5, source="github-issue")
@@ -83,18 +88,22 @@ async def test_verify_screenshots_uploaded_and_persisted(monkeypatch) -> None:
 
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     git = _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nStep 1: do X\n</PLAN>",
-        "Implemented X",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nStep 1: do X\n</PLAN>",
+            "Implemented X",
+            _verdict(accept=True),
+        ],
+    )
     svc = _service(gh, runner, git)
 
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
 
-    # verify shots uploaded at deliver; no refine gate ran, so no refine
-    # upload here (see the PRD-approval-time test above).
-    assert uploads == ["verify"]
+    # The sentinel-seeded PRD still passes the approval gate, so its refine
+    # mockups upload before verify's delivery-time upload.
+    assert uploads == ["refine", "verify"]
     # Screenshots preserved before the worktree is torn down.
     assert wid in persisted

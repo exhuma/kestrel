@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Protocol
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.persistence.db import get_sessionmaker
@@ -16,8 +18,23 @@ from app.persistence.tables import ChildTaskLinkRow
 class ChildTaskLinks(Protocol):
     """Persistence contract used by publication and re-adoption services."""
 
-    def record(self, parent_workflow_id: str, task_ref: str) -> None:
-        """Persist one newly published child task reference."""
+    def record(
+        self,
+        parent_workflow_id: str,
+        task_ref: str,
+        task_node_id: str = "",
+        prerequisites: tuple[str, ...] = (),
+        integration_branch: str = "",
+    ) -> None:
+        """Persist one published child reference and its scheduling metadata."""
+        ...
+
+    def scheduling_details(self, task_ref: str) -> ChildTaskSchedule | None:
+        """Return durable DAG scheduling metadata for one linked child."""
+        ...
+
+    def ready_task_node_ids(self, workflow_ids: set[str]) -> set[str]:
+        """Return linked node IDs whose current child runs are ready."""
         ...
 
     def record_run(self, task_ref: str, workflow_id: str) -> None:
@@ -73,6 +90,15 @@ class ChildTaskLinks(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class ChildTaskSchedule:
+    """The DAG metadata needed to decide whether a child may begin."""
+
+    task_node_id: str
+    prerequisites: tuple[str, ...]
+    integration_branch: str
+
+
 class ChildTaskStore:
     """Records published children and serializes reopen successor creation."""
 
@@ -80,16 +106,58 @@ class ChildTaskStore:
         """Create a store backed by ``factory`` transactions."""
         self._factory = factory
 
-    def record(self, parent_workflow_id: str, task_ref: str) -> None:
-        """Persist a newly published child as source-open and not yet run."""
+    def record(
+        self,
+        parent_workflow_id: str,
+        task_ref: str,
+        task_node_id: str = "",
+        prerequisites: tuple[str, ...] = (),
+        integration_branch: str = "",
+    ) -> None:
+        """Persist a published child as source-open and not yet run.
+
+        Node IDs and prerequisites are design-contract identities. The parent
+        branch is the shared feature integration base for the child run.
+        """
         with self._factory.begin() as db:
             db.add(
                 ChildTaskLinkRow(
                     task_ref=task_ref,
                     parent_workflow_id=parent_workflow_id,
+                    task_node_id=task_node_id or None,
+                    prerequisites=json.dumps(list(prerequisites)),
+                    integration_branch=integration_branch,
                     source_state="open",
                 )
             )
+
+    def scheduling_details(self, task_ref: str) -> ChildTaskSchedule | None:
+        """Load a linked child's persisted DAG metadata, if it has any."""
+        with self._factory() as db:
+            row = db.get(ChildTaskLinkRow, task_ref)
+            if row is None or row.task_node_id is None:
+                return None
+            prerequisites = json.loads(row.prerequisites)
+            if not isinstance(prerequisites, list):
+                return None
+            return ChildTaskSchedule(
+                row.task_node_id,
+                tuple(item for item in prerequisites if isinstance(item, str)),
+                row.integration_branch,
+            )
+
+    def ready_task_node_ids(self, workflow_ids: set[str]) -> set[str]:
+        """Load DAG node IDs whose latest child run is technically ready."""
+        if not workflow_ids:
+            return set()
+        with self._factory() as db:
+            rows = db.scalars(
+                select(ChildTaskLinkRow.task_node_id).where(
+                    ChildTaskLinkRow.latest_workflow_id.in_(workflow_ids),
+                    ChildTaskLinkRow.task_node_id.is_not(None),
+                )
+            )
+            return {node_id for node_id in rows if node_id is not None}
 
     def record_run(self, task_ref: str, workflow_id: str) -> None:
         """Set the newest run for a published child, if it is linked."""

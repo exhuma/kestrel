@@ -28,10 +28,18 @@ class _ChildTasks:
     def __init__(self) -> None:
         """Create an empty recorded-link collection."""
         self.links: list[tuple[str, str]] = []
+        self.metadata: list[tuple[str, tuple[str, ...], str]] = []
 
-    def record(self, parent_workflow_id: str, task_ref: str) -> None:
+    def record(
+        self, parent_workflow_id: str, task_ref: str, *_metadata: object
+    ) -> None:
         """Record one parent-child source reference pair."""
         self.links.append((parent_workflow_id, task_ref))
+        node_id, prerequisites, branch = _metadata
+        prereq_values = (
+            prerequisites if isinstance(prerequisites, tuple) else ()
+        )
+        self.metadata.append((str(node_id), prereq_values, str(branch)))
 
 
 class _GHDouble(_FakeGitHub):
@@ -133,6 +141,8 @@ async def test_parks_candidates_until_decomposition_is_approved() -> None:
     assert len(gh.created_issues) == 1
     assert gh.created_issues[0]["title"] == "Add the endpoint"
     assert "kestrel:subtask" in gh.created_issues[0]["body"]
+    assert isinstance(svc.git, _FakeGit)
+    assert svc.git.pushed == [run.branch]
     # The summary is published to the *original* ticket via a distinct
     # comment call, not folded into the create_subtask calls (FR-012).
     assert len(gh.comments) == 1
@@ -173,8 +183,18 @@ async def test_publication_records_each_created_child_reference() -> None:
         [
             _gap_analysis_output(
                 "Two pieces.",
-                {"title": "First", "body": "First body"},
-                {"title": "Second", "body": "Second body"},
+                {
+                    "id": "TASK-1",
+                    "title": "First",
+                    "body": "First body",
+                    "prerequisites": [],
+                },
+                {
+                    "id": "TASK-2",
+                    "title": "Second",
+                    "body": "Second body",
+                    "prerequisites": ["TASK-1"],
+                },
             ),
             _containment(
                 {"index": 0, "self_contained": True},
@@ -191,6 +211,10 @@ async def test_publication_records_each_created_child_reference() -> None:
     await _wait(lambda: svc.get(wid).status == "decomposed")
 
     assert children.links == [(wid, "o/r#101"), (wid, "o/r#102")]
+    assert children.metadata == [
+        ("TASK-1", (), "kestrel/issue-5"),
+        ("TASK-2", ("TASK-1",), "kestrel/issue-5"),
+    ]
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,12 @@ from app.persistence.child_task_store import (
     get_child_task_store,
 )
 from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
+from app.services.task_scheduler import (
+    ScheduledTask,
+    integration_branch,
+    is_startable,
+    modifying_repositories,
+)
 from app.services.workflows import WorkflowService, get_workflow_service
 
 _log = logging.getLogger("kestrel.ingestion")
@@ -84,6 +90,12 @@ class IngestionService:
         if self.has_run(task_ref):
             _log.info("ingest outcome=skipped-duplicate %s", task_ref)
             return None
+        scheduled = self._scheduled_child(task_ref, code_repo)
+        if scheduled is not None and not self._is_startable(scheduled):
+            _log.info("ingest outcome=skipped-blocked %s", task_ref)
+            return None
+        if scheduled is not None:
+            base_branch = integration_branch(scheduled)
         run_id = await self.workflows.create(
             code_repo,
             issue_number,
@@ -95,6 +107,29 @@ class IngestionService:
             self.child_tasks.record_run(task_ref, run_id)
         _log.info("ingest outcome=started %s -> %s", task_ref, run_id)
         return run_id
+
+    def _scheduled_child(
+        self, task_ref: str, repo: str
+    ) -> ScheduledTask | None:
+        """Build scheduler input only for a linked child with DAG metadata."""
+        if self.child_tasks is None:
+            return None
+        details = self.child_tasks.scheduling_details(task_ref)
+        if details is None:
+            return None
+        return ScheduledTask(
+            task_ref, repo, details.prerequisites, details.integration_branch
+        )
+
+    def _is_startable(self, task: ScheduledTask) -> bool:
+        """Check prerequisites and repository modification exclusion."""
+        assert self.child_tasks is not None
+        runs = self.workflows.list()
+        ready_ids = {
+            run.id for run in runs if run.status == "technically_ready"
+        }
+        ready_nodes = self.child_tasks.ready_task_node_ids(ready_ids)
+        return is_startable(task, ready_nodes, modifying_repositories(runs))
 
     async def observe_child_source_state(
         self, task_ref: str, state: str

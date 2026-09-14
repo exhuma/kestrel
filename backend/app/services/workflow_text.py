@@ -5,6 +5,10 @@ import json
 import logging
 import re
 
+from app.design_contract import (
+    DesignContract,
+    parse_design_contract,
+)
 from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
 
@@ -175,6 +179,12 @@ def extract_containment_verdicts(text: str) -> dict[int, dict] | None:
 def extract_plan(text: str) -> str | None:
     """Return the plan if the agent emitted the delimiter block."""
     return _extract_tag(text, "PLAN")
+
+
+def extract_design_contract(text: str) -> DesignContract | None:
+    """Return the validated structured design output, or ``None`` on a miss."""
+    raw = _extract_tag(text, "DESIGN_CONTRACT")
+    return parse_design_contract(raw) if raw is not None else None
 
 
 #: The only boundary classifications the verify step knows how to act on

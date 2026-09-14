@@ -6,6 +6,7 @@ import logging
 import re
 
 from app.ports import Evidence, Observation
+from app.services.workflows.check_runner import CheckReport
 
 _logger = logging.getLogger(__name__)
 
@@ -31,6 +32,44 @@ def _evidence_feedback(evidence: Evidence) -> str:
     for obs in fails:
         parts.append(f"- {obs.name}\n{obs.detail}".rstrip())
     return "\n".join(parts)
+
+
+def _boundary_evidence_feedback(
+    evidence: Evidence, boundary: str | None
+) -> str:
+    """Describe the boundary observations required before a verdict may pass."""
+    required = _required_boundary_kinds(boundary)
+    missing = sorted(required - {item.kind for item in evidence.observations})
+    if not missing:
+        return ""
+    names = ", ".join(missing)
+    return (
+        f"Missing required {names} boundary evidence. Exercise the running "
+        f"{names} boundary and return at least one well-formed observation."
+    )
+
+
+def _required_boundary_kinds(boundary: str | None) -> set[str]:
+    """Return the observation kinds required for a declared boundary."""
+    if boundary == "both":
+        return {"http", "ui"}
+    return {boundary} if boundary in {"http", "ui"} else set()
+
+
+def _check_feedback(report: CheckReport) -> str:
+    """Summarise failed local checks as actionable coder feedback."""
+    failed = [result for result in report.results if not result.passed]
+    if not failed:
+        return ""
+    lines = ["Deterministic local checks failed:"]
+    for result in failed:
+        status = (
+            "timed out" if result.timed_out else f"exit {result.exit_code}"
+        )
+        output = (result.stderr or result.stdout).strip()
+        output = output or "No output captured."
+        lines.append(f"- `{result.command}` ({status}): {output}")
+    return "\n".join(lines)
 
 
 def _render_verify_report(rounds: list[dict]) -> str:

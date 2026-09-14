@@ -1,25 +1,34 @@
 """The describe -> refine -> gap_analysis -> design -> code/verify ->
 deliver run state machine."""
+
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
 from app.backends.base import TurnRequest
+from app.design_contract import (
+    DesignContract,
+    acceptance_markdown,
+    check_contract_json,
+    task_graph_json,
+)
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
 from app.review_requests import render_delta_summary
+from app.services.exceptions import InvalidWorkflowStateError
 from app.services.feedback.dispatch import drain_feedback
-from app.services.github import change_request_number
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
     extract_boundary,
+    extract_design_contract,
     extract_plan,
     has_sentinel,
     has_subtask_sentinel,
 )
 from app.services.workflows import interview, screenshots
 from app.services.workflows.driver.code_verify import code_and_verify
+from app.services.workflows.driver.delivery import deliver
 from app.services.workflows.driver.describe import describe
 from app.services.workflows.driver.escalate import fail_active_steps
 from app.services.workflows.driver.gap_analysis import run_gap_analysis
@@ -88,7 +97,9 @@ async def resume(service: "WorkflowService", workflow_id: str) -> None:
     except Exception as exc:
         _logger.exception(
             "workflow %s (%s#%s) failed during %s",
-            workflow_id, run.repo, run.issue_number,
+            workflow_id,
+            run.repo,
+            run.issue_number,
             run.status,
         )
         run.status = "failed"
@@ -102,25 +113,27 @@ def _seed_from_sentinel(run: WorkflowRun, body: str) -> bool:
     """Pre-mark steps done per the ticket body's sentinel, if any.
 
     A ``SUBTASK_SENTINEL`` body (a gap_analysis follow-up task, feature
-    012) skips describe/refine/gap_analysis entirely, landing at design.
-    A plain ``SENTINEL`` body (an already-refined ticket, e.g. a rerun)
-    skips describe/refine only, landing at gap_analysis. Either way the
-    approved-PRD-equivalent text is seeded at steps[1], the slot design
-    reads from.
+    012) skips describe and gap_analysis. A plain ``SENTINEL`` body (an
+    already-refined ticket, e.g. a rerun) skips describe. Both park at the
+    PRD approval gate: ticket markers seed the PRD candidate but are not
+    proof a person approved it.
 
     :returns: True if any steps were pre-marked (the caller must persist
         and re-enter ``continue_run`` with no fresh issue body); False
         for an ordinary ticket with neither sentinel.
     """
     if has_subtask_sentinel(body):
-        for idx in (0, 1, 2):
+        for idx in (0, 2):
             run.steps[idx].status = "done"
         run.steps[1].deliverable = body
+        run.steps[1].status = "awaiting_approval"
+        run.status = "awaiting_refine_approval"
         return True
     if has_sentinel(body):
         run.steps[0].status = "done"
-        run.steps[1].status = "done"
         run.steps[1].deliverable = body
+        run.steps[1].status = "awaiting_approval"
+        run.status = "awaiting_refine_approval"
         return True
     return False
 
@@ -134,9 +147,9 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
         task = await service._task_source(run).get_task(run.task_ref)
         run.issue_title = task.title
         if not run.base_branch:
-            run.base_branch = await service._code_host(
-                run
-            ).get_default_branch(run.repo)
+            run.base_branch = await service._code_host(run).get_default_branch(
+                run.repo
+            )
         service._save(run)
         code_host = service._code_host(run)
         remote = code_host.clone_remote(run.repo)
@@ -144,6 +157,10 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
         await service.git.ensure_mirror(
             remote, mirror, code_host.git_credential()
         )
+        if run.base_branch and _is_linked_child(service, run):
+            await service.git.ensure_remote_branch(
+                mirror, run.base_branch, code_host.git_credential()
+            )
         await service.git.add_worktree(
             mirror, run.workspace, run.base_branch, run.branch
         )
@@ -165,13 +182,24 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
     except Exception as exc:  # record, do not crash the loop
         _logger.exception(
             "workflow %s (%s) failed during %s",
-            workflow_id, run.task_ref, run.status,
+            workflow_id,
+            run.task_ref,
+            run.status,
         )
         run.status = "failed"
         run.error = str(exc)
         fail_active_steps(service, run)
         service._safe_save(run)
         await service._teardown_workspace(run)
+
+
+def _is_linked_child(service: "WorkflowService", run: WorkflowRun) -> bool:
+    """Return whether ``run`` was started from persisted child DAG metadata."""
+    child_tasks = service.child_tasks
+    return (
+        child_tasks is not None
+        and child_tasks.scheduling_details(run.task_ref) is not None
+    )
 
 
 async def continue_run(
@@ -254,14 +282,10 @@ async def refine(
         if step.deliverable:
             seed = step.deliverable
         else:
-            seed = (
-                await service._task_source(run).get_task(run.task_ref)
-            ).body
+            seed = (await service._task_source(run).get_task(run.task_ref)).body
         if feedback:
             seed += MID_RUN_FEEDBACK_APPENDIX.format(feedback=feedback)
-        issue, accumulated = await interview.run_interview(
-            service, run, seed
-        )
+        issue, accumulated = await interview.run_interview(service, run, seed)
         step.deliverable = await interview.write_refined(
             service, run, issue, accumulated
         )
@@ -327,6 +351,8 @@ async def design(
         this step started (feature 013, US2) — folded into the prompt
         alongside the PRD, when present.
     """
+    if not run.prd_approved:
+        raise InvalidWorkflowStateError("design requires approved PRD")
     step = run.steps[3]
     prd = run.steps[1].deliverable or ""
     # Persist the approved PRD as a handover artifact, then reference it
@@ -350,122 +376,41 @@ async def design(
         TurnRequest(
             prompt=prompt,
             cwd=run.workspace,
-            permission_mode="plan", model=model,
+            permission_mode="plan",
+            model=model,
             resume_id=step.session_id,
         ),
         slot,
         _bind(step, slot),
     )
-    design_text = extract_plan(result.final_text) or result.final_text
+    contract = extract_design_contract(result.final_text)
+    design_text = contract.plan if contract else extract_plan(result.final_text)
+    design_text = design_text or result.final_text
     step.deliverable = design_text
     # Classify the project's boundary for the verify step (feature 005).
     # A missing/malformed tag leaves boundary None — verify then falls
     # back to today's check-and-diff-judgment-only behaviour; this must
     # never fail the design step itself.
-    run.boundary = extract_boundary(result.final_text)
+    run.boundary = (
+        contract.boundary if contract else extract_boundary(result.final_text)
+    )
     # Persist the design as the second handover artifact for code/verify.
     service._write_artifact(run, "design.md", design_text)
+    _write_design_contract_artifacts(service, run, contract)
     service._retire_sessions(run, step)
     step.status = "done"
     service._save(run)
 
 
-def _change_request_texts(run: WorkflowRun) -> tuple[str, str, str]:
-    """(commit_msg, cr_title, cr_body), source-aware.
-
-    A GitHub run closes its issue (#n); a Jira run references the RFC key
-    (the ticket is in Jira).
-    """
-    if run.issue_number is not None:
-        return (
-            f"Implement #{run.issue_number}",
-            f"{run.issue_title} (#{run.issue_number})",
-            f"Closes #{run.issue_number}\n\nOpened by kestrel.",
-        )
-    return (
-        f"Implement {run.task_ref}",
-        f"{run.issue_title} ({run.task_ref})",
-        f"Implements {run.task_ref}\n\nOpened by kestrel.",
+def _write_design_contract_artifacts(
+    service: "WorkflowService",
+    run: WorkflowRun,
+    contract: DesignContract | None,
+) -> None:
+    """Persist structured handover files, with empty legacy compatibility."""
+    contract = contract or DesignContract("legacy plan", None, [], [], [])
+    service._write_artifact(run, "acceptance.md", acceptance_markdown(contract))
+    service._write_artifact(run, "task-graph.json", task_graph_json(contract))
+    service._write_artifact(
+        run, "check-contract.json", check_contract_json(contract)
     )
-
-
-async def _open_or_confirm_change_request(
-    service: "WorkflowService", run: WorkflowRun
-) -> bool:
-    """
-    Open the change request, unless one is already open for this run.
-
-    Idempotent for a resumed run (feature 013, US3): when ``run.pr_number``
-    is already set — this run has been through ``deliver()`` once before
-    and the caller (``feedback/dispatch.py``) only resumes it when that
-    request is still open — this is a second delivery pass onto the SAME
-    branch. Opening a second change request would fork the review thread
-    the human is already on, so this skips straight to just having pushed.
-
-    :returns: ``True`` if a NEW change request was opened this call
-        (governs which landing comment ``deliver`` posts).
-    """
-    code_host = service._code_host(run)
-    if not _supports_change_requests(code_host):
-        run.pr_url = f"local branch published: {run.branch}"
-        return True
-    if run.pr_number is not None:
-        return False
-    _, cr_title, cr_body = _change_request_texts(run)
-    run.pr_url = await code_host.open_change_request(
-        run.repo, head=run.branch, base=run.base_branch,
-        title=cr_title, body=cr_body,
-    )
-    run.pr_number = change_request_number(run.pr_url)
-    return True
-
-
-def _supports_change_requests(code_host) -> bool:
-    """Return a host's capability, preserving existing test-double defaults."""
-    return getattr(code_host, "supports_change_requests", lambda: True)()
-
-
-def _delivery_message(run: WorkflowRun, opened: bool, code_host) -> str:
-    """Describe delivery according to the code host's review capability."""
-    if not _supports_change_requests(code_host):
-        return f"Branch published locally: {run.branch}"
-    if opened:
-        return f"Change request opened: {run.pr_url}"
-    return f"Updated the change request: {run.pr_url}"
-
-
-async def deliver(service: "WorkflowService", run: WorkflowRun) -> None:
-    """Commit, push, open (or confirm) the change request, and finish."""
-    run.status = "opening_pr"
-    service._save(run)
-    commit_msg, _, _ = _change_request_texts(run)
-    # The coder (or the loop's safety net) may already have committed
-    # everything — e.g. a run accepted on its first round with no
-    # trailing artifact writes since. An empty `git commit` errors, so
-    # only commit when the tree is actually still dirty.
-    if (await service.git.diff(run.workspace)).strip():
-        await service.git.commit_all(run.workspace, commit_msg)
-    await service.git.push(
-        run.workspace, run.branch, service._code_host(run).git_credential()
-    )
-    opened = await _open_or_confirm_change_request(service, run)
-    run.status = "done"
-    service._save(run)
-    # Post the delivery location to the ticket (best-effort — FR-019).
-    # A resumed run (idempotent path above) gets an "Updated" comment
-    # instead — never a second "opened" announcement for the same request.
-    message = _delivery_message(run, opened, service._code_host(run))
-    try:
-        await service._task_source(run).post_comment(run.task_ref, message)
-    except Exception:  # noqa: BLE001 — best-effort; run is already done
-        _logger.exception("failed to post CR link for %s", run.task_ref)
-    # Upload the verify screenshots to the ticket (Jira attaches them;
-    # GitHub no-ops — they rode along in the pushed PR). Best-effort,
-    # before teardown removes the worktree they live in.
-    await screenshots.upload_screenshots(
-        service._task_source(run), run,
-        service.settings.screenshots_root, "verify",
-    )
-    # Work is pushed and the CR is open — the worktree is no longer
-    # needed. Clean it up (closing the done-run leak, US3/FR-017).
-    await service._teardown_workspace(run)

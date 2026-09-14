@@ -4,6 +4,7 @@ Runs against the real 6-step pipeline (feature 012):
 describe(0) -> refine(1) -> gap_analysis(2) -> design(3) -> code(4) ->
 verify(5).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,13 +16,18 @@ from app.services.workflows.reentry import rewind_to
 def _run() -> WorkflowRun:
     steps = [
         WorkflowStep(
-            name=step, status="done", deliverable=f"{step}-deliverable",
+            name=step,
+            status="done",
+            deliverable=f"{step}-deliverable",
             session_id=f"sess-{step}",
         )
         for step in Step.sequence()
     ]
     return WorkflowRun(
-        id="wf-1", repo="o/r", task_ref="o/r#1", steps=steps,
+        id="wf-1",
+        repo="o/r",
+        task_ref="o/r#1",
+        steps=steps,
     )
 
 
@@ -37,9 +43,12 @@ def test_rewind_to_describe_marks_everything_after_pending() -> None:
     assert run.steps[0].session_id == "sess-describe"
     assert [s.session_id for s in run.steps[1:]] == [None] * 5
     assert [s.deliverable for s in run.steps] == [
-        "describe-deliverable", "refine-deliverable",
-        "gap_analysis-deliverable", "design-deliverable",
-        "code-deliverable", "verify-deliverable",
+        "describe-deliverable",
+        "refine-deliverable",
+        "gap_analysis-deliverable",
+        "design-deliverable",
+        "code-deliverable",
+        "verify-deliverable",
     ]
 
 
@@ -65,6 +74,7 @@ def test_rewind_to_design_marks_before_done_target_and_after_pending() -> None:
     becomes the pending target (session_id untouched — it's the target,
     not "after" it), code/verify become pending with session_id cleared."""
     run = _run()
+    run.prd_approved = True
     rewind_to(run, Step.DESIGN, "the approach needs to change")
 
     describe, refine, gap_analysis, design, code, verify = run.steps
@@ -79,6 +89,15 @@ def test_rewind_to_design_marks_before_done_target_and_after_pending() -> None:
     # Deliverables are never touched by rewind_to itself.
     assert refine.deliverable == "refine-deliverable"
     assert design.deliverable == "design-deliverable"
+    assert run.prd_approved is True
+
+
+def test_rewind_to_refine_clears_prd_approval_provenance() -> None:
+    """Ensure a revised PRD needs a new approval before design can run."""
+    run = _run()
+    run.prd_approved = True
+    rewind_to(run, Step.REFINE, "the requirements need another look")
+    assert run.prd_approved is False
 
 
 def test_rewind_to_code_marks_earlier_steps_done() -> None:

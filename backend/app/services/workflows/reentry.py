@@ -55,6 +55,8 @@ def rewind_to(run: WorkflowRun, step: Step, instruction: str) -> None:
     """
     if step not in REENTRY_STEPS:
         raise ValueError(f"not a legal re-entry step: {step!r}")
+    if step in (Step.DESCRIBE, Step.REFINE):
+        run.prd_approved = False
     _logger.debug(
         "rewind_to run=%s target=%s instruction=%s", run.id, step,
         instruction,

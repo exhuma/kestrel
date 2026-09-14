@@ -50,7 +50,7 @@ class _Candidate:
     """A reviewed technical analysis and the tasks it proposes to publish."""
 
     technical_analysis: str
-    tasks: list[dict[str, str]]
+    tasks: list[dict[str, object]]
 
 
 @dataclass
@@ -82,7 +82,7 @@ class _Turn:
         return result.final_text
 
 
-def _render_tasks(tasks: list[dict[str, str]]) -> str:
+def _render_tasks(tasks: list[dict[str, object]]) -> str:
     """Render candidate tasks as ``[index] title\\nbody`` for a prompt."""
     return "\n\n".join(
         f"[{i}] {t['title']}\n{t['body']}" for i, t in enumerate(tasks)
@@ -90,7 +90,7 @@ def _render_tasks(tasks: list[dict[str, str]]) -> str:
 
 
 def _failing_indices(
-    tasks: list[dict[str, str]], verdicts: dict[int, dict]
+    tasks: list[dict[str, object]], verdicts: dict[int, dict]
 ) -> list[int]:
     """Indices whose verdict is explicitly self_contained=False."""
     return [
@@ -101,13 +101,13 @@ def _failing_indices(
 
 
 def _apply_revisions(
-    tasks: list[dict[str, str]], revised: Sequence[Mapping[str, object]]
+    tasks: list[dict[str, object]], revised: Sequence[Mapping[str, object]]
 ) -> None:
     """Merge a revision turn's output back into ``tasks``, in place."""
     for item in revised:
         index = item.get("index")
         if isinstance(index, int) and 0 <= index < len(tasks):
-            tasks[index] = {
+            tasks[index] = tasks[index] | {
                 "title": str(item.get("title", tasks[index]["title"])),
                 "body": str(item.get("body", tasks[index]["body"])),
             }
@@ -132,12 +132,14 @@ def _decode_candidate(deliverable: str) -> _Candidate:
         raise ValueError("invalid decomposition candidate")
     normalized = [
         {
+            "id": str(task.get("id", f"TASK-{index + 1}")),
             "title": str(task["title"]),
             "body": str(task["body"]),
+            "prerequisites": list(task.get("prerequisites", [])),
             **({"published_ref": str(task["published_ref"])}
                if task.get("published_ref") else {}),
         }
-        for task in tasks
+        for index, task in enumerate(tasks)
         if isinstance(task, dict)
     ]
     if not normalized or len(normalized) != len(tasks):
@@ -146,8 +148,8 @@ def _decode_candidate(deliverable: str) -> _Candidate:
 
 
 async def _check_self_containment(
-    turn: _Turn, tech_analysis: str, tasks: list[dict[str, str]]
-) -> list[dict[str, str]]:
+    turn: _Turn, tech_analysis: str, tasks: list[dict[str, object]]
+) -> list[dict[str, object]]:
     """Revise any candidate task that fails the self-containment check.
 
     Runs the critic, and — when at least one task fails — one revision
@@ -240,9 +242,14 @@ async def _create_candidate(
         GAP_ANALYSIS_PROMPT.format(prd=prd, understanding=understanding)
     )
     tech_analysis = extract_tech_analysis(analysis_text) or analysis_text
-    tasks = extract_followup_tasks(analysis_text) or [
-        {"title": run.issue_title or "Implement approved work", "body": prd}
-    ]
+    fallback = [{
+        "id": "TASK-1",
+        "title": run.issue_title or "Implement approved work",
+        "body": prd,
+        "prerequisites": [],
+    }]
+    extracted_tasks = extract_followup_tasks(analysis_text) or fallback
+    tasks = cast(list[dict[str, object]], extracted_tasks)
     tasks = await _check_self_containment(turn, tech_analysis, tasks)
 
     service._write_artifact(run, "technical-analysis.md", tech_analysis)
@@ -271,28 +278,31 @@ async def _publish_candidate(
     candidate = _decode_candidate(step.deliverable or "")
 
     source = cast(TaskSource, service._task_source(run))
+    await service.git.push(
+        run.workspace, run.branch, service._code_host(run).git_credential()
+    )
     for task in candidate.tasks:
         task_ref = task.get("published_ref")
         if task_ref is None:
-            body = append_subtask_sentinel(task["body"])
+            body = append_subtask_sentinel(str(task["body"]))
             try:
                 task_ref = await source.create_subtask(
-                    run.task_ref, task["title"], body
+                    run.task_ref, str(task["title"]), body
                 )
             except SubtaskContextError as exc:
                 task["published_ref"] = exc.task_ref
                 step.deliverable = _encode_candidate(candidate)
                 service._save(run)
                 if service.child_tasks is not None:
-                    service.child_tasks.record(run.id, exc.task_ref)
+                    _record_child(service, run, exc.task_ref, task)
                 raise
             task["published_ref"] = task_ref
             step.deliverable = _encode_candidate(candidate)
             service._save(run)
             if service.child_tasks is not None:
-                service.child_tasks.record(run.id, task_ref)
+                _record_child(service, run, task_ref, task)
             continue
-        await source.complete_subtask(run.task_ref, task_ref)
+        await source.complete_subtask(run.task_ref, str(task_ref))
     # Distinct from the per-follow-up create_subtask calls above: the
     # summary goes back to the *original* ticket, for human reference
     # (spec.md FR-012) — post_comment works uniformly across every
@@ -305,3 +315,24 @@ async def _publish_candidate(
     step.status = "done"
     run.status = "decomposed"
     service._save(run)
+
+
+def _record_child(
+    service: "WorkflowService",
+    run: WorkflowRun,
+    task_ref: str,
+    task: dict[str, object],
+) -> None:
+    """Persist a child source reference with its parent feature DAG metadata."""
+    if service.child_tasks is None:
+        return
+    prerequisites = task.get("prerequisites", [])
+    if not isinstance(prerequisites, list):
+        prerequisites = []
+    service.child_tasks.record(
+        run.id,
+        task_ref,
+        str(task.get("id", "")),
+        tuple(item for item in prerequisites if isinstance(item, str)),
+        run.branch,
+    )

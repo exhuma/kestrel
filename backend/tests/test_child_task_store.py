@@ -50,6 +50,31 @@ def test_upgrade_creates_child_task_link_table(tmp_path: Path) -> None:
     }
 
 
+def test_upgrade_adds_child_task_dag_columns(tmp_path: Path) -> None:
+    """0023 adds the durable identities and parent integration branch."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0022")
+    command.upgrade(cfg, "0023")
+
+    columns = {
+        column["name"]
+        for column in sa.inspect(engine).get_columns("child_task_link")
+    }
+    assert {"task_node_id", "prerequisites", "integration_branch"} <= columns
+
+
+def test_store_reads_dag_metadata_and_ready_node_ids(tmp_path: Path) -> None:
+    """A linked child keeps its DAG metadata through its ready run head."""
+    store = ChildTaskStore(_factory(tmp_path))
+    store.record("parent", "o/r#8", "TASK-2", ("TASK-1",), "kestrel/issue-1")
+    store.record_run("o/r#8", "wf-2")
+
+    schedule = store.scheduling_details("o/r#8")
+    assert schedule is not None
+    assert schedule.prerequisites == ("TASK-1",)
+    assert store.ready_task_node_ids({"wf-2"}) == {"TASK-2"}
+
+
 def test_reopen_claim_updates_the_run_head(tmp_path: Path) -> None:
     """Only a closed child's latest run can claim its one successor."""
     factory = _factory(tmp_path)

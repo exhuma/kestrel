@@ -215,18 +215,22 @@ CODE_FEEDBACK_PROMPT = (
 )
 DESIGN_PROMPT = (
     "Read this approved PRD and the codebase, then produce a concise "
-    "high-level design and implementation plan. Do not use the ExitPlanMode "
-    "tool and do not write the plan to a file — this session is headless. "
-    "Output the complete plan directly in your final response, wrapped "
-    "EXACTLY in <PLAN> and </PLAN> tags. Then, on a new line, classify this "
-    "project's user-facing boundary — the surface a later verification step "
-    "will need to launch and exercise for real — wrapped EXACTLY in "
-    "<BOUNDARY> and </BOUNDARY> tags, containing ONLY one of: http (the "
-    "project exposes an HTTP API, e.g. FastAPI/Flask/Express), ui (the "
-    "project exposes a web UI, e.g. a Vite/React/Vue app with a dev or "
-    "preview server), both (it exposes both), or none (neither, e.g. a "
-    "library or CLI tool). Output nothing else. Do not edit any "
-    "files.\n\nPRD:\n{issue}"
+    "high-level design and implementation plan. Output ONLY one JSON object "
+    "wrapped EXACTLY in <DESIGN_CONTRACT> and </DESIGN_CONTRACT> tags; do "
+    "not edit files. The object MUST have version=1, a concise non-empty "
+    "plan, boundary (http, ui, both, none, or null), acceptance, tasks, and "
+    "checks arrays. Every acceptance entry MUST have stable id, parent_prd "
+    "trace, description, disposition (automated, manual, or not-applicable), "
+    "and rationale. Every task MUST have stable id, title, and prerequisites "
+    "(stable task IDs). Every check MUST have command, cwd, positive integer "
+    "timeout_seconds, and rationale. Propose commands only; do not run them. "
+    "Use empty arrays only when genuinely no entries apply. Shape: "
+    '{{"version":1,"plan":"...","boundary":"none","acceptance":['
+    '{{"id":"AC-1","parent_prd":"PRD section","description":"...",'
+    '"disposition":"automated","rationale":"..."}}],"tasks":['
+    '{{"id":"TASK-1","title":"...","prerequisites":[]}}],"checks":['
+    '{{"command":"...","cwd":".","timeout_seconds":60,'
+    '"rationale":"..."}}]}}.\n\nPRD:\n{issue}'
 )
 CODE_PROMPT = (
     "Implement the design below. Make all necessary code edits in this "
@@ -236,12 +240,14 @@ CODE_PROMPT = (
     "failing test reproducing a bug you are fixing) before or alongside the "
     "implementation, matching the project's existing test conventions and "
     "a sensible testing pyramid (favour fast unit/integration tests; keep "
-    "end-to-end coverage minimal). Verification later in this pipeline "
-    "checks live, observed behaviour — it is not a substitute for durable, "
-    "repo-committed tests, which are your responsibility. Once the "
+    "end-to-end coverage minimal). Kestrel, not you, executes the recorded "
+    "check contract after this turn. Verification later checks live, observed "
+    "behaviour — it is not a substitute for durable repo-committed tests, "
+    "which are your responsibility. Once the "
     "implementation is complete, " + _COMMIT_INSTRUCTION + " Then just "
     "stop — do not wrap your final summary in any tags."
-    "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
+    "\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\nACCEPTANCE CONTRACT:\n"
+    "{acceptance}\n\nTASK GRAPH:\n{task_graph}\n\nCHECK CONTRACT:\n{checks}"
 )
 #: permission_mode for the explore turn (feature 005, US1): the explore
 #: turn needs Bash/MCP tool execution approved without an interactive
@@ -299,7 +305,10 @@ VERIFY_PROMPT = (
     "tags, matching this shape:\n"
     '{{"accept": true, "feedback": "...", "observations": '
     '[{{"name": "...", "kind": "http", "passed": true, "detail": "..."}}]}}\n'
-    '"observations" is OPTIONAL — include one entry per distinct thing you '
+    'For an http boundary, include at least one well-formed http observation; '
+    'for ui, at least one ui observation; for both, include both kinds. '
+    '"observations" is OPTIONAL only when no boundary is declared — include '
+    'one entry per distinct thing you '
     "exercised while exploring the running application (kind is \"http\" or "
     '"ui"), each with a bounded, factual "detail". Omit it entirely when '
     "you did not explore anything this round.\n"
@@ -308,7 +317,8 @@ VERIFY_PROMPT = (
     "your final response and nothing else. "
     "Set accept=false and give specific, actionable feedback for the coder "
     "when the implementation is inconsistent or what you observed shows "
-    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}"
+    "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
+    "ACCEPTANCE CONTRACT:\n{acceptance}"
 )
 GAP_ANALYSIS_PROMPT = (
     "You are performing technical analysis and decomposition of an "
@@ -340,8 +350,10 @@ GAP_ANALYSIS_PROMPT = (
     "specifically needs — but keep it to technical content only. Wrap "
     "the tasks EXACTLY in <FOLLOWUP_TASKS> and "
     "</FOLLOWUP_TASKS> tags as a JSON array, e.g. "
-    '<FOLLOWUP_TASKS>[{{"title": "...", "body": "..."}}]</FOLLOWUP_TASKS>. '
-    "Do not edit any files.\n\nREQUIREMENTS DOCUMENT:\n{prd}\n\n"
+    '<FOLLOWUP_TASKS>[{{"id":"TASK-1","title":"...","body":"...",'
+    '"prerequisites":[]}}]</FOLLOWUP_TASKS>. Every id must be stable and '
+    "every prerequisite must name another task's id. Do not edit any files.\n\n"
+    "REQUIREMENTS DOCUMENT:\n{prd}\n\n"
     "CONFIRMED UNDERSTANDING:\n{understanding}"
 )
 GAP_ANALYSIS_CRITIC_PROMPT = (

@@ -38,13 +38,16 @@ def _log_driver_exception(task: asyncio.Task, workflow_id: str) -> None:
 #: subprocess (or transient side-effect) died with the process.
 _TRANSIENT = (
     "pending", "cloning", "describing", "refining", "analyzing",
-    "designing", "coding", "verifying", "opening_pr",
+    "designing", "coding", "verifying", "opening_pr", "repairing_ci",
 )
 
 #: Terminal statuses (feature 006): reaching one of these stops a run's
 #: active/wait clock for good, centralized in ``_save()`` so no terminal
 #: call site can forget to close it out.
-_TERMINAL_STATUSES = ("done", "failed", "rejected", "escalated", "decomposed")
+_TERMINAL_STATUSES = (
+    "done", "failed", "rejected", "escalated", "decomposed",
+    "technically_ready",
+)
 
 
 class _Rejected(Exception):

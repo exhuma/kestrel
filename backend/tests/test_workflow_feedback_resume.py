@@ -11,12 +11,14 @@ all (the starting point every resume test needs) is a
 gap_analysis as already-done and lands straight at `design` (mirrors how
 feature 012's own driver tests reach `design`/`code`/`verify`).
 """
+
 from __future__ import annotations
 
 import pytest
 
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
+    _approve_prd,
     _FakeFeedbackStore,
     _FakeGit,
     _FakeGitHub,
@@ -46,11 +48,14 @@ async def _deliver_a_run(gh, runner, git, tmp_path):
     `gap_analysis` (`decomposed`) and never reach `done` at all."""
     gh.body = _subtask_body("Build a widget")
     svc = _service(
-        gh, runner, git,
+        gh,
+        runner,
+        git,
         settings=_settings(workspace_root=str(tmp_path)),
         feedback_store=_FakeFeedbackStore(),
     )
     wid = await svc.create("o/r", 5, source="github-issue")
+    await _approve_prd(svc, wid)
     await _wait(lambda: svc.get(wid).status == "done")
     return svc, wid
 
@@ -62,11 +67,14 @@ async def test_resume_uses_add_worktree_existing_not_add_worktree(
     """Ensure a `done` run with an open PR resumes onto its SAME branch
     (add_worktree_existing), not a fresh one (add_worktree)."""
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nplan\n</PLAN>",
-        "diff --git a/x b/x",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nplan\n</PLAN>",
+            "diff --git a/x b/x",
+            _verdict(accept=True),
+        ],
+    )
     svc, wid = await _deliver_a_run(gh, runner, git, tmp_path)
 
     seen: dict[str, list] = {"existing": []}
@@ -97,11 +105,14 @@ async def test_resume_deliver_pushes_without_second_open_pr_and_one_comment(
     second open_change_request call, and posts exactly one landing
     comment for this round."""
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nplan\n</PLAN>",
-        "diff --git a/x b/x",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nplan\n</PLAN>",
+            "diff --git a/x b/x",
+            _verdict(accept=True),
+        ],
+    )
     svc, wid = await _deliver_a_run(gh, runner, git, tmp_path)
     first_pr_url = svc.get(wid).pr_url
     open_calls: list[str] = []
@@ -140,11 +151,14 @@ async def test_triage_selects_code_for_an_implementation_only_comment(
 ) -> None:
     """Ensure a feedback item that just names a bug routes to `code`."""
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nplan\n</PLAN>",
-        "diff --git a/x b/x",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nplan\n</PLAN>",
+            "diff --git a/x b/x",
+            _verdict(accept=True),
+        ],
+    )
     svc, wid = await _deliver_a_run(gh, runner, git, tmp_path)
     calls_before = len(runner.calls)
     runner._outputs.append(_triage("code", instruction="fix off-by-one"))
@@ -172,11 +186,14 @@ async def test_triage_selects_design_and_it_reruns_gatelessly(
     since design has no gate on this branch, the run reaches `done`
     again without parking."""
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nplan\n</PLAN>",
-        "diff --git a/x b/x",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nplan\n</PLAN>",
+            "diff --git a/x b/x",
+            _verdict(accept=True),
+        ],
+    )
     svc, wid = await _deliver_a_run(gh, runner, git, tmp_path)
     runner._outputs.append(
         _triage("design", instruction="reconsider the data model")
@@ -205,11 +222,14 @@ async def test_triage_selects_refine_and_the_run_re_parks_at_the_gate(
     — since refine is a gated step — the run parks at the approval gate
     again rather than reaching `done` on its own."""
     gh, git = _FakeGitHub(body="vague issue"), _FakeGit()
-    runner = _FakeRunner(SessionRegistry(), outputs=[
-        "<PLAN>\nplan\n</PLAN>",
-        "diff --git a/x b/x",
-        _verdict(accept=True),
-    ])
+    runner = _FakeRunner(
+        SessionRegistry(),
+        outputs=[
+            "<PLAN>\nplan\n</PLAN>",
+            "diff --git a/x b/x",
+            _verdict(accept=True),
+        ],
+    )
     svc, wid = await _deliver_a_run(gh, runner, git, tmp_path)
     runner._outputs.append(
         _triage("refine", instruction="should this even ingest CSV?")
@@ -217,9 +237,7 @@ async def test_triage_selects_refine_and_the_run_re_parks_at_the_gate(
     runner._outputs.extend(_refine_noquestions("Build a widget, revised"))
 
     svc.resume_with_feedback(wid, "should we even support CSV uploads?")
-    await _wait(
-        lambda: svc.get(wid).status == "awaiting_refine_approval"
-    )
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
 
     run = svc.get(wid)
     assert run.steps[1].deliverable == "Build a widget, revised"

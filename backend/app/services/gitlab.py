@@ -11,7 +11,8 @@ from urllib.parse import quote
 
 import httpx
 
-from app.ports import ChangeRequest, Feedback
+from app.ports import ChangeRequest, Feedback, RequiredCiStatus
+from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
 from app.services.feedback.timeparse import parse_iso
 
@@ -220,6 +221,21 @@ class GitLabCodeHost:
         return ChangeRequest(
             number=number, state=state, url=data.get("web_url") or ""
         )
+
+    async def required_ci_statuses(
+        self, repo: str, number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Normalize requested GitLab pipeline-job states for an MR."""
+        path = f"/projects/{self._pid(repo)}/merge_requests/{number}/pipelines"
+        pipelines = (await self._request("GET", path)).json()
+        if not pipelines:
+            return [RequiredCiStatus(name, "pending") for name in names]
+        pipeline_id = pipelines[0]["id"]
+        jobs = await self._list_pages(
+            f"/projects/{self._pid(repo)}/pipelines/{pipeline_id}/jobs"
+        )
+        by_name = {job.get("name"): job for job in jobs}
+        return [gitlab_status(name, by_name.get(name)) for name in names]
 
     async def list_review_comments(
         self, repo: str, number: int, since: str | None = None

@@ -123,6 +123,9 @@ class TaskSourceConfig(BaseModel):
     #: wire format and the credential-exposure trust implication before
     #: setting this.
     hooks_dir: str = ""
+    #: Required CI check names for change requests from this source. Empty
+    #: keeps the historical terminal ``done`` behaviour.
+    required_ci_statuses: list[str] = []
     #: GitHub: labels applied at each lifecycle event (feature 006). The
     #: in-progress label is added at run start and removed at every
     #: terminal; the matching terminal label is added on that terminal.

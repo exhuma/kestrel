@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from app.ports import RequiredCiStatus
+
 
 class LocalCodeHost:
     """Code host that publishes to absolute local bare repositories only."""
@@ -43,3 +45,9 @@ class LocalCodeHost:
     def supports_change_requests(self) -> bool:
         """Report that a local repository has no pull-request mechanism."""
         return False
+
+    async def required_ci_statuses(
+        self, _repo: str, _number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Report unsupported local CI checks as pending rather than passing."""
+        return [RequiredCiStatus(name, "pending") for name in names]
