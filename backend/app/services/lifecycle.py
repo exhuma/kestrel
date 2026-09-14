@@ -14,6 +14,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Callable, Literal
 
+from app.documents import Document, Rule, Text, document, paragraph
 from app.notifications import gate_deep_link
 from app.ports import LifecycleEvent
 from app.services.hooks import HookRunner
@@ -62,17 +63,17 @@ def _build_event(run: "WorkflowRun", public_base_url: str) -> LifecycleEvent:
 
 def render_footer(
     event: LifecycleEvent, *, include_status: bool, include_time: bool
-) -> str:
+) -> Document | None:
     """Render the comment-footer fallback for fields not natively applied.
 
     :param event: The lifecycle event being reported.
     :param include_status: Whether the status wasn't natively applied.
     :param include_time: Whether the time metrics weren't natively applied.
-    :returns: The footer text, or "" when neither field needs reporting
-        (the caller then posts no comment at all).
+    :returns: The footer document, or ``None`` when neither field needs
+        reporting (the caller then posts no comment at all).
     """
     if not include_status and not include_time:
-        return ""
+        return None
     parts = ["kestrel:"]
     if include_status:
         parts.append(f"status → {event.kind}")
@@ -82,7 +83,9 @@ def render_footer(
         if event.wait_seconds:
             wait = _format_duration(event.wait_seconds)
             parts.append(f"waiting on you: {wait}")
-    return f"---\n{' · '.join(parts)}" if len(parts) > 1 else ""
+    if len(parts) == 1:
+        return None
+    return document(Rule(), paragraph(Text(" · ".join(parts))))
 
 
 def _format_duration(seconds: float) -> str:

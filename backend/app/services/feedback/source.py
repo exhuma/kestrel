@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.models_workflow import WorkflowRun
 from app.ports import Acknowledgeable, Commentable, Feedback, FeedbackSource
+
+if TYPE_CHECKING:
+    from app.documents import Document
 
 
 class FeedbackTicketPort(Protocol):
@@ -21,7 +24,7 @@ class FeedbackTicketPort(Protocol):
         """Best-effort acknowledgement of a ticket feedback item."""
         ...
 
-    async def post_comment(self, ref: str, body: str) -> str:
+    async def post_comment(self, ref: str, body: "Document | str") -> str:
         """Post a visible fallback reply on ``ref``."""
         ...
 

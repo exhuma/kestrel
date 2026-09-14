@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
+from app.documents import Document, Paragraph, Text, document
 from app.models_workflow import WorkflowRun
 from app.ports import Commentable
 from app.review_requests import render_review_request
@@ -122,6 +123,14 @@ def _render_decomposition_candidate(deliverable: str) -> str:
     )
 
 
+def _with_deep_link(body: Document | str, link: str) -> Document | str:
+    """Append the optional UI convenience link without flattening documents."""
+    if isinstance(body, Document):
+        link_block = Paragraph((Text(f"Open in kestrel: {link}"),))
+        return document(*body.blocks, link_block)
+    return f"{body}\n\nOpen in kestrel: {link}"
+
+
 @dataclass
 class Notification:
     """A recorded notification for the in-app notification center."""
@@ -145,7 +154,7 @@ class _PendingReviewPost:
     run: WorkflowRun
     gate: str
     task_ref: str
-    body: str
+    body: Document | str
     revision: int | None
     token: str | None
 
@@ -257,7 +266,7 @@ class TaskSourceNotifier:
         body = self._review_body(run, revision, token)
         link = gate_deep_link(self._public_base_url, run.id)
         if link:
-            body = f"{body}\n\nOpen in kestrel: {link}"
+            body = _with_deep_link(body, link)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -300,7 +309,7 @@ class TaskSourceNotifier:
 
     def _review_body(
         self, run: WorkflowRun, revision: int | None, token: str | None
-    ) -> str:
+    ) -> Document | str:
         """Render a gate post without recording delivery before it succeeds."""
         message = render_message(run)
         if not run.status.startswith("awaiting_"):

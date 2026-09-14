@@ -1,4 +1,5 @@
 """Tests for FeedbackPollService (feature 013, US1)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -6,6 +7,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.config import Settings
+from app.documents import render_markdown
 from app.models_workflow import WorkflowRun
 from app.notifications import Notifier
 from app.ports import Feedback
@@ -25,8 +27,11 @@ class _FakeNoopNotifier(Notifier):
 class _FakeFeedbackSource:
     """Controllable ``list_comments``/``acknowledge`` double, keyed by ref."""
 
-    def __init__(self, items_by_ref: dict[str, list[Feedback]] | None = None,
-                 fail_refs: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        items_by_ref: dict[str, list[Feedback]] | None = None,
+        fail_refs: set[str] | None = None,
+    ) -> None:
         self.items_by_ref = items_by_ref or {}
         self.fail_refs = fail_refs or set()
         self.calls: list[tuple[str, str | None]] = []
@@ -61,10 +66,14 @@ class _FakeIntake:
         self.redispatched.append(workflow_id)
 
     async def intake(self, feedback, *, task_ref, source=None, is_bot=False):
-        self.calls.append({
-            "task_ref": task_ref, "feedback": feedback,
-            "source": source, "is_bot": is_bot,
-        })
+        self.calls.append(
+            {
+                "task_ref": task_ref,
+                "feedback": feedback,
+                "source": source,
+                "is_bot": is_bot,
+            }
+        )
 
 
 class _FakeChildTasks:
@@ -113,7 +122,10 @@ def _feedback(
     body="@kestrel hi", created="2026-01-01T00:00:00+00:00"
 ) -> Feedback:
     return Feedback(
-        external_id=f"x:{created}", origin="ticket", author="a", body=body,
+        external_id=f"x:{created}",
+        origin="ticket",
+        author="a",
+        body=body,
         created_at=datetime.fromisoformat(created),
     )
 
@@ -125,7 +137,10 @@ def _run(
     terminal_at: datetime | None = None,
 ) -> WorkflowRun:
     return WorkflowRun(
-        id=run_id, repo="o/r", task_ref=task_ref, status=status,
+        id=run_id,
+        repo="o/r",
+        task_ref=task_ref,
+        status=status,
         terminal_at=terminal_at,
     )
 
@@ -208,7 +223,9 @@ async def test_run_cycle_keeps_non_retired_child_past_feedback_window() -> None:
     children = _FakeChildTasks(linked={"o/r#child"})
     poll = FeedbackPollService(
         _workflow_service({"github-issue": source}, workflows),
-        _FakeFeedbackStore(), _FakeIntake(), children,
+        _FakeFeedbackStore(),
+        _FakeIntake(),
+        children,
     )
 
     await poll.run_cycle()
@@ -225,7 +242,9 @@ async def test_feedback_poll_with_decomposed_linked_child_is_polled() -> None:
     children = _FakeChildTasks(linked={"o/r#child"})
     poll = FeedbackPollService(
         _workflow_service({"github-issue": source}, workflows),
-        _FakeFeedbackStore(), _FakeIntake(), children,
+        _FakeFeedbackStore(),
+        _FakeIntake(),
+        children,
     )
 
     await poll.run_cycle()
@@ -243,7 +262,9 @@ async def test_feedback_poll_with_retired_linked_child_is_excluded() -> None:
     children.retired.add("o/r#child")
     poll = FeedbackPollService(
         _workflow_service({"github-issue": source}, workflows),
-        _FakeFeedbackStore(), _FakeIntake(), children,
+        _FakeFeedbackStore(),
+        _FakeIntake(),
+        children,
     )
 
     await poll.run_cycle()
@@ -294,7 +315,9 @@ async def test_run_cycle_keeps_ticket_and_review_cursors_separate() -> None:
     items = [
         _feedback(created="2026-01-03T00:00:00+00:00"),
         Feedback(
-            external_id="review", origin="review", author="a",
+            external_id="review",
+            origin="review",
+            author="a",
             body="@kestrel hi",
             created_at=datetime.fromisoformat("2026-01-02T00:00:00+00:00"),
         ),
@@ -304,7 +327,8 @@ async def test_run_cycle_keeps_ticket_and_review_cursors_separate() -> None:
     workflows.create(_run("wf-1", "o/r#1"))
     store = _FakeFeedbackStore()
     poll = FeedbackPollService(
-        _workflow_service({"github-issue": source}, workflows), store,
+        _workflow_service({"github-issue": source}, workflows),
+        store,
         _FakeIntake(),
     )
 
@@ -354,7 +378,8 @@ async def test_run_cycle_isolates_a_failing_source() -> None:
     being polled."""
     good_items = [_feedback()]
     source = _FakeFeedbackSource(
-        items_by_ref={"o/r#2": good_items}, fail_refs={"o/r#1"},
+        items_by_ref={"o/r#2": good_items},
+        fail_refs={"o/r#1"},
     )
     workflows = WorkflowRegistry()
     workflows.create(_run("wf-1", "o/r#1"))
@@ -373,7 +398,8 @@ async def test_list_work_items_is_always_empty() -> None:
     """Feedback polling has no dry-run listing (it walks runs, not
     tickets awaiting ingestion) — required by the PollSource protocol."""
     poll = FeedbackPollService(
-        _workflow_service({}, WorkflowRegistry()), _FakeFeedbackStore(),
+        _workflow_service({}, WorkflowRegistry()),
+        _FakeFeedbackStore(),
         _FakeIntake(),
     )
 
@@ -389,19 +415,19 @@ async def test_run_cycle_retires_due_child_and_stops_feedback_poll() -> None:
     children = _FakeChildTasks([("o/r#1", "wf-1")])
     poll = FeedbackPollService(
         _workflow_service({"github-issue": source}, workflows),
-        _FakeFeedbackStore(), _FakeIntake(), children,
+        _FakeFeedbackStore(),
+        _FakeIntake(),
+        children,
     )
 
     await poll.run_cycle()
     await poll.run_cycle()
 
-    assert source.posts == [
-        (
-            "o/r#1",
-            "Kestrel has retired this closed child task. "
-            "Create a new task for further work.",
-        )
-    ]
+    assert source.posts[0][0] == "o/r#1"
+    assert render_markdown(source.posts[0][1]) == (
+        "Kestrel has retired this closed child task. "
+        "Create a new task for further work."
+    )
     assert source.calls == []
 
 
@@ -414,7 +440,9 @@ async def test_run_cycle_retries_retirement_after_a_source_failure() -> None:
     children = _FakeChildTasks([("o/r#1", "wf-1")])
     poll = FeedbackPollService(
         _workflow_service({"github-issue": source}, workflows),
-        _FakeFeedbackStore(), _FakeIntake(), children,
+        _FakeFeedbackStore(),
+        _FakeIntake(),
+        children,
     )
     source.post_comment = _failing_post_comment
 

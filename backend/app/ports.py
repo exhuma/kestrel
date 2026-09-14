@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from app.documents import Document
     from app.models_workflow import WorkflowRun
 
 
@@ -196,7 +197,7 @@ class Acknowledgeable(Protocol):
 class Commentable(Protocol):
     """A feedback origin that can publish a visible text reply."""
 
-    async def post_comment(self, ref: str, body: str) -> str:
+    async def post_comment(self, ref: str, body: "Document | str") -> str:
         """Post ``body`` on ``ref`` and return the resulting URL when known."""
         ...
 
@@ -208,7 +209,7 @@ class TaskSource(Protocol):
         """Fetch the ticket's current title/body."""
         ...
 
-    async def post_comment(self, ref: str, body: str) -> str:
+    async def post_comment(self, ref: str, body: "Document | str") -> str:
         """Post a comment; return its URL (best-effort caller)."""
         ...
 

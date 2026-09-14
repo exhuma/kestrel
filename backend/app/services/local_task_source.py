@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from app.documents import Document, as_document, render_markdown
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.feedback.timeparse import parse_iso
 
@@ -17,9 +18,7 @@ _COMMENT_STAMP = r"\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}"
 _HUMAN_COMMENT_NAME = re.compile(
     rf"^(?P<stamp>{_COMMENT_STAMP})(?:-[A-Za-z0-9][A-Za-z0-9_-]*)?\.md$"
 )
-_KESTREL_COMMENT_NAME = re.compile(
-    rf"^{_COMMENT_STAMP}-kestrel(?:-\d+)?\.md$"
-)
+_KESTREL_COMMENT_NAME = re.compile(rf"^{_COMMENT_STAMP}-kestrel(?:-\d+)?\.md$")
 
 
 def local_task_ref(path: Path, root: Path) -> str:
@@ -75,13 +74,13 @@ class LocalTaskSource:
         """Report local tasks healthy without an external probe."""
         return True
 
-    async def post_comment(self, ref: str, body: str) -> str:
+    async def post_comment(self, ref: str, body: Document | str) -> str:
         """Write a timestamped reply excluded from local task feedback."""
         directory = self._task_dir(ref) / "comments"
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime(_STAMP_FORMAT)
         path = self._unique_comment_path(directory, f"{stamp}-kestrel")
-        path.write_text(body, encoding="utf-8")
+        path.write_text(render_markdown(as_document(body)), encoding="utf-8")
         return str(path)
 
     def _unique_comment_path(self, directory: Path, stem: str) -> Path:
@@ -161,9 +160,8 @@ class LocalTaskSource:
         return [
             feedback
             for path in sorted(directory.glob("*.md"))
-            if (
-                feedback := self._read_human_comment(ref, path, cutoff)
-            ) is not None
+            if (feedback := self._read_human_comment(ref, path, cutoff))
+            is not None
         ]
 
     def _read_human_comment(
@@ -184,8 +182,11 @@ class LocalTaskSource:
         if cutoff is not None and created < cutoff:
             return None
         return Feedback(
-            external_id=f"{ref}:{path.name}", origin="ticket", author="",
-            body=path.read_text(encoding="utf-8"), created_at=created,
+            external_id=f"{ref}:{path.name}",
+            origin="ticket",
+            author="",
+            body=path.read_text(encoding="utf-8"),
+            created_at=created,
         )
 
     async def acknowledge(

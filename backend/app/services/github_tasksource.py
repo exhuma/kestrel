@@ -5,11 +5,13 @@ under the repo's 500-line ceiling once ``GitHubCodeHost``'s PR-review
 read/acknowledge capability joined the existing pull-request-open path —
 mirrors ``ports.py``'s own ``TaskSource``/``CodeHost`` role split.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Literal
 
 from app.config_models import TaskSourceConfig
+from app.documents import Document, as_document, render_markdown
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.feedback.timeparse import parse_iso
 from app.services.github import GitHubClient, parse_github_ref
@@ -57,9 +59,11 @@ class GitHubTaskSource:
         as this profile's code host, when GitHub plays both roles."""
         return await self._client.check_health()
 
-    async def post_comment(self, ref: str, body: str) -> str:
+    async def post_comment(self, ref: str, body: Document | str) -> str:
         repo, number = parse_github_ref(ref)
-        return await self._client.create_issue_comment(repo, number, body)
+        return await self._client.create_issue_comment(
+            repo, number, render_markdown(as_document(body))
+        )
 
     async def attach(
         self, _ref: str, _name: str, _data: bytes, _mimetype: str
@@ -123,9 +127,7 @@ class GitHubTaskSource:
                     repo, number, cfg.in_progress_label
                 )
             else:
-                terminal_label = getattr(
-                    cfg, _TERMINAL_LABEL_FIELD[event.kind]
-                )
+                terminal_label = getattr(cfg, _TERMINAL_LABEL_FIELD[event.kind])
                 await self._client.remove_label(
                     repo, number, cfg.in_progress_label
                 )
@@ -159,7 +161,8 @@ class GitHubTaskSource:
         raw = await self._client.list_issue_comments(repo, number, since=since)
         cutoff = parse_iso(since) if since else None
         return [
-            item for item in (self._to_feedback(repo, c) for c in raw)
+            item
+            for item in (self._to_feedback(repo, c) for c in raw)
             if item is not None
             and (cutoff is None or item.created_at >= cutoff)
         ]
@@ -197,7 +200,7 @@ def _parse_comment_external_id(external_id: str) -> tuple[str, int] | None:
     """Recover ``(repo, comment_id)`` from a minted issue-comment id."""
     if not external_id.startswith(_COMMENT_ID_PREFIX):
         return None
-    repo, _, comment_id = external_id[len(_COMMENT_ID_PREFIX):].rpartition("#")
+    repo, _, comment_id = external_id[len(_COMMENT_ID_PREFIX) :].rpartition("#")
     if not repo or not comment_id.isdigit():
         return None
     return repo, int(comment_id)

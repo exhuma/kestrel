@@ -1,4 +1,5 @@
 """Tests for the controlled Jira Cloud document renderer."""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +7,18 @@ import json
 import httpx
 import pytest
 
+from app.documents import (
+    BulletList,
+    Code,
+    Heading,
+    OrderedList,
+    Text,
+    document,
+    paragraph,
+    render_adf,
+)
 from app.services.jira import JiraClient, JiraTaskSource
-from app.services.jira_document import to_adf, to_text
+from app.services.jira_document import to_text
 
 
 def _client(handler) -> JiraClient:
@@ -22,9 +33,14 @@ def _client(handler) -> JiraClient:
 
 def test_adf_keeps_ordered_and_bullet_lists_separate() -> None:
     """Adjacent list styles produce flat independent ADF lists."""
-    document = to_adf("1. First\n2. Second\n\n- Third")
+    rendered = render_adf(
+        document(
+            OrderedList((paragraph(Text("First")), paragraph(Text("Second")))),
+            BulletList((paragraph(Text("Third")),)),
+        )
+    )
 
-    assert [node["type"] for node in document["content"]] == [
+    assert [node["type"] for node in rendered["content"]] == [
         "orderedList",
         "bulletList",
     ]
@@ -32,24 +48,28 @@ def test_adf_keeps_ordered_and_bullet_lists_separate() -> None:
 
 def test_to_text_preserves_token_from_adf() -> None:
     """ADF flattening retains the token used by review feedback parsing."""
-    document = {
+    adf_document = {
         "type": "doc",
         "version": 1,
-        "content": [{
-            "type": "paragraph",
-            "content": [{
-                "type": "text",
-                "text": "[kestrel-review:token] @kestrel approve",
-            }],
-        }],
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "[kestrel-review:token] @kestrel approve",
+                    }
+                ],
+            }
+        ],
     }
 
-    assert to_text(document) == "[kestrel-review:token] @kestrel approve"
+    assert to_text(adf_document) == "[kestrel-review:token] @kestrel approve"
 
 
 @pytest.mark.asyncio
-async def test_cloud_comments_use_adf_v3_payloads() -> None:
-    """Cloud comments use v3 and preserve controlled review-list structure."""
+async def test_cloud_comments_render_documents_as_adf_v3_payloads() -> None:
+    """Cloud comments use v3 and render an explicit document structure."""
     seen = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -57,14 +77,16 @@ async def test_cloud_comments_use_adf_v3_payloads() -> None:
         seen["body"] = json.loads(req.content)
         return httpx.Response(201, json={"self": "https://jira/c/1"})
 
-    await _client(handler).add_comment(
-        "RFC-1", "## Review\n\n- Approve with `token`"
+    body = document(
+        Heading(2, (Text("Review"),)),
+        BulletList((paragraph(Text("Approve with "), Code("token")),)),
     )
+    await _client(handler).add_comment("RFC-1", body)
 
     assert seen["path"] == "/rest/api/3/issue/RFC-1/comment"
-    document = seen["body"]["body"]
-    assert document["type"] == "doc"
-    assert [node["type"] for node in document["content"]] == [
+    adf_document = seen["body"]["body"]
+    assert adf_document["type"] == "doc"
+    assert [node["type"] for node in adf_document["content"]] == [
         "heading",
         "bulletList",
     ]
@@ -90,12 +112,16 @@ def _comment() -> dict:
         "body": {
             "type": "doc",
             "version": 1,
-            "content": [{
-                "type": "paragraph",
-                "content": [{
-                    "type": "text",
-                    "text": "@kestrel approve [kestrel-review:abc]",
-                }],
-            }],
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "@kestrel approve [kestrel-review:abc]",
+                        }
+                    ],
+                }
+            ],
         },
     }

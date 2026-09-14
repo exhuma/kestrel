@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from app.documents import as_document, render_markdown
 from app.models_workflow import WorkflowRun
 from app.ports import LifecycleEvent
 from app.services.lifecycle import (
@@ -111,22 +112,24 @@ def test_render_footer_status_only() -> None:
     """Ensure a status-only footer carries the status, not time."""
     event = LifecycleEvent(kind="done")
     footer = render_footer(event, include_status=True, include_time=False)
-    assert "status → done" in footer
-    assert "active" not in footer
+    assert footer is not None
+    rendered = render_markdown(footer)
+    assert "status → done" in rendered
+    assert "active" not in rendered
 
 
 def test_render_footer_neither_is_empty() -> None:
     """Ensure nothing is rendered when both fields were natively applied."""
     event = LifecycleEvent(kind="done")
     footer = render_footer(event, include_status=False, include_time=False)
-    assert footer == ""
+    assert footer is None
 
 
 def test_render_footer_time_without_a_value_is_empty() -> None:
     """Ensure a time-only footer with no active_seconds yet renders nothing."""
     event = LifecycleEvent(kind="start")
     footer = render_footer(event, include_status=False, include_time=True)
-    assert footer == ""
+    assert footer is None
 
 
 # --- integration: start -> done, start -> failed (T014) ----------------
@@ -157,8 +160,9 @@ async def test_native_status_but_unsupported_time_still_gets_footer() -> None:
     assert len(source.comments) == 1
     ref, body = source.comments[0]
     assert ref == "o/r#5"
-    assert "status" not in body
-    assert "active" in body
+    rendered = render_markdown(as_document(body))
+    assert "status" not in rendered
+    assert "active" in rendered
 
 
 @pytest.mark.asyncio
@@ -208,7 +212,7 @@ async def test_unsupported_native_status_falls_back_to_footer() -> None:
     assert len(source.comments) == 1
     ref, body = source.comments[0]
     assert ref == "o/r#5"
-    assert "status → done" in body
+    assert "status → done" in render_markdown(as_document(body))
 
 
 @pytest.mark.asyncio

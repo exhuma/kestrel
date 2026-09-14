@@ -1,19 +1,25 @@
 """Retire closed published child tasks after their monitoring retention."""
+
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
 
 from app.config import Settings
+from app.documents import Text, document, paragraph
 from app.persistence.child_task_store import ChildTaskLinks
 from app.services.workflows import WorkflowService
 from app.services.workflows.shared import _now_utc
 
 _log = logging.getLogger("kestrel.feedback.retention")
 
-RETIREMENT_NOTICE = (
-    "Kestrel has retired this closed child task. "
-    "Create a new task for further work."
+RETIREMENT_NOTICE = document(
+    paragraph(
+        Text(
+            "Kestrel has retired this closed child task. "
+            "Create a new task for further work."
+        )
+    )
 )
 
 

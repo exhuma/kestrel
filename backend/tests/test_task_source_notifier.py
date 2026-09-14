@@ -7,6 +7,7 @@ from datetime import datetime
 
 import pytest
 
+from app.documents import as_document, render_markdown
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
@@ -161,9 +162,10 @@ async def test_gate_post_includes_a_durable_revision_token() -> None:
     await _tick()
 
     assert len(reviews.rows) == 1
-    assert "Revision 1: `[kestrel-review:token-1]`" in source.comments[0][1]
-    assert "Reply with one command:" in source.comments[0][1]
-    commands = source.comments[0][1]
+    body = render_markdown(as_document(source.comments[0][1]))
+    assert "Revision 1: `[kestrel-review:token-1]`" in body
+    assert "Reply with one command:" in body
+    commands = body
     assert "@kestrel approve [kestrel-review:token-1]" in commands
     assert "@kestrel reject [kestrel-review:token-1]" in commands
     assert "@kestrel request changes [kestrel-review:token-1]" in commands
@@ -189,7 +191,7 @@ async def test_external_review_post_contains_its_artifact_before_link(
     notifier.notify(_review_run(status))
     await _tick()
 
-    body = source.comments[0][1]
+    body = render_markdown(as_document(source.comments[0][1]))
     assert artifact in body
     assert body.index(artifact) < body.index("[kestrel-review:token-1]")
     assert body.index("[kestrel-review:token-1]") < body.index(
@@ -206,7 +208,7 @@ async def test_decomposition_review_renders_numbered_candidate_tasks() -> None:
     )
     await _tick()
 
-    body = source.comments[0][1]
+    body = render_markdown(as_document(source.comments[0][1]))
     assert "## Technical analysis" in body
     assert "## Proposed child tasks" in body
     assert "1. **Add endpoint**" in body
@@ -235,6 +237,7 @@ def test_delta_summary_references_canonical_artifact() -> None:
     summary = render_delta_summary(
         "One\nOld value", "One\nNew value", "https://k.example/?run=wf-1"
     )
+    summary = render_markdown(summary)
 
     assert "New value" in summary
     assert "Old value" not in summary

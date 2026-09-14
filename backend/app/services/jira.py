@@ -7,6 +7,7 @@ configurable:
 ``basic`` (Cloud — email + API token) or ``bearer`` (Server/DC — PAT). The
 token is a secret and is never logged.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,10 +16,16 @@ from typing import Literal
 import httpx
 
 from app.config_models import TaskSourceConfig
+from app.documents import (
+    Document,
+    as_document,
+    render_adf,
+    render_markdown,
+)
 from app.ports import Feedback, LifecycleEvent, SubtaskContextError, Task
 from app.services.exceptions import GitError
 from app.services.feedback.timeparse import parse_iso
-from app.services.jira_document import to_adf, to_text
+from app.services.jira_document import to_text
 
 _log = logging.getLogger("kestrel.jira")
 
@@ -55,9 +62,7 @@ class JiraClient:
         self._token = token
         self._cloud = deployment == "cloud"
         http_auth = (
-            httpx.BasicAuth(email, token)
-            if auth == "basic" and token
-            else None
+            httpx.BasicAuth(email, token) if auth == "basic" and token else None
         )
         self._http = httpx.AsyncClient(
             base_url=f"{self._base}/rest/api/{'3' if self._cloud else '2'}",
@@ -131,9 +136,7 @@ class JiraClient:
                 break
         return [self._to_task(i) for i in issues]
 
-    async def _search_cloud_page(
-        self, body: dict, token: str | None
-    ) -> dict:
+    async def _search_cloud_page(self, body: dict, token: str | None) -> dict:
         """POST one Cloud enhanced-search page, continuing with ``token``."""
         payload = body if token is None else {**body, "nextPageToken": token}
         resp = await self._request("POST", "/search/jql", json=payload)
@@ -180,12 +183,16 @@ class JiraClient:
         data = resp.json()
         return data if isinstance(data, list) else []
 
-    async def add_comment(self, key: str, body: str) -> str:
+    async def add_comment(self, key: str, body: Document | str) -> str:
         """Post a comment; return its API URL."""
         resp = await self._request(
             "POST",
             f"/issue/{key}/comment",
-            json={"body": to_adf(body) if self._cloud else body},
+            json={
+                "body": render_adf(as_document(body))
+                if self._cloud
+                else render_markdown(as_document(body)),
+            },
         )
         return resp.json().get("self", "")
 
@@ -217,7 +224,7 @@ class JiraClient:
         fields = {
             "project": {"key": project_key},
             "summary": summary,
-            "description": to_adf(body) if self._cloud else body,
+            "description": self._description_body(body),
             "issuetype": {"name": "Sub-task"},
             "parent": {"key": parent_key},
         }
@@ -229,6 +236,10 @@ class JiraClient:
             json={"fields": fields},
         )
         return resp.json()["key"]
+
+    def _description_body(self, body: str) -> object:
+        """Render a child description only when Cloud requires ADF."""
+        return render_adf(as_document(body)) if self._cloud else body
 
     async def add_remote_link(self, key: str, url: str, title: str) -> None:
         """Add a titled web link to an issue for repository resolution."""
@@ -263,7 +274,8 @@ class JiraClient:
         start = 0
         while True:
             resp = await self._request(
-                "GET", f"/issue/{key}/comment",
+                "GET",
+                f"/issue/{key}/comment",
                 params={"orderBy": "created", "startAt": start},
             )
             data = resp.json()
@@ -299,7 +311,7 @@ class JiraTaskSource:
     async def check_health(self) -> bool:
         return await self._client.check_health()
 
-    async def post_comment(self, ref: str, body: str) -> str:
+    async def post_comment(self, ref: str, body: Document | str) -> str:
         return await self._client.add_comment(ref, body)
 
     async def attach(
