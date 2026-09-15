@@ -39,6 +39,10 @@ max_ci_repair_iterations = 2
 # How long a closed published child remains monitored before Kestrel posts one
 # retirement notice. The default is six months.
 child_task_closure_retention_days = 183
+# Mark Kestrel-generated comments and ignore them during feedback intake. This
+# protects personal-token installations until Kestrel has its own account.
+comment_sentinel_enabled = true
+comment_sentinel = "[kestrel:posted]"
 
 # Optional, stateless OpenAI-compatible feedback translation. It is not a
 # workflow backend. Keep its credential in the named environment variable.

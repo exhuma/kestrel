@@ -24,7 +24,11 @@ from app.persistence.feedback_store import FeedbackStore, get_feedback_store
 from app.persistence.tables import FeedbackItemRow
 from app.ports import Acknowledgeable, Feedback, FeedbackSource
 from app.services.feedback.bootstrap import get_feedback_dispatcher
-from app.services.feedback.marker import has_marker, is_ignored_author
+from app.services.feedback.marker import (
+    has_comment_sentinel,
+    has_marker,
+    is_ignored_author,
+)
 from app.services.feedback.review import (
     is_kestrel_review_request,
     review_token,
@@ -82,18 +86,9 @@ class FeedbackIntakeService:
             author as a bot account (GitHub's ``user.type == "Bot"``);
             transports with no such concept leave this ``False``.
         """
-        if not self._is_review_response(feedback.body):
-            _log.info("feedback intake ignored reason=missing_marker")
-            return
-        if is_kestrel_review_request(feedback.body):
-            _log.info("feedback intake ignored reason=review_request")
-            return
-        if is_ignored_author(
-            feedback.author,
-            self._settings.feedback_ignore_authors,
-            is_bot=is_bot,
-        ):
-            _log.info("feedback intake ignored reason=ignored_author")
+        reason = self._ignored_reason(feedback, is_bot)
+        if reason is not None:
+            _log.info("feedback intake ignored reason=%s", reason)
             return
         run = self._route(feedback, task_ref)
         if self._is_stale_token_only(feedback.body, run):
@@ -126,6 +121,26 @@ class FeedbackIntakeService:
                 "Please reply with approve, reject, or request changes.",
             )
         await self._translate_and_reply(feedback_source, feedback)
+
+    def _ignored_reason(self, feedback: Feedback, is_bot: bool) -> str | None:
+        """Return the first intake guard that rejects ``feedback``."""
+        if has_comment_sentinel(
+            feedback.body,
+            self._settings.comment_sentinel_enabled,
+            self._settings.comment_sentinel,
+        ):
+            return "self_comment_sentinel"
+        if not self._is_review_response(feedback.body):
+            return "missing_marker"
+        if is_kestrel_review_request(feedback.body):
+            return "review_request"
+        if is_ignored_author(
+            feedback.author,
+            self._settings.feedback_ignore_authors,
+            is_bot=is_bot,
+        ):
+            return "ignored_author"
+        return None
 
     def redispatch_queued(self, workflow_id: str) -> None:
         """Retry a workflow's durable queued feedback through dispatch.

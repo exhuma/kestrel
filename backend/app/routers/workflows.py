@@ -1,14 +1,14 @@
 """HTTP routes for GitHub issue -> code workflows."""
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import AsyncIterator, cast
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app import sse
 from app.config import get_settings
-from app.models_workflow import Step, WorkflowRun
+from app.models_workflow import Step, WorkflowArtifact, WorkflowRun
 from app.policy import label_policy
 from app.questionnaire import parse_envelope
 from app.schemas import (
@@ -18,6 +18,7 @@ from app.schemas import (
     ReplyIn,
     RoundChipOut,
     StepSessionOut,
+    WorkflowArtifactOut,
     WorkflowDetail,
     WorkflowStepOut,
     WorkflowSummary,
@@ -101,7 +102,27 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         task_link=service.task_link(run),
         pr_url=run.pr_url,
         error=run.error,
+        artifacts=[
+            WorkflowArtifactOut(
+                kind=artifact.kind,
+                display_name=artifact.display_name,
+                cleanup_mode=artifact.cleanup_mode,
+                state=artifact.state,
+                error=artifact.error,
+            )
+            for artifact in _artifacts(service, run.id)
+        ],
     )
+
+
+def _artifacts(
+    service: WorkflowService, workflow_id: str
+) -> list[WorkflowArtifact]:
+    """Return artifact records, preserving lightweight router test doubles."""
+    artifacts = getattr(service, "artifacts", None)
+    if artifacts is None:
+        return []
+    return cast(list[WorkflowArtifact], artifacts(workflow_id))
 
 
 def _summaries(service: WorkflowService) -> list[WorkflowSummary]:

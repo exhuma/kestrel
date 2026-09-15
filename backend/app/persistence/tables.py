@@ -174,6 +174,26 @@ class WorkflowRoundChipRow(Base):
     retired_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class WorkflowArtifactRow(Base):
+    """One workflow-owned resource tracked for durable cleanup."""
+
+    __tablename__ = "workflow_artifact"
+    __table_args__ = (Index("ix_workflow_artifact_workflow_id", "workflow_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("workflow_run.id"))
+    kind: Mapped[str] = mapped_column()
+    external_id: Mapped[str] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(Text)
+    cleanup_mode: Mapped[str] = mapped_column()
+    state: Mapped[str] = mapped_column(
+        default="pending", server_default="pending"
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    cleaned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class WebhookDeliveryRow(Base):
     """One processed GitHub webhook delivery (dedup / at-most-once).
 

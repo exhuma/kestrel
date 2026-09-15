@@ -109,6 +109,28 @@ class RoundChip:
 
 
 @dataclass
+class WorkflowArtifact:
+    """One durable resource a workflow owns and may need to clean up.
+
+    ``external_id`` is provider- or filesystem-specific and stays internal;
+    ``display_name`` is the safe identity intended for operator presentation.
+    ``state`` progresses from ``"pending"`` to a terminal cleanup state, or
+    ``"failed"`` when a required cleanup action can be retried.
+    """
+
+    workflow_id: str
+    kind: str
+    external_id: str
+    display_name: str
+    cleanup_mode: str
+    id: int | None = None
+    state: str = "pending"
+    error: str | None = None
+    created_at: datetime | None = None
+    cleaned_at: datetime | None = None
+
+
+@dataclass
 class WorkflowStep:
     """One step of a workflow run, with its deliverable."""
 

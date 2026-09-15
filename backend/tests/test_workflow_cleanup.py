@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.models_workflow import WorkflowRun
+from app.models_workflow import WorkflowArtifact, WorkflowRun
 from app.services.exceptions import WorkflowNotFoundError
 from app.services.github import GitHubCodeHost
 from app.services.workflows import WorkflowService
@@ -121,6 +121,85 @@ async def test_cleanup_removes_workspace_dir(tmp_path) -> None:
     assert not workspace.exists()
     with pytest.raises(WorkflowNotFoundError):
         svc.get("wf-cleanup")
+
+
+class _ArtifactStore:
+    """In-memory cleanup ledger double for cleanup behavior tests."""
+
+    def __init__(self, artifacts: list[WorkflowArtifact]) -> None:
+        self.artifacts = artifacts
+
+    def list_for(self, _workflow_id: str) -> list[WorkflowArtifact]:
+        """Return all artifacts supplied to this test ledger."""
+        return self.artifacts
+
+    def set_state(self, artifact_id: int, state: str, error=None) -> None:
+        """Set one artifact state as production cleanup does."""
+        for artifact in self.artifacts:
+            if artifact.id == artifact_id:
+                artifact.state = state
+                artifact.error = error
+
+    def discard_resolved(self, _workflow_id: str) -> None:
+        """Discard terminal cleanup records while retaining failures."""
+        self.artifacts = [a for a in self.artifacts if a.state == "failed"]
+
+
+class _CleanupSource:
+    """Task source double that records owned artifact cleanup requests."""
+
+    def __init__(self) -> None:
+        self.cleaned: list[tuple[str, str]] = []
+
+    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
+        """Record cleanup and report a missing comment as already absent."""
+        self.cleaned.append((kind, external_id))
+        return "absent" if kind == "comment" else "cleaned"
+
+    def visibility(self) -> str:
+        """Report a public source for cleanup test compatibility."""
+        return "public"
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_owned_source_artifacts_before_reset() -> None:
+    """Cleanup reverses owned source artifacts and drops their memory."""
+    runner = _FakeRunner(SessionRegistry(), outputs=[])
+    source = _CleanupSource()
+    artifacts = _ArtifactStore(
+        [
+            WorkflowArtifact(
+                "wf-cleanup", "source_body", "o/r#9\0original", "PRD",
+                "restore", id=1,
+            ),
+            WorkflowArtifact(
+                "wf-cleanup", "subtask", "o/r#10", "o/r#10",
+                "delete_or_close", id=2,
+            ),
+            WorkflowArtifact(
+                "wf-cleanup", "comment", "missing", "note",
+                "best_effort", id=3,
+            ),
+        ]
+    )
+    reg = WorkflowRegistry()
+    svc = WorkflowService(
+        settings=_settings(), sessions=runner.sessions, workflows=reg,
+        backends=runner, git=_FakeGit(), github=_FakeGitHub(),
+        notifier=_FakeNotifier(), dismissals=_FakeDismissals(),
+        sources={"github-issue": source},
+        artifact_store=artifacts,
+    )
+    reg.create(WorkflowRun(id="wf-cleanup", repo="o/r", issue_number=9))
+
+    await svc.cleanup("wf-cleanup")
+
+    assert source.cleaned == [
+        ("source_body", "o/r#9\0original"),
+        ("subtask", "o/r#10"),
+        ("comment", "missing"),
+    ]
+    assert artifacts.artifacts == []
 
 
 class _SpyTaskSource:

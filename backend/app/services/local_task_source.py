@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from app.documents import Document, as_document, render_markdown
 from app.ports import Feedback, LifecycleEvent, Task
+from app.services.feedback.marker import append_comment_sentinel
 from app.services.feedback.timeparse import parse_iso
 
 _PREFIX = "local:"
@@ -29,8 +31,15 @@ def local_task_ref(path: Path, root: Path) -> str:
 class LocalTaskSource:
     """``TaskSource`` adapter backed by recursive local task folders."""
 
-    def __init__(self, tasks_dir: str) -> None:
+    def __init__(
+        self,
+        tasks_dir: str,
+        comment_sentinel_enabled: bool = True,
+        comment_sentinel: str = "[kestrel:posted]",
+    ) -> None:
         self._root = Path(tasks_dir).resolve()
+        self._comment_sentinel_enabled = comment_sentinel_enabled
+        self._comment_sentinel = comment_sentinel
 
     def _task_dir(self, ref: str) -> Path:
         """Return a validated, root-contained directory for ``ref``."""
@@ -80,7 +89,14 @@ class LocalTaskSource:
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime(_STAMP_FORMAT)
         path = self._unique_comment_path(directory, f"{stamp}-kestrel")
-        path.write_text(render_markdown(as_document(body)), encoding="utf-8")
+        path.write_text(
+            append_comment_sentinel(
+                render_markdown(as_document(body)),
+                self._comment_sentinel_enabled,
+                self._comment_sentinel,
+            ),
+            encoding="utf-8",
+        )
         return str(path)
 
     def _unique_comment_path(self, directory: Path, stem: str) -> Path:
@@ -194,3 +210,22 @@ class LocalTaskSource:
     ) -> bool:
         """Report no reaction capability for local task comments."""
         return False
+
+    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
+        """Remove a Kestrel-created local file or child task when present."""
+        if kind == "source_body":
+            ref, _, body = external_id.partition("\0")
+            data = self._load(ref)
+            data["body"] = body
+            self._task_path(ref).write_text(json.dumps(data), encoding="utf-8")
+            return "cleaned"
+        path = Path(external_id)
+        if kind == "comment" and path.is_file():
+            path.unlink()
+            return "cleaned"
+        if kind == "subtask":
+            path = self._task_dir(external_id)
+            if path.exists():
+                shutil.rmtree(path)
+                return "cleaned"
+        return "absent"

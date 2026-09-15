@@ -164,6 +164,7 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
         await service.git.add_worktree(
             mirror, run.workspace, run.base_branch, run.branch
         )
+        service.record_artifact(run, "local_branch", run.branch, run.branch)
 
         if _seed_from_sentinel(run, task.body):
             service._save(run)
@@ -298,17 +299,16 @@ async def refine(
         decision = await service._await_gate(run.id)
         set_clock(run, "active", _now_utc())
         if decision.approved:
-            final = decision.deliverable or (step.deliverable or "")
-            source = service._task_source(run)
-            # Publish the approved PRD to the ticket: GitHub writes the
-            # refined body + sentinel; Jira attaches PRD.md (FR-011).
-            await source.publish_refined(run.task_ref, final)
+            await _publish_refined(service, run, step, decision.deliverable)
             # Upload the refine mockups too (Jira attaches them; GitHub
             # no-ops — they ride along committed in the PR). Best-effort.
             await screenshots.upload_screenshots(
-                source, run, service.settings.screenshots_root, "refine"
+                service._task_source(run),
+                run,
+                service.settings.screenshots_root,
+                "refine",
             )
-            step.deliverable = final
+            step.deliverable = decision.deliverable or (step.deliverable or "")
             step.status = "done"
             service._save(run)
             return
@@ -331,6 +331,25 @@ async def refine(
         run.status = "awaiting_refine_approval"
         set_clock(run, "waiting", _now_utc())
         service._save(run)
+
+
+async def _publish_refined(
+    service: "WorkflowService",
+    run: WorkflowRun,
+    step,
+    deliverable: str | None,
+) -> None:
+    """Snapshot a task body before publishing the approved PRD."""
+    final = deliverable or (step.deliverable or "")
+    source = service._task_source(run)
+    # A body snapshot permits adapters that publish in-place to restore exactly
+    # the input seen by a new run. Attachment-only sources do not modify it.
+    original = (await source.get_task(run.task_ref)).body
+    service.record_artifact(
+        run, "source_body", f"{run.task_ref}\0{original}", "published PRD",
+        "restore",
+    )
+    await source.publish_refined(run.task_ref, final)
 
 
 def _start_refine_revision(

@@ -81,6 +81,15 @@ export interface WorkflowSummary {
   task_label: string
 }
 
+/** A resource created by this workflow that remains eligible for cleanup. */
+export interface WorkflowArtifact {
+  kind: string
+  display_name: string
+  cleanup_mode: string
+  state: string
+  error: string | null
+}
+
 export interface WorkflowDetail {
   id: string
   repo: string
@@ -115,4 +124,5 @@ export interface WorkflowDetail {
   task_link: string | null
   pr_url: string | null
   error: string | null
+  artifacts: WorkflowArtifact[]
 }

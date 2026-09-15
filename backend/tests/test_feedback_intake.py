@@ -137,6 +137,22 @@ async def test_unmarked_feedback_is_never_persisted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_self_marked_approval_is_never_persisted_or_dispatched() -> None:
+    """A personal-token Kestrel comment cannot approve its own gate."""
+    store = _FakeFeedbackStore()
+    service, dispatched = _intake(store=store)
+
+    await service.intake(
+        _feedback(body="@kestrel approve\n\n[kestrel:posted]"),
+        task_ref="o/r#1",
+        source=_FakeSource(),
+    )
+
+    assert store.items == {}
+    assert dispatched == []
+
+
+@pytest.mark.asyncio
 async def test_ignored_author_is_never_persisted() -> None:
     """An author on the denylist never produces a feedback_item row, even
     with the marker present."""

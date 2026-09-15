@@ -490,6 +490,23 @@ function stepColor(status: string): string | undefined {
       </div>
 
       <div class="stage__body flex-1-1 pa-4 d-flex flex-column ga-4">
+        <v-card
+          v-if="current.artifacts?.length"
+          variant="tonal"
+          class="pa-3"
+        >
+          <div class="text-overline text-medium-emphasis">Tracked artifacts</div>
+          <div
+            v-for="artifact in current.artifacts ?? []"
+            :key="`${artifact.kind}-${artifact.display_name}`"
+            class="d-flex align-center justify-space-between ga-2 py-1"
+          >
+            <span>{{ artifact.display_name }}</span>
+            <v-chip size="x-small" :color="artifact.error ? 'error' : undefined">
+              {{ artifact.error ? 'cleanup failed' : artifact.kind }}
+            </v-chip>
+          </div>
+        </v-card>
         <div
           v-if="stepRunning"
           class="d-flex align-center justify-space-between"

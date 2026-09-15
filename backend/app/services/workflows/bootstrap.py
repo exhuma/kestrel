@@ -17,6 +17,7 @@ from app.persistence.dismissal_store import get_dismissal_store
 from app.persistence.feedback_store import get_feedback_store
 from app.persistence.notification_store import get_notification_store
 from app.persistence.review_request_store import get_review_request_store
+from app.persistence.workflow_artifact_store import get_workflow_artifact_store
 from app.policy import get_backend_policy
 from app.services.feedback.source import compose_feedback_source
 from app.services.git import GitService
@@ -40,7 +41,11 @@ def get_workflow_service() -> WorkflowService:
         settings.github_api_base, settings.github_token, verify=gh_verify
     )
     gh_source = GitHubTaskSource(
-        github, settings.public_base_url, config_for=settings.github_source_for
+        github,
+        settings.public_base_url,
+        config_for=settings.github_source_for,
+        comment_sentinel_enabled=settings.comment_sentinel_enabled,
+        comment_sentinel=settings.comment_sentinel,
     )
     gh_host = GitHubCodeHost(github, settings.git_base)
     # Task Source / Code Host per run source. GitHub runs use the GitHub
@@ -62,7 +67,11 @@ def get_workflow_service() -> WorkflowService:
             deployment=entry.deployment,
         )
         sources["jira-issue"] = JiraTaskSource(
-            jira, settings.public_base_url, config=entry
+            jira,
+            settings.public_base_url,
+            config=entry,
+            comment_sentinel_enabled=settings.comment_sentinel_enabled,
+            comment_sentinel=settings.comment_sentinel,
         )
         jira_github = GitHubClient(
             settings.github_api_base,
@@ -79,7 +88,11 @@ def get_workflow_service() -> WorkflowService:
         from app.services.local_task_source import LocalTaskSource
 
         entry = local_sources[0]
-        sources["local-task"] = LocalTaskSource(entry.tasks_dir)
+        sources["local-task"] = LocalTaskSource(
+            entry.tasks_dir,
+            settings.comment_sentinel_enabled,
+            settings.comment_sentinel,
+        )
         code_hosts["local-task"] = LocalCodeHost()
 
     def hooks_dir_for(run: WorkflowRun) -> str:
@@ -123,6 +136,7 @@ def get_workflow_service() -> WorkflowService:
         feedback_store=get_feedback_store(),
         review_requests=get_review_request_store(),
         child_tasks=get_child_task_store(),
+        artifact_store=get_workflow_artifact_store(),
         feedback_source_factory=compose_feedback_source,
     )
 

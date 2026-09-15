@@ -113,6 +113,16 @@ class WorkflowSummary(BaseModel):
     task_label: str
 
 
+class WorkflowArtifactOut(BaseModel):
+    """A workflow-owned resource currently awaiting cleanup."""
+
+    kind: str
+    display_name: str
+    cleanup_mode: str
+    state: str
+    error: str | None
+
+
 class WorkflowDetail(BaseModel):
     """Full workflow run for the detail endpoint."""
 
@@ -158,6 +168,7 @@ class WorkflowDetail(BaseModel):
     task_link: str | None
     pr_url: str | None
     error: str | None
+    artifacts: list[WorkflowArtifactOut]
 
 
 class ReplyIn(BaseModel):

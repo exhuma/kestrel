@@ -75,6 +75,18 @@ async def test_task_source_get_task_and_comment() -> None:
     assert seen["POST"].endswith("/repos/o/r/issues/7/comments")
 
 
+@pytest.mark.asyncio
+async def test_task_source_comment_carries_self_sentinel() -> None:
+    """GitHub comments identify their Kestrel origin by default."""
+    seen, handler = _recording_handler(
+        httpx.Response(201, json={"html_url": "https://c/1"})
+    )
+
+    await GitHubTaskSource(_client(handler)).post_comment("o/r#7", "hello")
+
+    assert "hello\\n\\n[kestrel:posted]" in seen["body"]
+
+
 def test_task_source_display_label_and_deep_link() -> None:
     """Ensure GitHubTaskSource's display_label/deep_link_ref (feature 009)
     are the ref itself and the issue URL, respectively."""

@@ -79,6 +79,7 @@ async def deliver(service: "WorkflowService", run: "WorkflowRun") -> None:
     await service.git.push(
         run.workspace, run.branch, service._code_host(run).git_credential()
     )
+    service.record_artifact(run, "remote_branch", run.branch, run.branch)
     opened = await _open_or_confirm_change_request(service, run)
     run.status = "awaiting_ci" if service.required_ci_statuses(run) else "done"
     service._save(run)
@@ -98,6 +99,6 @@ async def _post_delivery_comment(
     """Post the delivery location without failing an already-delivered run."""
     message = _delivery_message(run, opened, service._code_host(run))
     try:
-        await service._task_source(run).post_comment(run.task_ref, message)
+        await service.post_comment(run, message, "delivery comment")
     except Exception:
         _logger.exception("failed to post CR link for %s", run.task_ref)

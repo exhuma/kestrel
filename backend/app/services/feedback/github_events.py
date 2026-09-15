@@ -18,6 +18,7 @@ from app.config import Settings, get_settings
 from app.ports import Feedback
 from app.services import github_reviews
 from app.services.feedback.intake import FeedbackIntakeService
+from app.services.feedback.marker import has_comment_sentinel
 from app.services.feedback.timeparse import parse_iso
 from app.services.github import GitHubClient, GitHubCodeHost
 from app.services.github_tasksource import GitHubTaskSource
@@ -50,6 +51,11 @@ def is_qualifying_comment(payload: dict, settings: Settings) -> bool:
     applies is decided later, in :func:`handle_issue_comment`.
     """
     if payload.get("action") != "created":
+        return False
+    body = ((payload.get("comment") or {}).get("body") or "")
+    if has_comment_sentinel(
+        body, settings.comment_sentinel_enabled, settings.comment_sentinel
+    ):
         return False
     return _known_repo(payload, settings)
 

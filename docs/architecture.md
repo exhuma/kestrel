@@ -58,7 +58,12 @@ the image small and lets a deploy attach or swap backends purely by config.
   Feature 013 (feedback intake) adds three more event types to that same
   endpoint — `issue_comment`, `pull_request_review`, and
   `pull_request_review_comment` — rather than a second endpoint; they carry
-  the identical HMAC gate.
+   the identical HMAC gate. Kestrel identifies every comment it writes with a
+   configurable `[kestrel:posted]` sentinel by default. Feedback intake rejects
+   a sentinel-tagged comment before marker parsing, persistence, or dispatch,
+   preventing self-approval when Kestrel uses an operator's personal token.
+   Operators can disable the sentinel only for an incompatible source; a future
+   dedicated Kestrel account remains covered by the existing bot/author guards.
 - **Feedback intake: a marked ticket/review comment steers a run in flight
   (feature 013).** A run is never a fire-and-forget dispatch: once started,
   a comment carrying the configured trigger marker (`feedback_marker`,
@@ -104,12 +109,20 @@ the image small and lets a deploy attach or swap backends purely by config.
   It uses a local `CodeHost` for an absolute bare repository, publishing a
   branch without a change request or review. Every `TaskSource` now also
   declares a `visibility()` capability (`"public"` | `"private"`): GitHub and
-  Jira are `"public"` — their tickets are externally shared and only ever
-   move forward in time; local tasks are `"private"`. The **rerun** action (abandon
+   Jira are `"public"` — their tickets are externally shared and only ever
+    move forward in time; local tasks are `"private"`. The **rerun** action (abandon
   a run, delete its branch, and immediately restart it against the same
   task) is permitted only when `visibility() == "private"`, so it can never
   be exposed for a GitHub- or Jira-sourced run (see the constitution's access
-  model, amendment 1.4.0).
+   model, amendment 1.4.0). **Cleanup** is distinct from abandon/rerun: its
+   durable workflow-artifact ledger records only resources Kestrel itself
+   created. It removes local and remote branches, restores an in-place PRD to
+   the exact pre-publication task body, deletes generated source resources where
+   supported, and closes generated items when deletion is unavailable. A missing
+   artifact is a successful cleanup; comment removal is best effort. Required
+   failures remain attached to the workflow for retry, while successful cleanup
+   clears the run and dismissal so the source task receives a complete fresh
+   run on the next poll.
 - **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or local
    task — traverses the identical `describe → refine → gap_analysis →
   design → code → verify → delivery` sequence

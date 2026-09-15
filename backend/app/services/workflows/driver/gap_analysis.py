@@ -7,6 +7,7 @@ in the step deliverable so it uses the existing workflow checkpointing.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from dataclasses import dataclass
@@ -325,6 +326,9 @@ async def _publish_candidate(
             task["published_ref"] = task_ref
             step.deliverable = _encode_candidate(candidate)
             service._save(run)
+            service.record_artifact(
+                run, "subtask", str(task_ref), str(task_ref), "delete_or_close"
+            )
             if service.child_tasks is not None:
                 _record_child(service, run, task_ref, task)
             continue
@@ -334,9 +338,12 @@ async def _publish_candidate(
     # (spec.md FR-012) — post_comment works uniformly across every
     # source, unlike attach (a GitHub no-op) or publish_refined (which
     # would overwrite the ticket body rather than add to it).
-    await source.post_comment(
-        run.task_ref, f"## Technical analysis\n\n{candidate.technical_analysis}"
-    )
+    with contextlib.suppress(Exception):
+        await service.post_comment(
+            run,
+            f"## Technical analysis\n\n{candidate.technical_analysis}",
+            "technical analysis",
+        )
 
     step.status = "done"
     run.status = "decomposed"

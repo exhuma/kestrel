@@ -24,6 +24,7 @@ from app.documents import (
 )
 from app.ports import Feedback, LifecycleEvent, SubtaskContextError, Task
 from app.services.exceptions import GitError
+from app.services.feedback.marker import append_comment_sentinel
 from app.services.feedback.timeparse import parse_iso
 from app.services.jira_document import to_text
 
@@ -196,6 +197,18 @@ class JiraClient:
         )
         return resp.json().get("self", "")
 
+    async def delete_resource(self, path: str) -> None:
+        """Delete an absolute Jira resource URL, ignoring a missing resource."""
+        try:
+            await self._request("DELETE", path)
+        except JiraError as exc:
+            if "-> 404:" not in str(exc):
+                raise
+
+    async def delete_issue(self, key: str) -> None:
+        """Delete a Kestrel-created issue, treating an absent issue as clean."""
+        await self.delete_resource(f"/issue/{key}")
+
     async def add_attachment(
         self, key: str, name: str, data: bytes, mimetype: str
     ) -> None:
@@ -294,6 +307,8 @@ class JiraTaskSource:
         client: JiraClient,
         public_base_url: str = "",
         config: "TaskSourceConfig | None" = None,
+        comment_sentinel_enabled: bool = True,
+        comment_sentinel: str = "[kestrel:posted]",
     ) -> None:
         """
         :param config: This source's config, carrying its lifecycle
@@ -304,6 +319,8 @@ class JiraTaskSource:
         self._client = client
         self._base = client._base
         self._config = config
+        self._comment_sentinel_enabled = comment_sentinel_enabled
+        self._comment_sentinel = comment_sentinel
 
     async def get_task(self, ref: str) -> Task:
         return await self._client.get_issue(ref)
@@ -312,7 +329,27 @@ class JiraTaskSource:
         return await self._client.check_health()
 
     async def post_comment(self, ref: str, body: Document | str) -> str:
-        return await self._client.add_comment(ref, body)
+        """Post a marked Kestrel comment on ``ref``."""
+        return await self._client.add_comment(
+            ref,
+            append_comment_sentinel(
+                render_markdown(as_document(body)),
+                self._comment_sentinel_enabled,
+                self._comment_sentinel,
+            ),
+        )
+
+    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
+        """Delete a recorded Jira resource when its deployment permits it."""
+        if kind == "source_body":
+            return "cleaned"
+        if kind == "comment" and external_id:
+            await self._client.delete_resource(external_id)
+            return "cleaned"
+        if kind == "subtask":
+            await self._client.delete_issue(external_id)
+            return "cleaned"
+        raise ValueError(f"unsupported Jira cleanup artifact: {kind}")
 
     async def attach(
         self, ref: str, name: str, data: bytes, mimetype: str

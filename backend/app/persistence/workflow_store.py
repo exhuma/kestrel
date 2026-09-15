@@ -17,6 +17,7 @@ from app.models_workflow import (
 from app.persistence.db import get_sessionmaker
 from app.persistence.tables import (
     NotificationRow,
+    WorkflowArtifactRow,
     WorkflowRoundChipRow,
     WorkflowRunRow,
     WorkflowStepRow,
@@ -90,6 +91,11 @@ class WorkflowStore:
         :param workflow_id: Unique id of the run to delete.
         """
         with self._factory.begin() as db:
+            db.execute(
+                delete(WorkflowArtifactRow).where(
+                    WorkflowArtifactRow.workflow_id == workflow_id
+                )
+            )
             db.execute(
                 delete(NotificationRow).where(
                     NotificationRow.workflow_id == workflow_id

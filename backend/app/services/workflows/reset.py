@@ -13,6 +13,7 @@ top of that shared core — see each function's docstring.
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import TYPE_CHECKING
 
 from app.models_workflow import WorkflowRun
@@ -20,6 +21,8 @@ from app.services.exceptions import RerunNotAllowedError
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
+
+_logger = logging.getLogger(__name__)
 
 
 async def abandon_common(
@@ -116,10 +119,58 @@ async def cleanup(service: "WorkflowService", workflow_id: str) -> None:
     :param workflow_id: Id of the run to clean up.
     :raises WorkflowNotFoundError: If the run is unknown.
     """
-    run = await abandon_common(service, workflow_id)
+    run = service.get(workflow_id)
+    await _cleanup_artifacts(service, run)
     await _delete_branch(service, run)
+    run = await abandon_common(service, workflow_id)
     if service.dismissals is not None:
         service.dismissals.clear(service._ref(run))
+
+
+async def _cleanup_artifacts(
+    service: "WorkflowService", run: WorkflowRun
+) -> None:
+    """Clean recorded source artifacts, retaining failures for a safe retry."""
+    if service.artifact_store is None:
+        return
+    source = service._task_source(run)
+    for artifact in service.artifacts(run.id):
+        if artifact.kind in {"remote_branch", "local_branch", "workspace"}:
+            continue
+        try:
+            state = await source.cleanup_artifact(
+                artifact.kind, artifact.external_id
+            )
+        except Exception as exc:  # provider failures must not stop later items
+            _record_cleanup_failure(service, artifact, exc)
+            continue
+        service.artifact_store.set_state(artifact.id or 0, state)
+        if artifact.kind == "subtask" and service.child_tasks is not None:
+            service.child_tasks.remove(artifact.external_id)
+    service.artifact_store.discard_resolved(run.id)
+    _discard_best_effort_failures(service, run.id)
+
+
+def _record_cleanup_failure(service, artifact, exc: Exception) -> None:
+    """Persist a bounded failure, logging optional comment cleanup only."""
+    if artifact.cleanup_mode == "best_effort":
+        _logger.warning("best-effort cleanup failed: %s", exc)
+        service.artifact_store.set_state(
+            artifact.id or 0, "failed", str(exc)[:300]
+        )
+        return
+    service.artifact_store.set_state(
+        artifact.id or 0, "failed", str(exc)[:300]
+    )
+    raise exc
+
+
+def _discard_best_effort_failures(service, workflow_id: str) -> None:
+    """Forget non-blocking cleanup failures before deleting their workflow."""
+    for artifact in service.artifacts(workflow_id):
+        if artifact.cleanup_mode == "best_effort" and artifact.id is not None:
+            service.artifact_store.set_state(artifact.id, "cleaned")
+    service.artifact_store.discard_resolved(workflow_id)
 
 
 async def rerun(service: "WorkflowService", workflow_id: str) -> str:

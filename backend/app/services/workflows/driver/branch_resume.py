@@ -89,6 +89,7 @@ async def _provision_fresh_branch(
     await service.git.add_worktree(
         mirror, run.workspace, run.base_branch, run.branch
     )
+    service.record_artifact(run, "local_branch", run.branch, run.branch)
 
 
 def _queue_triage_instruction(

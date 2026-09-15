@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Protocol
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.persistence.db import get_sessionmaker
@@ -91,6 +91,10 @@ class ChildTaskLinks(Protocol):
 
     def release_retirement(self, task_ref: str) -> None:
         """Release a claim when its source notice cannot be posted."""
+        ...
+
+    def remove(self, task_ref: str) -> None:
+        """Delete a child link whose generated source item was cleaned."""
         ...
 
 
@@ -312,6 +316,15 @@ class ChildTaskStore:
                     ChildTaskLinkRow.source_state == "retiring",
                 )
                 .values(source_state="closed")
+            )
+
+    def remove(self, task_ref: str) -> None:
+        """Delete one child link after its source item has been cleaned."""
+        with self._factory.begin() as db:
+            db.execute(
+                delete(ChildTaskLinkRow).where(
+                    ChildTaskLinkRow.task_ref == task_ref
+                )
             )
 
 

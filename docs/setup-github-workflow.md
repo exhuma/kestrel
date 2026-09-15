@@ -4,6 +4,18 @@ The workflow feature (refine → plan → implement → draft PR) needs a GitHub
 personal access token to read/update issues, clone/push, and open PRs. There
 is no separate "API key" concept — it's one setting: `KESTREL_GITHUB_TOKEN`.
 
+## Preventing self-feedback
+
+Kestrel appends `[kestrel:posted]` to every comment it posts by default. The
+feedback pipeline ignores this marker before it evaluates `@kestrel approve`,
+`@kestrel reject`, or `@kestrel request changes`. This is important when
+Kestrel uses a personal access token, because GitHub reports such comments as
+being written by the operator rather than by a bot account.
+
+Keep `comment_sentinel_enabled = true` in `config.toml` unless the connected
+source cannot preserve the marker. Change `comment_sentinel` only to a stable,
+distinct literal that users will not normally type.
+
 ## 1. Create a token
 
 Fine-grained PAT (recommended), scoped to just the test repo. On

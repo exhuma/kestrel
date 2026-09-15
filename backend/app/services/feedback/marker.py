@@ -14,6 +14,22 @@ from typing import Literal
 GateFeedbackAction = Literal["approve", "reject", "request_changes"]
 
 
+def append_comment_sentinel(body: str, enabled: bool, sentinel: str) -> str:
+    """Append one self-identifying sentinel to an outbound Kestrel comment.
+
+    An empty sentinel is never emitted. Repeated decoration is idempotent so
+    composed comment paths cannot produce multiple ownership markers.
+    """
+    if not enabled or not sentinel or sentinel in body:
+        return body
+    return f"{body.rstrip()}\n\n{sentinel}"
+
+
+def has_comment_sentinel(body: str, enabled: bool, sentinel: str) -> bool:
+    """Return whether a comment is marked as Kestrel-authored and ignorable."""
+    return enabled and bool(sentinel) and sentinel in body
+
+
 def has_marker(body: str, marker: str) -> bool:
     """
     Whether ``body`` contains ``marker`` as a whole token.

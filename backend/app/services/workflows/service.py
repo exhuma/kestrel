@@ -1,4 +1,4 @@
-"""WorkflowService: lifecycle/CRUD and gate-decision handling."""
+"""Workflow service lifecycle and gate decisions."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from app.persistence.child_task_store import ChildTaskLinks
 from app.persistence.dismissal_store import DismissalStore
 from app.persistence.feedback_store import FeedbackStore
 from app.persistence.review_request_store import ReviewRequestStore
+from app.persistence.workflow_artifact_store import WorkflowArtifactStore
 from app.policy import BackendPolicy
 from app.ports import CodeHost, TaskSource
 from app.questionnaire import InterviewEnvelope
@@ -28,6 +29,7 @@ from app.services.time_tracking import set_clock
 from app.services.workflows import artifacts, driver, gate, reset
 from app.services.workflows.driver import branch_resume
 from app.services.workflows.gate import _Control, _Decision
+from app.services.workflows.service_artifacts import WorkflowArtifactService
 from app.services.workflows.service_sessions import WorkflowSessionService
 from app.services.workflows.shared import (
     _TERMINAL_STATUSES,
@@ -42,8 +44,7 @@ from app.storage.workflow_registry import WorkflowRegistry
 
 _logger = logging.getLogger(__name__)
 
-
-class WorkflowService(WorkflowSessionService):
+class WorkflowService(WorkflowArtifactService, WorkflowSessionService):
     """Drives workflow runs through refine -> plan -> implement -> PR."""
 
     def __init__(
@@ -63,6 +64,7 @@ class WorkflowService(WorkflowSessionService):
         feedback_store: FeedbackStore | None = None,
         review_requests: ReviewRequestStore | None = None,
         child_tasks: ChildTaskLinks | None = None,
+        artifact_store: WorkflowArtifactStore | None = None,
         feedback_source_factory: FeedbackSourceFactory = (
             compose_feedback_source
         ),
@@ -95,15 +97,14 @@ class WorkflowService(WorkflowSessionService):
         #: unit tests that don't exercise feedback need not provide one.
         self.feedback_store = feedback_store
         self.review_requests = review_requests
-        #: Approved decomposition children, optional for isolated workflow
-        #: tests.
         self.child_tasks = child_tasks
+        #: Optional durable workflow-owned cleanup ledger.
+        self.artifact_store = artifact_store
         self._feedback_source_factory = feedback_source_factory
         self._control: dict[str, _Control] = {}
         #: Driver task per run, so an abandon can cancel the in-flight
         #: orchestration for exactly that run.
         self._tasks: dict[str, asyncio.Task] = {}
-
     def _spawn_driver(self, workflow_id: str, coro) -> None:
         """Launch a run's driver task and track it by id for abandon."""
         task = asyncio.create_task(coro)
@@ -129,6 +130,7 @@ class WorkflowService(WorkflowSessionService):
         return cast(
             CodeHost, self.code_hosts.get(run.source, self._fallback_host)
         )
+
 
     def task_source_for(self, run: WorkflowRun):
         """Public accessor for a run's bound TaskSource (feature 013).

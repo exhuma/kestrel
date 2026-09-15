@@ -355,6 +355,15 @@ class TaskSource(Protocol):
         """
         ...
 
+    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
+        """Remove or restore a recorded resource and return its final state.
+
+        Returns ``"cleaned"``, ``"closed"``, or ``"absent"``. A source
+        without a cleanup capability may raise, allowing the caller to retain
+        required cleanup work while best-effort entries are reported.
+        """
+        ...
+
 
 class CodeHost(Protocol):
     """The repository role, keyed by ``owner/name`` (or a GitLab path)."""

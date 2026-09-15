@@ -236,6 +236,7 @@ class GitHubClient:
             "PATCH", f"/repos/{repo}/issues/{number}", json={"body": body}
         )
 
+
     async def add_label(self, repo: str, number: int, label: str) -> None:
         """Add ``label`` to an issue (a no-op if ``label`` is empty)."""
         if not label:

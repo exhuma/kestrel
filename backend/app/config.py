@@ -46,6 +46,8 @@ _CONFIG_FILE_FIELDS = frozenset(
         "database_url",
         "workspace_root",
         "screenshots_root",
+        "comment_sentinel_enabled",
+        "comment_sentinel",
     }
 )
 
@@ -229,6 +231,13 @@ class Settings(BaseSettings):
     #: recorded — the primary self-triggering-loop guard (constitution's
     #: recorded self-feedback-loop risk).
     feedback_marker: str = "@kestrel"
+    #: Mark every Kestrel-authored comment (``KESTREL_COMMENT_SENTINEL``).
+    #: Intake rejects a marked comment before it can affect a gate, which is
+    #: necessary while Kestrel posts through an operator's personal account.
+    comment_sentinel: str = "[kestrel:posted]"
+    #: Disable comment marking only for an explicitly incompatible source.
+    #: ``False`` also disables sentinel-based intake filtering.
+    comment_sentinel_enabled: bool = True
     #: Authors whose marked feedback is still discarded before it reaches
     #: persistence (feature 013) — the second independent self-loop guard,
     #: alongside GitHub's ``user.type == "Bot"`` detection. Empty by

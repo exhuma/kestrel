@@ -1,6 +1,34 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-09-15 (1.4.0 -> 1.5.0, MINOR): Permit tightly scoped cleanup
+writes for artifacts Kestrel itself created and durably recorded. The prior
+public-source constraint made delete/cleanup local-only so externally shared
+tickets could never be rewritten. That made a reset incomplete: approved PRDs,
+comments, attachments, and generated sub-tasks survived, and the next poll did
+not see the original task state. Cleanup may now delete, close, or restore only
+a Kestrel-owned artifact with a durable workflow-artifact record; it must never
+change the original task beyond restoring its exact pre-publication state.
+Missing artifacts are successful cleanup, required failures remain tracked for
+retry, and comment/feedback deletion is explicitly best-effort. This is a
+material expansion of the public-source write posture, therefore MINOR.
+
+Modified sections:
+  - Technology & Architecture Constraints -> access-model third constraint
+    expanded with ownership, idempotency, restoration, and failure boundaries.
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... no edit; dynamic check
+  - .specify/templates/spec-template.md ...... no edit; no section changed
+  - .specify/templates/tasks-template.md ..... no edit; tasks can represent it
+  - AGENTS.md ................................ consistent; defers constraints
+  - docs/architecture.md .................... update during implementation to
+    document cleanup artifact ownership and lifecycle.
+
+Follow-up TODOs:
+  - Update operator-facing cleanup documentation during implementation.
+
+--------------------------------------------------------------------------------
 Amendment 2026-08-10 (1.3.0 → 1.4.0, MINOR): Record the visibility/rerun constraint
 introduced by feature 008-fixture-task-source in "Technology & Architecture
 Constraints". Every `TaskSource` implementation (`backend/app/ports.py`) now declares
@@ -309,11 +337,15 @@ section records only the non-negotiable constraints an agent must honour.
   to reset. Kestrel's rerun action — abandon a run, force-delete its branch, and
   immediately restart it against the same task, discarding and replacing the run's
   history — MUST be refused unless the run's task source reports `"private"`; this is
-  enforced once, centrally, in the service layer (never left to the frontend to
-  enforce alone, per Principle II). The existing delete/cleanup actions were already
-  safe for public sources (they act only on kestrel's local state, never on the
-  remote ticket) and this constraint does not change that; it only formalizes the
-  guarantee and extends it to gate rerun.
+enforced once, centrally, in the service layer (never left to the frontend to
+enforce alone, per Principle II). Delete remains local-only. Cleanup may modify
+a public source solely to remove, close, or restore artifacts Kestrel itself
+created and recorded against that workflow; it MUST NOT alter an untracked
+resource or change the original source task except to restore its exact
+pre-publication state. Artifact cleanup MUST be idempotent: an absent artifact
+is success, while an unresolved required cleanup failure remains recorded for
+retry. Deleting comments/feedback is best-effort and cannot prevent the local
+reset or future polling eligibility.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -354,4 +386,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.4.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-08-10
+**Version**: 1.5.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-09-15

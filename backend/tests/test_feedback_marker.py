@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from app.services.feedback.marker import (
+    append_comment_sentinel,
     gate_feedback_action,
+    has_comment_sentinel,
     has_marker,
     is_ignored_author,
 )
@@ -14,6 +16,28 @@ from app.services.feedback.review import (
     review_token,
     review_tokens,
 )
+
+
+def test_comment_sentinel_marks_once_when_enabled() -> None:
+    """An enabled sentinel identifies a Kestrel comment without duplication."""
+    marked = append_comment_sentinel(
+        "@kestrel approve", True, "[kestrel:posted]"
+    )
+    assert marked.endswith("\n\n[kestrel:posted]")
+    assert append_comment_sentinel(
+        marked, True, "[kestrel:posted]"
+    ) == marked
+    assert has_comment_sentinel(marked, True, "[kestrel:posted]") is True
+
+
+def test_comment_sentinel_can_be_disabled() -> None:
+    """The compatibility switch leaves outbound comments and intake unchanged.
+    """
+    body = "@kestrel approve"
+    assert append_comment_sentinel(body, False, "[kestrel:posted]") == body
+    assert has_comment_sentinel(
+        "[kestrel:posted]", False, "[kestrel:posted]"
+    ) is False
 
 
 @pytest.mark.parametrize(
