@@ -120,7 +120,7 @@ the image small and lets a deploy attach or swap backends purely by config.
   clarifying question is asked; `refine`'s interview is then restricted to
   non-technical, requestor-altitude profiles only (`requester`/`pm`/`uiux`),
   producing a business-only, go/no-go requirements document — the PRD
-  approval gate. Once approved, `gap_analysis` runs **gatelessly** (feature
+   approval gate. Once approved, `gap_analysis` runs **gatelessly** (feature
   012): technical-altitude profiles (`developer`/`infosec`/`dba`/`architect`/
   `ops`/`qa`) analyze the approved requirements, producing an
   architecture/technical-decision record and one or more independent,
@@ -142,7 +142,16 @@ the image small and lets a deploy attach or swap backends purely by config.
   a reject, the loop is bounded by `max_verify_iterations`, and it
   **escalates** to the ticket on exhaustion. The task source is only the
   human↔agent boundary — the process behind it is the same, so the system is
-  predictable.
+   predictable.
+  - **Accepted PRD scope authority.** The exact PRD accepted at the refine
+    approval gate is retained as the immutable authority for the parent
+    decomposition and every linked child task. Technical analysis starts after
+    that approval without a further PRD gate. Before Kestrel regenerates a
+    parent candidate or reopens a child from feedback, it evaluates the request
+    against that accepted PRD. An in-scope request can continue through the
+    normal amendment lifecycle; an out-of-scope, malformed, or inconclusive
+    request is refused without changing technical work. The task source receives
+    a reason and direction to revise and approve the PRD before expanding scope.
 - **External feedback decisions and bounded child monitoring (feature 015).**
   Each externally posted understanding, PRD, or decomposition review has a
   durable revision and an opaque `[kestrel-review:<token>]` token. A response

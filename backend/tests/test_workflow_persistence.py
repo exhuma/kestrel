@@ -142,6 +142,19 @@ def test_prd_approval_provenance_round_trips(tmp_path: Path) -> None:
     assert store.load_all()[0].prd_approved is True
 
 
+def test_accepted_prd_snapshot_round_trips(tmp_path: Path) -> None:
+    """Ensure the PRD scope authority survives a save/load cycle."""
+    store = _store(tmp_path)
+    run = _run()
+    run.prd_approved = True
+    run.approved_prd = "Accepted scope"
+    store.save(run)
+
+    loaded = store.load_all()[0]
+    assert loaded.prd_approved is True
+    assert loaded.approved_prd == "Accepted scope"
+
+
 def test_registry_survives_restart(tmp_path: Path) -> None:
     """Ensure runs persist across registry rebuilds."""
     store = _store(tmp_path)

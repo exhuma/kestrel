@@ -1,4 +1,5 @@
 """Domain models for workflow runs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -217,6 +218,10 @@ class WorkflowRun:
     #: True only after this run's current PRD passed the refine approval gate.
     #: Ticket-body sentinels are not approval provenance. Internal-only.
     prd_approved: bool = False
+    #: Immutable snapshot of the PRD accepted at the refine approval gate.
+    #: Parent decomposition and linked child amendments use this as their scope
+    #: authority, never a subsequently edited ticket body. Internal-only.
+    approved_prd: str | None = None
     #: Number of CI-triggered repair rounds already dispatched. Separate from
     #: behavioural verification's retry budget.
     ci_repair_round: int = 0

@@ -1,4 +1,5 @@
 """Prompt templates and round-cap constants for the workflow pipeline."""
+
 from __future__ import annotations
 
 #: Base guard on the coordinator loop so a misbehaving agent can't spin
@@ -60,7 +61,7 @@ RECONCILE_PROMPT = (
     "proposed the pooled set below. Consolidate it into the FEWEST, "
     "SIMPLEST questions that still capture every decision the human "
     "must make.\n"
-    "Below is the pool as JSON — each question with its \"id\", the "
+    'Below is the pool as JSON — each question with its "id", the '
     '"audience" profile that asked it, its "prompt", "why", "type", '
     '"required", "options", and "waiver_label" — followed by the '
     "roster describing each profile's remit.\n"
@@ -78,19 +79,19 @@ RECONCILE_PROMPT = (
     "priority-tradeoff question asked twice in different registers is "
     "still one question, not two.\n"
     "- Assign each resulting question to the SINGLE profile whose "
-    "domain best owns it (set its \"audience\" to one of the input "
+    'domain best owns it (set its "audience" to one of the input '
     "audiences), and keep only questions worth asking.\n"
     "- Phrase each question as simply as possible. Do NOT drop detail "
     "that changes the ANSWER, but drop redundant justification. Make "
     "requester/Product questions the PLAINEST and least technical of "
     "all.\n"
-    "- Preserve a sensible \"type\" and, for select types, real "
-    "\"options\"; carry over each kept question's waiver intent.\n"
+    '- Preserve a sensible "type" and, for select types, real '
+    '"options"; carry over each kept question\'s waiver intent.\n'
     "- ACCOUNT FOR EVERY input question. In each consolidated "
-    "question's \"folded_from\" list, put the \"id\" of every pooled "
+    'question\'s "folded_from" list, put the "id" of every pooled '
     "question it represents — both the one you based it on and any you "
     "merged into it. Every input id MUST appear in exactly one "
-    "\"folded_from\". This is how a real fold is told apart from an "
+    '"folded_from". This is how a real fold is told apart from an '
     "accidental drop; if an input's concern no longer matters, still "
     "fold its id into the closest surviving question rather than "
     "leaving it out.\n"
@@ -140,7 +141,7 @@ GENERATION_PROMPT = (
     '"type": "single_select", "required": true, '
     '"waiver_label": "Unknown / N/A", '
     '"options": [{{"value": "a", "label": "Option A"}}]}}]}}\n'
-    "When a question has discrete options, end \"why\" with your own "
+    'When a question has discrete options, end "why" with your own '
     "brief recommendation and the one-sentence reason for it (e.g. "
     "'Recommended: Option A — it needs no new infrastructure.'); skip "
     "this for free_text questions with no options to recommend from. "
@@ -209,8 +210,9 @@ CODE_FEEDBACK_PROMPT = (
     "design was not met or the evidence showed a real failure; the "
     "feedback below may also carry incidental quality notes, but those are "
     "not why this was rejected. Fix what actually failed first. Address "
-    "this feedback by editing the repository now. " + _COMMIT_INSTRUCTION +
-    " Then stop."
+    "this feedback by editing the repository now. "
+    + _COMMIT_INSTRUCTION
+    + " Then stop."
     "\n\nFEEDBACK:\n{feedback}\n\nDESIGN:\n{design}"
 )
 DESIGN_PROMPT = (
@@ -305,11 +307,11 @@ VERIFY_PROMPT = (
     "tags, matching this shape:\n"
     '{{"accept": true, "feedback": "...", "observations": '
     '[{{"name": "...", "kind": "http", "passed": true, "detail": "..."}}]}}\n'
-    'For an http boundary, include at least one well-formed http observation; '
-    'for ui, at least one ui observation; for both, include both kinds. '
+    "For an http boundary, include at least one well-formed http observation; "
+    "for ui, at least one ui observation; for both, include both kinds. "
     '"observations" is OPTIONAL only when no boundary is declared — include '
-    'one entry per distinct thing you '
-    "exercised while exploring the running application (kind is \"http\" or "
+    "one entry per distinct thing you "
+    'exercised while exploring the running application (kind is "http" or '
     '"ui"), each with a bounded, factual "detail". Omit it entirely when '
     "you did not explore anything this round.\n"
     "This session is headless: do not use the ExitPlanMode tool and do not "
@@ -354,7 +356,19 @@ GAP_ANALYSIS_PROMPT = (
     '"prerequisites":[]}}]</FOLLOWUP_TASKS>. Every id must be stable and '
     "every prerequisite must name another task's id. Do not edit any files.\n\n"
     "REQUIREMENTS DOCUMENT:\n{prd}\n\n"
-    "CONFIRMED UNDERSTANDING:\n{understanding}"
+    "CONFIRMED UNDERSTANDING:\n{understanding}\n\n"
+    "REQUESTED AMENDMENT (empty for the first analysis):\n{amendment}"
+)
+PRD_SCOPE_PROMPT = (
+    "You are the scope guardian for an accepted requirements document. Decide "
+    "whether the requested analysis or child-task change stays within the "
+    "document's approved outcome, scope, constraints, and acceptance "
+    "criteria. Allow technical clarification or decomposition changes that do "
+    "not alter those business commitments. Refuse a request that adds a new "
+    "outcome, expands scope, removes an accepted requirement, or contradicts a "
+    'constraint. Return ONLY <SCOPE>{{"allowed": true|false, "reason": '
+    '"concise explanation"}}</SCOPE>. A missing or uncertain basis must be '
+    "refused. Do not edit files.\n\nACCEPTED PRD:\n{prd}\n\nREQUEST:\n{request}"
 )
 GAP_ANALYSIS_CRITIC_PROMPT = (
     "You are a completeness critic. Below is a set of follow-up tasks "

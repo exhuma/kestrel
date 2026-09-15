@@ -33,6 +33,10 @@ class ChildTaskLinks(Protocol):
         """Return durable DAG scheduling metadata for one linked child."""
         ...
 
+    def parent_workflow_id(self, task_ref: str) -> str | None:
+        """Return the parent workflow that published a linked child task."""
+        ...
+
     def ready_task_node_ids(self, workflow_ids: set[str]) -> set[str]:
         """Return linked node IDs whose current child runs are ready."""
         ...
@@ -145,6 +149,12 @@ class ChildTaskStore:
                 tuple(item for item in prerequisites if isinstance(item, str)),
                 row.integration_branch,
             )
+
+    def parent_workflow_id(self, task_ref: str) -> str | None:
+        """Load the workflow whose accepted PRD governs ``task_ref``."""
+        with self._factory() as db:
+            row = db.get(ChildTaskLinkRow, task_ref)
+            return row.parent_workflow_id if row is not None else None
 
     def ready_task_node_ids(self, workflow_ids: set[str]) -> set[str]:
         """Load DAG node IDs whose latest child run is technically ready."""

@@ -17,6 +17,7 @@ from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
 from app.ports import SubtaskContextError, TaskSource
 from app.review_requests import render_delta_summary
+from app.services.exceptions import InvalidWorkflowStateError
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
     append_subtask_sentinel,
@@ -29,6 +30,7 @@ from app.services.workflows.prompts import (
     GAP_ANALYSIS_PROMPT,
     GAP_ANALYSIS_REVISION_PROMPT,
 )
+from app.services.workflows.scope import evaluate_scope, refusal_message
 from app.services.workflows.sessions import _bind
 from app.services.workflows.shared import _now_utc, _Rejected
 
@@ -136,8 +138,11 @@ def _decode_candidate(deliverable: str) -> _Candidate:
             "title": str(task["title"]),
             "body": str(task["body"]),
             "prerequisites": list(task.get("prerequisites", [])),
-            **({"published_ref": str(task["published_ref"])}
-               if task.get("published_ref") else {}),
+            **(
+                {"published_ref": str(task["published_ref"])}
+                if task.get("published_ref")
+                else {}
+            ),
         }
         for index, task in enumerate(tasks)
         if isinstance(task, dict)
@@ -203,11 +208,15 @@ async def run_gap_analysis(
     rejection raises the driver's usual terminal-rejection signal.
     """
     step = run.steps[2]
+    if not run.prd_approved or not run.approved_prd:
+        raise InvalidWorkflowStateError("gap analysis requires approved PRD")
     revised_from: str | None = None
+    amendment = ""
     while True:
         if step.status != "awaiting_approval":
-            await _create_candidate(service, run, step, revised_from)
+            await _create_candidate(service, run, step, revised_from, amendment)
             revised_from = None
+            amendment = ""
         decision = await service._await_gate(run.id)
         set_clock(run, "active", _now_utc())
         if decision.approved:
@@ -215,7 +224,19 @@ async def run_gap_analysis(
             return
         if decision.refinement is None:
             raise _Rejected()
+        scope = await evaluate_scope(service, run, decision.refinement)
+        if not scope.allowed:
+            await service._task_source(run).post_comment(
+                run.task_ref, refusal_message(scope)
+            )
+            step.status = "awaiting_approval"
+            run.status = "awaiting_decomposition_approval"
+            run.pending_gate_decision = None
+            set_clock(run, "waiting", _now_utc())
+            service._save(run)
+            continue
         revised_from = step.deliverable
+        amendment = decision.refinement
         step.status = "pending"
 
 
@@ -224,9 +245,10 @@ async def _create_candidate(
     run: WorkflowRun,
     step: WorkflowStep,
     revised_from: str | None,
+    amendment: str,
 ) -> None:
     """Run analysis and containment checking, then checkpoint its proposal."""
-    prd = run.steps[1].deliverable or ""
+    prd = run.approved_prd or ""
     understanding = run.steps[0].deliverable or ""
     step.model = get_policy().model_for(Step.GAP_ANALYSIS)
     run.status = "analyzing"
@@ -239,15 +261,19 @@ async def _create_candidate(
 
     turn = _Turn(service=service, wf_run=run, step=step, slot=slot)
     analysis_text = await turn.send(
-        GAP_ANALYSIS_PROMPT.format(prd=prd, understanding=understanding)
+        GAP_ANALYSIS_PROMPT.format(
+            prd=prd, understanding=understanding, amendment=amendment
+        )
     )
     tech_analysis = extract_tech_analysis(analysis_text) or analysis_text
-    fallback = [{
-        "id": "TASK-1",
-        "title": run.issue_title or "Implement approved work",
-        "body": prd,
-        "prerequisites": [],
-    }]
+    fallback = [
+        {
+            "id": "TASK-1",
+            "title": run.issue_title or "Implement approved work",
+            "body": prd,
+            "prerequisites": [],
+        }
+    ]
     extracted_tasks = extract_followup_tasks(analysis_text) or fallback
     tasks = cast(list[dict[str, object]], extracted_tasks)
     tasks = await _check_self_containment(turn, tech_analysis, tasks)

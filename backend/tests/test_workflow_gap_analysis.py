@@ -297,6 +297,10 @@ async def test_request_changes_reruns_analysis_before_publishing() -> None:
                 "First analysis.", {"title": "First", "body": "First"}
             ),
             _containment({"index": 0, "self_contained": True}),
+            (
+                '<SCOPE>{"allowed": true, '
+                '"reason": "Changes task granularity."}</SCOPE>'
+            ),
             _gap_analysis_output(
                 "Revised analysis.",
                 {"title": "Revised", "body": "Revised body"},
@@ -320,6 +324,37 @@ async def test_request_changes_reruns_analysis_before_publishing() -> None:
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert [issue["title"] for issue in gh.created_issues] == ["Revised"]
+
+
+@pytest.mark.asyncio
+async def test_out_of_scope_request_preserves_decomposition_candidate() -> None:
+    """Ensure a PRD-conflicting amendment is refused without regeneration."""
+    gh = _GHDouble()
+    svc, wid = await _reach_gap_analysis(
+        gh,
+        [
+            _gap_analysis_output(
+                "Analysis.", {"title": "Task", "body": "Body"}
+            ),
+            _containment({"index": 0, "self_contained": True}),
+            (
+                '<SCOPE>{"allowed": false, '
+                '"reason": "Adds an unapproved outcome."}</SCOPE>'
+            ),
+        ],
+    )
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    candidate = svc.get(wid).steps[2].deliverable
+
+    svc.reject(wid, refinement_prompt="Also add an admin dashboard")
+    await _wait(lambda: len(gh.comments) == 1)
+
+    run = svc.get(wid)
+    assert run.status == "awaiting_decomposition_approval"
+    assert run.steps[2].deliverable == candidate
+    assert "Adds an unapproved outcome." in gh.comments[-1]["body"]
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ feedback actually concerns. Parsed via
 defaults to ``"code"`` on a parse miss or an out-of-vocabulary step — this
 module never needs a second fallback layer of its own.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -60,15 +61,17 @@ async def triage_feedback(
     backend = service.backends.backend_for(_TRIAGE_SUBSTEP)
     prompt = FEEDBACK_TRIAGE_PROMPT.format(
         feedback=feedback_body,
-        prd=run.steps[0].deliverable or "",
-        design=run.steps[1].deliverable or "",
+        prd=run.steps[1].deliverable or "",
+        design=run.steps[3].deliverable or "",
         diffstat_section=(
             DIFFSTAT_SECTION.format(diffstat=diffstat) if diffstat else ""
         ),
     )
     result = await backend.run_turn(
         TurnRequest(
-            prompt=prompt, cwd=run.workspace, permission_mode="plan",
+            prompt=prompt,
+            cwd=run.workspace,
+            permission_mode="plan",
             model=model,
         )
     )

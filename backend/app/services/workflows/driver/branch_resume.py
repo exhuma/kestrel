@@ -23,6 +23,7 @@ so ``app.services.feedback.dispatch`` — which every driver submodule is
 itself imported by (see ``feedback/dispatch.py``'s module docstring on
 the circular-import trap) — never needs to import this module directly.
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,6 +37,11 @@ from app.services.feedback.triage import triage_feedback
 from app.services.workflows import artifacts
 from app.services.workflows.driver import continue_run
 from app.services.workflows.reentry import rewind_to
+from app.services.workflows.scope import (
+    ScopeDecision,
+    evaluate_scope,
+    refusal_message,
+)
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
@@ -115,7 +121,9 @@ def _queue_triage_instruction(
 
 
 async def resume_with_feedback(
-    service: "WorkflowService", workflow_id: str, feedback_body: str,
+    service: "WorkflowService",
+    workflow_id: str,
+    feedback_body: str,
 ) -> None:
     """
     Resume ``workflow_id`` to apply feedback, reviving it from wherever
@@ -139,6 +147,25 @@ async def resume_with_feedback(
     :param feedback_body: The raw feedback text driving this resume.
     """
     run = service.get(workflow_id)
+    parent = service.parent_for_child(run)
+    if service.is_linked_child(run):
+        if parent is None:
+            await service._task_source(run).post_comment(
+                run.task_ref,
+                refusal_message(
+                    ScopeDecision(
+                        False,
+                        "No accepted parent PRD is available for this task.",
+                    )
+                ),
+            )
+            return
+        scope = await evaluate_scope(service, parent, feedback_body)
+        if not scope.allowed:
+            await service._task_source(run).post_comment(
+                run.task_ref, refusal_message(scope)
+            )
+            return
     if run.pr_number is None:
         await _provision_fresh_branch(service, run)
     else:
@@ -154,7 +181,9 @@ async def resume_with_feedback(
     step = Step(triage["step"])
     _logger.info(
         "resume_with_feedback run=%s target=%s reason=%s",
-        run.id, step, triage["reason"],
+        run.id,
+        step,
+        triage["reason"],
     )
     rewind_to(run, step, triage["instruction"])
     _queue_triage_instruction(service, run, triage["instruction"])

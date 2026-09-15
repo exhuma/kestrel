@@ -148,6 +148,27 @@ class WorkflowService(WorkflowSessionService):
         """
         return self._code_host(run)
 
+    def parent_for_child(self, run: WorkflowRun) -> WorkflowRun | None:
+        """Return the parent whose accepted PRD governs a linked child run."""
+        if self.child_tasks is None:
+            return None
+        parent_lookup = getattr(self.child_tasks, "parent_workflow_id", None)
+        if parent_lookup is None:
+            return None
+        parent_id = parent_lookup(run.task_ref)
+        if parent_id is None:
+            return None
+        try:
+            return self.get(parent_id)
+        except WorkflowNotFoundError:
+            return None
+
+    def is_linked_child(self, run: WorkflowRun) -> bool:
+        """Return whether ``run`` represents a published child task."""
+        if self.child_tasks is None:
+            return False
+        return self.child_tasks.is_linked(run.task_ref)
+
     def required_ci_statuses(self, run: WorkflowRun) -> list[str]:
         """Return configured required CI checks for ``run``'s repository."""
         return self.settings.required_ci_statuses_for(run.source, run.repo)
@@ -381,6 +402,7 @@ class WorkflowService(WorkflowSessionService):
         gate.resolve(run, self._control[workflow_id], decision)
         if run.status == "awaiting_refine_approval" and decision.approved:
             run.prd_approved = True
+            run.approved_prd = decision.deliverable or run.steps[1].deliverable
         gate.checkpoint_decision(run, decision)
         # The feedback item is marked applied immediately after this returns.
         # Checkpoint the decision first, so a restart cannot lose it while the

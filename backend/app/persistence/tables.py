@@ -113,6 +113,9 @@ class WorkflowRunRow(Base):
     prd_approved: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
+    #: Exact PRD content accepted by the requester. NULL only for legacy or
+    #: unapproved runs; it is immutable after approval.
+    approved_prd: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: CI repair attempts consumed by this run. Kept separate from verify.
     ci_repair_round: Mapped[int] = mapped_column(default=0, server_default="0")
 

@@ -1,4 +1,5 @@
 """Write-through persistence for workflow runs."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -25,9 +26,7 @@ from app.persistence.tables import (
 class WorkflowStore:
     """Persists workflow runs and their steps."""
 
-    def __init__(
-        self, factory: sessionmaker[Session]
-    ) -> None:
+    def __init__(self, factory: sessionmaker[Session]) -> None:
         self._factory = factory
 
     def save(self, run: WorkflowRun) -> None:
@@ -65,6 +64,7 @@ class WorkflowStore:
                     terminal_at=run.terminal_at,
                     pending_gate_decision=run.pending_gate_decision,
                     prd_approved=run.prd_approved,
+                    approved_prd=run.approved_prd,
                     ci_repair_round=run.ci_repair_round,
                 )
             )
@@ -152,8 +152,7 @@ class WorkflowStore:
                         badge=chip.badge,
                         session_id=chip.session_id,
                         status=(
-                            "error" if chip.status == "running"
-                            else chip.status
+                            "error" if chip.status == "running" else chip.status
                         ),
                         error=chip.error,
                         retired_at=retired_at,
@@ -203,9 +202,7 @@ class WorkflowStore:
             for row in db.scalars(select(WorkflowRunRow)):
                 stmt = (
                     select(WorkflowStepRow)
-                    .where(
-                        WorkflowStepRow.workflow_id == row.id
-                    )
+                    .where(WorkflowStepRow.workflow_id == row.id)
                     .order_by(WorkflowStepRow.position)
                 )
                 steps = [
@@ -246,6 +243,7 @@ class WorkflowStore:
                         terminal_at=row.terminal_at,
                         pending_gate_decision=row.pending_gate_decision,
                         prd_approved=row.prd_approved,
+                        approved_prd=row.approved_prd,
                         ci_repair_round=row.ci_repair_round,
                     )
                 )

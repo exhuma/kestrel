@@ -20,6 +20,7 @@ established (``driver/code_verify.py``'s round start, and the pre-design
 boundary in ``continue_run``); ``refine`` gained the analogous boundary
 in this feature. No new prompt-consumption path was needed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -57,8 +58,11 @@ def rewind_to(run: WorkflowRun, step: Step, instruction: str) -> None:
         raise ValueError(f"not a legal re-entry step: {step!r}")
     if step in (Step.DESCRIBE, Step.REFINE):
         run.prd_approved = False
+        run.approved_prd = None
     _logger.debug(
-        "rewind_to run=%s target=%s instruction=%s", run.id, step,
+        "rewind_to run=%s target=%s instruction=%s",
+        run.id,
+        step,
         instruction,
     )
     target_index = Step.sequence().index(step)
