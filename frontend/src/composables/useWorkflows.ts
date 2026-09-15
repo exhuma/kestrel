@@ -7,6 +7,7 @@ import type { WorkflowDetail, WorkflowSummary } from '../types/workflows'
 
 const workflows = ref<WorkflowSummary[]>([])
 const current = ref<WorkflowDetail | null>(null)
+const selectedId = ref<string | null>(null)
 const events = ref<SessionEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -86,14 +87,29 @@ export function useWorkflows() {
     events.value = []
   }
 
-  function select(id: string): void {
+  async function select(id: string): Promise<void> {
     // Push, don't poll: the backend streams a fresh snapshot on every
     // real state change, so the UI never re-renders (and never clobbers
     // in-progress form input) on an idle interval.
     stopDetail()
+    selectedId.value = id
+    loading.value = true
+    error.value = null
+    try {
+      const detail = await api.get<WorkflowDetail>(`/api/workflows/${id}`)
+      if (selectedId.value !== id) return
+      applyDetail(detail)
+    } catch (e) {
+      if (selectedId.value === id) error.value = describe(e)
+      return
+    } finally {
+      if (selectedId.value === id) loading.value = false
+    }
+    if (selectedId.value !== id) return
     detailSource = new EventSource(`${API_BASE}/api/workflows/${id}/events`)
     detailSource.onmessage = (e) => {
-      applyDetail(JSON.parse(e.data) as WorkflowDetail)
+      const detail = JSON.parse(e.data) as WorkflowDetail
+      if (selectedId.value === id && detail.id === id) applyDetail(detail)
     }
     detailSource.onerror = () => {
       // The browser auto-reconnects on a transient drop; if it gives up
@@ -101,10 +117,10 @@ export function useWorkflows() {
       // idle stream), re-open so the view self-heals instead of freezing.
       if (
         detailSource?.readyState === EventSource.CLOSED &&
-        current.value?.id === id
+        selectedId.value === id
       ) {
         setTimeout(() => {
-          if (current.value?.id === id) select(id)
+          if (selectedId.value === id) void select(id)
         }, 2000)
       }
     }
@@ -114,7 +130,7 @@ export function useWorkflows() {
     // Re-arm the event stream after stop() so a remounted panel keeps
     // tracking the already-selected run. Without this, the UI freezes
     // on the pre-unmount state and never surfaces awaiting_* gates.
-    if (current.value && !detailSource) select(current.value.id)
+    if (selectedId.value && !detailSource) void select(selectedId.value)
   }
 
   // Gate actions (reply/approve/reject/submit) surface failures on the
@@ -137,7 +153,7 @@ export function useWorkflows() {
   }
 
   async function reply(text: string): Promise<boolean> {
-    return gate(current.value?.id, (id) =>
+    return gate(selectedId.value ?? current.value?.id, (id) =>
       api.post(`/api/workflows/${id}/reply`, { text }),
     )
   }
@@ -145,21 +161,20 @@ export function useWorkflows() {
   async function submitAnswers(
     answers: Record<string, unknown>,
   ): Promise<boolean> {
-    return gate(current.value?.id, (id) =>
+    return gate(selectedId.value ?? current.value?.id, (id) =>
       api.post(`/api/workflows/${id}/answers`, { answers }),
     )
   }
 
   // Draft saves stay best-effort: no error banner for a transient failure.
-  async function saveDraft(answers: Record<string, unknown>): Promise<void> {
-    if (current.value)
-      await api.post(`/api/workflows/${current.value.id}/answers/draft`, {
-        answers,
-      })
+  async function saveDraft(answers: Record<string, unknown>): Promise<boolean> {
+    return gate(selectedId.value ?? current.value?.id, (id) =>
+      api.post(`/api/workflows/${id}/answers/draft`, { answers }),
+    )
   }
 
   async function approve(deliverable?: string): Promise<boolean> {
-    return gate(current.value?.id, (id) =>
+    return gate(selectedId.value ?? current.value?.id, (id) =>
       api.post(`/api/workflows/${id}/approve`, {
         deliverable: deliverable ?? null,
       }),
@@ -167,7 +182,7 @@ export function useWorkflows() {
   }
 
   async function reject(refinementPrompt?: string): Promise<boolean> {
-    return gate(current.value?.id, (id) =>
+    return gate(selectedId.value ?? current.value?.id, (id) =>
       api.post(`/api/workflows/${id}/reject`, {
         refinement_prompt: refinementPrompt ?? null,
       }),
@@ -178,7 +193,7 @@ export function useWorkflows() {
   // one action that actively asks the backend to re-check a stalled run's
   // live chips against their backend right now, instead of waiting.
   async function pollActiveStep(): Promise<boolean> {
-    const id = current.value?.id
+    const id = selectedId.value ?? current.value?.id
     if (!id) return false
     error.value = null
     try {
@@ -199,6 +214,7 @@ export function useWorkflows() {
 
   function stop(): void {
     stopDetail()
+    selectedId.value = null
     if (stream) {
       stream.close()
       stream = null

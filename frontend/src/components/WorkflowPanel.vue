@@ -248,11 +248,7 @@ async function onSubmitAnswers(
   }
 }
 async function onSaveDraft(answers: Record<string, unknown>): Promise<void> {
-  try {
-    await saveDraft(answers)
-  } catch {
-    /* draft saves are best-effort; ignore transient failures */
-  }
+  await saveDraft(answers)
 }
 async function onDelete(id: string): Promise<void> {
   if (

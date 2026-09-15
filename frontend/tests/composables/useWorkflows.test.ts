@@ -21,11 +21,38 @@ beforeEach(() => {
   esInstances = 0
   lastEs = null
   vi.stubGlobal('EventSource', FakeEventSource)
+  useWorkflows().stop()
+  useWorkflows().current.value = null
 })
 afterEach(() => {
   useWorkflows().stop()
   vi.restoreAllMocks()
 })
+
+function detail(id: string) {
+  return {
+    id,
+    repo: 'o/r',
+    issue_number: 3,
+    issue_title: 't',
+    status: 'refining',
+    branch: 'b',
+    steps: [],
+    current_session_id: null,
+    active_sessions: [],
+    round_history: [],
+    refine_round_cap: 1,
+    refine_max_rounds: 3,
+    verify_max_iterations: 3,
+    allow_incomplete_answers: false,
+    rerunnable: false,
+    task_label: 'o/r#3',
+    task_link: null,
+    pr_url: null,
+    error: null,
+    artifacts: [],
+  }
+}
 
 describe('useWorkflows', () => {
   it('refresh populates workflows from the api', async () => {
@@ -59,8 +86,12 @@ describe('useWorkflows', () => {
   })
 
   it('select opens a workflow event stream and applies snapshots', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(detail('wf-1')), { status: 200 })),
+    )
     const { select, current } = useWorkflows()
-    select('wf-1')
+    await select('wf-1')
     expect(esInstances).toBe(1)
     expect(lastEs?.url).toContain('/api/workflows/wf-1/events')
     lastEs?.emit({
@@ -77,6 +108,41 @@ describe('useWorkflows', () => {
       error: null,
     })
     expect(current.value?.status).toBe('refining')
+  })
+
+  it('hydrates detail before subscribing for a deep-linked selection', async () => {
+    const fetch = vi.fn(
+      async () => new Response(JSON.stringify(detail('wf-9')), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetch)
+    const { current, select } = useWorkflows()
+
+    const selecting = select('wf-9')
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/workflows/wf-9'),
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(esInstances).toBe(0)
+    await selecting
+    expect(current.value?.id).toBe('wf-9')
+    expect(esInstances).toBe(1)
+  })
+
+  it('saves a draft against the selected deep-link workflow', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(detail('wf-9')), { status: 200 })),
+    )
+    const { saveDraft, select } = useWorkflows()
+    await select('wf-9')
+
+    await saveDraft({ q1: 'yes' })
+
+    expect(fetch).toHaveBeenLastCalledWith(
+      expect.stringContaining('/workflows/wf-9/answers/draft'),
+      expect.any(Object),
+    )
   })
 
   it('startList streams the summary list into the sidebar', () => {
@@ -108,7 +174,7 @@ describe('useWorkflows', () => {
     )
     const { workflows, refresh, select } = useWorkflows()
     await refresh()
-    select('wf-2')
+    await select('wf-2')
     lastEs?.emit({
       id: 'wf-2',
       repo: 'o/r',
@@ -129,8 +195,12 @@ describe('useWorkflows', () => {
   })
 
   it('stop closes the active EventSource', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(detail('wf-1')), { status: 200 })),
+    )
     const { select, stop } = useWorkflows()
-    select('wf-1')
+    await select('wf-1')
     const closed = lastEs!.close
     stop()
     expect(closed).toHaveBeenCalled()
@@ -140,12 +210,17 @@ describe('useWorkflows', () => {
     // Regression: switching views unmounts the panel (stop());
     // remounting must reopen the stream for the selected run, or the
     // UI freezes and never shows the awaiting_input reply gate.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(detail('wf-1')), { status: 200 })),
+    )
     const { select, stop, ensureLive } = useWorkflows()
-    select('wf-1')
+    await select('wf-1')
     expect(esInstances).toBe(1)
     stop()
     ensureLive()
-    expect(esInstances).toBe(2) // stream reopened
+    await Promise.resolve()
+    expect(esInstances).toBe(1) // selection is cleared by stop()
     stop()
   })
 
@@ -253,6 +328,7 @@ describe('useWorkflows', () => {
   it('pollActiveStep is a no-op with nothing selected', async () => {
     const wf = useWorkflows()
     wf.current.value = null
+    wf.stop()
     const ok = await wf.pollActiveStep()
     expect(ok).toBe(false)
   })

@@ -48,6 +48,6 @@ const vuetify = createVuetify({
 
 // Deep-link: if the URL carries `?run=<id>` (from a gate-notification
 // comment), open that run before mount so the panel shows its gate form.
-applyDeepLink(window.location.search, (id) => useWorkflows().select(id))
+applyDeepLink(window.location.search, (id) => void useWorkflows().select(id))
 
 createApp(App).use(vuetify).mount('#app')
