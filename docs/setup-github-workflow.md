@@ -114,7 +114,8 @@ support natively.
 A marked comment (default trigger: `@kestrel`) on the issue *or* on the PR it
 opened redirects the run in flight. To decide an external gate, include the
 active `[kestrel-review:<token>]` token and one of `@kestrel approve`,
-`@kestrel reject`, or `@kestrel request changes`. GitHub prefers an eyes
-reaction as an acknowledgment and replies `Acknowledged.` if it cannot react.
+`@kestrel reject`, or `@kestrel request changes`. After an immediate action,
+GitHub prefers an eyes reaction and uses a concise, action-specific reply only
+if that reaction cannot be added. Queued feedback receives no acknowledgement.
 See [Feedback intake](feedback-intake.md) for token rules, translations,
 retirement, and revive-versus-successor behaviour.

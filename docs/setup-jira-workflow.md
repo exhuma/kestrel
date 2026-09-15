@@ -170,8 +170,10 @@ A marked comment (default trigger: `@kestrel`) on the RFC redirects the run
 it started. To decide an external gate, include the active
 `[kestrel-review:<token>]` token and one of `@kestrel approve`,
 `@kestrel reject`, or `@kestrel request changes`. Jira has no comment-reaction
-endpoint, so kestrel replies `Acknowledged.` instead. Amending the same
-merge/pull request from a review comment is supported when `code_host` is
+endpoint, so after an immediate action kestrel posts one concise reply
+describing what it did. Queued feedback receives no acknowledgement comment.
+Amending the same merge/pull request from a review comment is supported when
+`code_host` is
 `gitlab` or `github`; `gitea` does not yet support reading review comments.
 See [Feedback intake](feedback-intake.md) for token rules, translations,
 retirement, and revive-versus-successor behaviour.

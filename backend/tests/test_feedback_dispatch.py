@@ -86,12 +86,13 @@ async def test_gate_branch_rejects_with_the_feedback_body() -> None:
     item = _item(workflow_id=wid, body="Mention the API surface")
     store.claim(item)
 
-    dispatcher.dispatch(item)
+    reply = dispatcher.dispatch(item)
     await _wait(lambda: svc.get(wid).steps[1].deliverable == "v2 with feedback")
 
     assert svc.get(wid).status == "awaiting_refine_approval"
     assert "Mention the API surface" in runner.calls[-1]["prompt"]
     assert store.items["a"].state == "applied"
+    assert reply == "Kestrel is updating this review with your feedback."
 
 
 @pytest.mark.asyncio
@@ -113,10 +114,11 @@ async def test_gate_branch_approves_an_explicit_marker_command() -> None:
     item = _item(workflow_id=wid, body="@kestrel approve")
     store.claim(item)
 
-    FeedbackDispatcher(svc, store).dispatch(item)
+    reply = FeedbackDispatcher(svc, store).dispatch(item)
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
 
     assert store.items["a"].state == "applied"
+    assert reply == "Approved. Kestrel is moving the workflow forward."
 
 
 @pytest.mark.asyncio

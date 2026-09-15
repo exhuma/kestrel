@@ -73,8 +73,10 @@ the image small and lets a deploy attach or swap backends purely by config.
   `FeedbackIntakeService.intake` — marker gate → author/bot guard → claim
   (dedup on `feedback_item.external_id`) → route to the newest run for the
   ticket (or, for a PR review comment, the run whose `pr_number` matches) →
-  persist `queued` → best-effort acknowledge (a reaction, where the source
-  supports one). `FeedbackDispatcher` then branches on that run's *current*
+   persist `queued` → dispatch. After an immediate visible action, Kestrel
+   best-effort confirms it with a reaction where the source supports one, or a
+   concise reply explaining that action. `FeedbackDispatcher` then branches on
+   that run's *current*
   status: parked at a human gate → applied immediately, exactly like a UI
   reject-with-feedback; mid-step with no open gate → left `queued` for
   `drain_feedback` to fold in at the next round/step boundary the driver

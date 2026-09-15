@@ -315,22 +315,28 @@ async def test_claim_dedups_a_race_between_transports() -> None:
 
 
 @pytest.mark.asyncio
-async def test_acknowledge_is_called_after_persisting() -> None:
-    """A successful intake calls source.acknowledge with the feedback."""
+async def test_queued_feedback_is_not_acknowledged() -> None:
+    """Feedback retained for later processing produces no confirmation."""
     source = _FakeSource()
     service, _ = _intake()
 
     await service.intake(_feedback(), task_ref="o/r#1", source=source)
 
-    assert source.acknowledged == ["gh-issue-comment:o/r#1"]
+    assert source.acknowledged == []
+    assert source.replies == []
 
 
 @pytest.mark.asyncio
-async def test_failed_acknowledge_never_raises_or_blocks_persistence() -> None:
-    """A raising acknowledge is swallowed — persistence already happened
-    (FR-014's acknowledgment is observably separate from processing)."""
+async def test_failed_acknowledge_never_blocks_immediate_action() -> None:
+    """A failed confirmation leaves an immediate feedback action intact."""
     store = _FakeFeedbackStore()
-    service, dispatched = _intake(store=store)
+    dispatched: list = []
+    service, _ = _intake(
+        store=store,
+        dispatch=lambda item: (
+            dispatched.append(item) or "The review is updated."
+        ),
+    )
 
     await service.intake(
         _feedback(),
@@ -343,15 +349,28 @@ async def test_failed_acknowledge_never_raises_or_blocks_persistence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unreactable_feedback_receives_a_reply_acknowledgement() -> None:
-    """A source without reactions posts the concise acknowledgement fallback."""
+async def test_immediate_action_replies_when_reaction_is_unavailable() -> None:
+    """A failed reaction falls back to the specific completed action."""
     source = _FakeSource(acknowledge_result=False)
-    service, _ = _intake()
+    service, _ = _intake(dispatch=lambda _item: "The review is being updated.")
     feedback = _feedback()
 
     await service.intake(feedback, task_ref="o/r#1", source=source)
 
-    assert source.replies == [(feedback, "Acknowledged.")]
+    assert source.acknowledged == [feedback.external_id]
+    assert source.replies == [(feedback, "The review is being updated.")]
+
+
+@pytest.mark.asyncio
+async def test_immediate_action_prefers_a_reaction_to_a_reply() -> None:
+    """A source with reactions receives one low-noise confirmation signal."""
+    source = _FakeSource()
+    service, _ = _intake(dispatch=lambda _item: "The review is being updated.")
+
+    await service.intake(_feedback(), task_ref="o/r#1", source=source)
+
+    assert source.acknowledged == ["gh-issue-comment:o/r#1"]
+    assert source.replies == []
 
 
 @pytest.mark.asyncio
@@ -453,6 +472,7 @@ async def test_unclear_active_review_response_receives_clarification() -> None:
     assert source.replies == [
         (feedback, "Please reply with approve, reject, or request changes.")
     ]
+    assert source.acknowledged == []
 
 
 @pytest.mark.asyncio

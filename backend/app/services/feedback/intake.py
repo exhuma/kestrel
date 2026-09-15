@@ -113,13 +113,14 @@ class FeedbackIntakeService:
             item.origin,
         )
         feedback_source = feedback_source_for(source, task_ref)
-        outcome = self._dispatch_claimed(item)
-        await self._acknowledge(feedback_source, feedback)
-        if outcome == "clarify":
+        reply = self._dispatch_claimed(item)
+        if reply == "clarify":
             await feedback_source.reply(
                 feedback,
                 "Please reply with approve, reject, or request changes.",
             )
+        elif reply is not None:
+            await self._acknowledge(feedback_source, feedback, reply)
         await self._translate_and_reply(feedback_source, feedback)
 
     def _ignored_reason(self, feedback: Feedback, is_bot: bool) -> str | None:
@@ -242,11 +243,12 @@ class FeedbackIntakeService:
         return matches[-1] if matches else None
 
     async def _acknowledge(
-        self, source: FeedbackSource, feedback: Feedback
+        self, source: FeedbackSource, feedback: Feedback, reply: str
     ) -> None:
+        """React to immediate feedback action or post its visible fallback."""
         try:
             if not await source.acknowledge(feedback):
-                await source.reply(feedback, "Acknowledged.")
+                await source.reply(feedback, reply)
         except Exception:  # best-effort, never blocks intake
             _log.exception(
                 "failed to acknowledge feedback %s", feedback.external_id

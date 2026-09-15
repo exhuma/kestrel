@@ -90,17 +90,18 @@ neither the analysis nor any child task until that proposal is approved.
 
 ## Acknowledgment (reaction) behaviour, per source
 
-Kestrel best-effort acknowledges accepted feedback once it is claimed. It
-tries a reaction first; when that is unavailable or returns false, it replies
-`Acknowledged.` A failed acknowledgment never stops feedback from being
-applied.
+Kestrel confirms feedback only after it has taken an immediate, visible action.
+It prefers a reaction; when a reaction is unavailable or fails, it posts one
+short reply explaining the action it just took. Queued, ignored, duplicate, and
+asynchronous feedback receives no acknowledgement. A failed confirmation never
+stops feedback from being applied.
 
 | Source | Acknowledgment |
 | --- | --- |
-| GitHub | An "eyes" reaction, otherwise a reply. |
-| GitLab (code host for a Jira- or local-sourced run) | An "eyes" award, otherwise a reply. |
-| Jira | A reply: the targeted Jira REST API has no comment-reaction endpoint. |
-| Local | A local reply: local task files have no reaction concept. |
+| GitHub | An eyes reaction after an immediate action, else a specific reply. |
+| GitLab | An eyes award after an immediate action, else a specific reply. |
+| Jira | A specific reply after an immediate action; no reaction endpoint. |
+| Local | A specific local reply after an immediate action; no reactions. |
 
 ## Translation and retirement
 

@@ -73,6 +73,10 @@ _GATE_STATUSES = frozenset(
 #: a review's change-request state is a real HTTP call.
 _REVIEW_TASKS: set[asyncio.Task] = set()
 
+_APPROVED_REPLY = "Approved. Kestrel is moving the workflow forward."
+_REJECTED_REPLY = "Rejected. Kestrel has closed this workflow."
+_CHANGES_REPLY = "Kestrel is updating this review with your feedback."
+
 
 def _fire_and_forget(coro) -> None:
     task = asyncio.create_task(coro)
@@ -104,7 +108,8 @@ class FeedbackDispatcher:
         """
         Act on ``item`` per its target run's *current* status.
 
-        A no-op (stays ``queued``) when there is no target run yet, the
+        Return a reply only after a synchronous, visible gate action. A no-op
+        (stays ``queued``) when there is no target run yet, the
         run is unknown, or the run's status is not one this phase
         handles — including every transient, no-open-gate status
         (``describing``/``refining``/``analyzing``/``designing``/
@@ -246,12 +251,15 @@ class FeedbackDispatcher:
             return None
         if action == "approve":
             self._workflows.approve(run.id)
+            reply = _APPROVED_REPLY
         elif action == "reject":
             self._workflows.reject(run.id)
+            reply = _REJECTED_REPLY
         else:
             self._workflows.reject(run.id, refinement_prompt=item.body)
+            reply = _CHANGES_REPLY
         self._store.mark(item.external_id, "applied")
-        return None
+        return reply
 
     def _gate_action(self, item: FeedbackItemRow, gate: str) -> str | None:
         """Classify a response only when it targets the active revision."""
