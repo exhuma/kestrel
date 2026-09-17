@@ -114,10 +114,17 @@ class LocalTaskSource:
         """Write an attachment under the task's ``attachments`` directory."""
         self._contained_path(ref, "attachments", name).write_bytes(data)
 
-    async def publish_refined(self, ref: str, content: str) -> None:
+    async def publish_refined(
+        self, ref: str, content: "Document | str"
+    ) -> None:
         """Replace the task body with approved refined content."""
+        text = (
+            render_markdown(content)
+            if isinstance(content, Document)
+            else content
+        )
         data = self._load(ref)
-        data["body"] = content
+        data["body"] = text
         self._task_path(ref).write_text(json.dumps(data), encoding="utf-8")
 
     async def create_subtask(

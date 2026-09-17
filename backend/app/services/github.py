@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import httpx
 
+from app.documents import Document, render_markdown
 from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services import github_reviews
 from app.services.exceptions import GitHubError
@@ -427,11 +428,12 @@ class GitHubCodeHost:
         head: str,
         base: str,
         title: str,
-        body: str,
+        body: "Document | str",
         draft: bool = True,
     ) -> str:
+        rendered = render_markdown(body) if isinstance(body, Document) else body
         return await self._client.create_pull_request(
-            repo, head=head, base=base, title=title, body=body, draft=draft
+            repo, head=head, base=base, title=title, body=rendered, draft=draft
         )
 
     async def get_change_request(

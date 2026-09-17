@@ -14,6 +14,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from app.documents import (
+    BulletList,
+    Document,
+    Heading,
+    ListItem,
+    Paragraph,
+    Strong,
+    Text,
+    document,
+)
 from app.mockups import Mockup, mockup_key
 
 QuestionType = Literal[
@@ -69,11 +79,8 @@ class GenerationIssue(BaseModel):
     Server-stamped (never produced by the model), so a specialist that
     crashed, timed out, or returned nothing is recorded alongside the
     questionnaire and survives into the review gate after the live chips
-    clear.
-
-    ``severity`` is ``"soft"`` while the specialist is still within its
-    retry budget (it will be retried on the next answer submission) and
-    ``"hard"`` once the budget is exhausted (given up).
+    clear. ``severity`` is ``"soft"`` while within retry budget and
+    ``"hard"`` once exhausted (given up).
     """
 
     profile: str
@@ -117,9 +124,7 @@ class InterviewEnvelope(BaseModel):
 
     Only ``questionnaire`` and ``draft_answers`` are consumed by the
     frontend; ``accumulated`` is backend loop state. The round counter
-    is *not* carried here — it lives on the persisted step itself
-    (``WorkflowStep.refine_round``), the single source of truth used to
-    distinguish a genuine questionnaire change from a no-op update.
+    lives on ``WorkflowStep.refine_round``, not here.
     """
 
     questionnaire: Questionnaire
@@ -139,10 +144,9 @@ def coerce_answerable(questions: list[Question]) -> None:
     """Coerce a select question with no options into free text (in place).
 
     Weak models sometimes emit a single/multi-select with an empty
-    ``options`` list. The UI can render no choices for it, so the only
-    input left is the optional note field and the answer would never
-    register as given. Rendering it as free text keeps it answerable and
-    keeps validation/rendering consistent (a plain string).
+    ``options`` list. The UI can render no choices for it, so the answer
+    would never register as given. Rendering it as free text keeps it
+    answerable and validation/rendering consistent (a plain string).
     """
     for question in questions:
         if (
@@ -153,12 +157,10 @@ def coerce_answerable(questions: list[Question]) -> None:
 
 
 def parse_questionnaire_json(text: str) -> Questionnaire | None:
-    """
-    Parse bare questionnaire JSON (no surrounding tag).
+    """Parse bare questionnaire JSON (no surrounding tag).
 
     :param text: Raw JSON text, e.g. an agent's QUESTIONS block.
-    :returns: The parsed questionnaire, or None if it isn't valid
-        JSON matching the schema.
+    :returns: The parsed questionnaire, or None if invalid.
     """
     try:
         questionnaire = Questionnaire.model_validate_json(text)
@@ -473,20 +475,25 @@ def render_qa(entries: list[QAEntry]) -> str:
     return "\n".join(lines)
 
 
-def render_assumptions_and_risks(entries: list[QAEntry]) -> str:
+def render_assumptions_and_risks(entries: list[QAEntry]) -> Document | None:
     """
-    Build the ``## Assumptions & accepted risks`` Markdown section.
+    Build the ``## Assumptions & accepted risks`` document section.
 
     Assembled deterministically from every waived answer so a recorded
     risk acceptance survives verbatim into the refined issue. Returns
-    an empty string when nothing was waived.
+    ``None`` when nothing was waived.
     """
     waived = [e for e in entries if e.waived]
     if not waived:
-        return ""
-    lines = ["## Assumptions & accepted risks", ""]
+        return None
+    items = []
     for entry in waived:
         audience = f" ({entry.audience})" if entry.audience else ""
         reason = entry.reason or "(no reason given)"
-        lines.append(f"- **{entry.prompt}**{audience} — {reason}")
-    return "\n".join(lines) + "\n"
+        items.append(ListItem((Paragraph(
+            (Strong(entry.prompt), Text(f"{audience} — {reason}")),
+        ),)))
+    return document(
+        Heading(2, (Text("Assumptions & accepted risks"),)),
+        BulletList(tuple(items)),
+    )

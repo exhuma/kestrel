@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping, Sequence, cast
 
 from app.backends.base import TurnRequest
+from app.documents import Heading, Text, document, parse_markdown
 from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
 from app.ports import SubtaskContextError, TaskSource
@@ -341,7 +342,10 @@ async def _publish_candidate(
     with contextlib.suppress(Exception):
         await service.post_comment(
             run,
-            f"## Technical analysis\n\n{candidate.technical_analysis}",
+            document(
+                Heading(2, (Text("Technical analysis"),)),
+                *parse_markdown(candidate.technical_analysis).blocks,
+            ),
             "technical analysis",
         )
 

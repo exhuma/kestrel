@@ -5,6 +5,7 @@ import asyncio
 
 import pytest
 
+from app.documents import Document, render_markdown
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.notifications import TaskSourceNotifier, render_message
 
@@ -36,7 +37,12 @@ class _FakeSource:
         self.comments: list[tuple[str, str]] = []
 
     async def post_comment(self, ref, body):
-        self.comments.append((ref, body))
+        text = (
+            render_markdown(body)
+            if isinstance(body, Document)
+            else body
+        )
+        self.comments.append((ref, text))
         return "url"
 
 

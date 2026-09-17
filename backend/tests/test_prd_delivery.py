@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
+from app.documents import Document, render_markdown
 from app.services.workflows import WorkflowService
 from app.storage.registry import SessionRegistry
 from app.storage.workflow_registry import WorkflowRegistry
@@ -34,14 +35,21 @@ class _FakeJiraSource:
         return Task(ref=ref, title="RFC title", body=self._body)
 
     async def post_comment(self, ref, body):
-        self.comments.append(body)
+        from app.documents import Document, render_markdown
+        text = render_markdown(body) if isinstance(body, Document) else body
+        self.comments.append(text)
         return "url"
 
     async def attach(self, ref, name, content):
         self.attachments.append((name, content))
 
     async def publish_refined(self, ref, content):
-        self.attachments.append(("PRD.md", content))
+        text = (
+            render_markdown(content)
+            if isinstance(content, Document)
+            else content
+        )
+        self.attachments.append(("PRD.md", text))
 
     async def create_subtask(self, parent_ref, title, body):
         self.subtasks.append((title, body))

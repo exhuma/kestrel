@@ -8,15 +8,24 @@ from app.documents import (
     BulletList,
     Code,
     Document,
-    LegacyMarkdown,
+    ListItem,
     Rule,
     Text,
     document,
     paragraph,
+    parse_markdown,
 )
 
 _MAX_DELTA_LINE_LENGTH = 120
 _MAX_DELTA_LINES = 3
+
+
+def _artifact_blocks(artifact: str) -> tuple:
+    """Build artifact blocks, parsing the Markdown into canonical form."""
+    if not artifact:
+        return ()
+    parsed = parse_markdown(artifact)
+    return (*parsed.blocks, Rule())
 
 
 def _excerpt(line: str) -> str:
@@ -39,7 +48,7 @@ def render_review_request(
     :returns: A tokenized review document whose artifact is first when present.
     """
     review_token = f"[kestrel-review:{token}]"
-    artifact_blocks = (LegacyMarkdown(artifact), Rule()) if artifact else ()
+    artifact_blocks = _artifact_blocks(artifact)
     return document(
         *artifact_blocks,
         paragraph(Text(message)),
@@ -47,18 +56,18 @@ def render_review_request(
         paragraph(Text("Reply with one command:")),
         BulletList(
             (
-                paragraph(
+                ListItem((paragraph(
                     Text("Approve with "),
                     Code(f"@kestrel approve {review_token}"),
-                ),
-                paragraph(
+                ),)),
+                ListItem((paragraph(
                     Text("Reject with "),
                     Code(f"@kestrel reject {review_token}"),
-                ),
-                paragraph(
+                ),)),
+                ListItem((paragraph(
                     Text("Request changes with "),
                     Code(f"@kestrel request changes {review_token}"),
-                ),
+                ),)),
             )
         ),
     )
@@ -76,9 +85,10 @@ def render_delta_summary(
     entries = changes[:_MAX_DELTA_LINES]
     if len(changes) > _MAX_DELTA_LINES:
         entries.append("Additional requested changes applied.")
-    items = tuple(paragraph(Text(entry)) for entry in entries)
+    items = tuple(ListItem((paragraph(Text(entry)),)) for entry in entries)
+    fallback = (ListItem((paragraph(Text("Content revised.")),)),)
     return document(
         paragraph(Text("Requested changes applied:")),
-        BulletList(items or (paragraph(Text("Content revised.")),)),
+        BulletList(items or fallback),
         paragraph(Text(f"Canonical artifact: {canonical_reference}")),
     )

@@ -238,7 +238,9 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def publish_refined(self, ref: str, content: str) -> None:
+    async def publish_refined(
+        self, ref: str, content: "Document | str"
+    ) -> None:
         """Record the approved PRD on the ticket (update body / attach)."""
         ...
 
@@ -400,7 +402,7 @@ class CodeHost(Protocol):
         head: str,
         base: str,
         title: str,
-        body: str,
+        body: "Document | str",
         draft: bool = True,
     ) -> str:
         """Open a pull/merge request; return its URL."""

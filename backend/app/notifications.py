@@ -14,7 +14,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from app.documents import Document, Paragraph, Text, document
+from app.documents import (
+    Code,
+    Document,
+    Paragraph,
+    Rule,
+    Text,
+    document,
+    paragraph,
+    parse_markdown,
+)
 from app.models_workflow import WorkflowRun
 from app.ports import Commentable
 from app.review_requests import render_review_request
@@ -93,7 +102,7 @@ def render_message(run: WorkflowRun) -> str:
 
 
 def _review_artifact(run: WorkflowRun) -> str:
-    """Render the complete persisted artifact for an external review gate."""
+    """Return the persisted artifact Markdown for an external review gate."""
     if run.status == "awaiting_describe_approval":
         return f"## Understanding\n\n{_step_deliverable(run, 0)}"
     if run.status == "awaiting_refine_approval":
@@ -117,7 +126,7 @@ def _render_decomposition_candidate(deliverable: str) -> str:
     except (KeyError, TypeError, json.JSONDecodeError):
         return deliverable
     rendered_tasks = "\n\n".join(
-        f"{index}. **{task['title']}**\n\n{task['body']}"
+        f"{index}. **{task['title']}**\n\n   {task['body']}"
         for index, task in enumerate(tasks, start=1)
     )
     return (
@@ -126,12 +135,15 @@ def _render_decomposition_candidate(deliverable: str) -> str:
     )
 
 
-def _with_deep_link(body: Document | str, link: str) -> Document | str:
-    """Append the optional UI convenience link without flattening documents."""
-    if isinstance(body, Document):
-        link_block = Paragraph((Text(f"Open in kestrel: {link}"),))
-        return document(*body.blocks, link_block)
-    return f"{body}\n\nOpen in kestrel: {link}"
+def _artifact_document(artifact: str) -> Document:
+    """Parse an artifact Markdown string into a canonical document."""
+    return parse_markdown(artifact)
+
+
+def _with_deep_link(body: Document, link: str) -> Document:
+    """Append the optional UI convenience link to a gate document."""
+    link_block = Paragraph((Text(f"Open in kestrel: {link}"),))
+    return document(*body.blocks, link_block)
 
 
 @dataclass
@@ -157,7 +169,7 @@ class _PendingReviewPost:
     run: WorkflowRun
     gate: str
     task_ref: str
-    body: Document | str
+    body: Document
     revision: int | None
     token: str | None
 
@@ -312,19 +324,29 @@ class TaskSourceNotifier:
 
     def _review_body(
         self, run: WorkflowRun, revision: int | None, token: str | None
-    ) -> Document | str:
+    ) -> Document:
         """Render a gate post without recording delivery before it succeeds."""
         message = render_message(run)
         if not run.status.startswith("awaiting_"):
-            return message
+            return document(paragraph(Text(message)))
         if run.status == "awaiting_refine_input":
-            return f"{message}\n\nOpen Kestrel and answer the questionnaire."
+            return document(
+                paragraph(Text(message)),
+                paragraph(Text("Open Kestrel and answer the questionnaire.")),
+            )
         artifact = _review_artifact(run)
         if self._review_requests is None:
-            return (
-                f"{artifact}\n\n---\n\n{message}\n\n"
-                "Reply `@kestrel approve` or "
-                "`@kestrel request changes`."
+            return document(
+                *_artifact_document(artifact).blocks,
+                Rule(),
+                paragraph(Text(message)),
+                paragraph(
+                    Text("Reply "),
+                    Code("@kestrel approve"),
+                    Text(" or "),
+                    Code("@kestrel request changes"),
+                    Text("."),
+                ),
             )
         return render_review_request(
             message,

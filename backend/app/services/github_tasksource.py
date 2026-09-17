@@ -84,10 +84,17 @@ class GitHubTaskSource:
         issue body; screenshots ride along committed in the PR's ``.kestrel``
         folder."""
 
-    async def publish_refined(self, ref: str, content: str) -> None:
+    async def publish_refined(
+        self, ref: str, content: "Document | str"
+    ) -> None:
         """Write the approved PRD back to the issue body with the sentinel."""
         repo, number = parse_github_ref(ref)
-        await self._client.update_issue(repo, number, append_sentinel(content))
+        text = (
+            render_markdown(content)
+            if isinstance(content, Document)
+            else content
+        )
+        await self._client.update_issue(repo, number, append_sentinel(text))
 
     async def create_subtask(
         self, parent_ref: str, title: str, body: str

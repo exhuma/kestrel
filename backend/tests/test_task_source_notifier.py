@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from app.documents import as_document, render_markdown
+from app.documents import Document, render_markdown
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.notifications import (
     CompositeNotifier,
@@ -25,10 +25,13 @@ class _FakeSource:
         self.comments: list[tuple[str, str]] = []
         self._fail = fail
 
-    async def post_comment(self, task_ref: str, body: str) -> str:
+    async def post_comment(
+        self, task_ref: str, body: "Document | str"
+    ) -> str:
         if self._fail:
             raise RuntimeError("boom")
-        self.comments.append((task_ref, body))
+        text = render_markdown(body) if isinstance(body, Document) else body
+        self.comments.append((task_ref, text))
         return "https://ticket/comment/1"
 
 
@@ -162,7 +165,7 @@ async def test_gate_post_includes_a_durable_revision_token() -> None:
     await _tick()
 
     assert len(reviews.rows) == 1
-    body = render_markdown(as_document(source.comments[0][1]))
+    body = source.comments[0][1]
     assert "Revision 1: `[kestrel-review:token-1]`" in body
     assert "Reply with one command:" in body
     commands = body
@@ -191,7 +194,7 @@ async def test_external_review_post_contains_its_artifact_before_link(
     notifier.notify(_review_run(status))
     await _tick()
 
-    body = render_markdown(as_document(source.comments[0][1]))
+    body = source.comments[0][1]
     assert artifact in body
     assert body.index(artifact) < body.index("[kestrel-review:token-1]")
     assert body.index("[kestrel-review:token-1]") < body.index(
@@ -208,7 +211,7 @@ async def test_decomposition_review_renders_numbered_candidate_tasks() -> None:
     )
     await _tick()
 
-    body = render_markdown(as_document(source.comments[0][1]))
+    body = source.comments[0][1]
     assert "## Technical analysis" in body
     assert "## Proposed child tasks" in body
     assert "1. **Add endpoint**" in body

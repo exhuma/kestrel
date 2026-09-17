@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.documents import Document, Text, document, paragraph
 from app.services.github import change_request_number
 from app.services.workflows import screenshots
 
@@ -15,18 +16,26 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def _change_request_texts(run: "WorkflowRun") -> tuple[str, str, str]:
-    """Return commit, title, and body text appropriate for a run's source."""
+def _change_request_texts(
+    run: "WorkflowRun",
+) -> tuple[str, str, Document]:
+    """Return commit, title, and body doc for a run's source."""
     if run.issue_number is not None:
         return (
             f"Implement #{run.issue_number}",
             f"{run.issue_title} (#{run.issue_number})",
-            f"Closes #{run.issue_number}\n\nOpened by kestrel.",
+            document(
+                paragraph(Text(f"Closes #{run.issue_number}")),
+                paragraph(Text("Opened by kestrel.")),
+            ),
         )
     return (
         f"Implement {run.task_ref}",
         f"{run.issue_title} ({run.task_ref})",
-        f"Implements {run.task_ref}\n\nOpened by kestrel.",
+        document(
+            paragraph(Text(f"Implements {run.task_ref}")),
+            paragraph(Text("Opened by kestrel.")),
+        ),
     )
 
 

@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 import httpx
 
+from app.documents import Document, render_markdown
 from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
@@ -188,7 +189,7 @@ class GitLabCodeHost:
         head: str,
         base: str,
         title: str,
-        body: str,
+        body: "Document | str",
         draft: bool = True,
     ) -> str:
         """Open a merge request and return its ``web_url``.
@@ -196,6 +197,11 @@ class GitLabCodeHost:
         GitLab signals a draft MR with a ``Draft:`` title prefix.
         """
         mr_title = f"Draft: {title}" if draft else title
+        description = (
+            render_markdown(body)
+            if isinstance(body, Document)
+            else body
+        )
         resp = await self._request(
             "POST",
             f"/projects/{self._pid(repo)}/merge_requests",
@@ -203,7 +209,7 @@ class GitLabCodeHost:
                 "source_branch": head,
                 "target_branch": base,
                 "title": mr_title,
-                "description": body,
+                "description": description,
             },
         )
         return resp.json()["web_url"]

@@ -5,6 +5,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from app.documents import Document, parse_markdown, render_markdown
 from app.models_workflow import StepSession, WorkflowRun
 from app.profiles import BUSINESS_ALTITUDE_IDS, roster_summary
 from app.questionnaire import (
@@ -256,8 +257,10 @@ async def write_refined(
     )
     body = extract_refined_issue(text) or text
     risks = render_assumptions_and_risks(accumulated)
-    if risks:
-        body = f"{body.rstrip()}\n\n{risks}"
+    if risks is not None:
+        doc = parse_markdown(body)
+        doc = Document(doc.blocks + risks.blocks)
+        return render_markdown(doc)
     return body
 
 

@@ -13,6 +13,7 @@ from app.design_contract import (
     check_contract_json,
     task_graph_json,
 )
+from app.documents import parse_markdown
 from app.models_workflow import Step, StepSession, WorkflowRun
 from app.policy import get_policy
 from app.review_requests import render_delta_summary
@@ -349,7 +350,7 @@ async def _publish_refined(
         run, "source_body", f"{run.task_ref}\0{original}", "published PRD",
         "restore",
     )
-    await source.publish_refined(run.task_ref, final)
+    await source.publish_refined(run.task_ref, parse_markdown(final))
 
 
 def _start_refine_revision(

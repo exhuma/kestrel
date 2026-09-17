@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.documents import render_markdown
 from app.questionnaire import (
     AnswerValidationError,
     InterviewEnvelope,
@@ -150,7 +151,9 @@ def test_completeness_counts_waivers_as_answered() -> None:
 def test_render_assumptions_and_risks_lists_waivers() -> None:
     """Ensure every waived answer appears in the risk section."""
     entries = to_entries(_questionnaire(), {"q1": _WAIVER, "q2": "text"})
-    section = render_assumptions_and_risks(entries)
+    doc = render_assumptions_and_risks(entries)
+    assert doc is not None
+    section = render_markdown(doc)
     assert "Assumptions & accepted risks" in section
     assert "Which auth flow?" in section
     assert "Risk accepted by owner" in section
@@ -161,7 +164,7 @@ def test_render_assumptions_and_risks_lists_waivers() -> None:
 def test_render_assumptions_and_risks_empty_when_none_waived() -> None:
     """Ensure no section is emitted when nothing was waived."""
     entries = to_entries(_questionnaire(), {"q1": "oidc"})
-    assert render_assumptions_and_risks(entries) == ""
+    assert render_assumptions_and_risks(entries) is None
 
 
 def test_to_entries_carries_audience_and_waiver() -> None:
@@ -201,7 +204,7 @@ def test_custom_renders_as_clarification_not_a_risk() -> None:
     assert "this is a CLI" in entries[0].rendered
     assert entries[0].waived is False
     # A correction is fed back as context, never filed as an accepted risk.
-    assert render_assumptions_and_risks(entries) == ""
+    assert render_assumptions_and_risks(entries) is None
 
 
 def test_noted_answer_validates_by_its_core_value() -> None:

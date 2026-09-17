@@ -356,10 +356,17 @@ class JiraTaskSource:
     ) -> None:
         await self._client.add_attachment(ref, name, data, mimetype)
 
-    async def publish_refined(self, ref: str, content: str) -> None:
+    async def publish_refined(
+        self, ref: str, content: "Document | str"
+    ) -> None:
         """Deliver the approved PRD as an attachment on the RFC (FR-011)."""
+        text = (
+            render_markdown(content)
+            if isinstance(content, Document)
+            else content
+        )
         await self._client.add_attachment(
-            ref, "PRD.md", content.encode("utf-8"), "text/markdown"
+            ref, "PRD.md", text.encode("utf-8"), "text/markdown"
         )
 
     async def create_subtask(

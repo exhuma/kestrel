@@ -11,6 +11,7 @@ from app.documents import (
     BulletList,
     Code,
     Heading,
+    ListItem,
     OrderedList,
     Text,
     document,
@@ -35,8 +36,13 @@ def test_adf_keeps_ordered_and_bullet_lists_separate() -> None:
     """Adjacent list styles produce flat independent ADF lists."""
     rendered = render_adf(
         document(
-            OrderedList((paragraph(Text("First")), paragraph(Text("Second")))),
-            BulletList((paragraph(Text("Third")),)),
+            OrderedList(items=(
+                ListItem((paragraph(Text("First")),)),
+                ListItem((paragraph(Text("Second")),)),
+            )),
+            BulletList((
+                ListItem((paragraph(Text("Third")),)),
+            )),
         )
     )
 
@@ -79,7 +85,9 @@ async def test_cloud_comments_render_documents_as_adf_v3_payloads() -> None:
 
     body = document(
         Heading(2, (Text("Review"),)),
-        BulletList((paragraph(Text("Approve with "), Code("token")),)),
+        BulletList((
+            ListItem((paragraph(Text("Approve with "), Code("token")),)),
+        )),
     )
     await _client(handler).add_comment("RFC-1", body)
 
