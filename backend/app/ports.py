@@ -18,12 +18,14 @@ re-measures.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from app.documents import Document
+    from app.markers import Marker
     from app.models_workflow import WorkflowRun
 
 
@@ -245,16 +247,25 @@ class TaskSource(Protocol):
         ...
 
     async def create_subtask(
-        self, parent_ref: str, title: str, body: str
+        self,
+        parent_ref: str,
+        title: str,
+        body: str,
+        markers: "Sequence[Marker]" = (),
     ) -> str:
         """Create a follow-up task linked to ``parent_ref`` (feature 012).
 
-        ``body`` is already final and self-contained (the caller has
-        already run the completeness check) and already carries the
-        ``SUBTASK_SENTINEL`` marker. Implementations MUST create the
-        ticket without satisfying this source's own ingestion-trigger
-        condition (e.g. GitHub: no ``trigger_label``), so publishing a
-        follow-up task never itself starts a new run.
+        ``body`` is already final and self-contained (the caller has run
+        the completeness check). ``markers`` are trailing decorations the
+        implementation must preserve through its source-native write/read
+        round trip; the caller decides *which* markers, the adapter only
+        decides *how*. When a gap_analysis follow-up is published the caller
+        passes
+        ``(SubtaskSentinel(),)``; an empty tuple appends nothing.
+        Implementations MUST create the ticket without satisfying this
+        source's own ingestion-trigger condition (e.g. GitHub: no
+        ``trigger_label``), so publishing a follow-up task never itself
+        starts a new run.
 
         :returns: The new ticket's source-native ref.
         """

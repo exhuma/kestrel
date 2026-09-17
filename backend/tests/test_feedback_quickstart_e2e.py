@@ -366,11 +366,13 @@ async def test_tokenized_approval_publishes_a_decomposition_candidate(
     original_create_subtask = source.create_subtask
     publish_started = asyncio.Event()
 
-    async def block_subtask_creation(parent_ref, title, body):
+    async def block_subtask_creation(parent_ref, title, body, markers=()):
         """Stop publication after the approved gate decision is consumed."""
         publish_started.set()
         await asyncio.Future()
-        return await original_create_subtask(parent_ref, title, body)
+        return await original_create_subtask(
+            parent_ref, title, body, markers=markers
+        )
 
     monkeypatch.setattr(source, "create_subtask", block_subtask_creation)
     external_id = _append_comment(

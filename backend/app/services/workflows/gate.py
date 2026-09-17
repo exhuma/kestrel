@@ -48,6 +48,19 @@ async def await_gate(control: _Control) -> _Decision:
     return decision
 
 
+def validate_refine_approval(run: WorkflowRun, decision: _Decision) -> None:
+    """Reject an approval payload that would replace a PRD with blanks."""
+    if not decision.approved or run.status != "awaiting_refine_approval":
+        return
+    candidate = (
+        decision.deliverable
+        if decision.deliverable is not None
+        else run.steps[1].deliverable
+    )
+    if candidate is None or not candidate.strip():
+        raise InvalidWorkflowStateError("cannot approve an empty refined issue")
+
+
 def awaiting_input_step(run: WorkflowRun) -> WorkflowStep:
     """
     Return whichever step is currently awaiting a reply.

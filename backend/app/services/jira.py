@@ -11,17 +11,14 @@ token is a secret and is never logged.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Literal
 
 import httpx
 
 from app.config_models import TaskSourceConfig
-from app.documents import (
-    Document,
-    as_document,
-    render_adf,
-    render_markdown,
-)
+from app.documents import Document, as_document, render_adf, render_markdown
+from app.markers import Marker, apply_code_markers, apply_markers
 from app.ports import Feedback, LifecycleEvent, SubtaskContextError, Task
 from app.services.exceptions import GitError
 from app.services.feedback.marker import append_comment_sentinel
@@ -42,7 +39,6 @@ _TRANSITION_FIELD = {
 
 class JiraError(GitError):
     """A Jira REST call failed."""
-
 
 class JiraClient:
     """Thin async wrapper over the configured Jira REST API deployment."""
@@ -324,10 +320,8 @@ class JiraTaskSource:
 
     async def get_task(self, ref: str) -> Task:
         return await self._client.get_issue(ref)
-
     async def check_health(self) -> bool:
         return await self._client.check_health()
-
     async def post_comment(self, ref: str, body: Document | str) -> str:
         """Post a marked Kestrel comment on ``ref``."""
         return await self._client.add_comment(
@@ -355,7 +349,6 @@ class JiraTaskSource:
         self, ref: str, name: str, data: bytes, mimetype: str
     ) -> None:
         await self._client.add_attachment(ref, name, data, mimetype)
-
     async def publish_refined(
         self, ref: str, content: "Document | str"
     ) -> None:
@@ -370,9 +363,18 @@ class JiraTaskSource:
         )
 
     async def create_subtask(
-        self, parent_ref: str, title: str, body: str
+        self,
+        parent_ref: str,
+        title: str,
+        body: str,
+        markers: Sequence[Marker] = (),
     ) -> str:
         """Create a child that inherits its parent's repository binding."""
+        body = (
+            apply_code_markers(body, markers)
+            if self._client._cloud
+            else apply_markers(body, markers)
+        )
         project_key = parent_ref.split("-", 1)[0]
         repo_field = self._config.repo_field if self._config else ""
         extra_fields = await self._repository_fields(parent_ref, repo_field)

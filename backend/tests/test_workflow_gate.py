@@ -63,6 +63,73 @@ async def test_reject_with_refinement_regenerates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_refined_issue_is_corrected_before_approval() -> None:
+    """An empty writer block retries instead of exposing an empty PRD."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+        _coord([]),
+        "<REFINED_ISSUE> </REFINED_ISSUE>",
+        "<REFINED_ISSUE>Complete PRD</REFINED_ISSUE>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+    assert svc.get(wid).steps[1].deliverable == "Complete PRD"
+    writer_calls = [
+        call for call in runner.calls if "REFINED_ISSUE" in call["prompt"]
+    ]
+    assert len(writer_calls) == 2
+    assert "content was empty" in writer_calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_empty_refined_issue_fails_after_five_attempts() -> None:
+    """Five invalid writer responses fail without exposing a PRD gate."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+        _coord([]),
+        *("<REFINED_ISSUE> </REFINED_ISSUE>" for _ in range(5)),
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "failed")
+
+    run = svc.get(wid)
+    assert run.steps[1].deliverable is None
+    assert "after 5 attempts" in (run.error or "")
+
+
+@pytest.mark.asyncio
+async def test_empty_refine_approval_payload_is_rejected() -> None:
+    """An explicit blank approval payload cannot replace the stored PRD."""
+    gh = _FakeGitHub(body="vague issue")
+    runner = _FakeRunner(SessionRegistry(), outputs=[
+        "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
+        _coord([]),
+        "<REFINED_ISSUE>Complete PRD</REFINED_ISSUE>",
+    ])
+    svc = _service(gh, runner, _FakeGit())
+
+    wid = await svc.create("o/r", 5, source="github-issue")
+    await _wait(lambda: svc.get(wid).status == "awaiting_describe_approval")
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
+
+    with pytest.raises(InvalidWorkflowStateError, match="empty refined issue"):
+        svc.approve(wid, "   ")
+    assert svc.get(wid).steps[1].deliverable == "Complete PRD"
+
+
+@pytest.mark.asyncio
 async def test_refine_feedback_publishes_active_status_before_reparking(
 ) -> None:
     """Ensure a blocked rewrite makes refine visibly active before it parks."""

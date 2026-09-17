@@ -1,10 +1,11 @@
 """The autonomous coder<->verifier loop."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.backends.base import TurnRequest
-from app.models_workflow import Step, StepSession, WorkflowRun
+from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
 from app.ports import Evidence
 from app.services.feedback.dispatch import drain_feedback
@@ -20,16 +21,48 @@ from app.services.workflows.prompts import (
     VERIFY_PROMPT,
 )
 from app.services.workflows.sessions import _bind
+from app.services.workflows.validation import request_valid_output
 from app.services.workflows.verify import (
     _boundary_evidence_feedback,
     _check_feedback,
     _evidence_feedback,
-    _parse_verdict,
     _render_verify_report,
+    parse_required_verdict,
 )
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
+
+
+@dataclass
+class _VerifierTurn:
+    """State shared by repeated verdict-format correction attempts."""
+
+    service: "WorkflowService"
+    run: WorkflowRun
+    step: WorkflowStep
+    slot: StepSession
+    resume_id: str | None
+
+    async def send(self, prompt: str) -> str:
+        """Run one verifier attempt and return its raw response."""
+        result = await self.service._run_turn_tracked(
+            self.run,
+            self.service.backends.backend_for(Step.VERIFY),
+            TurnRequest(
+                prompt=prompt,
+                cwd=self.run.workspace,
+                permission_mode="plan",
+                model=get_policy().model_for(Step.VERIFY),
+                resume_id=self.resume_id,
+            ),
+            self.slot,
+            _bind(self.step, self.slot),
+        )
+        self.service._debug_log(
+            self.run, "VERIFY RESULT (raw)", result.final_text
+        )
+        return result.final_text
 
 
 async def code_and_verify(
@@ -257,33 +290,14 @@ async def code_and_verify(
         service._debug_log(
             run, f"Round {iteration + 1} — VERIFY PROMPT", verify_prompt
         )
-        verify_result = await service._run_turn_tracked(
-            run,
-            service.backends.backend_for(Step.VERIFY),
-            TurnRequest(
-                # The verifier gets PRD/design INLINE, not as file
-                # pointers. It must emit a strict <VERDICT> JSON block
-                # (a parse miss is a hard reject, no fallback), and it
-                # runs in plan mode — forcing a tool round-trip to read
-                # the files pushes it into an investigate/plan flow that
-                # stops reliably emitting the verdict. Its cwd is still
-                # the worktree, so a future repo-reading verifier keeps
-                # full file access regardless of this. This discipline is
-                # exactly why a boundary run's exploration happens on a
-                # SEPARATE prior turn (above) rather than in this one.
-                prompt=verify_prompt,
-                cwd=run.workspace, permission_mode="plan",
-                model=verify_model, resume_id=explore_resume_id,
-            ),
-            verify_slot,
-            _bind(verify_step, verify_slot),
+        verifier = _VerifierTurn(
+            service, run, verify_step, verify_slot, explore_resume_id
         )
-        service._debug_log(
-            run, f"Round {iteration + 1} — VERIFY RESULT (raw)",
-            verify_result.final_text,
-        )
-        accept, feedback, observations = _parse_verdict(
-            verify_result.final_text
+        accept, feedback, observations = await request_valid_output(
+            verifier.send,
+            verify_prompt,
+            parse_required_verdict,
+            "verification verdict",
         )
         # Self-reported http/ui observations are this round's entire
         # Evidence (feature 005, US1) — merge them in before applying

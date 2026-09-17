@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import re
 
+from app.markers import ReviewTokenMarker
 from app.services.feedback.marker import (
     GateFeedbackAction,
     gate_feedback_action,
 )
 
 ReviewDecision = GateFeedbackAction | None
-_TOKEN_PATTERN = re.compile(r"\[kestrel-review:([A-Za-z0-9_-]+)\]")
+#: The review-token marker's payload grammar, shared by every helper below.
+_TOKEN_PATTERN = ReviewTokenMarker._TOKEN
+#: A token-less instance used purely for its detection/extraction methods.
+_MARKER = ReviewTokenMarker("")
 _REQUEST_PATTERN = re.compile(
     r"Revision \d+: `\[kestrel-review:[A-Za-z0-9_-]+\]`\n\n"
     r"(?:Reply to this review with its token|Reply with one command:)",
@@ -30,8 +34,7 @@ def review_tokens(body: str) -> list[str]:
 
 def review_token(body: str) -> str | None:
     """Extract the first review revision token from ``body``, if present."""
-    match = _TOKEN_PATTERN.search(body)
-    return match.group(1) if match else None
+    return _MARKER.extract(body)
 
 
 def is_kestrel_review_request(body: str) -> bool:

@@ -20,7 +20,7 @@ from app.questionnaire import (
 )
 from app.services.exceptions import InvalidWorkflowStateError
 from app.services.time_tracking import set_clock
-from app.services.workflow_text import extract_profiles, extract_refined_issue
+from app.services.workflow_text import extract_profiles
 from app.services.workflows.interview.agent import run_refine_agent
 from app.services.workflows.interview.mockups import capture_round_mockups
 from app.services.workflows.interview.questions import (
@@ -36,6 +36,10 @@ from app.services.workflows.prompts import (
     WRITE_REFINED_PROMPT,
 )
 from app.services.workflows.shared import _now_utc
+from app.services.workflows.validation import (
+    request_valid_output,
+    required_tagged_text,
+)
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
@@ -247,15 +251,14 @@ async def write_refined(
     """Write the refined issue and append the risk section."""
     slot = StepSession(profile_id="writer", label="Writer", badge="agent")
     service._show_sessions(run, [slot])
-    text = await run_refine_agent(
-        service,
-        run,
+    body = await request_valid_output(
+        lambda prompt: run_refine_agent(service, run, prompt, slot),
         WRITE_REFINED_PROMPT.format(
             issue=issue, answers=render_qa(accumulated)
         ),
-        slot,
+        lambda text: required_tagged_text(text, "REFINED_ISSUE"),
+        "refined issue",
     )
-    body = extract_refined_issue(text) or text
     risks = render_assumptions_and_risks(accumulated)
     if risks is not None:
         doc = parse_markdown(body)
@@ -270,10 +273,9 @@ async def rewrite_refined(
     """Regenerate the refined issue from gate feedback."""
     slot = StepSession(profile_id="writer", label="Writer", badge="agent")
     service._show_sessions(run, [slot])
-    text = await run_refine_agent(
-        service,
-        run,
+    return await request_valid_output(
+        lambda prompt: run_refine_agent(service, run, prompt, slot),
         REFINE_FEEDBACK_PROMPT.format(current=current, feedback=feedback),
-        slot,
+        lambda text: required_tagged_text(text, "REFINED_ISSUE"),
+        "refined issue",
     )
-    return extract_refined_issue(text) or text

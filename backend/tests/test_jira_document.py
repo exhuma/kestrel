@@ -18,8 +18,10 @@ from app.documents import (
     paragraph,
     render_adf,
 )
+from app.markers import SUBTASK_SENTINEL, SubtaskSentinel
 from app.services.jira import JiraClient, JiraTaskSource
 from app.services.jira_document import to_text
+from app.services.workflow_text import has_subtask_sentinel
 
 
 def _client(handler) -> JiraClient:
@@ -109,6 +111,36 @@ async def test_cloud_feedback_normalizes_adf_review_token() -> None:
 
     items = await JiraTaskSource(_client(handler)).list_comments("RFC-1")
     assert items[0].body == "@kestrel approve [kestrel-review:abc]"
+
+
+@pytest.mark.asyncio
+async def test_cloud_subtask_marker_survives_adf_round_trip() -> None:
+    """Cloud subtasks preserve their marker as a final code paragraph."""
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(201, json={"key": "RFC-2"})
+
+    source = JiraTaskSource(_client(handler))
+    await source.create_subtask(
+        "RFC-1",
+        "Child",
+        "Self-contained body",
+        markers=(SubtaskSentinel(),),
+    )
+
+    description = seen["body"]["fields"]["description"]
+    last_paragraph = description["content"][-1]
+    assert last_paragraph == {
+        "type": "paragraph",
+        "content": [{
+            "type": "text",
+            "text": SUBTASK_SENTINEL,
+            "marks": [{"type": "code"}],
+        }],
+    }
+    assert has_subtask_sentinel(to_text(description))
 
 
 def _comment() -> dict:

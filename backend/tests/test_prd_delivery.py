@@ -51,8 +51,10 @@ class _FakeJiraSource:
         )
         self.attachments.append(("PRD.md", text))
 
-    async def create_subtask(self, parent_ref, title, body):
-        self.subtasks.append((title, body))
+    async def create_subtask(self, parent_ref, title, body, markers=()):
+        from app.markers import apply_markers
+
+        self.subtasks.append((title, apply_markers(body, markers)))
         return f"RFC-{len(self.subtasks) + 1}"
 
     def deep_link_ref(self, ref):

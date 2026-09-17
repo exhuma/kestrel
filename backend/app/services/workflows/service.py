@@ -377,7 +377,6 @@ class WorkflowService(WorkflowArtifactService, WorkflowSessionService):
 
     def approve(self, workflow_id: str, deliverable: str | None = None) -> None:
         self._resolve(workflow_id, _Decision(True, deliverable))
-
     def reject(
         self,
         workflow_id: str,
@@ -401,6 +400,7 @@ class WorkflowService(WorkflowArtifactService, WorkflowSessionService):
 
     def _resolve(self, workflow_id: str, decision: _Decision) -> None:
         run = self.get(workflow_id)
+        gate.validate_refine_approval(run, decision)
         gate.resolve(run, self._control[workflow_id], decision)
         if run.status == "awaiting_refine_approval" and decision.approved:
             run.prd_approved = True

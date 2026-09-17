@@ -15,6 +15,7 @@ from app.documents import (
     paragraph,
     parse_markdown,
 )
+from app.markers import ReviewTokenMarker
 
 _MAX_DELTA_LINE_LENGTH = 120
 _MAX_DELTA_LINES = 3
@@ -47,7 +48,7 @@ def render_review_request(
     :param artifact: Complete reviewable artifact, or empty for legacy callers.
     :returns: A tokenized review document whose artifact is first when present.
     """
-    review_token = f"[kestrel-review:{token}]"
+    review_token = ReviewTokenMarker(token).render()
     artifact_blocks = _artifact_blocks(artifact)
     return document(
         *artifact_blocks,
@@ -80,7 +81,7 @@ def render_delta_summary(
     changes = [
         _excerpt(line[2:])
         for line in ndiff(previous.splitlines(), revised.splitlines())
-        if line.startswith("+ ")
+        if line.startswith("+ ") and line[2:].strip()
     ]
     entries = changes[:_MAX_DELTA_LINES]
     if len(changes) > _MAX_DELTA_LINES:

@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from app.documents import Document, as_document, render_markdown
+from app.markers import Marker, apply_markers
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.feedback.marker import append_comment_sentinel
 from app.services.feedback.timeparse import parse_iso
@@ -128,9 +130,14 @@ class LocalTaskSource:
         self._task_path(ref).write_text(json.dumps(data), encoding="utf-8")
 
     async def create_subtask(
-        self, parent_ref: str, title: str, body: str
+        self,
+        parent_ref: str,
+        title: str,
+        body: str,
+        markers: Sequence[Marker] = (),
     ) -> str:
         """Create a child task below its root-contained parent folder."""
+        body = apply_markers(body, markers)
         parent = self._task_dir(parent_ref)
         children = parent / "children"
         number = 1

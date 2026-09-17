@@ -9,17 +9,11 @@ from app.design_contract import (
     DesignContract,
     parse_design_contract,
 )
+from app.markers import SENTINEL, SUBTASK_SENTINEL  # noqa: F401
 from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
 
 _log = logging.getLogger(__name__)
-
-SENTINEL = "<!-- kestrel:refined -->"
-#: Marks a ticket as a follow-up task published by `gap_analysis` (feature
-#: 012): its body is already self-contained and technically scoped, so a
-#: run against it skips describe/refine/gap_analysis entirely and starts
-#: at design (see `driver.drive`).
-SUBTASK_SENTINEL = "<!-- kestrel:subtask -->"
 
 #: Map a tool (its bare name, MCP prefixes stripped) to a 1-2 word verb
 #: for the chip activity subtext. Unlisted tools fall back to their own

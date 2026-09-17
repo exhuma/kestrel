@@ -39,6 +39,10 @@ from app.services.workflows.prompts import (
 )
 from app.services.workflows.sessions import _bind
 from app.services.workflows.shared import _TRANSIENT, _now_utc, _Rejected
+from app.services.workflows.validation import (
+    request_valid_output,
+    required_tagged_text,
+)
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
@@ -390,29 +394,35 @@ async def design(
     )
     if feedback:
         prompt += MID_RUN_FEEDBACK_APPENDIX.format(feedback=feedback)
-    result = await service._run_turn_tracked(
-        run,
-        service.backends.backend_for(Step.DESIGN),
-        TurnRequest(
-            prompt=prompt,
-            cwd=run.workspace,
-            permission_mode="plan",
-            model=model,
-            resume_id=step.session_id,
-        ),
-        slot,
-        _bind(step, slot),
+    async def send(attempt_prompt: str) -> str:
+        """Run one design attempt and return the raw model response."""
+        result = await service._run_turn_tracked(
+            run,
+            service.backends.backend_for(Step.DESIGN),
+            TurnRequest(
+                prompt=attempt_prompt,
+                cwd=run.workspace,
+                permission_mode="plan",
+                model=model,
+                resume_id=step.session_id,
+            ),
+            slot,
+            _bind(step, slot),
+        )
+        return result.final_text
+
+    raw_design = await request_valid_output(
+        send, prompt, _valid_design, "design"
     )
-    contract = extract_design_contract(result.final_text)
-    design_text = contract.plan if contract else extract_plan(result.final_text)
-    design_text = design_text or result.final_text
+    contract = extract_design_contract(raw_design)
+    design_text = contract.plan if contract else extract_plan(raw_design) or ""
     step.deliverable = design_text
     # Classify the project's boundary for the verify step (feature 005).
     # A missing/malformed tag leaves boundary None — verify then falls
     # back to today's check-and-diff-judgment-only behaviour; this must
     # never fail the design step itself.
     run.boundary = (
-        contract.boundary if contract else extract_boundary(result.final_text)
+        contract.boundary if contract else extract_boundary(raw_design)
     )
     # Persist the design as the second handover artifact for code/verify.
     service._write_artifact(run, "design.md", design_text)
@@ -420,6 +430,15 @@ async def design(
     service._retire_sessions(run, step)
     step.status = "done"
     service._save(run)
+
+
+def _valid_design(text: str) -> str:
+    """Accept design output only when it carries a nonempty plan."""
+    contract = extract_design_contract(text)
+    if contract is not None and contract.plan.strip():
+        return text
+    required_tagged_text(text, "PLAN")
+    return text
 
 
 def _write_design_contract_artifacts(

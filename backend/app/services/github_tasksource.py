@@ -8,10 +8,12 @@ mirrors ``ports.py``'s own ``TaskSource``/``CodeHost`` role split.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Callable, Literal
 
 from app.config_models import TaskSourceConfig
 from app.documents import Document, as_document, render_markdown
+from app.markers import Marker, apply_markers
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.feedback.marker import append_comment_sentinel
 from app.services.feedback.timeparse import parse_iso
@@ -97,7 +99,11 @@ class GitHubTaskSource:
         await self._client.update_issue(repo, number, append_sentinel(text))
 
     async def create_subtask(
-        self, parent_ref: str, title: str, body: str
+        self,
+        parent_ref: str,
+        title: str,
+        body: str,
+        markers: Sequence[Marker] = (),
     ) -> str:
         """Create a follow-up issue in the same repo (feature 012).
 
@@ -105,6 +111,7 @@ class GitHubTaskSource:
         issues have no native sub-issue type at this API layer); created
         with no labels at all, so it can never carry the trigger label.
         """
+        body = apply_markers(body, markers)
         repo, parent_number = parse_github_ref(parent_ref)
         full_body = f"Sub-task of #{parent_number}\n\n{body}"
         number = await self._client.create_issue(repo, title, full_body)

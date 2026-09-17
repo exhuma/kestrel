@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Mapping, Sequence, cast
 
 from app.backends.base import TurnRequest
 from app.documents import Heading, Text, document, parse_markdown
+from app.markers import SubtaskSentinel
 from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
 from app.ports import SubtaskContextError, TaskSource
@@ -22,7 +23,6 @@ from app.review_requests import render_delta_summary
 from app.services.exceptions import InvalidWorkflowStateError
 from app.services.time_tracking import set_clock
 from app.services.workflow_text import (
-    append_subtask_sentinel,
     extract_containment_verdicts,
     extract_followup_tasks,
     extract_tech_analysis,
@@ -35,6 +35,10 @@ from app.services.workflows.prompts import (
 from app.services.workflows.scope import evaluate_scope, refusal_message
 from app.services.workflows.sessions import _bind
 from app.services.workflows.shared import _now_utc, _Rejected
+from app.services.workflows.validation import (
+    request_valid_output,
+    required_tagged_text,
+)
 
 if TYPE_CHECKING:
     from app.services.workflows import WorkflowService
@@ -262,12 +266,15 @@ async def _create_candidate(
     service._save(run)
 
     turn = _Turn(service=service, wf_run=run, step=step, slot=slot)
-    analysis_text = await turn.send(
+    analysis_text = await request_valid_output(
+        turn.send,
         GAP_ANALYSIS_PROMPT.format(
             prd=prd, understanding=understanding, amendment=amendment
-        )
+        ),
+        _valid_analysis,
+        "technical analysis",
     )
-    tech_analysis = extract_tech_analysis(analysis_text) or analysis_text
+    tech_analysis = extract_tech_analysis(analysis_text) or ""
     fallback = [
         {
             "id": "TASK-1",
@@ -299,6 +306,12 @@ async def _create_candidate(
     service._save(run)
 
 
+def _valid_analysis(text: str) -> str:
+    """Accept analysis output only when its required summary is nonempty."""
+    required_tagged_text(text, "TECH_ANALYSIS")
+    return text
+
+
 async def _publish_candidate(
     service: "WorkflowService", run: WorkflowRun, step: WorkflowStep
 ) -> None:
@@ -312,10 +325,12 @@ async def _publish_candidate(
     for task in candidate.tasks:
         task_ref = task.get("published_ref")
         if task_ref is None:
-            body = append_subtask_sentinel(str(task["body"]))
             try:
                 task_ref = await source.create_subtask(
-                    run.task_ref, str(task["title"]), body
+                    run.task_ref,
+                    str(task["title"]),
+                    str(task["body"]),
+                    markers=(SubtaskSentinel(),),
                 )
             except SubtaskContextError as exc:
                 task["published_ref"] = exc.task_ref

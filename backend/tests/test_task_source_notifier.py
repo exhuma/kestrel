@@ -248,6 +248,15 @@ def test_delta_summary_references_canonical_artifact() -> None:
     assert "kestrel-review:" not in summary
 
 
+def test_delta_summary_ignores_blank_changed_lines() -> None:
+    """Blank-only revisions use the safe summary fallback."""
+    summary = render_markdown(
+        render_delta_summary("line", "line\n", "https://k.example/?run=wf-1")
+    )
+
+    assert "Content revised." in summary
+
+
 @pytest.mark.asyncio
 async def test_questionnaire_post_never_creates_a_review_request() -> None:
     """Refine interview input remains a UI-only questionnaire interaction."""

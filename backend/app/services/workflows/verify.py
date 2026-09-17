@@ -200,3 +200,27 @@ def _parse_verdict(text: str) -> tuple[bool, str, list[Observation]]:
         "The verifier response could not be parsed as a verdict.",
         [],
     )
+
+
+def parse_required_verdict(text: str) -> tuple[bool, str, list[Observation]]:
+    """Return a strictly valid tagged verdict or raise ``ValueError``.
+
+    Unlike :func:`_parse_verdict`, this is for retrying model-format failures.
+    It accepts only the documented tagged JSON shape, while a valid explicit
+    rejection remains a normal verify result.
+    """
+    start = text.find("<VERDICT>")
+    end = text.find("</VERDICT>", start + len("<VERDICT>"))
+    if start < 0 or end < 0:
+        raise ValueError("missing VERDICT block")
+    try:
+        data = json.loads(text[start + len("<VERDICT>"):end].strip())
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ValueError("VERDICT block was not valid JSON") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("accept"), bool):
+        raise ValueError("VERDICT accept must be a boolean")
+    return (
+        data["accept"],
+        str(data.get("feedback", "")),
+        _parse_observations(data.get("observations")),
+    )
