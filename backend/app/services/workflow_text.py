@@ -89,11 +89,25 @@ def append_subtask_sentinel(body: str) -> str:
 
 
 def _extract_tag(text: str, tag: str) -> str | None:
-    """Return the trimmed content of a <tag>...</tag> block, or None."""
+    """Return the trimmed content of a <tag>...</tag> block, or None.
+
+    Tries an exact match first; on failure, falls back to a case-
+    insensitive prefix match (minimum 6 chars) to tolerate minor LLM
+    typos in the tag name (e.g. ``<UNDERSTING>`` for ``<UNDERSTANDING>``).
+    """
     match = re.search(
         rf"<{tag}>\s*(.*?)\s*</{tag}>", text, re.DOTALL
     )
-    return match.group(1).strip() if match else None
+    if match:
+        return match.group(1).strip()
+    # Fuzzy fallback: match a tag whose name starts with at least the
+    # first 6 characters of the expected tag (case-insensitive).
+    prefix = tag[:6]
+    pattern = r"<([A-Z_]{6,})>\s*(.*?)\s*</\1>"
+    for m in re.finditer(pattern, text, re.DOTALL):
+        if m.group(1).upper().startswith(prefix):
+            return m.group(2).strip()
+    return None
 
 
 def extract_refined_issue(text: str) -> str | None:
