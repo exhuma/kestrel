@@ -20,8 +20,10 @@ follow-up tasks (spec.md User Story 3).
    (`technical-analysis.md`) via the existing `artifacts.py` handover
    pattern (`ensure_artifact_dir`/`write_artifact`), same as
    `prd.md`/`design.md`.
-2. **One or more follow-up tasks** (spec.md FR-008/FR-009): each a
-   `(title, body)` pair. **Never zero** — a work item judged indivisible
+2. **One or more follow-up tasks** (spec.md FR-008/FR-009): each has a title,
+   body, positive man-day estimate, positive coding-agent token estimate, and
+   a backend-qualified recommended coding model or explicit `unknown`. **Never
+   zero** — a work item judged indivisible
    still yields exactly one follow-up task (re-scoped technically), so
    "the run always ends by publishing at least one follow-up task" holds
    even in the degenerate case (spec.md FR-009).
@@ -63,7 +65,13 @@ introduced by consolidation, not nitpicking wording.
    ticket via the existing `attach`/`publish_refined`-style mechanism
    (source-appropriate — Jira attaches, GitHub updates/comments), for
    human reference (spec.md FR-012).
-3. `run.status = "decomposed"`; the run ends (spec.md FR-014) — no
+3. A concise CAB decision summary is posted after the technical analysis. It
+   requests CAB review and reports the delivery scope, child count, total
+   man-days, total coding-agent tokens, model allocations, and material
+   decision blockers. It does not recommend a go/no-go outcome.
+   Both parent comments are mandatory and ordered. Their successful posting is
+   checkpointed so recovery retries only the missing comment.
+4. `run.status = "decomposed"`; the run ends (spec.md FR-014) — no
    `design`/`code`/`verify` on the original ticket.
 
 ## Failure handling

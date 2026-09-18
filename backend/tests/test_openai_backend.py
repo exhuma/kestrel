@@ -75,6 +75,41 @@ def test_backend_is_text_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_models_reads_roi_metadata() -> None:
+    """Ensure discovery returns identifiers and model planning metadata."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/models"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "local-code",
+                        "coding_quality": 8,
+                        "input_cost_per_million": 0.2,
+                        "output_cost_per_million": 0.4,
+                    }
+                ]
+            },
+        )
+
+    backend, _ = _backend(handler)
+    catalogue = await backend.list_models()
+    assert catalogue.state == "available"
+    assert catalogue.models[0].id == "local-code"
+    assert catalogue.models[0].coding_quality == 8
+
+
+@pytest.mark.asyncio
+async def test_list_models_returns_unknown_for_invalid_response() -> None:
+    """Ensure unavailable discovery does not masquerade as an empty list."""
+    backend, _ = _backend(lambda _request: httpx.Response(500))
+    catalogue = await backend.list_models()
+    assert catalogue.state == "unknown"
+    assert catalogue.models == ()
+
+
+@pytest.mark.asyncio
 async def test_run_turn_emits_canonical_events_and_calls_endpoint() -> None:
     """Ensure a turn records user/assistant/result and posts the prompt."""
     captured: list[dict] = []

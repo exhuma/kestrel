@@ -15,6 +15,7 @@ from app.backends.base import (
     BackendTurnError,
     Capability,
     LivenessResult,
+    ModelCatalog,
     TurnRequest,
     TurnResult,
 )
@@ -48,13 +49,18 @@ class ClaudeCliBackend(Backend):
     def terminate(self, session_id: str) -> bool:
         return self._runner.terminate(session_id)
 
-    async def check_alive(self, _session_id: str) -> LivenessResult:
+    async def check_alive(self, session_id: str) -> LivenessResult:
         """No independent remote-liveness signal — always alive.
 
         The claude CLI has no persistent server-side session to probe;
         its own subprocess lifecycle already drives status transitions.
         """
+        del session_id
         return LivenessResult(alive=True)
+
+    async def list_models(self) -> ModelCatalog:
+        """Report unknown because the CLI has no stable catalogue interface."""
+        return ModelCatalog(state="unknown")
 
     async def run_turn(
         self,

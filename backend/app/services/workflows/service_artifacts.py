@@ -56,11 +56,20 @@ class WorkflowArtifactService:
     async def post_comment(
         self, run: WorkflowRun, body: Document | str, display_name: str
     ) -> str:
-        """Post and record a Kestrel-owned source comment for cleanup."""
+        """Post and record a Kestrel-owned source comment for cleanup.
+
+        A successful post must provide its source-native identifier. Without
+        one, later recovery could not distinguish a completed post from a
+        missing one, so this raises instead of allowing the workflow to
+        complete with an unconfirmed mandatory comment.
+        """
         owner = cast(_ArtifactOwner, self)
         comment = await owner._task_source(run).post_comment(run.task_ref, body)
-        if comment:
-            self.record_artifact(
-                run, "comment", comment, display_name, "best_effort"
+        if not comment:
+            raise RuntimeError(
+                f"source did not confirm {display_name} publication"
             )
+        self.record_artifact(
+            run, "comment", comment, display_name, "best_effort"
+        )
         return comment

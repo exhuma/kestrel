@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable, Literal, Protocol, runtime_checkable
 
 
 class BackendTurnError(Exception):
@@ -70,6 +70,24 @@ class LivenessResult:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class ModelInfo:
+    """One backend-native model and optional ROI-planning metadata."""
+
+    id: str
+    coding_quality: float | None = None
+    input_cost_per_million: float | None = None
+    output_cost_per_million: float | None = None
+
+
+@dataclass(frozen=True)
+class ModelCatalog:
+    """A backend's discovered model catalogue or an explicit unknown result."""
+
+    state: Literal["available", "unknown"]
+    models: tuple[ModelInfo, ...] = ()
+
+
 @runtime_checkable
 class Backend(Protocol):
     """A dispatch target. Adapters implement this for each tool/LLM."""
@@ -105,4 +123,8 @@ class Backend(Protocol):
         event ever recorded). Returns ``alive=True`` when this backend has
         no independent liveness signal to check.
         """
+        ...
+
+    async def list_models(self) -> ModelCatalog:
+        """Return models, or unknown when discovery is unavailable."""
         ...

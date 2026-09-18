@@ -7,7 +7,6 @@ in the step deliverable so it uses the existing workflow checkpointing.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 from dataclasses import dataclass
@@ -26,6 +25,12 @@ from app.services.workflow_text import (
     extract_containment_verdicts,
     extract_followup_tasks,
     extract_tech_analysis,
+)
+from app.services.workflows.estimates import (
+    cab_summary,
+    coding_model_catalog,
+    delivery_estimate,
+    normalize_task,
 )
 from app.services.workflows.prompts import (
     GAP_ANALYSIS_CRITIC_PROMPT,
@@ -59,6 +64,7 @@ class _Candidate:
 
     technical_analysis: str
     tasks: list[dict[str, object]]
+    model_catalogues: list[dict[str, object]]
 
 
 @dataclass
@@ -127,6 +133,7 @@ def _encode_candidate(candidate: _Candidate) -> str:
         {
             "technical_analysis": candidate.technical_analysis,
             "tasks": candidate.tasks,
+            "model_catalogues": candidate.model_catalogues,
         }
     )
 
@@ -136,7 +143,12 @@ def _decode_candidate(deliverable: str) -> _Candidate:
     payload = json.loads(deliverable)
     analysis = payload["technical_analysis"]
     tasks = payload["tasks"]
-    if not isinstance(analysis, str) or not isinstance(tasks, list):
+    catalogues = payload.get("model_catalogues", [])
+    if (
+        not isinstance(analysis, str)
+        or not isinstance(tasks, list)
+        or not isinstance(catalogues, list)
+    ):
         raise ValueError("invalid decomposition candidate")
     normalized = [
         {
@@ -144,6 +156,15 @@ def _decode_candidate(deliverable: str) -> _Candidate:
             "title": str(task["title"]),
             "body": str(task["body"]),
             "prerequisites": list(task.get("prerequisites", [])),
+            "effort_man_days": task.get("effort_man_days", 1.0),
+            "coding_agent_token_estimate": task.get(
+                "coding_agent_token_estimate", 10000
+            ),
+            "model_recommendation_state": task.get(
+                "model_recommendation_state", "unknown"
+            ),
+            "recommended_backend_id": task.get("recommended_backend_id"),
+            "recommended_model_id": task.get("recommended_model_id"),
             **(
                 {"published_ref": str(task["published_ref"])}
                 if task.get("published_ref")
@@ -155,7 +176,11 @@ def _decode_candidate(deliverable: str) -> _Candidate:
     ]
     if not normalized or len(normalized) != len(tasks):
         raise ValueError("invalid decomposition candidate tasks")
-    return _Candidate(technical_analysis=analysis, tasks=normalized)
+    for task in normalized:
+        normalize_task(task, catalogues)
+    return _Candidate(
+        analysis, normalized, cast(list[dict[str, object]], catalogues)
+    )
 
 
 async def _check_self_containment(
@@ -266,10 +291,14 @@ async def _create_candidate(
     service._save(run)
 
     turn = _Turn(service=service, wf_run=run, step=step, slot=slot)
+    catalogues = await coding_model_catalog(service)
     analysis_text = await request_valid_output(
         turn.send,
         GAP_ANALYSIS_PROMPT.format(
-            prd=prd, understanding=understanding, amendment=amendment
+            prd=prd,
+            understanding=understanding,
+            amendment=amendment,
+            model_catalogues=json.dumps(catalogues),
         ),
         _valid_analysis,
         "technical analysis",
@@ -285,11 +314,15 @@ async def _create_candidate(
     ]
     extracted_tasks = extract_followup_tasks(analysis_text) or fallback
     tasks = cast(list[dict[str, object]], extracted_tasks)
+    for task in tasks:
+        normalize_task(task, catalogues)
     tasks = await _check_self_containment(turn, tech_analysis, tasks)
 
     service._write_artifact(run, "technical-analysis.md", tech_analysis)
     service._retire_sessions(run, step)
-    step.deliverable = _encode_candidate(_Candidate(tech_analysis, tasks))
+    step.deliverable = _encode_candidate(
+        _Candidate(tech_analysis, tasks, catalogues)
+    )
     if revised_from is not None:
         source = cast(TaskSource, service._task_source(run))
         await source.post_comment(
@@ -329,7 +362,7 @@ async def _publish_candidate(
                 task_ref = await source.create_subtask(
                     run.task_ref,
                     str(task["title"]),
-                    str(task["body"]),
+                    str(task["body"]) + delivery_estimate(task),
                     markers=(SubtaskSentinel(),),
                 )
             except SubtaskContextError as exc:
@@ -354,7 +387,7 @@ async def _publish_candidate(
     # (spec.md FR-012) — post_comment works uniformly across every
     # source, unlike attach (a GitHub no-op) or publish_refined (which
     # would overwrite the ticket body rather than add to it).
-    with contextlib.suppress(Exception):
+    if not _comment_was_posted(service, run, "technical analysis"):
         await service.post_comment(
             run,
             document(
@@ -363,10 +396,23 @@ async def _publish_candidate(
             ),
             "technical analysis",
         )
+    if not _comment_was_posted(service, run, "CAB decision summary"):
+        await service.post_comment(
+            run, cab_summary(candidate.tasks), "CAB decision summary"
+        )
 
     step.status = "done"
     run.status = "decomposed"
     service._save(run)
+
+
+def _comment_was_posted(
+    service: "WorkflowService", run: WorkflowRun, display_name: str
+) -> bool:
+    """Return whether a mandatory parent comment was already recorded."""
+    return any(
+        item.display_name == display_name for item in service.artifacts(run.id)
+    )
 
 
 def _record_child(

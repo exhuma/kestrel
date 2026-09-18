@@ -90,6 +90,25 @@ def test_registry_builds_default_claude_backend() -> None:
     assert registry.get("claude").id == "claude"
 
 
+def test_registry_applies_configured_capability_override() -> None:
+    """Ensure an on-site coding backend can declare file-edit capability."""
+    settings = _settings(
+        backends=[
+            BackendConfig(
+                id="local",
+                type="openai_compat",
+                base_url="http://x/v1",
+                caps=["text", "file_edits"],
+            )
+        ],
+        default_session_backend="local",
+    )
+    registry = BackendRegistry(settings, SessionRegistry())
+    assert registry.get("local").caps == frozenset(
+        {Capability.TEXT, Capability.FILE_EDITS}
+    )
+
+
 def test_registry_unknown_backend_raises() -> None:
     """Ensure resolving an unconfigured backend id raises."""
     registry = BackendRegistry(_settings(), SessionRegistry())

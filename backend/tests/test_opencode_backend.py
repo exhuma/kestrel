@@ -17,7 +17,8 @@ import httpx
 import pytest
 
 from app.backends.base import Capability, TurnRequest
-from app.backends.opencode import OpenCodeBackend, _split_model
+from app.backends.opencode import OpenCodeBackend
+from app.backends.opencode_models import split_model
 from app.backends.registry import BackendRegistry
 from app.config import BackendConfig, Settings
 from app.models import EventKind
@@ -262,11 +263,11 @@ async def test_permission_loop_ignores_other_sessions() -> None:
 
 def test_split_model_parses_provider_and_model() -> None:
     """Ensure provider/model strings become opencode's model object."""
-    assert _split_model("anthropic/claude-sonnet-4") == {
+    assert split_model("anthropic/claude-sonnet-4") == {
         "providerID": "anthropic", "modelID": "claude-sonnet-4",
     }
-    assert _split_model("just-a-model") is None
-    assert _split_model(None) is None
+    assert split_model("just-a-model") is None
+    assert split_model(None) is None
 
 
 def test_backend_can_edit_files() -> None:

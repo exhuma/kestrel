@@ -140,13 +140,21 @@ the image small and lets a deploy attach or swap backends purely by config.
   `ops`/`qa`) analyze the approved requirements, producing an
   architecture/technical-decision record and one or more independent,
   self-contained follow-up tasks — checked by a completeness self-review
-  turn before publishing — which are published back to the task source as
-  subdivisions of the original ticket. Feature 015 adds a decomposition
+   turn before publishing — which are published back to the task source as
+   subdivisions of the original ticket. Every child includes a man-day effort
+   estimate, coding-agent token budget, and a backend-qualified model
+   recommendation or explicit `unknown`. A recommendation needs a discovered
+   coding model with quality and input/output cost metadata; unknown discovery
+   never becomes an invented recommendation. Feature 015 adds a decomposition
   approval gate: kestrel holds the candidate analysis and children until the
   requester approves its tokenized review revision. Publishing starts no new
   run because child creation does not satisfy the source's ingestion trigger.
   The original run then ends (`status = "decomposed"`); it never itself reaches
-  `design`/`code`/`verify`. A promoted follow-up task, recognized via a
+   `design`/`code`/`verify`. After child publication, Kestrel posts the detailed
+   analysis and then a concise, mandatory CAB summary. The parent reaches
+   `decomposed` only once both ordered comments are recorded, making the CAB
+   summary the final workflow-generated parent comment. A promoted follow-up
+   task, recognized via a
    second sentinel marker in its body (`SUBTASK_SENTINEL`, alongside the
    existing "already refined" `SENTINEL`), skips its applicable earlier
    phases but parks at PRD approval; neither marker is approval provenance.

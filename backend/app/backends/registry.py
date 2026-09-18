@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.backends.base import Backend
+from app.backends.base import Backend, Capability
 from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.openai_compat import OpenAICompatBackend
 from app.backends.opencode import OpenCodeBackend
@@ -30,21 +30,26 @@ class BackendRegistry:
         self.default_session_backend()
 
     def _build(self, cfg: BackendConfig) -> Backend:
+        backend: Backend
         if cfg.type == "claude_cli":
-            return ClaudeCliBackend(
+            backend = ClaudeCliBackend(
                 self._settings, self._session_registry, backend_id=cfg.id
             )
-        if cfg.type == "openai_compat":
-            return OpenAICompatBackend(
+        elif cfg.type == "openai_compat":
+            backend = OpenAICompatBackend(
                 self._settings, self._session_registry, cfg
             )
-        if cfg.type == "opencode":
-            return OpenCodeBackend(
+        elif cfg.type == "opencode":
+            backend = OpenCodeBackend(
                 self._settings, self._session_registry, cfg
             )
-        raise NotImplementedError(
-            f"backend type {cfg.type!r} is not implemented yet"
-        )
+        else:
+            raise NotImplementedError(
+                f"backend type {cfg.type!r} is not implemented yet"
+            )
+        if cfg.caps is not None:
+            backend.caps = frozenset(Capability(cap) for cap in cfg.caps)
+        return backend
 
     def get(self, backend_id: str) -> Backend:
         """

@@ -158,8 +158,32 @@ async def test_backends_endpoint_reports_effective_config() -> None:
     # Hermetic default config (see tests/conftest.py): claude only.
     assert body["default_session_backend"] == "claude"
     assert body["backends"] == [
-        {"id": "claude", "type": "claude_cli", "model": None}
+        {
+            "id": "claude",
+            "type": "claude_cli",
+            "model": None,
+            "capabilities": ["file_edits", "text"],
+        }
     ]
+
+
+@pytest.mark.asyncio
+async def test_backend_models_reports_unknown_catalogue() -> None:
+    """Ensure an unsupported configured catalogue is explicitly unknown."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/backends/claude/models")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "backend_id": "claude", "state": "unknown", "models": []
+    }
+
+
+@pytest.mark.asyncio
+async def test_unknown_backend_models_returns_not_found() -> None:
+    """Ensure catalogue lookup distinguishes absent and unknown backends."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/backends/missing/models")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,8 @@ from app.backends.base import (
     Backend,
     Capability,
     LivenessResult,
+    ModelCatalog,
+    ModelInfo,
     TurnRequest,
     TurnResult,
 )
@@ -92,13 +94,35 @@ class OpenAICompatBackend(Backend):
             return True
         return False
 
-    async def check_alive(self, _session_id: str) -> LivenessResult:
+    async def check_alive(self, session_id: str) -> LivenessResult:
         """No independent remote-liveness signal — always alive.
 
         This endpoint has no server-side session to probe; kestrel owns
         the conversation entirely.
         """
+        del session_id
         return LivenessResult(alive=True)
+
+    async def list_models(self) -> ModelCatalog:
+        """Discover models and planning metadata from ``GET /models``."""
+        headers = (
+            {"Authorization": f"Bearer {self._api_key}"}
+            if self._api_key
+            else {}
+        )
+        client = self._client or httpx.AsyncClient(timeout=self._timeout)
+        try:
+            response = await client.get(
+                f"{self._base_url}/models", headers=headers
+            )
+            response.raise_for_status()
+            models = _model_infos(response.json())
+            return ModelCatalog(state="available", models=models)
+        except (httpx.HTTPError, ValueError, TypeError):
+            return ModelCatalog(state="unknown")
+        finally:
+            if self._client is None:
+                await client.aclose()
 
     # ---- internals ----------------------------------------------------
     def _schedule(self, session_id: str, prompt: str) -> None:
@@ -304,3 +328,34 @@ class OpenAICompatBackend(Backend):
                 f"unexpected response from {self._base_url}: "
                 f"{str(data)[:200]}"
             ) from exc
+
+
+def _model_infos(payload: object) -> tuple[ModelInfo, ...]:
+    """Translate an OpenAI-compatible catalogue into model descriptors."""
+    items = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("model response has no data list")
+    result: list[ModelInfo] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise ValueError("model response has an invalid entry")
+        result.append(
+            ModelInfo(
+                id=item["id"],
+                coding_quality=_positive_float(item.get("coding_quality")),
+                input_cost_per_million=_positive_float(
+                    item.get("input_cost_per_million")
+                ),
+                output_cost_per_million=_positive_float(
+                    item.get("output_cost_per_million")
+                ),
+            )
+        )
+    return tuple(result)
+
+
+def _positive_float(value: object) -> float | None:
+    """Return a positive numeric metadata value, otherwise no usable value."""
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value)
+    return None

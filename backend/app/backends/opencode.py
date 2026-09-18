@@ -26,9 +26,11 @@ from app.backends.base import (
     Backend,
     Capability,
     LivenessResult,
+    ModelCatalog,
     TurnRequest,
     TurnResult,
 )
+from app.backends.opencode_models import split_model
 from app.backends.opencode_permissions import (
     DENY_WRITE_TOOLS,
     OpenCodeConnection,
@@ -47,14 +49,6 @@ _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
 #: read-only turn. Anything else is treated as edit-capable.
 _READ_ONLY_MODE = "plan"
 _logger = logging.getLogger(__name__)
-
-
-def _split_model(model: str | None) -> dict[str, str] | None:
-    """Parse a ``provider/model`` string into opencode's model object."""
-    if not model or "/" not in model:
-        return None
-    provider, _, model_id = model.partition("/")
-    return {"providerID": provider, "modelID": model_id}
 
 
 def _tool_summary(tool_input: object) -> str | None:
@@ -101,7 +95,7 @@ class OpenCodeBackend(Backend):
         self.settings = settings
         self.registry = registry
         self._base_url = (cfg.base_url or "http://localhost:4096").rstrip("/")
-        self._model = _split_model(cfg.model)
+        self._model = split_model(cfg.model)
         self._client = client  # injectable for tests
         self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
         self._live: dict[str, asyncio.Task[None]] = {}
@@ -225,6 +219,10 @@ class OpenCodeBackend(Backend):
             alive=False,
             reason="opencode session no longer exists — likely crashed",
         )
+
+    async def list_models(self) -> ModelCatalog:
+        """Report unknown until OpenCode exposes a stable catalogue contract."""
+        return ModelCatalog(state="unknown")
 
     # ---- internals ----------------------------------------------------
     def _session_dir(self, session_id: str) -> str | None:

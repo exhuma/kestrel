@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from app.backends.base import Capability, TurnResult
+from app.backends.base import Capability, ModelCatalog, TurnResult
 from app.config import Settings, get_settings
 from app.models import CanonicalEvent, EventKind, SessionRecord
 from app.services.github import Issue
@@ -279,6 +279,7 @@ class _FakeRunner:
         outputs: list[str],
         id_prefix: str = "s",
     ) -> None:
+        self.id = "fake"
         self.sessions = sessions
         self._outputs = list(outputs)
         self._id_prefix = id_prefix
@@ -322,6 +323,10 @@ class _FakeRunner:
 
     def backends(self):
         return [self]
+
+    async def list_models(self):
+        """Report no catalogue, matching an unsupported coding backend."""
+        return ModelCatalog(state="unknown")
 
     def optional_backend_for(self, step, requirement):
         # No mockup capture in the default harness; the dedicated

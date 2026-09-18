@@ -126,13 +126,30 @@ def _render_decomposition_candidate(deliverable: str) -> str:
     except (KeyError, TypeError, json.JSONDecodeError):
         return deliverable
     rendered_tasks = "\n\n".join(
-        f"{index}. **{task['title']}**\n\n   {task['body']}"
+        _render_candidate_task(index, task)
         for index, task in enumerate(tasks, start=1)
     )
     return (
         f"## Technical analysis\n\n{analysis}\n\n"
         f"## Proposed child tasks\n\n{rendered_tasks}"
     )
+
+
+def _render_candidate_task(index: int, task: dict[str, object]) -> str:
+    """Render one proposed task with its delivery estimate when present."""
+    estimate = ""
+    if "effort_man_days" in task and "coding_agent_token_estimate" in task:
+        model = "unknown"
+        if task.get("model_recommendation_state") == "available":
+            backend_id = task.get("recommended_backend_id")
+            model_id = task.get("recommended_model_id")
+            model = f"{backend_id}/{model_id}"
+        estimate = (
+            f"\n\n   Effort: {task['effort_man_days']} man-days; "
+            f"agent: {task['coding_agent_token_estimate']} tokens; "
+            f"model: {model}."
+        )
+    return f"{index}. **{task['title']}**\n\n   {task['body']}{estimate}"
 
 
 def _artifact_document(artifact: str) -> Document:

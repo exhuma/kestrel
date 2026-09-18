@@ -53,6 +53,7 @@ class _GHDouble(_FakeGitHub):
         self.created_issues: list[dict] = []
         self.comments: list[dict] = []
         self.fail_create_after = 0  # 0 = never fail
+        self.empty_comment_after = 0  # 0 = never return an empty identifier
 
     async def create_issue(self, repo: str, title: str, body: str) -> int:
         if (
@@ -67,6 +68,11 @@ class _GHDouble(_FakeGitHub):
         self, repo: str, number: int, body: str
     ) -> str:
         self.comments.append({"repo": repo, "number": number, "body": body})
+        if (
+            self.empty_comment_after
+            and len(self.comments) >= self.empty_comment_after
+        ):
+            return ""
         return "https://c/1"
 
 
@@ -145,11 +151,39 @@ async def test_parks_candidates_until_decomposition_is_approved() -> None:
     assert svc.git.pushed == [run.branch]
     # The summary is published to the *original* ticket via a distinct
     # comment call, not folded into the create_subtask calls (FR-012).
-    assert len(gh.comments) == 1
+    expected_parent_comments = 2
+    assert len(gh.comments) == expected_parent_comments
     assert "Use a REST endpoint." in gh.comments[0]["body"]
     assert gh.comments[0]["number"] == run.issue_number
+    assert "CAB REVIEW REQUIRED" in gh.comments[1]["body"]
+    assert "Recommendation:" not in gh.comments[1]["body"]
+    assert "Estimated effort: 1 man-days" in gh.comments[1]["body"]
+    assert "Coding-agent budget: 10000 tokens" in gh.comments[1]["body"]
     # The run never reaches design for the original ticket.
     assert run.steps[3].status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_empty_cab_comment_confirmation_fails_the_run() -> None:
+    """Ensure a missing CAB identifier prevents decomposition completion."""
+    gh = _GHDouble()
+    gh.empty_comment_after = 2
+    svc, wid = await _reach_gap_analysis(
+        gh,
+        [
+            _gap_analysis_output(
+                "Use a REST endpoint.",
+                {"title": "Add the endpoint", "body": "Self-contained body"},
+            ),
+            _containment({"index": 0, "self_contained": True}),
+        ],
+    )
+    await _wait(
+        lambda: svc.get(wid).status == "awaiting_decomposition_approval"
+    )
+    svc.approve(wid)
+    await _wait(lambda: svc.get(wid).status == "failed")
+    assert "CAB decision summary publication" in (svc.get(wid).error or "")
 
 
 @pytest.mark.asyncio
@@ -171,6 +205,8 @@ async def test_indivisible_work_still_yields_exactly_one_task() -> None:
     svc.approve(wid)
     await _wait(lambda: svc.get(wid).status == "decomposed")
     assert len(gh.created_issues) == 1
+    assert "Delivery estimate" in gh.created_issues[0]["body"]
+    assert "Recommended coding model: unknown" in gh.created_issues[0]["body"]
 
 
 @pytest.mark.asyncio

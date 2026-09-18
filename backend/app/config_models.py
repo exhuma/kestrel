@@ -26,7 +26,8 @@ class BackendConfig(BaseModel):
     ``type`` selects the adapter; the remaining fields configure it
     (``base_url``/``model``/``api_key_env`` are used by the HTTP-based
     backends added in later phases). ``caps`` overrides the adapter's
-    default capabilities when set.
+    default capabilities when set. This permits an on-site compatible backend
+    to advertise its coding-agent abilities accurately.
     """
 
     id: str

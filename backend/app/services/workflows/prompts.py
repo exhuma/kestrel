@@ -356,8 +356,17 @@ GAP_ANALYSIS_PROMPT = (
     "the tasks EXACTLY in <FOLLOWUP_TASKS> and "
     "</FOLLOWUP_TASKS> tags as a JSON array, e.g. "
     '<FOLLOWUP_TASKS>[{{"id":"TASK-1","title":"...","body":"...",'
-    '"prerequisites":[]}}]</FOLLOWUP_TASKS>. Every id must be stable and '
+    '"prerequisites":[],"effort_man_days":1,'
+    '"coding_agent_token_estimate":10000,"recommended_backend_id":null,'
+    '"recommended_model_id":null}}]</FOLLOWUP_TASKS>. Every task MUST '
+    "estimate positive man-days and coding-agent tokens. Choose the "
+    "lowest-cost "
+    "suitable model only from the coding-model catalogues below when it has a "
+    "positive quality score and both token costs. Otherwise use null "
+    "backend/model "
+    "identifiers, which means unknown. Every id must be stable and "
     "every prerequisite must name another task's id. Do not edit any files.\n\n"
+    "CODING-MODEL CATALOGUES:\n{model_catalogues}\n\n"
     "REQUIREMENTS DOCUMENT:\n{prd}\n\n"
     "CONFIRMED UNDERSTANDING:\n{understanding}\n\n"
     "REQUESTED AMENDMENT (empty for the first analysis):\n{amendment}"
