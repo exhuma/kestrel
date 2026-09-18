@@ -1,7 +1,7 @@
 """Tests for reentry.rewind_to (feature 013, US3).
 
 Runs against the real 6-step pipeline (feature 012):
-describe(0) -> refine(1) -> gap_analysis(2) -> design(3) -> code(4) ->
+describe(0) -> refine(1) -> technical_analysis(2) -> design(3) -> code(4) ->
 verify(5).
 """
 
@@ -45,7 +45,7 @@ def test_rewind_to_describe_marks_everything_after_pending() -> None:
     assert [s.deliverable for s in run.steps] == [
         "describe-deliverable",
         "refine-deliverable",
-        "gap_analysis-deliverable",
+        "technical_analysis-deliverable",
         "design-deliverable",
         "code-deliverable",
         "verify-deliverable",
@@ -59,26 +59,26 @@ def test_rewind_to_refine_marks_describe_done_and_rest_pending() -> None:
     run = _run()
     rewind_to(run, Step.REFINE, "the requirements need another look")
 
-    describe, refine, gap_analysis, design, code, verify = run.steps
+    describe, refine, technical_analysis, design, code, verify = run.steps
     assert describe.status == "done"
     assert describe.session_id == "sess-describe"  # before: untouched
     assert refine.status == "pending"
     assert refine.session_id == "sess-refine"  # target: session untouched
-    for step in (gap_analysis, design, code, verify):
+    for step in (technical_analysis, design, code, verify):
         assert step.status == "pending"
         assert step.session_id is None
 
 
 def test_rewind_to_design_marks_before_done_target_and_after_pending() -> None:
-    """Rewinding to design: describe/refine/gap_analysis stay done, design
+    """Rewinding to design: describe/refine/technical_analysis stay done, design
     becomes the pending target (session_id untouched — it's the target,
     not "after" it), code/verify become pending with session_id cleared."""
     run = _run()
     run.prd_approved = True
     rewind_to(run, Step.DESIGN, "the approach needs to change")
 
-    describe, refine, gap_analysis, design, code, verify = run.steps
-    for step in (describe, refine, gap_analysis):
+    describe, refine, technical_analysis, design, code, verify = run.steps
+    for step in (describe, refine, technical_analysis):
         assert step.status == "done"
     assert design.status == "pending"
     assert design.session_id == "sess-design"  # target: session untouched
@@ -101,14 +101,14 @@ def test_rewind_to_refine_clears_prd_approval_provenance() -> None:
 
 
 def test_rewind_to_code_marks_earlier_steps_done() -> None:
-    """Rewinding to code: describe/refine/gap_analysis/design stay done,
+    """Rewinding to code: describe/refine/technical_analysis/design stay done,
     code becomes the pending target, verify resets with session_id
     cleared."""
     run = _run()
     rewind_to(run, Step.CODE, "fix the implementation bug")
 
-    describe, refine, gap_analysis, design, code, verify = run.steps
-    for step in (describe, refine, gap_analysis, design):
+    describe, refine, technical_analysis, design, code, verify = run.steps
+    for step in (describe, refine, technical_analysis, design):
         assert step.status == "done"
     assert code.status == "pending"
     assert code.session_id == "sess-code"
@@ -133,10 +133,10 @@ def test_rewind_to_rejects_verify_as_a_target() -> None:
         rewind_to(run, Step.VERIFY, "anything")
 
 
-def test_rewind_to_rejects_gap_analysis_as_a_target() -> None:
-    """Ensure gap_analysis — a fan-out/reconcile/critic turn, gateless and
+def test_rewind_to_rejects_technical_analysis_as_a_target() -> None:
+    """Ensure technical_analysis — a fan-out/reconcile/critic turn, gateless and
     run-terminating on success — is not a legal rewind target; feeding
     drained feedback into it is a follow-up, not this mechanism."""
     run = _run()
     with pytest.raises(ValueError):
-        rewind_to(run, Step.GAP_ANALYSIS, "anything")
+        rewind_to(run, Step.TECHNICAL_ANALYSIS, "anything")

@@ -26,7 +26,7 @@ class _FakeJiraSource:
         self._body = body
         self.attachments: list[tuple[str, str]] = []
         self.comments: list[str] = []
-        #: Follow-up RFCs created via create_subtask (gap_analysis,
+        #: Follow-up RFCs created via create_subtask (technical_analysis,
         #: feature 012), each (title, body).
         self.subtasks: list[tuple[str, str]] = []
 
@@ -95,7 +95,7 @@ def _jira_svc(source, host, runner, dismissals=None):
 async def test_jira_run_attaches_prd_on_approval() -> None:
     """Ensure an approved PRD is attached to the Jira RFC (FR-011).
 
-    Approval publishes the PRD immediately, before gap_analysis ever runs
+    Approval publishes the PRD immediately, before technical_analysis ever runs
     — so this still holds even though a plain ticket's run now pauses for
     decomposition approval rather than reaching design/
     code/verify/deliver (FR-014); there is no change-request link to
@@ -106,7 +106,7 @@ async def test_jira_run_attaches_prd_on_approval() -> None:
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "<UNDERSTANDING>the PRD</UNDERSTANDING>",
         *_refine_noquestions("the PRD"),
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
         "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",  # critic
     ])
     svc = _jira_svc(source, _FakeJiraHost(), runner)
@@ -139,7 +139,7 @@ async def test_github_run_publishes_refined_to_issue_body() -> None:
     runner = _FakeRunner(SessionRegistry(), outputs=[
         "<UNDERSTANDING>refined</UNDERSTANDING>",
         *_refine_noquestions("refined"),
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
         "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",  # critic
     ])
     svc = WorkflowService(

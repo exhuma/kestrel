@@ -3,12 +3,12 @@ US3): a `done` run with an open PR resumes the SAME branch, and the
 triage turn picks the right re-entry step from the feedback's content.
 
 Runs against the real 6-step pipeline (feature 012): describe(0) ->
-refine(1) -> gap_analysis(2) -> design(3) -> code(4) -> verify(5). A
-plain ticket always terminates at `gap_analysis` (`decomposed`) rather
+refine(1) -> technical_analysis(2) -> design(3) -> code(4) -> verify(5). A
+plain ticket always terminates at `technical_analysis` (`decomposed`) rather
 than reaching `design`/`code`/`verify` — the only way to reach `done` at
 all (the starting point every resume test needs) is a
 `SUBTASK_SENTINEL`-tagged body, which fast-paths describe/refine/
-gap_analysis as already-done and lands straight at `design` (mirrors how
+technical_analysis as already-done and lands straight at `design` (mirrors how
 feature 012's own driver tests reach `design`/`code`/`verify`).
 """
 
@@ -43,9 +43,9 @@ async def _deliver_a_run(gh, runner, git, tmp_path):
     """Drive a run through design/code/verify to `done` + an open PR —
     the common starting point every resume test builds on. Uses the
     SUBTASK_SENTINEL fast path (feature 012) so describe/refine/
-    gap_analysis are pre-marked done and the run lands straight at
+    technical_analysis are pre-marked done and the run lands straight at
     design, since a plain ticket would otherwise terminate at
-    `gap_analysis` (`decomposed`) and never reach `done` at all."""
+    `technical_analysis` (`decomposed`) and never reach `done` at all."""
     gh.body = _subtask_body("Build a widget")
     svc = _service(
         gh,

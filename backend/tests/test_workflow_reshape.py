@@ -48,7 +48,7 @@ def test_build_run_sets_task_ref_and_reshaped_steps() -> None:
     assert [s.name for s in run.steps] == [
         "describe",
         "refine",
-        "gap_analysis",
+        "technical_analysis",
         "design",
         "code",
         "verify",
@@ -61,9 +61,9 @@ async def test_github_run_traverses_reshaped_status_sequence() -> None:
     with no plan/implement gates.
 
     A follow-up (SUBTASK_SENTINEL) body skips describe/refine/
-    gap_analysis entirely (FR-015) — the only way to reach design/code/
+    technical_analysis entirely (FR-015) — the only way to reach design/code/
     verify at all now that a plain ticket's run always ends at
-    gap_analysis instead (FR-014); the PRD gate itself is covered by the
+    technical_analysis instead (FR-014); the PRD gate itself is covered by the
     describe/refine tests, not this one.
     """
     seen: list[str] = []

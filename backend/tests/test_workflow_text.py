@@ -98,7 +98,7 @@ def test_extract_understanding_between_delimiters() -> None:
 
 
 def test_extract_tech_analysis_between_delimiters() -> None:
-    """Ensure the gap_analysis summary is extracted from its block."""
+    """Ensure the technical_analysis summary is extracted from its block."""
     text = "<TECH_ANALYSIS>\nUse a REST endpoint.\n</TECH_ANALYSIS>"
     assert extract_tech_analysis(text) == "Use a REST endpoint."
     assert extract_tech_analysis("no tags here") is None

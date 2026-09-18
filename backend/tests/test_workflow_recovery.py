@@ -105,7 +105,7 @@ async def test_recover_resumes_awaiting_refine_approval(
     )
 
     runner2 = _FakeRunner(SessionRegistry(), outputs=[
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",              # gap_analysis
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
         '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',          # critic
     ])
     git2 = _FakeGit()

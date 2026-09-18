@@ -182,7 +182,7 @@ async def test_waiver_reason_lands_in_refined_issue() -> None:
                required=True, waiver_label="Accept this risk")),
         _coord([]),
         _refined("Store the widget data in S3"),
-        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+        "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
         "<CONTAINMENT>{\"verdicts\": []}</CONTAINMENT>",  # critic
     ])
     svc = _service(gh, runner, _FakeGit())

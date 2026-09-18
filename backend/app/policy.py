@@ -11,7 +11,7 @@ from app.config import get_settings
 #: the default path; enable it per step via
 #: ``KESTREL_MODEL_OVERRIDES``.
 DEFAULT_MODELS: dict[str, str] = {
-    "gap_analysis": "haiku",
+    "technical_analysis": "haiku",
     "clarify": "haiku",
     "describe": "sonnet",
     "refine": "sonnet",
@@ -25,7 +25,7 @@ DEFAULT_MODELS: dict[str, str] = {
 #: plain LLM can serve them (it just won't read the repo). A backend
 #: serves a step when its capabilities are a superset of the requirement.
 STEP_REQUIREMENTS: dict[str, frozenset[Capability]] = {
-    "gap_analysis": frozenset({Capability.TEXT}),
+    "technical_analysis": frozenset({Capability.TEXT}),
     "clarify": frozenset({Capability.TEXT}),
     "describe": frozenset({Capability.TEXT}),
     "refine": frozenset({Capability.TEXT}),

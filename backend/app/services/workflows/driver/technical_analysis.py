@@ -1,4 +1,4 @@
-"""The gap_analysis step: propose and publish self-contained follow-up tasks.
+"""The technical_analysis step: propose and publish self-contained tasks.
 
 The agent creates and critiques a candidate decomposition, then a human gate
 holds that candidate before any task-source write.  The pending proposal lives
@@ -33,9 +33,9 @@ from app.services.workflows.estimates import (
     normalize_task,
 )
 from app.services.workflows.prompts import (
-    GAP_ANALYSIS_CRITIC_PROMPT,
-    GAP_ANALYSIS_PROMPT,
-    GAP_ANALYSIS_REVISION_PROMPT,
+    TECHNICAL_ANALYSIS_CRITIC_PROMPT,
+    TECHNICAL_ANALYSIS_PROMPT,
+    TECHNICAL_ANALYSIS_REVISION_PROMPT,
 )
 from app.services.workflows.scope import evaluate_scope, refusal_message
 from app.services.workflows.sessions import _bind
@@ -69,7 +69,7 @@ class _Candidate:
 
 @dataclass
 class _Turn:
-    """The collaborators every gap_analysis turn shares, bundled to stay
+    """The collaborators every technical_analysis turn shares, bundled to stay
     under the 5-argument limit on the helper functions below."""
 
     service: "WorkflowService"
@@ -79,10 +79,10 @@ class _Turn:
 
     async def send(self, prompt: str) -> str:
         """Run one turn against this step's slot; return its response."""
-        model = get_policy().model_for(Step.GAP_ANALYSIS)
+        model = get_policy().model_for(Step.TECHNICAL_ANALYSIS)
         result = await self.service._run_turn_tracked(
             self.wf_run,
-            self.service.backends.backend_for(Step.GAP_ANALYSIS),
+            self.service.backends.backend_for(Step.TECHNICAL_ANALYSIS),
             TurnRequest(
                 prompt=prompt,
                 cwd=self.wf_run.workspace,
@@ -195,7 +195,7 @@ async def _check_self_containment(
     """
     for _pass in range(_MAX_CONTAINMENT_PASSES):
         verdict_text = await turn.send(
-            GAP_ANALYSIS_CRITIC_PROMPT.format(
+            TECHNICAL_ANALYSIS_CRITIC_PROMPT.format(
                 tech_analysis=tech_analysis, tasks=_render_tasks(tasks)
             )
         )
@@ -210,7 +210,7 @@ async def _check_self_containment(
             for i in failing
         )
         revision_text = await turn.send(
-            GAP_ANALYSIS_REVISION_PROMPT.format(
+            TECHNICAL_ANALYSIS_REVISION_PROMPT.format(
                 tech_analysis=tech_analysis,
                 all_tasks=_render_tasks(tasks),
                 failing_tasks=failing_payload,
@@ -222,7 +222,7 @@ async def _check_self_containment(
         )
         _apply_revisions(tasks, revised)
     _logger.warning(
-        "workflow %s: gap_analysis proposed tasks with unresolved "
+        "workflow %s: technical_analysis proposed tasks with unresolved "
         "self-containment gaps after %d passes",
         turn.wf_run.id,
         _MAX_CONTAINMENT_PASSES,
@@ -230,7 +230,7 @@ async def _check_self_containment(
     return tasks
 
 
-async def run_gap_analysis(
+async def run_technical_analysis(
     service: "WorkflowService", run: WorkflowRun
 ) -> None:
     """Create a candidate decomposition, await approval, then publish it.
@@ -240,7 +240,9 @@ async def run_gap_analysis(
     """
     step = run.steps[2]
     if not run.prd_approved or not run.approved_prd:
-        raise InvalidWorkflowStateError("gap analysis requires approved PRD")
+        raise InvalidWorkflowStateError(
+            "technical analysis requires approved PRD"
+        )
     revised_from: str | None = None
     amendment = ""
     while True:
@@ -281,11 +283,11 @@ async def _create_candidate(
     """Run analysis and containment checking, then checkpoint its proposal."""
     prd = run.approved_prd or ""
     understanding = run.steps[0].deliverable or ""
-    step.model = get_policy().model_for(Step.GAP_ANALYSIS)
+    step.model = get_policy().model_for(Step.TECHNICAL_ANALYSIS)
     run.status = "analyzing"
     step.status = "running"
     slot = StepSession(
-        profile_id="gap-analysis", label="Tech Analysis", badge="agent"
+        profile_id="technical-analysis", label="Tech Analysis", badge="agent"
     )
     step.active_sessions = [slot]
     service._save(run)
@@ -294,7 +296,7 @@ async def _create_candidate(
     catalogues = await coding_model_catalog(service)
     analysis_text = await request_valid_output(
         turn.send,
-        GAP_ANALYSIS_PROMPT.format(
+        TECHNICAL_ANALYSIS_PROMPT.format(
             prd=prd,
             understanding=understanding,
             amendment=amendment,

@@ -53,14 +53,14 @@ async def evaluate_scope(
         return ScopeDecision(
             False, "No accepted PRD is available for this task."
         )
-    backend = service.backends.backend_for("gap_analysis.scope")
+    backend = service.backends.backend_for("technical_analysis.scope")
     try:
         result = await backend.run_turn(
             TurnRequest(
                 prompt=PRD_SCOPE_PROMPT.format(prd=prd, request=request),
                 cwd=run.workspace,
                 permission_mode="plan",
-                model=get_policy().model_for("gap_analysis.scope"),
+                model=get_policy().model_for("technical_analysis.scope"),
             )
         )
     except Exception:

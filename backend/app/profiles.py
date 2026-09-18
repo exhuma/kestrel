@@ -270,7 +270,7 @@ def roster_summary(ids: Iterable[str] | None = None) -> str:
 
     :param ids: When given, restrict the rendered roster to these ids
         (e.g. :data:`BUSINESS_ALTITUDE_IDS`) — the altitude restriction
-        for the describe/refine and gap_analysis phases (feature 012).
+        for the describe/refine and technical_analysis phases (feature 012).
         ``None`` renders the full roster, unchanged from before.
     """
     allowed = set(ids) if ids is not None else None

@@ -226,7 +226,9 @@ async def test_gate_branch_approves_decomposition_candidates() -> None:
         issue_number=5,
         status="awaiting_decomposition_approval",
         steps=[
-            WorkflowStep(name=Step.GAP_ANALYSIS, status="awaiting_approval")
+            WorkflowStep(
+                name=Step.TECHNICAL_ANALYSIS, status="awaiting_approval"
+            )
         ],
     )
     svc.workflows.create(run)
@@ -379,7 +381,7 @@ def _escalated_run(**overrides) -> WorkflowRun:
             ),
             WorkflowStep(name=Step.REFINE, status="done", deliverable="PRD"),
             WorkflowStep(
-                name=Step.GAP_ANALYSIS,
+                name=Step.TECHNICAL_ANALYSIS,
                 status="done",
                 deliverable="",
             ),

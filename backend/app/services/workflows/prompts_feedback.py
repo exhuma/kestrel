@@ -15,7 +15,7 @@ from __future__ import annotations
 #: path (never the raw comment) actually sees.
 #:
 #: Only ``refine``/``design``/``code`` are offered as re-entry steps: this
-#: branch's ``Step`` enum has no ``describe``/``gap_analysis`` (feature
+#: branch's ``Step`` enum has no ``describe``/``technical_analysis`` (feature
 #: 012's decomposition pipeline) — see
 #: ``app.services.workflows.reentry.REENTRY_STEPS``.
 FEEDBACK_TRIAGE_PROMPT = (

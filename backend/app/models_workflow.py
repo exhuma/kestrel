@@ -20,7 +20,7 @@ class Step(StrEnum):
 
     DESCRIBE = "describe"
     REFINE = "refine"
-    GAP_ANALYSIS = "gap_analysis"
+    TECHNICAL_ANALYSIS = "technical_analysis"
     DESIGN = "design"
     CODE = "code"
     VERIFY = "verify"
@@ -31,7 +31,7 @@ class Step(StrEnum):
         return [
             cls.DESCRIBE,
             cls.REFINE,
-            cls.GAP_ANALYSIS,
+            cls.TECHNICAL_ANALYSIS,
             cls.DESIGN,
             cls.CODE,
             cls.VERIFY,

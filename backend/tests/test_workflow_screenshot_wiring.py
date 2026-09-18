@@ -24,9 +24,9 @@ async def test_refine_screenshots_uploaded_at_prd_approval(
     monkeypatch,
 ) -> None:
     """Refine mockups are uploaded at PRD approval time (inside refine()
-    itself, before gap_analysis runs).
+    itself, before technical_analysis runs).
 
-    A plain ticket parks for decomposition approval after gap_analysis
+    A plain ticket parks for decomposition approval after technical_analysis
     (FR-014) — it never reaches deliver(), so this only exercises the
     refine-stage upload; the verify-stage one is covered by the
     autonomous-design/code/verify test below.
@@ -44,7 +44,7 @@ async def test_refine_screenshots_uploaded_at_prd_approval(
         outputs=[
             "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",
             *_refine_noquestions("Build a clear widget"),
-            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
             '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
         ],
     )
@@ -70,8 +70,8 @@ async def test_verify_screenshots_uploaded_and_persisted(monkeypatch) -> None:
     persisted before the worktree is torn down.
 
     A follow-up (SUBTASK_SENTINEL) body skips describe/refine/
-    gap_analysis entirely (FR-015) — the only way to reach deliver() at
-    all now that a plain ticket's run always ends at gap_analysis
+    technical_analysis entirely (FR-015) — the only way to reach deliver() at
+    all now that a plain ticket's run always ends at technical_analysis
     instead (FR-014).
     """
     uploads: list[str] = []

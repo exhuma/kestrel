@@ -126,8 +126,8 @@ the image small and lets a deploy attach or swap backends purely by config.
    clears the run and dismissal so the source task receives a complete fresh
    run on the next poll.
 - **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or local
-   task — traverses the identical `describe → refine → gap_analysis →
-  design → code → verify → delivery` sequence
+   task — traverses the identical `describe → refine → technical_analysis →
+   design → code → verify → delivery` sequence
   (`services/workflows/driver/`). There is no hand-entered run: a run exists
   because a task source produced a task. **Two** human gates open the
   pipeline: `describe` restates kestrel's understanding of the task in plain
@@ -135,7 +135,7 @@ the image small and lets a deploy attach or swap backends purely by config.
   clarifying question is asked; `refine`'s interview is then restricted to
   non-technical, requestor-altitude profiles only (`requester`/`pm`/`uiux`),
   producing a business-only, go/no-go requirements document — the PRD
-   approval gate. Once approved, `gap_analysis` runs **gatelessly** (feature
+   approval gate. Once approved, `technical_analysis` runs **gatelessly** (feature
   012): technical-altitude profiles (`developer`/`infosec`/`dba`/`architect`/
   `ops`/`qa`) analyze the approved requirements, producing an
   architecture/technical-decision record and one or more independent,

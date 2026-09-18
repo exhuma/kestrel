@@ -141,7 +141,9 @@ async def test_drained_feedback_folds_into_the_design_prompt(tmp_path) -> None:
         steps=[
             WorkflowStep(name="describe", status="done", deliverable="U"),
             WorkflowStep(name="refine", status="done", deliverable="PRD"),
-            WorkflowStep(name="gap_analysis", status="done", deliverable=""),
+            WorkflowStep(
+                name="technical_analysis", status="done", deliverable=""
+            ),
             WorkflowStep(name="design", status="pending"),
             WorkflowStep(name="code", status="pending"),
             WorkflowStep(name="verify", status="pending"),

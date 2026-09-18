@@ -71,7 +71,7 @@ def append_sentinel(body: str) -> str:
 
 
 def has_subtask_sentinel(body: str) -> bool:
-    """Return True if the body marks a gap_analysis follow-up task."""
+    """Return True if the body marks a technical_analysis follow-up task."""
     return SUBTASK_SENTINEL in body
 
 
@@ -115,7 +115,7 @@ def extract_understanding(text: str) -> str | None:
 
 
 def extract_tech_analysis(text: str) -> str | None:
-    """Return the gap_analysis technical-analysis summary, if emitted."""
+    """Return the technical_analysis technical-analysis summary, if emitted."""
     return _extract_tag(text, "TECH_ANALYSIS")
 
 
@@ -130,7 +130,7 @@ def _is_followup_task(item: object) -> bool:
 
 def extract_followup_tasks(text: str) -> list[dict[str, str]] | None:
     """
-    Return the gap_analysis candidate follow-up tasks, if well-formed.
+    Return the technical_analysis candidate follow-up tasks, if well-formed.
 
     :param text: The agent's full response text.
     :returns: A list of ``{"title", "body"}`` dicts (possibly carrying an
@@ -153,7 +153,7 @@ def extract_followup_tasks(text: str) -> list[dict[str, str]] | None:
 
 def extract_containment_verdicts(text: str) -> dict[int, dict] | None:
     """
-    Return the gap_analysis self-containment critic's per-task verdicts.
+    Return the technical_analysis self-containment critic's per-task verdicts.
 
     :param text: The critic's full response text.
     :returns: ``{index: {"self_contained": bool, "reason": str}}``, or
@@ -341,8 +341,9 @@ def extract_mockups(text: str) -> list[dict[str, str]]:
 
 
 #: Legal re-entry steps a feedback-triage turn may select on *this*
-#: branch's ``Step`` enum (feature 013, US3). ``describe``/``gap_analysis``
-#: are feature 012 decomposition steps not present here — see
+#: branch's ``Step`` enum (feature 013, US3).
+#: ``describe``/``technical_analysis`` are feature 012 decomposition
+#: steps not present here — see
 #: ``app.services.workflows.reentry.REENTRY_STEPS``, which this mirrors.
 _TRIAGE_STEPS = frozenset({"refine", "design", "code"})
 #: Fallback re-entry step for a parse miss or an unrecognized value

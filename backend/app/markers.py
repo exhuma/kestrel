@@ -17,9 +17,9 @@ from collections.abc import Sequence
 
 #: Marks a ticket as refined (feature 001).
 SENTINEL = "<!-- kestrel:refined -->"
-#: Marks a ticket as a gap_analysis follow-up task (feature 012): its body
+#: Marks a ticket as a technical_analysis follow-up task (feature 012): its body
 #: is already self-contained and technically scoped, so a run against it
-#: skips describe/refine/gap_analysis entirely and starts at design.
+#: skips describe/refine/technical_analysis entirely and starts at design.
 SUBTASK_SENTINEL = "<!-- kestrel:subtask -->"
 
 
@@ -50,10 +50,10 @@ class Marker(ABC):
 
 
 class SubtaskSentinel(Marker):
-    """Marks a ticket as a gap_analysis follow-up task (feature 012).
+    """Marks a ticket as a technical_analysis follow-up task (feature 012).
 
     Its body is already self-contained and technically scoped, so a run
-    against it skips describe/refine/gap_analysis and starts at design.
+    against it skips describe/refine/technical_analysis and starts at design.
     Content-free: detection is by presence, not payload.
     """
 

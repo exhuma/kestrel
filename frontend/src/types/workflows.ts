@@ -2,7 +2,7 @@
 export const STEPS = [
   'describe',
   'refine',
-  'gap_analysis',
+  'technical_analysis',
   'design',
   'code',
   'verify',

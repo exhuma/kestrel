@@ -397,10 +397,16 @@ class Settings(BaseSettings):
         if main_invalid:
             valid_list = ", ".join(sorted(valid_steps))
             invalid_list = ", ".join(sorted(main_invalid))
-            raise ValueError(
+            msg = (
                 f"Invalid step names in step_backends: {invalid_list!r}. "
                 f"Valid steps are: {valid_list}."
             )
+            if "gap_analysis" in main_invalid:
+                msg += (
+                    " 'gap_analysis' was renamed to 'technical_analysis'; "
+                    "update your config.toml [step_backends] key."
+                )
+            raise ValueError(msg)
         return self
 
 

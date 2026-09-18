@@ -227,7 +227,9 @@ async def test_drained_feedback_folds_into_the_round_start(tmp_path) -> None:
         steps=[
             WorkflowStep(name="describe", status="done", deliverable="U"),
             WorkflowStep(name="refine", status="done", deliverable="PRD"),
-            WorkflowStep(name="gap_analysis", status="done", deliverable=""),
+            WorkflowStep(
+                name="technical_analysis", status="done", deliverable=""
+            ),
             WorkflowStep(name="design", status="done", deliverable="Design"),
             WorkflowStep(name="code", status="pending"),
             WorkflowStep(name="verify", status="pending"),

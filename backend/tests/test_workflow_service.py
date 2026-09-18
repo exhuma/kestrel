@@ -27,7 +27,7 @@ from tests.conftest import (
 
 
 @pytest.mark.asyncio
-async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
+async def test_happy_path_refine_then_technical_analysis_decomposes() -> None:
     """Ensure approvals publish the PRD and decomposition before completion.
 
     A plain ticket never reaches design/code/verify/PR; only a
@@ -40,7 +40,7 @@ async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
         outputs=[
             "<UNDERSTANDING>Build a clear widget.</UNDERSTANDING>",  # describe
             *_refine_noquestions("Build a clear widget"),  # refine
-            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
             '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
         ],
     )
@@ -52,7 +52,7 @@ async def test_happy_path_refine_then_gap_analysis_decomposes() -> None:
 
     await _wait(lambda: svc.get(wid).status == "awaiting_refine_approval")
     assert svc.get(wid).steps[1].deliverable == "Build a clear widget"
-    svc.approve(wid)  # PRD approved → gap_analysis runs
+    svc.approve(wid)  # PRD approved → technical_analysis runs
 
     await _wait(
         lambda: svc.get(wid).status == "awaiting_decomposition_approval"

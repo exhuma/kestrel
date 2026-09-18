@@ -24,9 +24,9 @@ async def test_coder_with_no_diff_escalates_not_input_gate() -> None:
     """Ensure a coder that makes no changes escalates (FR-020), never parking
     on the removed awaiting_implement_input human gate.
 
-    A follow-up (SUBTASK_SENTINEL) body skips describe/refine/gap_analysis
+    A follow-up (SUBTASK_SENTINEL) body skips describe/refine/technical_analysis
     entirely (FR-015) — the only way to reach design/code at all now that
-    a plain ticket's run always ends at gap_analysis instead (FR-014).
+    a plain ticket's run always ends at technical_analysis instead (FR-014).
     """
     gh = _FakeGitHub(body=_subtask_body("vague"))
     git = _FakeGit()

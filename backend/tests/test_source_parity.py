@@ -47,9 +47,9 @@ async def test_github_and_jira_traverse_identical_status_sequence() -> None:
     """Ensure a GitHub run and a Jira run traverse the same phases/gates.
 
     A follow-up (SUBTASK_SENTINEL) body skips describe/refine/
-    gap_analysis entirely (FR-015) — the only way to reach design/code/
+    technical_analysis entirely (FR-015) — the only way to reach design/code/
     verify at all now that a plain ticket's run always ends at
-    gap_analysis instead (FR-014); the gate itself is source-neutral too,
+    technical_analysis instead (FR-014); the gate itself is source-neutral too,
     but is already covered elsewhere, so this test focuses on the
     gateless design/code/verify leg both sources share.
     """

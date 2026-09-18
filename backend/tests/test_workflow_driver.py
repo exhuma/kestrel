@@ -55,7 +55,7 @@ async def test_active_and_wait_seconds_accumulate_through_both_gates() -> None:
             _qs(_q(prompt="Which?", options=[{"value": "a", "label": "A"}])),
             _coord([]),
             "<REFINED_ISSUE>\nBuild a clear widget\n</REFINED_ISSUE>",
-            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
             '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
         ],
     )
@@ -75,7 +75,7 @@ async def test_active_and_wait_seconds_accumulate_through_both_gates() -> None:
     await asyncio.sleep(0.05)  # simulate the operator taking a moment
     svc.approve(wid)
 
-    # A plain ticket pauses after gap_analysis until its decomposition is
+    # A plain ticket pauses after technical_analysis until its decomposition is
     # approved, then it never reaches design/code/verify (FR-014).
     await _wait(
         lambda: svc.get(wid).status == "awaiting_decomposition_approval"
@@ -93,9 +93,9 @@ async def test_active_and_wait_seconds_accumulate_through_both_gates() -> None:
 async def test_design_sets_boundary_from_tag() -> None:
     """Ensure a well-formed <BOUNDARY> tag sets run.boundary (feature 005).
 
-    A follow-up (SUBTASK_SENTINEL) body skips describe/refine/gap_analysis
+    A follow-up (SUBTASK_SENTINEL) body skips describe/refine/technical_analysis
     entirely (FR-015) — the only way a run still reaches design/code/verify
-    at all now that a plain ticket always ends at gap_analysis (FR-014).
+    at all now that a plain ticket always ends at technical_analysis (FR-014).
     """
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     git = _FakeGit()
@@ -172,7 +172,7 @@ async def test_step_exception_marks_active_step_failed() -> None:
     ``running`` and the UI keeps spinning."""
     # A follow-up body (FR-015) lands straight at design — the only way
     # to exercise design at all now that a plain ticket always ends at
-    # gap_analysis (FR-014).
+    # technical_analysis (FR-014).
     gh = _FakeGitHub(body=_subtask_body("Build a clear widget"))
     sessions = SessionRegistry()
     code = _FakeRunner(sessions, outputs=[], id_prefix="ses-")
@@ -198,7 +198,7 @@ async def test_sentinel_skips_refine() -> None:
     runner = _FakeRunner(
         SessionRegistry(),
         outputs=[
-            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # gap_analysis
+            "<TECH_ANALYSIS>analysis</TECH_ANALYSIS>",  # technical_analysis
             '<CONTAINMENT>{"verdicts": []}</CONTAINMENT>',  # critic
         ],
     )
@@ -248,7 +248,7 @@ async def test_design_requires_explicit_prd_approval(tmp_path) -> None:
         steps=[
             WorkflowStep(name="describe", status="done"),
             WorkflowStep(name="refine", status="done", deliverable="PRD"),
-            WorkflowStep(name="gap_analysis", status="done"),
+            WorkflowStep(name="technical_analysis", status="done"),
             WorkflowStep(name="design"),
         ],
     )
@@ -342,7 +342,7 @@ async def test_steps_use_policy_models() -> None:
     """Ensure each phase that actually runs passes its policy model to
     claude. A follow-up (SUBTASK_SENTINEL) body is the only way to reach
     design/code/verify at all (FR-014/FR-015) — describe/refine/
-    gap_analysis never run for it, so they keep their initial ``None``
+    technical_analysis never run for it, so they keep their initial ``None``
     model."""
     gh = _FakeGitHub(body=_subtask_body("Build it"))
     runner = _FakeRunner(

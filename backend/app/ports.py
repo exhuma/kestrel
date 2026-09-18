@@ -259,8 +259,8 @@ class TaskSource(Protocol):
         the completeness check). ``markers`` are trailing decorations the
         implementation must preserve through its source-native write/read
         round trip; the caller decides *which* markers, the adapter only
-        decides *how*. When a gap_analysis follow-up is published the caller
-        passes
+        decides *how*. When a technical-analysis follow-up is published
+        the caller passes
         ``(SubtaskSentinel(),)``; an empty tuple appends nothing.
         Implementations MUST create the ticket without satisfying this
         source's own ingestion-trigger condition (e.g. GitHub: no

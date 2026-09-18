@@ -358,11 +358,11 @@ describe('WorkflowPanel round chip history', () => {
 })
 
 // feature 012: the understanding-checkpoint (describe) and
-// technical-analysis/decomposition (gap_analysis) steps.
+// technical-analysis/decomposition steps.
 const SIX_STEP_NAMES = [
   'describe',
   'refine',
-  'gap_analysis',
+  'technical_analysis',
   'design',
   'code',
   'verify',
@@ -384,13 +384,13 @@ function sixStepDetail(over: Partial<WorkflowDetail>): WorkflowDetail {
 }
 
 describe('WorkflowPanel task decomposition pipeline', () => {
-  it('renders describe and gap_analysis chips alongside the existing steps', () => {
+  it('renders describe and technical_analysis chips alongside the existing steps', () => {
     state.current.value = sixStepDetail({})
     const html = mount(WorkflowPanel, withVuetify()).html()
     for (const step of [
       'describe',
       'refine',
-      'gap_analysis',
+      'technical_analysis',
       'design',
       'code',
       'verify',
@@ -415,14 +415,14 @@ describe('WorkflowPanel task decomposition pipeline', () => {
     expect(html).toContain('Approve')
   })
 
-  it('renders a technical-analysis deliverable for the gap_analysis step', () => {
+  it('renders a technical-analysis deliverable for the technical_analysis step', () => {
     state.current.value = sixStepDetail({
       status: 'analyzing',
       steps: [
         { name: 'describe', status: 'done' } as never,
         { name: 'refine', status: 'done' } as never,
         {
-          name: 'gap_analysis',
+          name: 'technical_analysis',
           status: 'running',
           deliverable: 'Use a REST endpoint for the new widget.',
         } as never,
@@ -456,7 +456,7 @@ describe('WorkflowPanel decomposition run statuses', () => {
       steps: [
         { name: 'describe', status: 'done' } as never,
         { name: 'refine', status: 'done' } as never,
-        { name: 'gap_analysis', status: 'done' } as never,
+        { name: 'technical_analysis', status: 'done' } as never,
         { name: 'design', status: 'pending' } as never,
         { name: 'code', status: 'pending' } as never,
         { name: 'verify', status: 'pending' } as never,

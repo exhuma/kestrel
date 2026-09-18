@@ -324,7 +324,7 @@ VERIFY_PROMPT = (
     "failures.\n\nPRD:\n{prd}\n\nDESIGN:\n{design}\n\n"
     "ACCEPTANCE CONTRACT:\n{acceptance}"
 )
-GAP_ANALYSIS_PROMPT = (
+TECHNICAL_ANALYSIS_PROMPT = (
     "You are performing technical analysis and decomposition of an "
     "approved, business-altitude requirements document, before any "
     "implementation begins. Read the requirements document, the "
@@ -382,7 +382,7 @@ PRD_SCOPE_PROMPT = (
     '"concise explanation"}}</SCOPE>. A missing or uncertain basis must be '
     "refused. Do not edit files.\n\nACCEPTED PRD:\n{prd}\n\nREQUEST:\n{request}"
 )
-GAP_ANALYSIS_CRITIC_PROMPT = (
+TECHNICAL_ANALYSIS_CRITIC_PROMPT = (
     "You are a completeness critic. Below is a set of follow-up tasks "
     "produced by decomposing an approved requirements document. Each "
     "task stays linked to its parent ticket/requirements document, so "
@@ -407,7 +407,7 @@ GAP_ANALYSIS_CRITIC_PROMPT = (
     'does not inline it"}}]}}</CONTAINMENT>. Do not edit any files.\n\n'
     "TECHNICAL ANALYSIS:\n{tech_analysis}\n\nTASKS:\n{tasks}"
 )
-GAP_ANALYSIS_REVISION_PROMPT = (
+TECHNICAL_ANALYSIS_REVISION_PROMPT = (
     "The follow-up tasks below failed a self-containment check: each "
     "listed task is missing something it needs to be implementable in "
     "total isolation, per the reason given. Revise ONLY the listed "

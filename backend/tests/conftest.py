@@ -214,9 +214,9 @@ class _FakeGitHub:
         self.updated: str | None = None
         self.token = "fake-gh-token"  # read by GitHubCodeHost.git_credential
         #: Follow-up issues created via create_subtask (feature 012's
-        #: gap_analysis), each {"repo", "title", "body", "number"}.
+        #: technical_analysis), each {"repo", "title", "body", "number"}.
         self.created_issues: list[dict] = []
-        #: Comments posted via post_comment (e.g. gap_analysis's
+        #: Comments posted via post_comment (e.g. technical_analysis's
         #: technical-analysis summary, or deliver's CR-link comment).
         self.comments: list[tuple[str, int, str]] = []
         self._next_issue_number = 100
@@ -434,8 +434,9 @@ def _q(
 def _subtask_body(text: str) -> str:
     """A follow-up-task ticket body (feature 012): tagged with
     ``SUBTASK_SENTINEL`` so ``_seed_from_sentinel`` skips describe and
-    gap_analysis but parks at the PRD approval gate. Tests using this helper
-    must approve that gate before asserting design/code/verify behaviour."""
+    technical_analysis but parks at the PRD approval gate. Tests using
+    this helper must approve that gate before asserting design/code/verify
+    behaviour."""
     return append_subtask_sentinel(text)
 
 

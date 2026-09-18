@@ -1,7 +1,7 @@
 # Jira workflow (feature 003)
 
 Kestrel can ingest change requests (RFCs) from a Jira project and drive them
-through the **describe → refine → gap_analysis → design → code → verify →
+through the **describe → refine → technical_analysis → design → code → verify →
 change request** workflow (see [Architecture](architecture.md) for the full
 pipeline). Ingestion is **poll-only** — kestrel polls Jira outbound over HTTPS
 and exposes **no inbound endpoint**, so no tunnel or reverse proxy is needed

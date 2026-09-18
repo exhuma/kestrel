@@ -108,7 +108,7 @@ def _review_run(status: str) -> WorkflowRun:
     run.steps = [
         WorkflowStep(name="describe"),
         WorkflowStep(name="refine"),
-        WorkflowStep(name="gap_analysis"),
+        WorkflowStep(name="technical_analysis"),
     ]
     run.steps[0].deliverable = "Understand the requested widget."
     run.steps[1].deliverable = "# PRD\n\nThe widget must be accessible."

@@ -14,7 +14,7 @@ def test_defaults_have_no_opus() -> None:
 def test_model_for_uses_defaults() -> None:
     """Ensure known steps resolve to their default model."""
     policy = ModelPolicy(overrides={})
-    assert policy.model_for("gap_analysis") == "haiku"
+    assert policy.model_for("technical_analysis") == "haiku"
     assert policy.model_for("code") == "sonnet"
     assert policy.model_for("verify") == "sonnet"
 

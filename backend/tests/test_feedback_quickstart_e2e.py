@@ -223,7 +223,9 @@ async def test_scenario2_marked_comment_queues_then_drains_at_round_start(
         steps=[
             WorkflowStep(name="describe", status="done", deliverable="U"),
             WorkflowStep(name="refine", status="done", deliverable="PRD"),
-            WorkflowStep(name="gap_analysis", status="done", deliverable=""),
+            WorkflowStep(
+                name="technical_analysis", status="done", deliverable=""
+            ),
             WorkflowStep(name="design", status="done", deliverable="Design"),
             WorkflowStep(name="code", status="pending"),
             WorkflowStep(name="verify", status="pending"),

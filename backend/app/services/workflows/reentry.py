@@ -30,8 +30,9 @@ from app.models_workflow import Step, WorkflowRun
 _logger = logging.getLogger(__name__)
 
 #: Steps a review-feedback triage turn may re-enter at, in pipeline order.
-#: ``gap_analysis`` is excluded: it is a fan-out/reconcile/critic turn, not
-#: a single prompt like describe/refine/design, and it is gateless and
+#: ``technical_analysis`` is excluded: it is a fan-out/reconcile/critic
+#: turn, not a single prompt like describe/refine/design, and it is
+#: gateless and
 #: run-terminating on success (feature 012) — feeding drained feedback
 #: into it is left for a follow-up rather than bolted on here. ``verify``
 #: is excluded too: it is always reached by falling through ``code``,

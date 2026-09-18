@@ -1,4 +1,4 @@
-"""The describe -> refine -> gap_analysis -> design -> code/verify ->
+"""The describe -> refine -> technical_analysis -> design -> code/verify ->
 deliver run state machine."""
 
 from __future__ import annotations
@@ -32,7 +32,9 @@ from app.services.workflows.driver.code_verify import code_and_verify
 from app.services.workflows.driver.delivery import deliver
 from app.services.workflows.driver.describe import describe
 from app.services.workflows.driver.escalate import fail_active_steps
-from app.services.workflows.driver.gap_analysis import run_gap_analysis
+from app.services.workflows.driver.technical_analysis import (
+    run_technical_analysis,
+)
 from app.services.workflows.prompts import (
     DESIGN_PROMPT,
     MID_RUN_FEEDBACK_APPENDIX,
@@ -117,8 +119,8 @@ async def resume(service: "WorkflowService", workflow_id: str) -> None:
 def _seed_from_sentinel(run: WorkflowRun, body: str) -> bool:
     """Pre-mark steps done per the ticket body's sentinel, if any.
 
-    A ``SUBTASK_SENTINEL`` body (a gap_analysis follow-up task, feature
-    012) skips describe and gap_analysis. A plain ``SENTINEL`` body (an
+    A ``SUBTASK_SENTINEL`` body (a technical_analysis follow-up task, feature
+    012) skips describe and technical_analysis. A plain ``SENTINEL`` body (an
     already-refined ticket, e.g. a rerun) skips describe. Both park at the
     PRD approval gate: ticket markers seed the PRD candidate but are not
     proof a person approved it.
@@ -216,10 +218,11 @@ async def continue_run(
     """Run every unfinished phase, then deliver.
 
     describe (understanding gate) -> refine (PRD approval gate) ->
-    gap_analysis (decomposition approval gate) -> design ->
+    technical_analysis (decomposition approval gate) -> design ->
     autonomous code<->verify loop -> deliver. Everything after PRD
-    approval is autonomous except for decomposition approval; gap_analysis,
-    once genuinely run (not pre-marked done by a sentinel skip — see
+    approval is autonomous except for decomposition approval;
+    technical_analysis, once genuinely run (not pre-marked done by a
+    sentinel skip — see
     :func:`_seed_from_sentinel`), always ends the run, so the caller
     returns rather than falling through to design. The code<->verify
     loop may also escalate instead of delivering (FR-018/FR-020).
@@ -229,7 +232,7 @@ async def continue_run(
     yet), but on a resumed/revived run it folds in whatever ticket or
     triage feedback was queued for this run with nowhere else to land —
     never mid-turn, only at a boundary this loop already reaches
-    naturally. ``gap_analysis`` is a fan-out/reconcile/critic turn, not
+    naturally. ``technical_analysis`` is a fan-out/reconcile/critic turn, not
     a single prompt like describe/refine/design, so feeding drained
     feedback into it is intentionally left for a follow-up rather than
     bolted on here.
@@ -245,7 +248,7 @@ async def continue_run(
         refine_feedback = drain_feedback(service, run)
         await refine(service, run, feedback=refine_feedback)
     if run.steps[2].status != "done":
-        await run_gap_analysis(service, run)
+        await run_technical_analysis(service, run)
         return
     if run.steps[3].status != "done":
         design_feedback = drain_feedback(service, run)

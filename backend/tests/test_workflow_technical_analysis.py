@@ -1,7 +1,7 @@
-"""Tests for the gap_analysis step: technical analysis and decomposition
+"""Tests for the technical_analysis step: technical analysis and decomposition
 into self-contained follow-up tasks (feature 012, spec.md User Story 3).
 
-See specs/012-task-decomposition-pipeline/contracts/gap-analysis-output.md
+See specs/012-task-decomposition-pipeline/contracts/technical-analysis-output.md
 for the contract these tests verify.
 """
 
@@ -43,7 +43,7 @@ class _ChildTasks:
 
 
 class _GHDouble(_FakeGitHub):
-    """`_FakeGitHub` plus the two calls gap_analysis needs: creating a
+    """`_FakeGitHub` plus the two calls technical_analysis needs: creating a
     follow-up issue and commenting the technical-analysis summary back
     onto the original ticket. Kept local to this file rather than added
     to the shared conftest fake, to avoid touching it."""
@@ -89,14 +89,14 @@ def _containment(*verdicts: dict) -> str:
     return f"<CONTAINMENT>{json.dumps(payload)}</CONTAINMENT>"
 
 
-def _gap_analysis_output(tech_text: str, *tasks: dict) -> str:
-    """One gap_analysis analysis-turn response: decisions + candidates."""
+def _technical_analysis_output(tech_text: str, *tasks: dict) -> str:
+    """One technical_analysis analysis-turn response: decisions + candidates."""
     return _tech_analysis(tech_text) + "\n" + _followup_tasks(*tasks)
 
 
-async def _reach_gap_analysis(gh: _FakeGitHub, extra_outputs: list[str]):
+async def _reach_technical_analysis(gh: _FakeGitHub, extra_outputs: list[str]):
     """Drive a fresh run through describe + refine approval, then feed
-    ``extra_outputs`` to gap_analysis. Returns (service, workflow_id)."""
+    ``extra_outputs`` to technical_analysis. Returns (service, workflow_id)."""
     runner = _FakeRunner(
         SessionRegistry(),
         outputs=[
@@ -118,10 +118,10 @@ async def _reach_gap_analysis(gh: _FakeGitHub, extra_outputs: list[str]):
 async def test_parks_candidates_until_decomposition_is_approved() -> None:
     """Ensure analysis creates no task-source writes before approval."""
     gh = _GHDouble()
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Use a REST endpoint.",
                 {"title": "Add the endpoint", "body": "Self-contained body"},
             ),
@@ -134,7 +134,7 @@ async def test_parks_candidates_until_decomposition_is_approved() -> None:
     )
 
     run = svc.get(wid)
-    assert run.steps[2].name == "gap_analysis"
+    assert run.steps[2].name == "technical_analysis"
     assert run.steps[2].status == "awaiting_approval"
     assert "Use a REST endpoint." in (run.steps[2].deliverable or "")
     assert len(gh.created_issues) == 0
@@ -168,10 +168,10 @@ async def test_empty_cab_comment_confirmation_fails_the_run() -> None:
     """Ensure a missing CAB identifier prevents decomposition completion."""
     gh = _GHDouble()
     gh.empty_comment_after = 2
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Use a REST endpoint.",
                 {"title": "Add the endpoint", "body": "Self-contained body"},
             ),
@@ -191,7 +191,7 @@ async def test_indivisible_work_still_yields_exactly_one_task() -> None:
     """Ensure a malformed/missing FOLLOWUP_TASKS block still publishes
     exactly one follow-up task (spec.md FR-009 — never zero)."""
     gh = _GHDouble()
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
             _tech_analysis("Nothing to split."),  # no FOLLOWUP_TASKS tag
@@ -214,10 +214,10 @@ async def test_publication_records_each_created_child_reference() -> None:
     """Approved publication persists each returned source task reference."""
     gh = _GHDouble()
     children = _ChildTasks()
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Two pieces.",
                 {
                     "id": "TASK-1",
@@ -262,10 +262,10 @@ async def test_failing_self_containment_is_revised_before_publishing() -> None:
         '<FOLLOWUP_TASKS>[{"index": 0, "title": "Add the endpoint", '
         '"body": "Now inlines the shared schema decision"}]</FOLLOWUP_TASKS>'
     )
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Use a REST endpoint.",
                 {"title": "Add the endpoint", "body": "references task 2"},
             ),
@@ -299,10 +299,10 @@ async def test_create_subtask_failure_fails_the_run() -> None:
     passed fails the run rather than publishing a partial set."""
     gh = _GHDouble()
     gh.fail_create_after = 1  # the second create_subtask call raises
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Two independent pieces.",
                 {"title": "Piece one", "body": "Self-contained body one"},
                 {"title": "Piece two", "body": "Self-contained body two"},
@@ -326,10 +326,10 @@ async def test_create_subtask_failure_fails_the_run() -> None:
 async def test_request_changes_reruns_analysis_before_publishing() -> None:
     """Ensure requested changes replace candidates without stale publication."""
     gh = _GHDouble()
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "First analysis.", {"title": "First", "body": "First"}
             ),
             _containment({"index": 0, "self_contained": True}),
@@ -337,7 +337,7 @@ async def test_request_changes_reruns_analysis_before_publishing() -> None:
                 '<SCOPE>{"allowed": true, '
                 '"reason": "Changes task granularity."}</SCOPE>'
             ),
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Revised analysis.",
                 {"title": "Revised", "body": "Revised body"},
             ),
@@ -366,10 +366,10 @@ async def test_request_changes_reruns_analysis_before_publishing() -> None:
 async def test_out_of_scope_request_preserves_decomposition_candidate() -> None:
     """Ensure a PRD-conflicting amendment is refused without regeneration."""
     gh = _GHDouble()
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Analysis.", {"title": "Task", "body": "Body"}
             ),
             _containment({"index": 0, "self_contained": True}),
@@ -397,10 +397,10 @@ async def test_out_of_scope_request_preserves_decomposition_candidate() -> None:
 async def test_rejecting_decomposition_ends_the_run() -> None:
     """Ensure a bare rejection ends a parked decomposition run."""
     gh = _GHDouble()
-    svc, wid = await _reach_gap_analysis(
+    svc, wid = await _reach_technical_analysis(
         gh,
         [
-            _gap_analysis_output(
+            _technical_analysis_output(
                 "Analysis.", {"title": "Task", "body": "Body"}
             ),
             _containment({"index": 0, "self_contained": True}),
