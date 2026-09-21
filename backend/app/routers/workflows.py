@@ -1,14 +1,21 @@
 """HTTP routes for GitHub issue -> code workflows."""
 from __future__ import annotations
 
+import json
 from typing import AsyncIterator, cast
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app import sse
+from app import documents, sse
 from app.config import get_settings
-from app.models_workflow import Step, WorkflowArtifact, WorkflowRun
+from app.documents_json import document_json, parse_document_json
+from app.models_workflow import (
+    Step,
+    WorkflowArtifact,
+    WorkflowRun,
+    WorkflowStep,
+)
 from app.policy import label_policy
 from app.questionnaire import parse_envelope
 from app.schemas import (
@@ -32,6 +39,104 @@ from app.services.workflows import (
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
 router = APIRouter(prefix="/api/workflows")
+
+
+def _step_out(
+    s: WorkflowStep, policy: object
+) -> WorkflowStepOut:
+    """Build a single :class:`WorkflowStepOut` with the correct format.
+
+    The code step renders as a git diff; the technical-analysis step
+    renders as a structured document; everything else falls through to
+    markdown.
+    """
+    name = s.name
+    deliverable = s.deliverable
+    doc = _ta_document(name, deliverable)
+    if name == Step.CODE:
+        fmt = "diff"
+    elif doc is not None:
+        fmt = "document"
+    else:
+        fmt = "markdown"
+    return WorkflowStepOut(
+        name=name,
+        session_id=s.session_id,
+        status=s.status,
+        deliverable=json.dumps(doc) if doc is not None else deliverable,
+        refine_round=s.refine_round,
+        verify_round=s.verify_round,
+        backend=policy.backend_id_for(name),  # type: ignore[union-attr]
+        deliverable_format=fmt,
+    )
+
+
+def _ta_document(step_name: str, deliverable: str | None) -> dict | None:
+    """Render the technical-analysis candidate as a UI document payload.
+
+    Returns ``None`` when the step is not technical_analysis or the
+    deliverable is not a valid candidate JSON blob. Otherwise returns the
+    output of :func:`app.documents_json.document_json` for the stored analysis
+    document followed by a structured task list, so the frontend can render
+    it as a structured document instead of raw JSON text.
+
+    The analysis is already stored in closed JSON form (serialized at the
+    LLM boundary by the driver), so this only deserializes — no Markdown
+    parsing happens here.
+    """
+    if step_name != Step.TECHNICAL_ANALYSIS or not deliverable:
+        return None
+    try:
+        payload = json.loads(deliverable)
+        analysis_raw = payload["technical_analysis"]
+        if not isinstance(analysis_raw, dict):
+            return None
+        tasks = payload.get("tasks", [])
+        if not isinstance(tasks, list):
+            tasks = []
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+    try:
+        doc = parse_document_json(analysis_raw)
+    except ValueError:
+        return None
+    task_blocks = _task_list_blocks(tasks)
+    combined = documents.Document(doc.blocks + task_blocks)
+    return document_json(combined)
+
+
+def _task_list_blocks(
+    tasks: list[dict[str, object]],
+) -> tuple[documents.Block, ...]:
+    """Build document blocks for the proposed child-task section.
+
+    Each task is rendered as a heading followed by its body content (parsed
+    from markdown at this API boundary). Task bodies are markdown strings
+    owned by the LLM; they are parsed here so the frontend can render them
+    as structured document blocks.
+    """
+    if not tasks:
+        return ()
+    blocks: list[documents.Block] = [
+        documents.Heading(2, (documents.Text("Proposed child tasks"),))
+    ]
+    for task in tasks:
+        title = str(task.get("title", ""))
+        effort = task.get("effort_man_days")
+        model_id = task.get("recommended_model_id")
+        meta: list[str] = []
+        if isinstance(effort, (int, float)):
+            meta.append(f"{effort:g}d")
+        if model_id:
+            meta.append(str(model_id))
+        label = title if not meta else f"{title} ({', '.join(meta)})"
+        blocks.append(
+            documents.Heading(3, (documents.Text(label),))
+        )
+        body = str(task.get("body", ""))
+        if body:
+            blocks.extend(documents.parse_markdown(body).blocks)
+    return tuple(blocks)
 
 
 def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
@@ -68,18 +173,7 @@ def _detail(service: WorkflowService, run: WorkflowRun) -> WorkflowDetail:
         status=run.status,
         branch=run.branch,
         steps=[
-            WorkflowStepOut(
-                name=s.name, session_id=s.session_id,
-                status=s.status, deliverable=s.deliverable,
-                refine_round=s.refine_round,
-                verify_round=s.verify_round,
-                backend=policy.backend_id_for(s.name),
-                # The code step's deliverable is a raw git diff; everything
-                # else is prose/questionnaire that renders as markdown.
-                deliverable_format=(
-                    "diff" if s.name == Step.CODE else "markdown"
-                ),
-            )
+            _step_out(s, policy)
             for s in run.steps
         ],
         current_session_id=service.current_session_id(run),

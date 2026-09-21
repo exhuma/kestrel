@@ -10,7 +10,7 @@ export const STEPS = [
 export type Step = (typeof STEPS)[number]
 
 /** How the UI should render a step's deliverable. */
-export type DeliverableFormat = 'diff' | 'markdown'
+export type DeliverableFormat = 'diff' | 'markdown' | 'document'
 
 export interface WorkflowStep {
   name: string
@@ -23,7 +23,7 @@ export interface WorkflowStep {
   verify_round: number
   /** Backend id serving this step (e.g. "claude", "oc", "llm"). */
   backend: string
-  /** How to render `deliverable`: 'diff' (code step) or 'markdown'. */
+  /** How to render `deliverable`: 'diff', 'document', or 'markdown'. */
   deliverable_format: DeliverableFormat
 }
 

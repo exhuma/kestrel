@@ -13,7 +13,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Mapping, Sequence, cast
 
 from app.backends.base import TurnRequest
-from app.documents import Heading, Text, document, parse_markdown
+from app.documents import (
+    Document,
+    Heading,
+    Text,
+    document,
+    parse_markdown,
+)
+from app.documents_json import (
+    document_json,
+    parse_document_json,
+)
 from app.markers import SubtaskSentinel
 from app.models_workflow import Step, StepSession, WorkflowRun, WorkflowStep
 from app.policy import get_policy
@@ -60,9 +70,15 @@ _MAX_CONTAINMENT_PASSES = 2
 
 @dataclass
 class _Candidate:
-    """A reviewed technical analysis and the tasks it proposes to publish."""
+    """A reviewed technical analysis and the tasks it proposes to publish.
 
-    technical_analysis: str
+    ``technical_analysis`` is a canonical :class:`Document` — parsed from
+    the LLM's Markdown output at the boundary and carried internally in
+    its structured form so every consumer renders it for its own target
+    format without re-parsing.
+    """
+
+    technical_analysis: Document
     tasks: list[dict[str, object]]
     model_catalogues: list[dict[str, object]]
 
@@ -128,10 +144,15 @@ def _apply_revisions(
 
 
 def _encode_candidate(candidate: _Candidate) -> str:
-    """Serialize a pending proposal into the step's durable deliverable."""
+    """Serialize a pending proposal into the step's durable deliverable.
+
+    The analysis document is stored in its closed JSON form (the same
+    representation the web UI consumes), so no consumer ever re-parses
+    Markdown for internal data.
+    """
     return json.dumps(
         {
-            "technical_analysis": candidate.technical_analysis,
+            "technical_analysis": document_json(candidate.technical_analysis),
             "tasks": candidate.tasks,
             "model_catalogues": candidate.model_catalogues,
         }
@@ -141,15 +162,16 @@ def _encode_candidate(candidate: _Candidate) -> str:
 def _decode_candidate(deliverable: str) -> _Candidate:
     """Restore a pending proposal or reject malformed persisted state."""
     payload = json.loads(deliverable)
-    analysis = payload["technical_analysis"]
+    analysis_raw = payload["technical_analysis"]
     tasks = payload["tasks"]
     catalogues = payload.get("model_catalogues", [])
     if (
-        not isinstance(analysis, str)
+        not isinstance(analysis_raw, dict)
         or not isinstance(tasks, list)
         or not isinstance(catalogues, list)
     ):
         raise ValueError("invalid decomposition candidate")
+    analysis = parse_document_json(analysis_raw)
     normalized = [
         {
             "id": str(task.get("id", f"TASK-{index + 1}")),
@@ -305,7 +327,8 @@ async def _create_candidate(
         _valid_analysis,
         "technical analysis",
     )
-    tech_analysis = extract_tech_analysis(analysis_text) or ""
+    tech_analysis_md = extract_tech_analysis(analysis_text) or ""
+    tech_analysis = parse_markdown(tech_analysis_md)
     fallback = [
         {
             "id": "TASK-1",
@@ -318,9 +341,9 @@ async def _create_candidate(
     tasks = cast(list[dict[str, object]], extracted_tasks)
     for task in tasks:
         normalize_task(task, catalogues)
-    tasks = await _check_self_containment(turn, tech_analysis, tasks)
+    tasks = await _check_self_containment(turn, tech_analysis_md, tasks)
 
-    service._write_artifact(run, "technical-analysis.md", tech_analysis)
+    service._write_artifact(run, "technical-analysis.md", tech_analysis_md)
     service._retire_sessions(run, step)
     step.deliverable = _encode_candidate(
         _Candidate(tech_analysis, tasks, catalogues)
@@ -394,7 +417,7 @@ async def _publish_candidate(
             run,
             document(
                 Heading(2, (Text("Technical analysis"),)),
-                *parse_markdown(candidate.technical_analysis).blocks,
+                *candidate.technical_analysis.blocks,
             ),
             "technical analysis",
         )

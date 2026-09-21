@@ -10,6 +10,7 @@ import { renderMarkdown } from '../lib/markdown'
 import EventCard from './EventCard.vue'
 import ConsoleShell from './ConsoleShell.vue'
 import DiffView from './DiffView.vue'
+import DocumentRenderer from './DocumentRenderer.vue'
 import ScreenshotGallery from './ScreenshotGallery.vue'
 import RoundChips from './RoundChips.vue'
 import { STEPS } from '../types/workflows'
@@ -119,7 +120,12 @@ const deliverableHtml = computed(() => {
   const step = activeStep.value
   const text = step?.deliverable
   // A diff renders in DiffView, not the markdown path (see isDiffDeliverable).
-  if (!text || step?.deliverable_format === 'diff' || parseQuestionnaire(text))
+  if (
+    !text ||
+    step?.deliverable_format === 'diff' ||
+    step?.deliverable_format === 'document' ||
+    parseQuestionnaire(text)
+  )
     return null
   return renderMarkdown(text)
 })
@@ -128,6 +134,13 @@ const deliverableHtml = computed(() => {
 const isDiffDeliverable = computed(
   () =>
     activeStep.value?.deliverable_format === 'diff' &&
+    !!activeStep.value?.deliverable,
+)
+// The technical-analysis step's deliverable is a structured JSON document:
+// render it via DocumentRenderer instead of the prose markdown renderer.
+const isDocumentDeliverable = computed(
+  () =>
+    activeStep.value?.deliverable_format === 'document' &&
     !!activeStep.value?.deliverable,
 )
 
@@ -572,7 +585,9 @@ function stepColor(status: string): string | undefined {
                questionnaire envelope — is JSON, so deliverableHtml is null and
                the block is hidden: the form renders it while awaiting input,
                and nothing dumps the raw JSON during the next run. -->
-        <div v-if="isDiffDeliverable || deliverableHtml">
+        <div
+          v-if="isDiffDeliverable || isDocumentDeliverable || deliverableHtml"
+        >
           <div class="text-overline text-medium-emphasis mb-1">
             {{
               awaitingInput
@@ -583,6 +598,10 @@ function stepColor(status: string): string | undefined {
           <DiffView
             v-if="isDiffDeliverable"
             :diff="activeStep?.deliverable ?? ''"
+          />
+          <DocumentRenderer
+            v-else-if="isDocumentDeliverable"
+            :json="activeStep?.deliverable ?? ''"
           />
           <div
             v-else

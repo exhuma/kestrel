@@ -23,7 +23,9 @@ from app.documents import (
     document,
     paragraph,
     parse_markdown,
+    render_markdown,
 )
+from app.documents_json import parse_document_json
 from app.models_workflow import WorkflowRun
 from app.ports import Commentable
 from app.review_requests import render_review_request
@@ -121,16 +123,20 @@ def _render_decomposition_candidate(deliverable: str) -> str:
     """Render the persisted decomposition JSON as a reviewable Markdown plan."""
     try:
         candidate = json.loads(deliverable)
-        analysis = candidate["technical_analysis"]
+        analysis_raw = candidate["technical_analysis"]
         tasks = candidate["tasks"]
     except (KeyError, TypeError, json.JSONDecodeError):
         return deliverable
+    if isinstance(analysis_raw, dict):
+        analysis_md = render_markdown(parse_document_json(analysis_raw))
+    else:
+        analysis_md = str(analysis_raw)
     rendered_tasks = "\n\n".join(
         _render_candidate_task(index, task)
         for index, task in enumerate(tasks, start=1)
     )
     return (
-        f"## Technical analysis\n\n{analysis}\n\n"
+        f"## Technical analysis\n\n{analysis_md}\n\n"
         f"## Proposed child tasks\n\n{rendered_tasks}"
     )
 

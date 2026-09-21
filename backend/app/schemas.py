@@ -92,8 +92,9 @@ class WorkflowStepOut(BaseModel):
     #: the UI can show which agent runs each step.
     backend: str = ""
     #: How the UI should render ``deliverable``: ``"diff"`` for the code
-    #: step's unified git diff (shown in a diff viewer), ``"markdown"``
-    #: otherwise (prose / questionnaire fall through the markdown path).
+    #: step's unified git diff, ``"document"`` for the technical-analysis
+    #: step's structured document (JSON payload from ``render_json``),
+    #: ``"markdown"`` otherwise (prose / questionnaire).
     deliverable_format: str = "markdown"
 
 
