@@ -287,7 +287,7 @@ class _FakeRunner:
         self.calls: list[dict] = []
         self.terminated: list[str] = []
 
-    async def run_turn(self, req, on_session_id=None):
+    async def run_turn(self, req, on_session_id=None, on_queue_change=None):
         sid = req.resume_id or f"{self._id_prefix}{self._n}"
         self._n += 1
         self.calls.append(

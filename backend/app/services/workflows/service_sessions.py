@@ -72,7 +72,9 @@ class WorkflowSessionService:
         bind: Callable[[str], None],
     ) -> TurnResult:
         """Run a backend turn while tracking activity on its session chip."""
-        tracker = sessions_mod.ChipTracker(slot, bind, self._watch_activity)
+        tracker = sessions_mod.ChipTracker(
+            slot, bind, self._watch_activity, self._save
+        )
         return await sessions_mod.run_turn_tracked(run, backend, req, tracker)
 
     async def poll_active_step(self, workflow_id: str) -> None:

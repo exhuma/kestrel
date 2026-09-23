@@ -26,6 +26,7 @@ from app.backends.base import (
     TurnRequest,
     TurnResult,
 )
+from app.backends.limiter import BackendLimiter
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
 from app.storage.registry import SessionRegistry
@@ -48,6 +49,7 @@ class OpenAICompatBackend(Backend):
         registry: SessionRegistry,
         cfg: BackendConfig,
         client: httpx.AsyncClient | None = None,
+        limiter: BackendLimiter | None = None,
     ) -> None:
         self.id = cfg.id
         self.settings = settings
@@ -56,6 +58,7 @@ class OpenAICompatBackend(Backend):
         self._model = cfg.model or "llama3"
         self._api_key = cfg.secret()
         self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
+        self._limiter = limiter or BackendLimiter(cfg.max_concurrency)
         self._client = client  # injectable for tests
         self._live: dict[str, asyncio.Task[None]] = {}
 
@@ -78,14 +81,16 @@ class OpenAICompatBackend(Backend):
         self,
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
+        on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
-        sid = req.resume_id or ("llm-" + uuid.uuid4().hex[:8])
-        if self.registry.get(sid) is None:
-            self.registry.create(sid, req.cwd)
-        if on_session_id is not None:
-            on_session_id(sid)
-        content = await self._turn(sid, req.prompt)
-        return TurnResult(session_id=sid, final_text=content)
+        async with self._limiter.slot(on_queue_change):
+            sid = req.resume_id or ("llm-" + uuid.uuid4().hex[:8])
+            if self.registry.get(sid) is None:
+                self.registry.create(sid, req.cwd)
+            if on_session_id is not None:
+                on_session_id(sid)
+            content = await self._turn(sid, req.prompt)
+            return TurnResult(session_id=sid, final_text=content)
 
     def terminate(self, session_id: str) -> bool:
         task = self._live.get(session_id)
@@ -141,7 +146,8 @@ class OpenAICompatBackend(Backend):
     async def _safe_turn(self, session_id: str, prompt: str) -> None:
         """Run a turn, surfacing any failure as a failed RESULT event."""
         try:
-            await self._turn(session_id, prompt)
+            async with self._limiter.slot():
+                await self._turn(session_id, prompt)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"

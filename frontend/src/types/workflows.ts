@@ -34,7 +34,7 @@ export interface StepSession {
   badge: string
   session_id: string | null
   status: string
-  /** 1-2 word hint of the agent's current activity, live; null if idle. */
+  /** 1-2 word hint of the agent's current activity, live; null if idle/queued. */
   activity: string | null
   /** When status is 'error', a short failure reason; null otherwise. */
   error: string | null

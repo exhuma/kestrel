@@ -210,6 +210,13 @@ See [Observability → Tracing](observability.md#tracing) for the full model.
 Backends are configured **only** through `KESTREL_CONFIG_FILE` (or the
 `config.toml` it points at) — see [Backends](backends.md).
 
+Each `[[backends]]` entry can also set `max_concurrency` (positive integer,
+default `1`) to cap all in-flight turns for that backend ID across every
+workflow and ad-hoc session in the process. `opencode` entries additionally
+support `rate_limit_retries` (non-negative integer, default `3`) and
+`rate_limit_backoff_seconds` (positive number, default `2.0`) for HTTP 429
+retries. See [Concurrency and rate limits](backends.md#concurrency-and-rate-limits).
+
 Unknown or stale `KESTREL_*` keys are ignored rather than causing a startup
 failure, so a leftover key from a rename never crashes the service.
 

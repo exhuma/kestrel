@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 #: Default env var holding each source type's token when ``token_env`` is unset.
 _DEFAULT_TOKEN_ENV = {
@@ -49,6 +49,12 @@ class BackendConfig(BaseModel):
     username: str | None = None
     #: Per-request timeout in seconds for HTTP backends (openai/opencode).
     timeout: float | None = None
+    #: Maximum in-flight turns across this backend in one kestrel process.
+    max_concurrency: int = Field(default=1, ge=1)
+    #: Maximum OpenCode retries after a provider rate-limit response.
+    rate_limit_retries: int = Field(default=3, ge=0)
+    #: Base delay for OpenCode rate-limit exponential backoff, in seconds.
+    rate_limit_backoff_seconds: float = Field(default=2.0, gt=0)
     caps: list[str] | None = None
 
     def secret(self) -> str | None:

@@ -148,6 +148,9 @@ verify  = "claude"
 [[backends]]
 id = "claude"
 type = "claude_cli"
+# Process-wide cap for this backend id, shared by all workflows and ad-hoc
+# sessions. The default is 1; raise it only when the provider quota allows it.
+# max_concurrency = 1
 
 # A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). Text-only.
 # `api_key` (or api_key_env) sets a bearer token if the endpoint needs one.
@@ -159,6 +162,7 @@ base_url = "http://localhost:11434/v1"
 model = "llama3.1:8b"
 # api_key = "sk-…"
 # timeout = 300
+# max_concurrency = 1
 
 # opencode via `opencode serve`. `model` is "provider/model". For a secured
 # server (OPENCODE_SERVER_PASSWORD), give the password inline via `password`
@@ -172,3 +176,6 @@ model = "anthropic/claude-sonnet-4"
 # username = "opencode"
 # password = "changeme"
 # api_key_env = "OPENCODE_SERVER_PASSWORD"   # alternative to `password`
+# max_concurrency = 1          # shared by all workflows/sessions using "oc"
+# rate_limit_retries = 3       # retry HTTP 429 this many times
+# rate_limit_backoff_seconds = 2.0  # exponential base when no Retry-After

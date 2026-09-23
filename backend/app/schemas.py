@@ -50,7 +50,7 @@ class StepSessionOut(BaseModel):
     session_id: str | None
     status: str
     #: A 1-2 word hint of the agent's current activity ("thinking",
-    #: "reading", …), derived live from its event stream; None if idle.
+    #: "reading", …), derived live from its event stream; None if idle/queued.
     activity: str | None = None
     #: When status is "error", a short failure reason for the chip.
     error: str | None = None

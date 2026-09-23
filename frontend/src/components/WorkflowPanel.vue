@@ -167,6 +167,9 @@ const verifyPercent = computed(() =>
 
 // Named specialist sessions active right now, shown as activity chips.
 const activeSessions = computed(() => current.value?.active_sessions ?? [])
+const hasQueuedSession = computed(() =>
+  activeSessions.value.some((session) => session.status === 'queued'),
+)
 // Retired chips for the active step's completed rounds — these stay
 // visible once a round finishes (the chip row no longer disappears when
 // the view moves to a questionnaire/PRD preview/next round).
@@ -485,6 +488,12 @@ function stepColor(status: string): string | undefined {
                 <span class="chip__verify-count">{{ verifyRemaining }}</span>
               </v-progress-circular>
             </template>
+            <template
+              v-else-if="name === activeStep?.name && hasQueuedSession"
+              #prepend
+            >
+              <span class="me-1" aria-hidden="true">💤</span>
+            </template>
             {{ name }}
           </v-chip>
           <v-chip
@@ -533,6 +542,7 @@ function stepColor(status: string): string | undefined {
               (max {{ current.refine_max_rounds }})</template
             >
             · live
+            <template v-if="hasQueuedSession"> · waiting for backend lock</template>
           </div>
           <v-btn
             icon="$refresh"

@@ -5,7 +5,7 @@ import type { RoundChip, StepSession } from '../types/workflows'
 const props = defineProps<{
   /** Frozen chips from every completed round of this step, oldest first. */
   roundHistory: RoundChip[]
-  /** Chips still live right now (spinner, no separator around them). */
+  /** Chips still live right now (spinner or queued marker). */
   activeSessions: StepSession[]
   /** The session id currently expanded in the telemetry drawer, if any. */
   expandedSessionId: string | null
@@ -119,6 +119,9 @@ function activityLabel(activity: string): string {
           width="2"
           class="me-2"
         />
+        <span v-else-if="s.status === 'queued'" class="me-1" aria-hidden="true">
+          💤
+        </span>
         <v-icon
           v-else-if="s.status === 'error'"
           icon="$alertCircle"
@@ -128,7 +131,13 @@ function activityLabel(activity: string): string {
       </template>
       {{ s.label }}
       <span
-        v-if="s.status === 'error' && s.error"
+        v-if="s.status === 'queued'"
+        class="ms-1 text-truncate chip__activity text-medium-emphasis"
+      >
+        · waiting for lock
+      </span>
+      <span
+        v-else-if="s.status === 'error' && s.error"
         class="ms-1 text-truncate chip__activity"
       >
         · {{ s.error }}

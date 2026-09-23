@@ -64,7 +64,8 @@ async def test_profiles_are_interviewed_concurrently() -> None:
             self._expected = expected
             self._all_in = asyncio.Event()
 
-        async def run_turn(self, req, on_session_id=None):
+        async def run_turn(self, req, on_session_id=None, on_queue_change=None):
+            del on_queue_change
             gen = "interviewing one stakeholder profile" in req.prompt
             if gen:
                 self.inflight += 1
@@ -306,7 +307,8 @@ async def test_one_failing_specialist_does_not_sink_the_refine() -> None:
             super().__init__(sessions, outputs)
             self._failed_one = False
 
-        async def run_turn(self, req, on_session_id=None):
+        async def run_turn(self, req, on_session_id=None, on_queue_change=None):
+            del on_queue_change
             # Fail exactly one concurrent generator (atomic in asyncio:
             # no await between the check and the flag set).
             if ("interviewing one stakeholder profile" in req.prompt
@@ -380,7 +382,8 @@ async def test_all_specialists_failing_is_retryable_not_fatal() -> None:
     issues (retryable on submit) rather than failing the whole run."""
 
     class _AllFlaky(_FakeRunner):
-        async def run_turn(self, req, on_session_id=None):
+        async def run_turn(self, req, on_session_id=None, on_queue_change=None):
+            del on_queue_change
             if "interviewing one stakeholder profile" in req.prompt:
                 raise RuntimeError("simulated backend timeout")
             return await super().run_turn(req, on_session_id)
@@ -417,7 +420,8 @@ async def test_failed_specialist_recorded_in_questionnaire_issues() -> None:
             super().__init__(sessions, outputs)
             self._failed_one = False
 
-        async def run_turn(self, req, on_session_id=None):
+        async def run_turn(self, req, on_session_id=None, on_queue_change=None):
+            del on_queue_change
             if ("interviewing one stakeholder profile" in req.prompt
                     and not self._failed_one):
                 self._failed_one = True

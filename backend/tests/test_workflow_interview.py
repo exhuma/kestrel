@@ -267,7 +267,7 @@ async def test_failed_specialist_is_retried_then_hard_capped() -> None:
             super().__init__(sessions, outputs=[])
             self._coord_calls = 0
 
-        async def run_turn(self, req, on_session_id=None):
+        async def run_turn(self, req, on_session_id=None, on_queue_change=None):
             prompt = req.prompt
             if "refinement coordinator" in prompt:
                 self._coord_calls += 1

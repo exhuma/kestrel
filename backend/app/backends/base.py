@@ -107,6 +107,7 @@ class Backend(Protocol):
         self,
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
+        on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
         """Run one turn to completion and return its deliverable."""
         ...

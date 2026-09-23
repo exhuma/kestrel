@@ -8,6 +8,7 @@ from typing import AsyncIterator, Callable
 
 from fastapi import Depends
 
+from app.backends.limiter import BackendLimiter
 from app.config import Settings, get_settings
 from app.models import map_claude_line
 from app.services.exceptions import SessionNotFoundError, SessionStartError
@@ -79,10 +80,15 @@ class SessionRunner:
     """Spawns claude subprocesses and streams events to the registry."""
 
     def __init__(
-        self, settings: Settings, registry: SessionRegistry
+        self,
+        settings: Settings,
+        registry: SessionRegistry,
+        limiter: BackendLimiter | None = None,
     ) -> None:
+        """Create a CLI runner, optionally sharing a backend turn limiter."""
         self.settings = settings
         self.registry = registry
+        self._limiter = limiter
 
     def build_argv(
         self,
@@ -167,6 +173,19 @@ class SessionRunner:
         of stdout continues in a detached task so events keep flowing to
         subscribers after the caller's request has returned.
         """
+        if self._limiter is not None:
+            await self._limiter.acquire()
+        try:
+            return await self._launch_admitted(argv, cwd, record_id)
+        except BaseException:
+            if self._limiter is not None:
+                self._limiter.release()
+            raise
+
+    async def _launch_admitted(
+        self, argv: list[str], cwd: str, record_id: str | None
+    ) -> str:
+        """Launch an already admitted detached CLI turn."""
         os.makedirs(cwd, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -217,6 +236,8 @@ class SessionRunner:
                     sid_future.set_exception(
                         SessionStartError("session ended without a session id")
                     )
+                if self._limiter is not None:
+                    self._limiter.release()
 
         task = asyncio.create_task(_run())
         _TASKS.add(task)
@@ -231,6 +252,7 @@ class SessionRunner:
         resume_id: str | None = None,
         on_session_id: Callable[[str], None] | None = None,
         model: str | None = None,
+        on_queue_change: Callable[[bool], None] | None = None,
     ) -> str:
         """
         Run a claude step to completion, streaming events live.
@@ -253,6 +275,23 @@ class SessionRunner:
         :raises SessionStartError: If no session id is produced.
         """
         os.makedirs(cwd, exist_ok=True)
+        if self._limiter is None:
+            return await self._run_blocking(prompt, cwd, permission_mode,
+                                            resume_id, on_session_id, model)
+        async with self._limiter.slot(on_queue_change):
+            return await self._run_blocking(prompt, cwd, permission_mode,
+                                            resume_id, on_session_id, model)
+
+    async def _run_blocking(
+        self,
+        prompt: str,
+        cwd: str,
+        permission_mode: str,
+        resume_id: str | None,
+        on_session_id: Callable[[str], None] | None,
+        model: str | None,
+    ) -> str:
+        """Execute an already admitted CLI subprocess until it completes."""
         argv = self.build_argv(prompt, resume_id, permission_mode, model)
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -261,11 +300,13 @@ class SessionRunner:
             stderr=asyncio.subprocess.PIPE,
             limit=_STREAM_LIMIT,
         )
+
         def _track(sid: str) -> None:
             _track_proc(sid, proc)
             if on_session_id is not None:
                 on_session_id(sid)
 
+        assert proc.stderr is not None
         stderr_task = asyncio.create_task(_drain(proc.stderr))
         try:
             sid = await self.consume(

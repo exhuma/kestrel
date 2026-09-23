@@ -16,8 +16,9 @@ class BlockedRunner(_FakeRunner):
         self.started = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def run_turn(self, req, on_session_id=None):
+    async def run_turn(self, req, on_session_id=None, on_queue_change=None):
         """Wait at the selected call, then return its canned result."""
+        del on_queue_change
         if len(self.calls) == self.blocked_call:
             self.started.set()
             await self.release.wait()

@@ -80,6 +80,7 @@ class ChipTracker:
     slot: StepSession
     bind: Callable[[str], None]
     watch: Callable[[WorkflowRun, str, StepSession], asyncio.Task]
+    publish: Callable[[WorkflowRun], None]
 
 
 async def run_turn_tracked(
@@ -102,8 +103,17 @@ async def run_turn_tracked(
         tracker.bind(session_id)
         monitor = tracker.watch(run, session_id, tracker.slot)
 
+    def _on_queue_change(waiting: bool) -> None:
+        """Publish whether this turn is waiting for its backend permit."""
+        tracker.slot.status = "queued" if waiting else "running"
+        tracker.publish(run)
+
     try:
-        return await backend.run_turn(req, on_session_id=_on_sid)
+        return await backend.run_turn(
+            req,
+            on_session_id=_on_sid,
+            on_queue_change=_on_queue_change,
+        )
     finally:
         if monitor is not None:
             monitor.cancel()

@@ -158,7 +158,13 @@ async def test_read_only_turn_disables_file_mutating_tools() -> None:
         if r.url.path == "/session/oc-1/message" and r.method == "POST"
     )
     tools = json.loads(post.content)["tools"]
-    assert tools == {"edit": False, "write": False, "patch": False}
+    assert tools == {
+        "edit": False,
+        "write": False,
+        "patch": False,
+        "question": False,
+        "task": False,
+    }
 
 
 @pytest.mark.asyncio

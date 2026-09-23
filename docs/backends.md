@@ -68,6 +68,34 @@ A step only accepts a backend that can satisfy it: `code` needs file-editing
 a plain LLM may serve them (it just won't read the repo). A bad mapping (e.g.
 a text-only LLM on `code`) fails that run with a clear capability error.
 
+## Concurrency and rate limits
+
+Every configured backend has a process-wide concurrency cap. It is shared by
+all workflow runs and ad-hoc sessions using that backend ID, not reset for each
+workflow. The conservative default is one in-flight LLM turn. Backends have
+independent caps, so a busy local backend does not delay a Claude backend.
+
+```toml
+[[backends]]
+id = "azure-opencode"
+type = "opencode"
+base_url = "http://host.docker.internal:4096"
+model = "azure/gpt-5"
+max_concurrency = 1
+rate_limit_retries = 3
+rate_limit_backoff_seconds = 2.0
+```
+
+`max_concurrency` must be a positive integer. Raise it only after confirming
+the provider quota can absorb concurrent calls. The cap applies inside one
+kestrel process; multiple kestrel processes each enforce their own cap.
+
+For `opencode`, HTTP 429 responses retry up to `rate_limit_retries` times. A
+positive `Retry-After` header is honored; otherwise retries use exponential
+backoff from `rate_limit_backoff_seconds` with jitter. Other error responses
+are not retried by this policy. `rate_limit_retries` must be zero or greater,
+and `rate_limit_backoff_seconds` must be positive.
+
 ## Backend types
 
 ### `claude_cli`

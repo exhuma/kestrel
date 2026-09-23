@@ -110,26 +110,35 @@ async def resume(service: "WorkflowService", workflow_id: str) -> None:
             run.status,
         )
         run.status = "failed"
-        run.error = str(exc)
+        run.error = _failure_message(exc)
         fail_active_steps(service, run)
         service._safe_save(run)
         await service._teardown_workspace(run)
 
 
-def _seed_from_sentinel(run: WorkflowRun, body: str) -> bool:
+def _seed_from_sentinel(
+    run: WorkflowRun, body: str, linked_child: bool = False
+) -> bool:
     """Pre-mark steps done per the ticket body's sentinel, if any.
 
-    A ``SUBTASK_SENTINEL`` body (a technical_analysis follow-up task, feature
-    012) skips describe and technical_analysis. A plain ``SENTINEL`` body (an
-    already-refined ticket, e.g. a rerun) skips describe. Both park at the
-    PRD approval gate: ticket markers seed the PRD candidate but are not
-    proof a person approved it.
+    A linked Kestrel-generated child with ``SUBTASK_SENTINEL`` already has a
+    self-contained, parent-approved scope, so it skips describe, refine, and
+    technical_analysis and begins at design. An unlinked subtask sentinel
+    retains the historical gate behavior. A plain ``SENTINEL`` body (an
+    already-refined ticket, e.g. a rerun) skips describe.
 
     :returns: True if any steps were pre-marked (the caller must persist
         and re-enter ``continue_run`` with no fresh issue body); False
         for an ordinary ticket with neither sentinel.
     """
     if has_subtask_sentinel(body):
+        if linked_child:
+            for idx in (0, 1, 2):
+                run.steps[idx].status = "done"
+            run.steps[1].deliverable = body
+            run.prd_approved = True
+            run.approved_prd = body
+            return True
         for idx in (0, 2):
             run.steps[idx].status = "done"
         run.steps[1].deliverable = body
@@ -173,7 +182,7 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
         )
         service.record_artifact(run, "local_branch", run.branch, run.branch)
 
-        if _seed_from_sentinel(run, task.body):
+        if _seed_from_sentinel(run, task.body, _is_linked_child(service, run)):
             service._save(run)
             await continue_run(service, run)
         else:
@@ -195,7 +204,7 @@ async def drive(service: "WorkflowService", workflow_id: str) -> None:
             run.status,
         )
         run.status = "failed"
-        run.error = str(exc)
+        run.error = _failure_message(exc)
         fail_active_steps(service, run)
         service._safe_save(run)
         await service._teardown_workspace(run)
@@ -208,6 +217,11 @@ def _is_linked_child(service: "WorkflowService", run: WorkflowRun) -> bool:
         child_tasks is not None
         and child_tasks.scheduling_details(run.task_ref) is not None
     )
+
+
+def _failure_message(exc: BaseException) -> str:
+    """Return an actionable workflow failure message for any exception."""
+    return str(exc).strip() or f"{type(exc).__name__} without details"
 
 
 async def continue_run(

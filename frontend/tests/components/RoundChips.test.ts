@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { withVuetify } from '../support/vuetify'
 import RoundChips from '../../src/components/RoundChips.vue'
-import type { RoundChip } from '../../src/types/workflows'
+import type { RoundChip, StepSession } from '../../src/types/workflows'
 
 export function chip(over: Partial<RoundChip>): RoundChip {
   return {
@@ -24,6 +24,24 @@ function mountWith(roundHistory: RoundChip[]) {
     RoundChips,
     withVuetify({
       props: { roundHistory, activeSessions: [], expandedSessionId: null },
+    }),
+  )
+}
+
+function mountWithQueuedChip() {
+  const activeSessions: StepSession[] = [{
+    profile_id: 'writer',
+    label: 'Writer',
+    badge: 'agent',
+    session_id: null,
+    status: 'queued',
+    activity: null,
+    error: null,
+  }]
+  return mount(
+    RoundChips,
+    withVuetify({
+      props: { roundHistory: [], activeSessions, expandedSessionId: null },
     }),
   )
 }
@@ -55,5 +73,11 @@ describe('RoundChips grouping and icons', () => {
     const wrapper = mountWith([chip({ status: 'error', error: 'boom' })])
     const icon = wrapper.findComponent({ name: 'VIcon' })
     expect(icon.props('icon')).toBe('$alertCircle')
+  })
+
+  it('renders queued chips with a sleeping marker', () => {
+    const wrapper = mountWithQueuedChip()
+    expect(wrapper.text()).toContain('💤')
+    expect(wrapper.text()).toContain('waiting for lock')
   })
 })

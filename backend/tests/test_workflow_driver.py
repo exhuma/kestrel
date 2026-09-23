@@ -9,7 +9,7 @@ import pytest
 from app.backends.base import BackendTurnError, Capability
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.services.exceptions import InvalidWorkflowStateError
-from app.services.workflows.driver import design
+from app.services.workflows.driver import _seed_from_sentinel, design
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
     _coord,
@@ -26,6 +26,39 @@ from tests.conftest import (
     _verdict,
     _wait,
 )
+
+
+def test_linked_child_skips_refine_and_is_already_approved() -> None:
+    """Ensure a generated child begins at design with its approved scope."""
+    run = WorkflowRun(
+        id="wf-child",
+        repo="o/r",
+        steps=[WorkflowStep(name) for name in (
+            "describe", "refine", "technical_analysis", "design"
+        )],
+    )
+    body = _subtask_body("Implement the selected task")
+
+    assert _seed_from_sentinel(run, body, linked_child=True) is True
+    assert [step.status for step in run.steps[:3]] == ["done"] * 3
+    assert run.steps[1].deliverable == body
+    assert run.prd_approved is True
+    assert run.approved_prd == body
+
+
+def test_unlinked_subtask_still_parks_at_refine_approval() -> None:
+    """Ensure sentinel-only tickets retain the existing review gate."""
+    run = WorkflowRun(
+        id="wf-sentinel",
+        repo="o/r",
+        steps=[WorkflowStep(name) for name in (
+            "describe", "refine", "technical_analysis"
+        )],
+    )
+
+    assert _seed_from_sentinel(run, _subtask_body("Task")) is True
+    assert run.steps[1].status == "awaiting_approval"
+    assert run.prd_approved is False
 
 
 async def _reach_refine_approval(gh, outputs: list[str]):
@@ -157,7 +190,7 @@ class _RaisingBackend:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    async def run_turn(self, req, on_session_id=None):
+    async def run_turn(self, req, on_session_id=None, on_queue_change=None):
         raise RuntimeError("boom: design backend exploded")
 
     def terminate(self, session_id: str) -> bool:
@@ -390,7 +423,7 @@ async def test_backend_error_result_fails_run_loudly() -> None:
     """
 
     class _ErroringRunner(_FakeRunner):
-        async def run_turn(self, req, on_session_id=None):
+        async def run_turn(self, req, on_session_id=None, on_queue_change=None):
             raise BackendTurnError(
                 "agent backend error: Not logged in · Please run /login"
             )

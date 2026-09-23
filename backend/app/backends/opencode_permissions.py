@@ -24,6 +24,7 @@ _logger = logging.getLogger(__name__)
 #: rejected here, so the agent cannot modify the workspace
 #: (defense-in-depth).
 DENY_WRITE_TOOLS = frozenset({"edit", "write", "patch"})
+_READ_ONLY_DENY_TOOLS = DENY_WRITE_TOOLS | {"question", "task"}
 
 
 @dataclass
@@ -116,7 +117,7 @@ async def _answer_permission(
     tool = request.get("permission")
     if not isinstance(request_id, str):
         return
-    reject = read_only and tool in DENY_WRITE_TOOLS
+    reject = read_only and tool in _READ_ONLY_DENY_TOOLS
     await conn.request(
         "POST",
         f"/session/{session_id}/permissions/{request_id}",

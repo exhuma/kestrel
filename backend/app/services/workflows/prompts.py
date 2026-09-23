@@ -52,7 +52,8 @@ COORDINATOR_PROMPT = (
     "<PROFILES> and </PROFILES> tags and nothing else, e.g. "
     '<PROFILES>["requester", "infosec"]</PROFILES>. Return an empty '
     "array <PROFILES>[]</PROFILES> once enough detail has been gathered "
-    "and no further questions are needed. Do not edit any files.\n\n"
+    "and no further questions are needed. Do not use interactive questions, "
+    "edit files, delegate work, use subagents, or fetch external websites.\n\n"
     "ISSUE:\n{issue}\n\n{answers}"
 )
 RECONCILE_PROMPT = (
@@ -152,8 +153,10 @@ GENERATION_PROMPT = (
     "answer and must instead record a reason — tailor it to the "
     'question (for a security trade-off, e.g. "Accept this risk"). If '
     "this profile has nothing to ask, output "
-    '<QUESTIONS>{{"questions": []}}</QUESTIONS>. Do not edit any '
-    "files.\n\nISSUE:\n{issue}\n\n{answers}"
+    '<QUESTIONS>{{"questions": []}}</QUESTIONS>. Do not use interactive '
+    "questions, edit files, delegate work, use subagents, or fetch external "
+    "websites.\n\n"
+    "ISSUE:\n{issue}\n\n{answers}"
 )
 WRITE_REFINED_PROMPT = (
     "You have finished interviewing the stakeholders about this GitHub "
