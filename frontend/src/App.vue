@@ -82,9 +82,6 @@ function toggleTheme() {
       </template>
       <v-app-bar-title>
         kestrel
-        <span class="text-medium-emphasis text-caption ms-2"
-          >mission control</span
-        >
       </v-app-bar-title>
 
       <v-btn-toggle
