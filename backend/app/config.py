@@ -15,7 +15,6 @@ from pydantic_settings import (
 )
 
 from app.config_models import BackendConfig, TaskSourceConfig, TranslationConfig
-from app.models_workflow import Step
 
 _log = logging.getLogger("kestrel.config")
 
@@ -25,7 +24,6 @@ _log = logging.getLogger("kestrel.config")
 _FILE_ONLY_FIELDS = frozenset(
     {
         "backends",
-        "step_backends",
         "default_session_backend",
         "task_sources",
         "translation",
@@ -137,7 +135,6 @@ class Settings(BaseSettings):
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
     database_url: str = "sqlite:///./kestrel.db"
-    model_overrides: dict[str, str] = {}
     #: Console log verbosity (``KESTREL_LOG_LEVEL``): debug/info/warning/…
     log_level: str = "info"
     #: Console log format (``KESTREL_LOG_FORMAT``): ``text`` for
@@ -154,8 +151,8 @@ class Settings(BaseSettings):
     #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
     otel_service_name: str = "kestrel"
     #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Holds the
-    #: backend config (``backends`` / ``step_backends`` /
-    #: ``default_session_backend``) and applicative overrides (see
+    #: backend config (``backends`` / ``default_session_backend``) and
+    #: applicative overrides (see
     #: ``_CONFIG_FILE_FIELDS``: ``watched_repos``, ``trigger_label``, …).
     #: Secrets stay in the environment. Mount it as a volume in Docker;
     #: relative paths resolve against the working directory.
@@ -169,11 +166,6 @@ class Settings(BaseSettings):
     backends: list[BackendConfig] = Field(
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
-    #: Per-workflow-step backend assignment (step name -> backend id).
-    #: File-only; steps not listed use the step's default backend. Sub-step
-    #: keys (e.g. ``refine.reconcile``) route a single refine sub-agent to
-    #: its own backend, falling back to the ``refine`` step's backend.
-    step_backends: dict[str, str] = {}
     #: Backend used for ad-hoc ``/api/sessions`` dispatch. File-only.
     default_session_backend: str = "claude"
     #: Refinement robustness knobs (help on cheaper/local models; all
@@ -333,7 +325,7 @@ class Settings(BaseSettings):
     def _apply_config_file(self) -> Settings:
         """Overlay config from the TOML file when one is set.
 
-        The file owns the backend keys (``backends`` / ``step_backends`` /
+        The file owns the backend keys (``backends`` /
         ``default_session_backend``) and may override the applicative keys
         in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
         omits keeps its env/default value, so the file wins only where it
@@ -362,8 +354,6 @@ class Settings(BaseSettings):
             self.backends = [
                 BackendConfig(**entry) for entry in data["backends"]
             ]
-        if "step_backends" in data:
-            self.step_backends = dict(data["step_backends"])
         if "default_session_backend" in data:
             self.default_session_backend = data["default_session_backend"]
         if "task_sources" in data:
@@ -419,39 +409,6 @@ class Settings(BaseSettings):
                 )
         return self
 
-    @model_validator(mode="after")
-    def _validate_step_backends(self) -> Settings:
-        """Validate that step_backends keys are valid workflow step names.
-
-        Fails fast if any invalid step names are configured, providing a
-        clear error message with the valid options. This prevents silent
-        fallbacks to default backends when step names don't match.
-        """
-        if not self.step_backends:
-            return self
-        valid_steps = {str(s) for s in Step.sequence()}
-        invalid_steps = set(self.step_backends.keys()) - valid_steps
-        # A dotted sub-step reference like "refine.reconcile" is valid as
-        # long as its top-level step ("refine") is itself a valid step —
-        # only flag it when that top-level prefix is not.
-        main_invalid = {
-            s.split(".")[0] for s in invalid_steps
-            if s.split(".")[0] not in valid_steps
-        }
-        if main_invalid:
-            valid_list = ", ".join(sorted(valid_steps))
-            invalid_list = ", ".join(sorted(main_invalid))
-            msg = (
-                f"Invalid step names in step_backends: {invalid_list!r}. "
-                f"Valid steps are: {valid_list}."
-            )
-            if "gap_analysis" in main_invalid:
-                msg += (
-                    " 'gap_analysis' was renamed to 'technical_analysis'; "
-                    "update your config.toml [step_backends] key."
-                )
-            raise ValueError(msg)
-        return self
 
 
 @lru_cache

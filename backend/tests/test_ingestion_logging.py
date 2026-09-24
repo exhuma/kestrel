@@ -5,8 +5,6 @@ import pytest
 
 from app.config import Settings
 from app.models_board import IntakeOutcome, Workflow
-from app.models_workflow import WorkflowRun
-from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.ports import Task
 from app.services.ingestion import BoardIntake, IngestionService
 
@@ -19,16 +17,15 @@ class _TaskSource:
         return "public"
 
 
-class _Workflows:
+class _FakeTaskSources:
+    """A minimal ``TaskSourceRegistry`` double."""
+
     def __init__(self) -> None:
-        self.runs: list[WorkflowRun] = []
         self.sources = {
             "jira-issue": _TaskSource(),
             "github-issue": _TaskSource(),
         }
-
-    def list(self):
-        return self.runs
+        self.code_hosts: dict[str, object] = {}
 
 
 class _Dismissals:
@@ -50,16 +47,11 @@ class _Quarantine:
 class _Board:
     def __init__(self) -> None:
         self.calls = []
-        self._seen: set[tuple[str, str]] = set()
+        self.workflows: list[Workflow] = []
 
     def create_workflow_from_intake(self, intake):
-        key = (intake.source, intake.task_ref)
-        if key in self._seen:
-            raise WorkflowAlreadyExistsError(f"{key[0]}:{key[1]}")
-        self._seen.add(key)
-        self.calls.append(intake)
-        return Workflow(
-            id=f"wf-{len(self.calls) - 1}",
+        workflow = Workflow(
+            id=f"wf-{len(self.calls)}",
             source=intake.source,
             task_ref=intake.task_ref,
             repo=intake.repo,
@@ -67,12 +59,18 @@ class _Board:
             source_visibility=intake.source_visibility,
             title=intake.title,
         )
+        self.calls.append(intake)
+        self.workflows.append(workflow)
+        return workflow
+
+    def list_workflows(self) -> list[Workflow]:
+        return self.workflows
 
 
 def _svc(dismissed=()) -> IngestionService:
     return IngestionService(
         Settings(jira_project="RFC"),
-        _Workflows(),
+        _FakeTaskSources(),
         _Dismissals(dismissed),
         BoardIntake(_Quarantine(), _Board()),
     )
@@ -90,7 +88,7 @@ async def test_started_and_duplicate_outcomes_logged(caplog) -> None:
             source="jira-issue", task_ref="RFC-1", code_repo="team/svc"
         )
     assert "outcome=started RFC-1" in caplog.text
-    assert "outcome=skipped-duplicate-board RFC-1" in caplog.text
+    assert "outcome=skipped-duplicate RFC-1" in caplog.text
 
 
 @pytest.mark.asyncio

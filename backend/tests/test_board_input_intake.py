@@ -44,14 +44,12 @@ class _FakeTaskSource:
         return self._visibility
 
 
-class _FakeWorkflows:
-    """Minimal WorkflowService stand-in exposing only ``.sources``/``.list``."""
+class _FakeTaskSources:
+    """A minimal ``TaskSourceRegistry`` double."""
 
     def __init__(self, sources: dict[str, object]) -> None:
         self.sources = sources
-
-    def list(self):
-        return []
+        self.code_hosts: dict[str, object] = {}
 
 
 class _FakeQuarantine:
@@ -67,6 +65,7 @@ class _FakeQuarantine:
 class _FakeBoard:
     def __init__(self, *, raise_duplicate: bool = False) -> None:
         self.calls: list[AcceptedTaskIntake] = []
+        self.workflows: list[Workflow] = []
         self._raise_duplicate = raise_duplicate
 
     def create_workflow_from_intake(
@@ -76,7 +75,7 @@ class _FakeBoard:
         if self._raise_duplicate:
             key = f"{intake.source}:{intake.task_ref}"
             raise WorkflowAlreadyExistsError(key)
-        return Workflow(
+        workflow = Workflow(
             id="wf-new",
             source=intake.source,
             task_ref=intake.task_ref,
@@ -85,6 +84,11 @@ class _FakeBoard:
             source_visibility=intake.source_visibility,
             title=intake.title,
         )
+        self.workflows.append(workflow)
+        return workflow
+
+    def list_workflows(self) -> list[Workflow]:
+        return self.workflows
 
 
 def _settings(**overrides: object) -> Settings:
@@ -123,7 +127,9 @@ def _service(
             )
         ]
     )
-    workflows = _FakeWorkflows({case.source_key: _FakeTaskSource(case.task)})
+    task_sources = _FakeTaskSources(
+        {case.source_key: _FakeTaskSource(case.task)}
+    )
     dismissals = _FakeDismissals()
     if case.dismissed:
         dismissals.add(case.task.ref)
@@ -137,7 +143,7 @@ def _service(
     quarantine = _FakeQuarantine(outcome)
     board = _FakeBoard(raise_duplicate=case.board_raises_duplicate)
     service = IngestionService(
-        settings, workflows, dismissals, BoardIntake(quarantine, board)
+        settings, task_sources, dismissals, BoardIntake(quarantine, board)
     )
     return service, quarantine, board
 

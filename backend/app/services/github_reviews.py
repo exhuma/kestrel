@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.ports import Feedback
-from app.services.feedback.timeparse import parse_iso
+from app.services.task_source_utils import parse_iso
 
 #: A PR-conversation comment lives on the very same issues endpoint a
 #: ticket comment does, so it shares that reaction endpoint too.

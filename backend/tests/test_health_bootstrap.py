@@ -64,7 +64,9 @@ async def test_github_profile_registers_exactly_one_entry(
     )
     settings = _settings(github=True)
     monkeypatch.setattr(health_module, "get_settings", lambda: settings)
-    monkeypatch.setattr(health_module, "get_workflow_service", lambda: service)
+    monkeypatch.setattr(
+        health_module, "get_task_source_registry", lambda: service
+    )
 
     checks = health_module._health_checks()
 
@@ -86,7 +88,9 @@ async def test_jira_and_its_gitlab_code_host_are_two_independent_entries(
         health_module, "get_settings",
         lambda: _settings(jira_code_host="gitlab"),
     )
-    monkeypatch.setattr(health_module, "get_workflow_service", lambda: service)
+    monkeypatch.setattr(
+        health_module, "get_task_source_registry", lambda: service
+    )
 
     checks = health_module._health_checks()
 
@@ -102,7 +106,9 @@ async def test_unconfigured_roles_register_nothing(monkeypatch) -> None:
     service = _fake_service({"github-issue": gh}, {"github-issue": gh})
     settings = _settings()
     monkeypatch.setattr(health_module, "get_settings", lambda: settings)
-    monkeypatch.setattr(health_module, "get_workflow_service", lambda: service)
+    monkeypatch.setattr(
+        health_module, "get_task_source_registry", lambda: service
+    )
 
     assert health_module._health_checks() == []
 
@@ -114,6 +120,8 @@ async def test_local_only_setup_registers_one_entry(monkeypatch) -> None:
     service = _fake_service({"local-task": fx}, {"local-task": fx})
     settings = _settings(local=True)
     monkeypatch.setattr(health_module, "get_settings", lambda: settings)
-    monkeypatch.setattr(health_module, "get_workflow_service", lambda: service)
+    monkeypatch.setattr(
+        health_module, "get_task_source_registry", lambda: service
+    )
 
     assert [name for name, _ in health_module._health_checks()] == ["local"]

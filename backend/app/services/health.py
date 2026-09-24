@@ -21,7 +21,7 @@ from typing import Awaitable, Callable
 
 from app.config import get_settings
 from app.ports import WorkItem
-from app.services.workflows import get_workflow_service
+from app.services.task_sources import get_task_source_registry
 from app.storage.health_bus import HealthBus
 
 _log = logging.getLogger("kestrel.health")
@@ -137,27 +137,27 @@ class HealthPollService:
 def _health_checks() -> list[tuple[str, CheckFn]]:
     """The hand-curated list of what to check (research.md R6).
 
-    Reuses the exact adapter instances ``WorkflowService`` already holds
-    — not fresh ones — so a GitHub profile's task-source and code-host
-    roles, which share one underlying ``GitHubClient``, are registered
-    once rather than as two indicators for the same connection. Only
-    registered for a role that is actually configured (``settings``'s own
-    ``*_sources()`` helpers), so an operator who never set up GitHub
-    never sees a "github" entry at all.
+    Reuses the exact adapter instances the shared task-source registry
+    already holds — not fresh ones — so a GitHub profile's task-source
+    and code-host roles, which share one underlying ``GitHubClient``, are
+    registered once rather than as two indicators for the same
+    connection. Only registered for a role that is actually configured
+    (``settings``'s own ``*_sources()`` helpers), so an operator who
+    never set up GitHub never sees a "github" entry at all.
     """
     settings = get_settings()
-    service = get_workflow_service()
+    registry = get_task_source_registry()
     checks: list[tuple[str, CheckFn]] = []
     if settings.github_sources():
-        gh = service.sources["github-issue"].check_health
+        gh = registry.sources["github-issue"].check_health
         checks.append(("github", gh))
     if settings.jira_sources():
-        checks.append(("jira", service.sources["jira-issue"].check_health))
+        checks.append(("jira", registry.sources["jira-issue"].check_health))
         code_host_label = settings.jira_sources()[0].code_host
-        code_host_check = service.code_hosts["jira-issue"].check_health
+        code_host_check = registry.code_hosts["jira-issue"].check_health
         checks.append((code_host_label, code_host_check))
     if settings.local_sources():
-        local = service.sources["local-task"].check_health
+        local = registry.sources["local-task"].check_health
         checks.append(("local", local))
     return checks
 

@@ -25,10 +25,6 @@ from app.services.exceptions import (
     UnconfirmedDirectPromptError,
 )
 from app.storage.registry import SessionRegistry, get_registry
-from app.storage.workflow_registry import (
-    WorkflowRegistry,
-    get_workflow_registry,
-)
 
 _log = logging.getLogger("kestrel.sessions.direct_prompt")
 
@@ -40,12 +36,10 @@ class SessionService:
         self,
         backend: Backend,
         registry: SessionRegistry,
-        workflows: WorkflowRegistry | None = None,
         max_prompt_bytes: int | None = None,
     ) -> None:
         self.backend = backend
         self.registry = registry
-        self.workflows = workflows
         self._max_prompt_bytes = (
             max_prompt_bytes or get_settings().board_input_max_bytes
         )
@@ -122,35 +116,19 @@ class SessionService:
         self.backend.terminate(session_id)
         self.registry.remove(session_id)
 
-    def _workflow_by_workspace(self) -> dict[str, str]:
-        wf_by_workspace: dict[str, str] = {}
-        if self.workflows is not None:
-            for run in self.workflows.list():
-                if run.workspace:
-                    wf_by_workspace[run.workspace] = (
-                        f"{run.repo}#{run.issue_number}"
-                    )
-        return wf_by_workspace
-
     def list_summaries(self) -> list[SessionSummary]:
         """
-        Summarise all known sessions, each linked to its workflow.
-
-        A session is attributed to a workflow run when it ran in that
-        run's workspace — this catches every session the run spawned
-        (the coordinator, each specialist, plan, implement), not just
-        the latest one a step happens to still point at.
+        Summarise all known sessions.
 
         :returns: One summary per session, in insertion order.
         """
-        wf_by_workspace = self._workflow_by_workspace()
         return [
             SessionSummary(
                 session_id=r.session_id,
                 status=r.status,
                 event_count=len(r.events),
                 created_at=r.created_at,
-                workflow=wf_by_workspace.get(r.cwd),
+                workflow=None,
             )
             for r in self.registry.list()
         ]
@@ -174,7 +152,7 @@ class SessionService:
             status=record.status,
             event_count=len(record.events),
             created_at=record.created_at,
-            workflow=self._workflow_by_workspace().get(record.cwd),
+            workflow=None,
         )
 
     async def stream(
@@ -242,4 +220,4 @@ def get_session_service(
     :returns: A SessionService bound to the default session backend.
     """
     backend = get_backend_registry().default_session_backend()
-    return SessionService(backend, registry, get_workflow_registry())
+    return SessionService(backend, registry)

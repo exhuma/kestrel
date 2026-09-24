@@ -19,14 +19,13 @@ re-measures.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from app.documents import Document
     from app.markers import Marker
-    from app.models_workflow import WorkflowRun
 
 
 @dataclass
@@ -60,13 +59,10 @@ class WorkItem:
 class Feedback:
     """One piece of marker-gated feedback read from a ticket or PR review.
 
-    The port-level read result — not itself a database row (the persisted
-    form is ``FeedbackItemRow``, ``persistence/tables.py``). ``external_id``
-    is source-native and adapter-minted (e.g. GitHub's
-    ``"gh-issue-comment:8812"``, Jira's ``"jira-comment:{issue}:{id}"``): it
-    is what makes cross-transport dedup possible (feature 013, R3/R6) — the
-    same webhook-vs-poll race a ``feedback_item`` primary key already
-    guards against for other event classes in this project.
+    The port-level read result. ``external_id`` is source-native and
+    adapter-minted (e.g. GitHub's ``"gh-issue-comment:8812"``, Jira's
+    ``"jira-comment:{issue}:{id}"``): it is what makes cross-transport
+    dedup possible (feature 013, R3/R6).
     """
 
     external_id: str
@@ -86,28 +82,6 @@ class SubtaskContextError(Exception):
     def __init__(self, task_ref: str) -> None:
         super().__init__(f"subtask context incomplete for {task_ref}")
         self.task_ref = task_ref
-
-
-@runtime_checkable
-class FeedbackSource(Protocol):
-    """Feedback enumeration and acknowledgement for one workflow run."""
-
-    async def list_feedback(
-        self,
-        run: WorkflowRun,
-        ticket_cursor: str | None,
-        review_cursor: str | None,
-    ) -> list[Feedback]:
-        """List feedback for ``run`` after its origin-specific cursors."""
-        ...
-
-    async def acknowledge(self, feedback: Feedback) -> bool:
-        """Best-effort acknowledgement of ``feedback``."""
-        ...
-
-    async def reply(self, feedback: Feedback, body: str) -> bool:
-        """Post an acknowledgement fallback for ``feedback``."""
-        ...
 
 
 @dataclass
@@ -143,37 +117,6 @@ class RequiredCiStatus:
 
 
 @dataclass
-class Observation:
-    """One self-reported outcome the verifier weighs.
-
-    ``kind`` distinguishes the boundary exercised: ``"http"`` (a real
-    request against the running API) or ``"ui"`` (a browser-driven
-    interaction). ``detail`` is a bounded excerpt — never full logs, never
-    secrets.
-    """
-
-    name: str
-    kind: Literal["http", "ui"]
-    passed: bool
-    detail: str = ""
-
-
-@dataclass
-class Evidence:
-    """The evidence bundle for one verify round (empty ⇒ judgment-only)."""
-
-    observations: list[Observation] = field(default_factory=list)
-
-    def all_passed(self) -> bool:
-        """Return whether every observation passed (vacuously true if empty)."""
-        return all(o.passed for o in self.observations)
-
-    def failures(self) -> list[Observation]:
-        """Return failing observations (the failing-observation invariant)."""
-        return [o for o in self.observations if not o.passed]
-
-
-@dataclass
 class LifecycleEvent:
     """One run-lifecycle transition, source-neutral (feature 006).
 
@@ -193,29 +136,6 @@ class LifecycleEvent:
     #: Kestrel UI deep-link to the run, or "" when no public base URL is
     #: configured.
     deep_link: str = ""
-
-
-class Acknowledgeable(Protocol):
-    """Shared by ``TaskSource`` and ``CodeHost`` (feature 013): whichever
-    one a piece of ``Feedback`` actually came from is acknowledged the
-    same way, so callers (``FeedbackIntakeService``, the poll transport)
-    don't need to know or care which port they're holding."""
-
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """Best-effort reaction on the triggering comment/note. Returns
-        ``False`` (never raises) when the source has no such capability."""
-        ...
-
-
-@runtime_checkable
-class Commentable(Protocol):
-    """A feedback origin that can publish a visible text reply."""
-
-    async def post_comment(self, ref: str, body: "Document | str") -> str:
-        """Post ``body`` on ``ref`` and return the resulting URL when known."""
-        ...
 
 
 class TaskSource(Protocol):

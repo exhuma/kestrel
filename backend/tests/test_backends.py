@@ -11,12 +11,7 @@ from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.registry import BackendRegistry, UnknownBackendError
 from app.config import BackendConfig, Settings
 from app.models_board import SpecialistDefinition
-from app.policy import (
-    BackendCapabilityError,
-    BackendPolicy,
-    SpecialistBackendPolicy,
-    SpecialistCapabilityError,
-)
+from app.policy import SpecialistBackendPolicy, SpecialistCapabilityError
 from app.storage.registry import SessionRegistry
 
 
@@ -132,7 +127,7 @@ def test_registry_rejects_a_missing_default_at_build() -> None:
         BackendRegistry(settings, SessionRegistry())
 
 
-# ---- BackendPolicy (per-step selection + capability subsumption) ----
+# ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
 
 def _mixed_registry() -> BackendRegistry:
     """A registry with a file-editing agent and a text-only LLM."""
@@ -147,72 +142,6 @@ def _mixed_registry() -> BackendRegistry:
     return BackendRegistry(settings, SessionRegistry())
 
 
-def test_policy_default_backend_serves_every_step() -> None:
-    """Ensure the default backend is used for steps without an override."""
-    policy = BackendPolicy(_mixed_registry(), {}, "claude")
-    for step in ("refine", "design", "code", "verify"):
-        assert policy.backend_for(step).id == "claude"
-
-
-def test_policy_per_step_override() -> None:
-    """Ensure a step-specific backend overrides the default."""
-    policy = BackendPolicy(_mixed_registry(), {"refine": "local"}, "claude")
-    assert policy.backend_for("refine").id == "local"   # text-only, ok
-    assert policy.backend_for("code").id == "claude"
-
-
-def test_policy_text_only_backend_rejected_for_implement() -> None:
-    """Ensure a text-only backend can't be routed to a file-editing step."""
-    policy = BackendPolicy(
-        _mixed_registry(), {"code": "local"}, "claude"
-    )
-    with pytest.raises(BackendCapabilityError):
-        policy.backend_for("code")
-
-
-def test_policy_text_only_backend_allowed_for_reasoning() -> None:
-    """Ensure a text-only backend may serve reasoning steps (subsumption)."""
-    policy = BackendPolicy(
-        _mixed_registry(), {"refine": "local", "design": "local"}, "claude"
-    )
-    assert policy.backend_for("refine").id == "local"
-    assert policy.backend_for("design").id == "local"
-
-
-def test_policy_backends_lists_all() -> None:
-    """Ensure the policy can enumerate every backend (for termination)."""
-    policy = BackendPolicy(_mixed_registry(), {}, "claude")
-    assert {b.id for b in policy.backends()} == {"claude", "local"}
-
-
-def test_policy_substep_falls_back_to_parent_backend() -> None:
-    """Ensure a dotted sub-step inherits the parent step's backend."""
-    policy = BackendPolicy(_mixed_registry(), {"refine": "local"}, "claude")
-    assert policy.backend_for("refine.reconcile").id == "local"
-
-
-def test_policy_substep_override_wins() -> None:
-    """Ensure a sub-step can be routed to its own backend."""
-    policy = BackendPolicy(
-        _mixed_registry(),
-        {"refine": "local", "refine.reconcile": "claude"},
-        "claude",
-    )
-    assert policy.backend_for("refine.reconcile").id == "claude"
-    assert policy.backend_for("refine.generate").id == "local"  # parent
-
-
-def test_policy_substep_inherits_parent_capability() -> None:
-    """Ensure a sub-step is capability-checked against its parent step,
-    so a text-only backend can't sneak into a code sub-step."""
-    policy = BackendPolicy(
-        _mixed_registry(), {"code.fix": "local"}, "claude"
-    )
-    with pytest.raises(BackendCapabilityError):
-        policy.backend_for("code.fix")
-
-
-# ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
 
 def _specialist(**overrides: object) -> SpecialistDefinition:
     """A minimal valid specialist definition, with any field overridden."""

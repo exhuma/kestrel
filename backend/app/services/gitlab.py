@@ -15,7 +15,7 @@ from app.documents import Document, render_markdown
 from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
-from app.services.feedback.timeparse import parse_iso
+from app.services.task_source_utils import parse_iso
 
 #: Prefix minted onto every MR-note ``Feedback.external_id`` (feature 013,
 #: US3) — carries the repo and MR iid so ``acknowledge`` can reconstruct

@@ -17,15 +17,11 @@ from app.middleware import (
     SecurityHeadersMiddleware,
     VersionHeaderMiddleware,
 )
-from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
     DirectPromptTooLargeError,
-    InvalidWorkflowStateError,
-    RerunNotAllowedError,
     SessionNotFoundError,
     SessionStartError,
     UnconfirmedDirectPromptError,
-    WorkflowNotFoundError,
 )
 
 # Unified logging (see app.logging_config) configures the root logger, so a
@@ -39,7 +35,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.backends.registry import get_backend_registry
     from app.config import get_settings
     from app.logging_config import configure_logging
-    from app.services.workflows import get_workflow_service
 
     settings = get_settings()
     # Apply unified logging here, at startup, so it survives however the app
@@ -75,22 +70,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     for source in settings.task_sources:
         audit_hooks_dir(source.hooks_dir)
-
-    # recover() already isolates each run's own recovery; this is a second,
-    # outer safety net so a bug in recovery itself degrades to "runs may be
-    # stuck until fixed" rather than the whole app failing to boot.
-    try:
-        await get_workflow_service().recover()
-    except Exception:
-        _logger.exception("workflow recovery failed; continuing startup")
-
-    # A done-run dispatch records its claim before scheduling its background
-    # work. Recover claims left in that in-progress state by a prior process.
-    from app.persistence.feedback_store import get_feedback_store
-
-    requeued = get_feedback_store().requeue_dispatched()
-    if requeued:
-        _logger.info("requeued %s interrupted feedback dispatches", requeued)
 
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
@@ -153,49 +132,6 @@ def _register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         """Map an oversized direct prompt to HTTP 413."""
         return JSONResponse(status_code=413, content={"detail": str(exc)})
-
-    @app.exception_handler(WorkflowNotFoundError)
-    async def _workflow_not_found(
-        request: Request, exc: WorkflowNotFoundError
-    ) -> JSONResponse:
-        """Map an unknown workflow to HTTP 404."""
-        return JSONResponse(
-            status_code=404, content={"detail": "unknown workflow"}
-        )
-
-    @app.exception_handler(InvalidWorkflowStateError)
-    async def _invalid_workflow_state(
-        request: Request, exc: InvalidWorkflowStateError
-    ) -> JSONResponse:
-        """Map an invalid workflow transition to HTTP 409."""
-        return JSONResponse(status_code=409, content={"detail": str(exc)})
-
-    @app.exception_handler(RerunNotAllowedError)
-    async def _rerun_not_allowed(
-        request: Request, exc: RerunNotAllowedError
-    ) -> JSONResponse:
-        """Map a rerun refusal (non-private task source) to HTTP 403."""
-        return JSONResponse(
-            status_code=403,
-            content={
-                "detail": (
-                    "rerun is not available for this workflow's task source"
-                )
-            },
-        )
-
-    @app.exception_handler(AnswerValidationError)
-    async def _invalid_answers(
-        request: Request, exc: AnswerValidationError
-    ) -> JSONResponse:
-        """Map invalid questionnaire answers to HTTP 422."""
-        return JSONResponse(
-            status_code=422,
-            content={
-                "detail": "invalid answers",
-                "errors": exc.errors,
-            },
-        )
 
 
 def create_app() -> FastAPI:
@@ -278,15 +214,11 @@ def create_app() -> FastAPI:
         health,
         identity,
         notifications,
-        screenshots,
         sessions,
-        workflows,
     )
 
     app.include_router(sessions.router)
-    app.include_router(workflows.router)
     app.include_router(board.router)
-    app.include_router(screenshots.router)
     app.include_router(notifications.router)
     app.include_router(health.router)
     app.include_router(identity.router)

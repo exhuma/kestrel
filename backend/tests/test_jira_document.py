@@ -21,7 +21,7 @@ from app.documents import (
 from app.markers import SUBTASK_SENTINEL, SubtaskSentinel
 from app.services.jira import JiraClient, JiraTaskSource
 from app.services.jira_document import to_text
-from app.services.workflow_text import has_subtask_sentinel
+from app.services.task_source_utils import has_subtask_sentinel
 
 
 def _client(handler) -> JiraClient:

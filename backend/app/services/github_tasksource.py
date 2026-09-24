@@ -15,11 +15,13 @@ from app.config_models import TaskSourceConfig
 from app.documents import Document, as_document, render_markdown
 from app.markers import Marker, apply_markers
 from app.ports import Feedback, LifecycleEvent, Task
-from app.services.feedback.marker import append_comment_sentinel
-from app.services.feedback.timeparse import parse_iso
 from app.services.github import GitHubClient, parse_github_ref
 from app.services.github_cleanup import close_issue, delete_issue_comment
-from app.services.workflow_text import append_sentinel
+from app.services.task_source_utils import (
+    append_comment_sentinel,
+    append_sentinel,
+    parse_iso,
+)
 
 #: Prefix minted onto every issue-comment ``Feedback.external_id`` (feature
 #: 013) — carries the repo so ``acknowledge`` can reconstruct the reaction

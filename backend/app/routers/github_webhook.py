@@ -22,25 +22,7 @@ from app.persistence.webhook_delivery_store import (
     WebhookDeliveryStore,
     get_webhook_delivery_store,
 )
-from app.services.feedback import github_events
-from app.services.feedback.intake import (
-    FeedbackIntakeService,
-    get_feedback_intake_service,
-)
-from app.services.github import GitHubCodeHost
-from app.services.github_tasksource import GitHubTaskSource
 from app.services.ingestion import IngestionService, get_ingestion_service
-
-#: Webhook events this router intakes feedback from, mapped to the
-#: ``github_events`` handler that builds+dispatches the Feedback. Kept as
-#: a table (not an if/elif chain) so the route function's own branching
-#: stays flat regardless of how many review-origin event types exist.
-_FEEDBACK_EVENT_HANDLERS = {
-    "pull_request_review": github_events.handle_pull_request_review,
-    "pull_request_review_comment": (
-        github_events.handle_pull_request_review_comment
-    ),
-}
 
 router = APIRouter(prefix="/api/github")
 
@@ -170,67 +152,6 @@ def _handle_child_lifecycle(
     return JSONResponse(status_code=202, content={"status": "accepted"})
 
 
-def _dispatch_feedback_intake(
-    payload: dict,
-    settings: Settings,
-    intake: FeedbackIntakeService,
-    source: GitHubTaskSource,
-) -> None:
-    """Fire-and-forget the feedback pipeline for one ``issue_comment``."""
-
-    async def _run() -> None:
-        try:
-            await github_events.handle_issue_comment(
-                payload, settings, intake, source
-            )
-        except Exception:  # noqa: BLE001 — best-effort; ACK already sent
-            _log.exception("webhook feedback-intake failed")
-
-    _fire_and_forget(_run())
-
-
-def _dispatch_review_feedback_intake(
-    event: str,
-    payload: dict,
-    settings: Settings,
-    intake: FeedbackIntakeService,
-    code_host: GitHubCodeHost,
-) -> None:
-    """Fire-and-forget the feedback pipeline for a review-origin event
-    (feature 013, US3 — ``pull_request_review``/
-    ``pull_request_review_comment``)."""
-    handler = _FEEDBACK_EVENT_HANDLERS[event]
-
-    async def _run() -> None:
-        try:
-            await handler(payload, settings, intake, code_host)
-        except Exception:  # noqa: BLE001 — best-effort; ACK already sent
-            _log.exception("webhook review-feedback-intake failed")
-
-    _fire_and_forget(_run())
-
-
-@dataclass
-class _FeedbackAdapters:
-    """The two GitHub adapters feedback intake acknowledges through —
-    bundled behind one dependency so ``_webhook_deps`` stays under the
-    arg-count limit as this grows (feature 013, US3 added the second)."""
-
-    source: GitHubTaskSource
-    codehost: GitHubCodeHost
-
-
-def _feedback_adapters(
-    source: GitHubTaskSource = Depends(
-        github_events.get_feedback_github_source
-    ),
-    codehost: GitHubCodeHost = Depends(
-        github_events.get_feedback_github_codehost
-    ),
-) -> _FeedbackAdapters:
-    return _FeedbackAdapters(source, codehost)
-
-
 @dataclass
 class _WebhookDeps:
     """Bundles the webhook route's per-request dependencies (keeps the
@@ -239,18 +160,14 @@ class _WebhookDeps:
     deliveries: WebhookDeliveryStore
     dismissals: DismissalStore
     ingestion: IngestionService
-    intake: FeedbackIntakeService
-    feedback: _FeedbackAdapters
 
 
 def _webhook_deps(
     deliveries: WebhookDeliveryStore = Depends(get_webhook_delivery_store),
     dismissals: DismissalStore = Depends(get_dismissal_store),
     ingestion: IngestionService = Depends(get_ingestion_service),
-    intake: FeedbackIntakeService = Depends(get_feedback_intake_service),
-    feedback: _FeedbackAdapters = Depends(_feedback_adapters),
 ) -> _WebhookDeps:
-    return _WebhookDeps(deliveries, dismissals, ingestion, intake, feedback)
+    return _WebhookDeps(deliveries, dismissals, ingestion)
 
 
 @router.post("/webhook", dependencies=[Depends(verify_signature)])
@@ -260,14 +177,13 @@ async def github_webhook(
     deps: _WebhookDeps = Depends(_webhook_deps),
 ) -> JSONResponse:
     """
-    Accept a GitHub webhook and, if qualifying, start a run or intake
-    feedback.
+    Accept a GitHub webhook and, if qualifying, start a run.
 
     Order: signature (dependency) → parse → event/action/label/repo gating
     → dismissal → dedup → dispatch. Authentic-but-non-triggering deliveries
     are acknowledged with 200 so GitHub stops retrying (FR-011); a
     qualifying delivery returns 202 with the work dispatched in the
-    background (FR-005; feature 013 for ``issue_comment``).
+    background (FR-005).
     """
     event = request.headers.get("X-GitHub-Event", "")
     delivery = request.headers.get("X-GitHub-Delivery", "")
@@ -288,23 +204,6 @@ async def github_webhook(
     action = payload.get("action")
     issue_number = (payload.get("issue") or {}).get("number")
     label = (payload.get("label") or {}).get("name")
-
-    if event == "issue_comment":
-        if not github_events.is_qualifying_comment(payload, settings):
-            return _ack(200, "ignored", issue_number)
-        _dispatch_feedback_intake(
-            payload, settings, deps.intake, deps.feedback.source
-        )
-        return _ack(202, "accepted", issue_number)
-
-    if event in _FEEDBACK_EVENT_HANDLERS:
-        pr_number = (payload.get("pull_request") or {}).get("number")
-        if not github_events.is_qualifying_pr_event(payload, settings):
-            return _ack(200, "ignored", pr_number)
-        _dispatch_review_feedback_intake(
-            event, payload, settings, deps.intake, deps.feedback.codehost
-        )
-        return _ack(202, "accepted", pr_number)
 
     def _handle_issues_event() -> JSONResponse:
         """The ``issues`` (label-trigger) event's own gate/dedup chain —

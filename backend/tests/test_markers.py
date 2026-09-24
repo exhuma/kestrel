@@ -5,16 +5,14 @@ from __future__ import annotations
 import pytest
 
 from app.markers import (
+    SUBTASK_SENTINEL,
     Marker,
     ReviewTokenMarker,
     SubtaskSentinel,
     apply_code_markers,
     apply_markers,
 )
-from app.services.workflow_text import (
-    SUBTASK_SENTINEL,
-    append_subtask_sentinel,
-)
+from app.services.task_source_utils import append_subtask_sentinel
 
 
 def test_subtask_sentinel_render_is_the_workflow_literal() -> None:

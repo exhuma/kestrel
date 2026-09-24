@@ -25,6 +25,17 @@ _BOARD_TABLES = [
     "board_external_projection",
 ]
 
+#: Fixed-driver / feedback-dispatch tables retired by migration 0028.
+_RETIRED_TABLES = [
+    "workflow_run",
+    "workflow_step",
+    "workflow_round_chip",
+    "workflow_artifact",
+    "review_request",
+    "feedback_item",
+    "feedback_cursor",
+]
+
 
 def _cfg(tmp_path: Path) -> tuple[Config, sa.Engine]:
     """Return an Alembic config and SQLite engine for a temporary database."""
@@ -56,6 +67,33 @@ def test_downgrade_removes_every_board_table(tmp_path: Path) -> None:
 
     tables = set(sa.inspect(engine).get_table_names())
     assert not (set(_BOARD_TABLES) & tables)
+
+
+def test_upgrade_to_head_drops_the_retired_fixed_driver_tables(
+    tmp_path: Path,
+) -> None:
+    """0028 (Phase 10 clean break) drops the fixed-driver/feedback tables."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "head")
+
+    tables = set(sa.inspect(engine).get_table_names())
+    assert not (set(_RETIRED_TABLES) & tables)
+    # The board schema and the tables it coexists with are unaffected.
+    assert set(_BOARD_TABLES) <= tables
+    assert "notification" in tables
+    assert "child_task_link" in tables
+
+
+def test_downgrade_from_head_restores_the_retired_tables(
+    tmp_path: Path,
+) -> None:
+    """Reversing 0028 recreates every table it dropped."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "0027")
+
+    tables = set(sa.inspect(engine).get_table_names())
+    assert set(_RETIRED_TABLES) <= tables
     assert "workflow_run" in tables
 
 

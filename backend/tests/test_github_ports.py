@@ -11,7 +11,7 @@ from app.config_models import TaskSourceConfig
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.github import GitHubClient, GitHubCodeHost, parse_github_ref
 from app.services.github_tasksource import GitHubTaskSource
-from app.services.workflow_text import has_sentinel, has_subtask_sentinel
+from app.services.task_source_utils import has_sentinel, has_subtask_sentinel
 
 
 def _client(handler) -> GitHubClient:

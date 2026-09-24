@@ -199,7 +199,7 @@ class JiraPollService:
 
 def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
     """Construct one JiraPollService from a jira task-source entry."""
-    from app.services.workflows import build_code_host
+    from app.services.task_sources import build_code_host
 
     settings = get_settings()
     github = GitHubClient(

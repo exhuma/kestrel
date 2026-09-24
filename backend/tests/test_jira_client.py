@@ -11,7 +11,7 @@ import pytest
 from app.config_models import TaskSourceConfig
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
-from app.services.workflow_text import has_subtask_sentinel
+from app.services.task_source_utils import has_subtask_sentinel
 
 
 def _client(handler, **kw) -> JiraClient:

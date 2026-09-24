@@ -17,8 +17,8 @@ from app.documents import Document, render_markdown
 from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services import github_reviews
 from app.services.exceptions import GitHubError
-from app.services.feedback.timeparse import parse_iso
 from app.services.github_ci import required_ci_statuses
+from app.services.task_source_utils import parse_iso
 
 #: Extracts a PR/MR number from the tail of a change-request URL —
 #: GitHub's ``.../pull/123`` or GitLab's ``.../merge_requests/123``.

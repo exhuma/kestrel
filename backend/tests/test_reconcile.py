@@ -5,8 +5,7 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_board import IntakeOutcome, Workflow
-from app.models_workflow import WorkflowRun
+from app.models_board import AcceptedTaskIntake, IntakeOutcome, Workflow
 from app.ports import Task
 from app.services.exceptions import GitHubError
 from app.services.github import Issue
@@ -22,26 +21,12 @@ class _FakeTaskSource:
         return "public"
 
 
-class _FakeWorkflows:
+class _FakeTaskSources:
+    """A minimal ``TaskSourceRegistry`` double."""
+
     def __init__(self) -> None:
-        self.runs: list[WorkflowRun] = []
-        self.created: list[tuple[str, int]] = []
         self.sources = {"github-issue": _FakeTaskSource()}
-
-    def list(self) -> list[WorkflowRun]:
-        return self.runs
-
-    async def create(self, repo, issue_number=None, *, source="manual",
-                      task_ref=None, base_branch=None, **kwargs):
-        rid = f"wf-{len(self.created)}"
-        self.created.append((repo, issue_number))
-        self.runs.append(
-            WorkflowRun(id=rid, repo=repo, issue_number=issue_number,
-                        source=source,
-                        task_ref=task_ref or f"{repo}#{issue_number}",
-                        parent_run_id=kwargs.get("parent_run_id"))
-        )
-        return rid
+        self.code_hosts: dict[str, object] = {}
 
 
 class _FakeChildTasks:
@@ -89,10 +74,11 @@ class _FakeQuarantine:
 class _FakeBoard:
     def __init__(self) -> None:
         self.calls = []
+        self.workflows: list[Workflow] = []
 
     def create_workflow_from_intake(self, intake):
         self.calls.append(intake)
-        return Workflow(
+        workflow = Workflow(
             id=f"wf-{len(self.calls) - 1}",
             source=intake.source,
             task_ref=intake.task_ref,
@@ -101,6 +87,11 @@ class _FakeBoard:
             source_visibility=intake.source_visibility,
             title=intake.title,
         )
+        self.workflows.append(workflow)
+        return workflow
+
+    def list_workflows(self) -> list[Workflow]:
+        return self.workflows
 
 
 def _board_intake() -> BoardIntake:
@@ -146,14 +137,18 @@ class _FakeGitHub:
 
 
 def _svc(
-    github, wf, dismissals, children=None, board_intake=None
+    github, dismissals, children=None, board_intake=None
 ) -> ReconcileService:
     source = TaskSourceConfig(
         type="github", watched_repos=["o/r"], trigger_label="kestrel"
     )
     settings = Settings(_env_file=None, task_sources=[source])
     ingestion = IngestionService(
-        settings, wf, dismissals, board_intake or _board_intake(), children
+        settings,
+        _FakeTaskSources(),
+        dismissals,
+        board_intake or _board_intake(),
+        children,
     )
     return ReconcileService(source, github, ingestion, dismissals)
 
@@ -161,16 +156,14 @@ def _svc(
 @pytest.mark.asyncio
 async def test_starts_missing_run_once_and_is_idempotent() -> None:
     """Ensure a labelled issue starts one run; a second cycle starts none."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     board_intake = _board_intake()
     svc = _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
-        wf,
         dis,
         board_intake=board_intake,
     )
     await svc.run_cycle()
-    wf.runs.append(WorkflowRun(id="wf-0", repo="o/r", task_ref="o/r#5"))
     await svc.run_cycle()
     assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
@@ -178,12 +171,11 @@ async def test_starts_missing_run_once_and_is_idempotent() -> None:
 @pytest.mark.asyncio
 async def test_dismissed_issue_is_skipped() -> None:
     """Ensure a dismissed, still-labelled issue is not started."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     dis.add("o/r#5")
     board_intake = _board_intake()
     await _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
-        wf,
         dis,
         board_intake=board_intake,
     ).run_cycle()
@@ -195,12 +187,11 @@ async def test_dismissed_issue_is_skipped() -> None:
 @pytest.mark.asyncio
 async def test_dismissal_cleared_when_label_removed() -> None:
     """Ensure a dismissal for an unlabelled issue is cleared."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     dis.add("o/r#9")  # dismissed, but no longer labelled
     board_intake = _board_intake()
     await _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
-        wf,
         dis,
         board_intake=board_intake,
     ).run_cycle()
@@ -211,12 +202,12 @@ async def test_dismissal_cleared_when_label_removed() -> None:
 @pytest.mark.asyncio
 async def test_github_failure_is_isolated_and_recoverable() -> None:
     """Ensure a failing cycle starts nothing and the next cycle recovers."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     github = _FakeGitHub(
         issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))], fail=True
     )
     board_intake = _board_intake()
-    svc = _svc(github, wf, dis, board_intake=board_intake)
+    svc = _svc(github, dis, board_intake=board_intake)
     await svc.run_cycle()  # must not raise
     assert board_intake.board.calls == []
     github._fail = False
@@ -227,37 +218,55 @@ async def test_github_failure_is_isolated_and_recoverable() -> None:
 @pytest.mark.asyncio
 async def test_closed_issue_observation_never_starts_normal_ingestion() -> None:
     """Reconciliation records a linked close without a duplicate run."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    run = WorkflowRun(
-        id="wf-parent", repo="o/r", issue_number=5, task_ref="o/r#5"
+    dis, children = _FakeDismissals(), _FakeChildTasks()
+    board_intake = _board_intake()
+    parent = board_intake.board.create_workflow_from_intake(
+        _intake("o/r#5", "wf-parent-title")
     )
-    wf.runs.append(run)
-    children.states[run.task_ref] = "open"
-    children.latest[run.task_ref] = run.id
+    children.states[parent.task_ref] = "open"
+    children.latest[parent.task_ref] = parent.id
     await _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", state="closed")]),
-        wf,
         dis,
         children,
+        board_intake=board_intake,
     ).run_cycle()
-    assert children.states[run.task_ref] == "closed"
-    assert wf.created == []
+    assert children.states[parent.task_ref] == "closed"
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
 
 @pytest.mark.asyncio
 async def test_reconciliation_re_adopts_a_previously_closed_child() -> None:
     """A missed reopen creates one successor only after a recorded close."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    run = WorkflowRun(
-        id="wf-parent", repo="o/r", issue_number=5, task_ref="o/r#5"
+    dis, children = _FakeDismissals(), _FakeChildTasks()
+    board_intake = _board_intake()
+    parent = board_intake.board.create_workflow_from_intake(
+        _intake("o/r#5", "wf-parent-title")
     )
-    wf.runs.append(run)
-    children.states[run.task_ref] = "closed"
-    children.latest[run.task_ref] = run.id
-    svc = _svc(_FakeGitHub(issues=[Issue(5, "t", "b")]), wf, dis, children)
+    children.states[parent.task_ref] = "closed"
+    children.latest[parent.task_ref] = parent.id
+    svc = _svc(
+        _FakeGitHub(issues=[Issue(5, "t", "b")]),
+        dis,
+        children,
+        board_intake=board_intake,
+    )
 
     await svc.run_cycle()
     await svc.run_cycle()
 
-    assert wf.created == [("o/r", 5)]
-    assert wf.runs[-1].parent_run_id == run.id
+    parent_and_one_successor = 2
+    successor_ids = [c.id for c in board_intake.board.workflows]
+    assert len(successor_ids) == parent_and_one_successor
+    assert children.latest[parent.task_ref] == successor_ids[-1]
+
+
+def _intake(task_ref: str, title: str) -> AcceptedTaskIntake:
+    return AcceptedTaskIntake(
+        source="github-issue",
+        task_ref=task_ref,
+        repo="o/r",
+        base_branch="main",
+        source_visibility="public",
+        title=title,
+    )

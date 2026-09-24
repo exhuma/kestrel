@@ -13,8 +13,7 @@ from typing import Literal
 from app.documents import Document, as_document, render_markdown
 from app.markers import Marker, apply_markers
 from app.ports import Feedback, LifecycleEvent, Task
-from app.services.feedback.marker import append_comment_sentinel
-from app.services.feedback.timeparse import parse_iso
+from app.services.task_source_utils import append_comment_sentinel, parse_iso
 
 _PREFIX = "local:"
 _STAMP_FORMAT = "%Y-%m-%dT%H.%M.%S"

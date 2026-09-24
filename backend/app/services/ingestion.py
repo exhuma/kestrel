@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from app.config import Settings, get_settings
-from app.models_board import AcceptedTaskIntake
-from app.models_workflow import WorkflowRun
+from app.models_board import AcceptedTaskIntake, Workflow
 from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.persistence.child_task_store import (
     ChildTaskLinks,
@@ -26,13 +25,11 @@ from app.services.board.bootstrap import (
 )
 from app.services.board.quarantine import NewTaskIntake, QuarantineService
 from app.services.board.service import BoardService
-from app.services.task_scheduler import (
-    ScheduledTask,
-    integration_branch,
-    is_startable,
-    modifying_repositories,
+from app.services.task_scheduler import ScheduledTask, integration_branch
+from app.services.task_sources import (
+    TaskSourceRegistry,
+    get_task_source_registry,
 )
-from app.services.workflows import WorkflowService, get_workflow_service
 
 _log = logging.getLogger("kestrel.ingestion")
 
@@ -54,18 +51,18 @@ class BoardIntake:
 
 
 class IngestionService:
-    """Starts a run for a qualifying issue, idempotently."""
+    """Starts a board workflow for a qualifying issue, idempotently."""
 
     def __init__(
         self,
         settings: Settings,
-        workflows: WorkflowService,
+        task_sources: TaskSourceRegistry,
         dismissals: DismissalStore,
         board_intake: BoardIntake,
         child_tasks: ChildTaskLinks | None = None,
     ) -> None:
         self.settings = settings
-        self.workflows = workflows
+        self.task_sources = task_sources
         self.dismissals = dismissals
         self.board_intake = board_intake
         self.child_tasks = child_tasks
@@ -75,8 +72,11 @@ class IngestionService:
         return self.settings.github_source_for(repo) is not None
 
     def has_run(self, task_ref: str) -> bool:
-        """Return whether a run already exists for ``task_ref``."""
-        return any(r.task_ref == task_ref for r in self.workflows.list())
+        """Return whether a board workflow already exists for ``task_ref``."""
+        return any(
+            w.task_ref == task_ref
+            for w in self.board_intake.board.list_workflows()
+        )
 
     async def maybe_start_run(
         self,
@@ -96,22 +96,24 @@ class IngestionService:
         FR-034). A future Jira webhook is one more caller of this method.
 
         Filters, in order: (GitHub) unwatched repo, dismissed ticket, an
-        existing run for the ``task_ref``. Otherwise the ticket's canonical
-        body is fetched — never the webhook payload's own body — and
-        screened through the untrusted-input boundary (FR-018) before any
-        board workflow is created (feature 026). A failure to create raises
-        before any row persists, leaving nothing for reconciliation to trip
-        over (FR-013a).
+        existing board workflow for the ``task_ref``. Otherwise the ticket's
+        canonical body is fetched — never the webhook payload's own body —
+        and screened through the untrusted-input boundary (FR-018) before
+        any board workflow is created (feature 026). A failure to create
+        raises before any row persists, leaving nothing for reconciliation
+        to trip over (FR-013a).
 
         :param source: Run origin (``github-issue`` | ``jira-issue``).
         :param task_ref: Source-native ticket id (dedup/dismissal key).
         :param code_repo: The target code repository (``owner/name``).
-        :param issue_number: GitHub issue number; ``None`` for Jira.
-        :param base_branch: Resolved base branch (Jira); ``None`` ⇒ resolved by
-            the driver.
+        :param issue_number: GitHub issue number; unused (board workflows
+            are keyed by ``task_ref``, not a numeric issue id).
+        :param base_branch: Resolved base branch, when already known
+            (Jira); ``None`` lets the board default to ``"main"``.
         :returns: The new board workflow id, the quarantine-hosting
             workflow id, or ``None`` if filtered out or already started.
         """
+        del issue_number  # kept for caller-signature compatibility
         if source == "github-issue" and not self.is_watched(code_repo):
             _log.info("ingest outcome=skipped-filtered %s", task_ref)
             return None
@@ -122,12 +124,8 @@ class IngestionService:
             _log.info("ingest outcome=skipped-duplicate %s", task_ref)
             return None
         scheduled = self._scheduled_child(task_ref, code_repo)
-        if scheduled is not None and not self._is_startable(scheduled):
-            _log.info("ingest outcome=skipped-blocked %s", task_ref)
-            return None
         if scheduled is not None:
             base_branch = integration_branch(scheduled)
-        _log.debug("ingest issue_number=%s", issue_number)
         return await self._start_via_board(
             source=source,
             task_ref=task_ref,
@@ -150,7 +148,7 @@ class IngestionService:
         delivery and use), and every body is screened before it can create
         board state (FR-018/FR-019).
         """
-        task_source = self.workflows.sources.get(source)
+        task_source = self.task_sources.sources.get(source)
         if task_source is None:
             _log.warning("ingest outcome=no-task-source %s", task_ref)
             return None
@@ -183,25 +181,23 @@ class IngestionService:
     def _scheduled_child(
         self, task_ref: str, repo: str
     ) -> ScheduledTask | None:
-        """Build scheduler input only for a linked child with DAG metadata."""
+        """Build scheduler input only for a linked child with DAG metadata.
+
+        Prerequisite/repo-modification gating (the old driver's
+        ``_is_startable``) is not carried over: it read the old fixed-step
+        run list for readiness/status signals that have no board
+        equivalent, and the property it protected — at most one writer
+        per repository — is already enforced at claim time by the board's
+        own workspace lease (one active write lease per repo). A linked
+        child now starts as soon as its task source makes it visible; only
+        its ``integration_branch`` metadata is still consulted.
+        """
         if self.child_tasks is None:
             return None
         details = self.child_tasks.scheduling_details(task_ref)
         if details is None:
             return None
-        return ScheduledTask(
-            task_ref, repo, details.prerequisites, details.integration_branch
-        )
-
-    def _is_startable(self, task: ScheduledTask) -> bool:
-        """Check prerequisites and repository modification exclusion."""
-        assert self.child_tasks is not None
-        runs = self.workflows.list()
-        ready_ids = {
-            run.id for run in runs if run.status == "technically_ready"
-        }
-        ready_nodes = self.child_tasks.ready_task_node_ids(ready_ids)
-        return is_startable(task, ready_nodes, modifying_repositories(runs))
+        return ScheduledTask(task_ref, repo, details.integration_branch)
 
     async def observe_child_source_state(
         self, task_ref: str, state: str
@@ -218,10 +214,10 @@ class IngestionService:
         if state == "closed":
             self.child_tasks.observe_source_state(task_ref, state)
             return
-        for run in reversed(self.workflows.list()):
-            if run.task_ref != task_ref:
+        for workflow in reversed(self.board_intake.board.list_workflows()):
+            if workflow.task_ref != task_ref:
                 continue
-            if await self.maybe_start_reopened_successor(parent=run):
+            if await self.maybe_start_reopened_successor(parent=workflow):
                 return
         self.child_tasks.observe_source_state(task_ref, state)
 
@@ -244,14 +240,14 @@ class IngestionService:
             await self.observe_child_source_state(task_ref, "open")
 
     async def maybe_start_reopened_successor(
-        self, *, parent: WorkflowRun
+        self, *, parent: Workflow
     ) -> str | None:
         """Start one linked successor after a claimed child reopen.
 
         This intentionally does not call :meth:`has_run`: the parent itself
-        proves a run exists, while the child-store claim limits a validated
-        closed-to-open transition to exactly one successor. Ordinary ingestion
-        retains its existing duplicate filter.
+        proves a workflow exists, while the child-store claim limits a
+        validated closed-to-open transition to exactly one successor.
+        Ordinary ingestion retains its existing duplicate filter.
         """
         if self.child_tasks is None:
             return None
@@ -262,48 +258,52 @@ class IngestionService:
             _log.info("re-adoption outcome=skipped %s", parent.task_ref)
             return None
         try:
-            run_id = await self.start_successor_run(parent=parent)
+            workflow_id = await self.start_successor_run(parent=parent)
         except Exception:
             self.child_tasks.release_reopen(parent.task_ref)
             raise
-        self.child_tasks.complete_reopen(parent.task_ref, run_id)
-        return run_id
+        if workflow_id is None:
+            self.child_tasks.release_reopen(parent.task_ref)
+            return None
+        self.child_tasks.complete_reopen(parent.task_ref, workflow_id)
+        return workflow_id
 
-    async def start_successor_run(self, *, parent: WorkflowRun) -> str:
+    async def start_successor_run(self, *, parent: Workflow) -> str | None:
         """
-        Start a run continuing ``parent`` after its own path is exhausted.
+        Start a board workflow continuing ``parent`` after its own path is
+        exhausted.
 
-        Called only by ``FeedbackDispatcher``'s terminal-run branch
-        (feature 013, US4) when marked feedback arrives for a `done` run
-        whose change request has since merged/closed (or never existed)
-        — never by ingestion/reconcile. Deliberately bypasses
-        :meth:`maybe_start_run`'s watched/dismissed/``has_run`` filters:
-        this ticket already proved watched and not dismissed when
-        ``parent`` itself started, and the ``has_run`` dedup rule exists
-        to stop *unrelated* re-ingestion of a ticket whose GitHub trigger
-        label a `done` transition deliberately never removes (so
-        reconcile would otherwise keep finding it labelled) — it is not
-        meant to block an intentional, explicitly linked continuation of
-        a run that already exists. Still funnels through
-        ``WorkflowService.create`` (the same sole convergence point
-        :meth:`maybe_start_run`/``reset.rerun`` already use), so branch-
-        naming/workspace-provisioning stays defined in exactly one place.
+        Reachable only via :meth:`maybe_start_reopened_successor`, itself
+        only reached from :meth:`observe_child_source_state` — never from
+        ordinary ingestion. Deliberately bypasses :meth:`maybe_start_run`'s
+        watched/dismissed/``has_run`` filters the same way that method
+        does: this ticket already proved watched and not dismissed when
+        ``parent`` itself started, and ``has_run`` exists to stop
+        *unrelated* re-ingestion of an already-labelled ticket, not to
+        block an intentional, explicitly linked continuation of a
+        workflow that already exists. Still funnels through
+        :meth:`_start_via_board` (the same convergence point
+        :meth:`maybe_start_run` uses), so quarantine screening and
+        board-workflow creation stay defined in exactly one place.
 
-        :param parent: The finished run this successor continues from —
-            its ``repo``/``task_ref``/``source``/``base_branch`` carry
-            over unchanged (same ticket, same target repo).
-        :returns: The new run's id.
+        :param parent: The finished workflow this successor continues
+            from — its ``repo``/``task_ref``/``source``/``base_branch``
+            carry over unchanged (same ticket, same target repo).
+        :returns: The new workflow's id, or ``None`` if it could not be
+            started (no task source, or it quarantined without a board
+            workflow yet — the same outcomes :meth:`maybe_start_run` can
+            return).
         """
-        run_id = await self.workflows.create(
-            parent.repo,
-            parent.issue_number,
+        workflow_id = await self._start_via_board(
             source=parent.source,
             task_ref=parent.task_ref,
-            base_branch=parent.base_branch or None,
-            parent_run_id=parent.id,
+            code_repo=parent.repo,
+            base_branch=parent.base_branch,
         )
-        _log.info("ingest outcome=successor parent=%s -> %s", parent.id, run_id)
-        return run_id
+        _log.info(
+            "ingest outcome=successor parent=%s -> %s", parent.id, workflow_id
+        )
+        return workflow_id
 
 
 @lru_cache
@@ -311,7 +311,7 @@ def get_ingestion_service() -> IngestionService:
     """Return the process-wide IngestionService singleton."""
     return IngestionService(
         get_settings(),
-        get_workflow_service(),
+        get_task_source_registry(),
         get_dismissal_store(),
         BoardIntake(get_quarantine_service(), get_board_service()),
         get_child_task_store(),

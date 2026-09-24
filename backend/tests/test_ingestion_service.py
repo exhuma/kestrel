@@ -1,4 +1,11 @@
-"""Tests for the shared ingestion path (maybe_start_run)."""
+"""Tests for the shared ingestion path (maybe_start_run).
+
+Fixtures mirror ``tests/test_reconcile.py``'s board-domain doubles
+(``_FakeTaskSources``/``_FakeBoard``/``BoardIntake``/``AcceptedTaskIntake``/
+``Workflow``) — the shape ``IngestionService`` has taken since it was
+rewritten off the deleted fixed-step driver (``app.services.workflows``,
+``app.models_workflow.WorkflowRun``).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +14,6 @@ import pytest
 from app.config import Settings
 from app.config_models import TaskSourceConfig
 from app.models_board import AcceptedTaskIntake, IntakeOutcome, Workflow
-from app.models_workflow import WorkflowRun
 from app.persistence.child_task_store import ChildTaskSchedule
 from app.ports import Task
 from app.services.board.quarantine import NewTaskIntake
@@ -26,48 +32,12 @@ class _FakeTaskSource:
         return "public"
 
 
-class _FakeWorkflows:
-    """Minimal WorkflowService stand-in: records creates, lists runs."""
+class _FakeTaskSources:
+    """A minimal ``TaskSourceRegistry`` double."""
 
-    def __init__(self, fail: bool = False) -> None:
-        self.runs: list[WorkflowRun] = []
-        self.created: list[tuple[str, int | None, str]] = []
-        self.base_branches: list[str | None] = []
+    def __init__(self) -> None:
         self.sources = {"github-issue": _FakeTaskSource()}
-        self._fail = fail
-
-    def list(self) -> list[WorkflowRun]:
-        return self.runs
-
-    async def create(
-        self,
-        repo: str,
-        issue_number: int | None = None,
-        *,
-        source: str = "manual",
-        task_ref: str | None = None,
-        base_branch: str | None = None,
-        **kwargs: object,
-    ) -> str:
-        if self._fail:
-            raise RuntimeError("create failed")
-        rid = f"wf-{len(self.created)}"
-        self.created.append((repo, issue_number, source))
-        self.base_branches.append(base_branch)
-        parent_run_id = kwargs.get("parent_run_id")
-        self.runs.append(
-            WorkflowRun(
-                id=rid,
-                repo=repo,
-                issue_number=issue_number,
-                source=source,
-                task_ref=task_ref or f"{repo}#{issue_number}",
-                parent_run_id=(
-                    parent_run_id if isinstance(parent_run_id, str) else None
-                ),
-            )
-        )
-        return rid
+        self.code_hosts: dict[str, object] = {}
 
 
 class _FakeDismissals:
@@ -97,28 +67,16 @@ class _FakeChildTasks:
         self.states: dict[str, str] = {}
         self.latest: dict[str, str] = {}
         self.schedules: dict[str, ChildTaskSchedule] = {}
+        self.generations: dict[str, str] = {}
 
     def record_run(self, task_ref: str, workflow_id: str) -> None:
         """Record a normal first-run association when the task is linked."""
         if task_ref in self.states:
             self.latest[task_ref] = workflow_id
 
-    def record(self, parent_workflow_id: str, task_ref: str) -> None:
-        """Add a child link, matching the production persistence contract."""
-        del parent_workflow_id
-        self.states[task_ref] = "open"
-
     def scheduling_details(self, task_ref: str) -> ChildTaskSchedule | None:
         """Return scheduling metadata configured for one linked child."""
         return self.schedules.get(task_ref)
-
-    def ready_task_node_ids(self, workflow_ids: set[str]) -> set[str]:
-        """Map ready workflow IDs to their linked child node IDs."""
-        return {
-            schedule.task_node_id
-            for task_ref, schedule in self.schedules.items()
-            if self.latest.get(task_ref) in workflow_ids
-        }
 
     def observe_source_state(self, task_ref: str, state: str) -> None:
         """Set the observed lifecycle state for a linked child."""
@@ -133,9 +91,7 @@ class _FakeChildTasks:
 
     def observe_generation(self, task_ref: str, generation: str) -> bool:
         """Report whether a local task child changed its explicit generation."""
-        previous = getattr(self, "generations", {}).get(task_ref)
-        if not hasattr(self, "generations"):
-            self.generations: dict[str, str] = {}
+        previous = self.generations.get(task_ref)
         self.generations[task_ref] = generation
         if previous is not None and previous != generation:
             self.states[task_ref] = "closed"
@@ -171,10 +127,11 @@ class _FakeQuarantine:
 
 
 class _FakeBoard:
-    """Records each accepted intake and returns a deterministic workflow id."""
+    """Records each accepted intake and returns a deterministic workflow."""
 
     def __init__(self, fail: bool = False) -> None:
         self.calls: list[AcceptedTaskIntake] = []
+        self.workflows: list[Workflow] = []
         self._fail = fail
 
     def create_workflow_from_intake(
@@ -182,10 +139,8 @@ class _FakeBoard:
     ) -> Workflow:
         if self._fail:
             raise RuntimeError("create failed")
-        wf_id = f"wf-{len(self.calls)}"
-        self.calls.append(intake)
-        return Workflow(
-            id=wf_id,
+        workflow = Workflow(
+            id=f"wf-{len(self.calls)}",
             source=intake.source,
             task_ref=intake.task_ref,
             repo=intake.repo,
@@ -193,6 +148,12 @@ class _FakeBoard:
             source_visibility=intake.source_visibility,
             title=intake.title,
         )
+        self.calls.append(intake)
+        self.workflows.append(workflow)
+        return workflow
+
+    def list_workflows(self) -> list[Workflow]:
+        return self.workflows
 
 
 def _board_intake(*, fail: bool = False) -> BoardIntake:
@@ -200,15 +161,19 @@ def _board_intake(*, fail: bool = False) -> BoardIntake:
 
 
 def _service(
-    wf: _FakeWorkflows,
     dismissals: _FakeDismissals,
     *,
     board_intake: BoardIntake | None = None,
+    children: _FakeChildTasks | None = None,
 ) -> IngestionService:
     source = TaskSourceConfig(type="github", watched_repos=["o/r"])
     settings = Settings(_env_file=None, task_sources=[source])
     return IngestionService(
-        settings, wf, dismissals, board_intake or _board_intake()
+        settings,
+        _FakeTaskSources(),
+        dismissals,
+        board_intake or _board_intake(),
+        children,
     )
 
 
@@ -222,12 +187,23 @@ def _gh(task_ref: str, code_repo: str) -> dict:
     )
 
 
+def _intake(task_ref: str, title: str) -> AcceptedTaskIntake:
+    return AcceptedTaskIntake(
+        source="github-issue",
+        task_ref=task_ref,
+        repo="o/r",
+        base_branch="main",
+        source_visibility="public",
+        title=title,
+    )
+
+
 @pytest.mark.asyncio
 async def test_starts_one_run_for_watched_repo() -> None:
     """Ensure a qualifying issue starts exactly one board workflow."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     board_intake = _board_intake()
-    rid = await _service(wf, dis, board_intake=board_intake).maybe_start_run(
+    rid = await _service(dis, board_intake=board_intake).maybe_start_run(
         **_gh("o/r#5", "o/r")
     )
     assert rid == "wf-0"
@@ -237,11 +213,11 @@ async def test_starts_one_run_for_watched_repo() -> None:
 @pytest.mark.asyncio
 async def test_ignores_unwatched_repo() -> None:
     """Ensure an unwatched repo starts nothing."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     board_intake = _board_intake()
-    got = await _service(
-        wf, dis, board_intake=board_intake
-    ).maybe_start_run(**_gh("x/y#5", "x/y"))
+    got = await _service(dis, board_intake=board_intake).maybe_start_run(
+        **_gh("x/y#5", "x/y")
+    )
     assert got is None
     assert board_intake.board.calls == []
 
@@ -249,116 +225,104 @@ async def test_ignores_unwatched_repo() -> None:
 @pytest.mark.asyncio
 async def test_ignores_dismissed_issue() -> None:
     """Ensure a dismissed (repo, issue) starts nothing."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     dis.add("o/r#5")
     board_intake = _board_intake()
-    got = await _service(
-        wf, dis, board_intake=board_intake
-    ).maybe_start_run(**_gh("o/r#5", "o/r"))
+    got = await _service(dis, board_intake=board_intake).maybe_start_run(
+        **_gh("o/r#5", "o/r")
+    )
     assert got is None
     assert board_intake.board.calls == []
 
 
 @pytest.mark.asyncio
 async def test_never_starts_second_run_for_same_issue() -> None:
-    """Ensure an existing run for the pair blocks a duplicate."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    """Ensure an existing board workflow for the ticket blocks a duplicate."""
+    dis = _FakeDismissals()
     board_intake = _board_intake()
-    svc = _service(wf, dis, board_intake=board_intake)
-    await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
-    wf.runs.append(WorkflowRun(id="wf-0", repo="o/r", task_ref="o/r#5"))
-    assert await svc.maybe_start_run(**_gh("o/r#5", "o/r")) is None
+    svc = _service(dis, board_intake=board_intake)
+    first = await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
+    second = await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
+    assert first == "wf-0"
+    assert second is None
     assert len(board_intake.board.calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_child_waits_for_ready_prerequisites_and_availability() -> None:
-    """DAG children start only after ready dependencies and no repo modifier."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
+async def test_scheduled_child_bases_on_its_integration_branch() -> None:
+    """A linked child's base branch comes from its scheduling metadata.
+
+    Older prerequisite-readiness and repo-modifier-availability gating
+    (the old driver's ``_is_startable``) is deliberately not covered
+    here: ``IngestionService._scheduled_child``'s docstring documents
+    that it was dropped rather than carried over — the property it
+    protected (at most one writer per repository) is now enforced by
+    the board's own workspace lease, not by ingestion-time gating. Only
+    the ``integration_branch`` metadata is still consulted.
+    """
+    dis, children = _FakeDismissals(), _FakeChildTasks()
     children.schedules["o/r#2"] = ChildTaskSchedule(
         "TASK-2", ("TASK-1",), "kestrel/issue-1"
     )
     board_intake = _board_intake()
-    settings = _service(wf, dis).settings
-    svc = IngestionService(settings, wf, dis, board_intake, children)
+    svc = _service(dis, board_intake=board_intake, children=children)
 
-    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) is None
-    children.schedules["o/r#1"] = ChildTaskSchedule(
-        "TASK-1", (), "kestrel/issue-1"
-    )
-    children.latest["o/r#1"] = "ready"
-    wf.runs.append(
-        WorkflowRun(id="ready", repo="o/r", status="technically_ready")
-    )
-    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) == "wf-0"
+    rid = await svc.maybe_start_run(**_gh("o/r#2", "o/r"))
 
-
-@pytest.mark.asyncio
-async def test_child_uses_parent_branch_and_waits_for_repo_modifier() -> None:
-    """An eligible child bases on its parent branch, not a task-specific one."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    children.schedules["o/r#2"] = ChildTaskSchedule(
-        "TASK-2", (), "kestrel/issue-1"
-    )
-    wf.runs.append(WorkflowRun(id="busy", repo="o/r", status="coding"))
-    board_intake = _board_intake()
-    settings = _service(wf, dis).settings
-    svc = IngestionService(settings, wf, dis, board_intake, children)
-
-    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) is None
-    wf.runs.clear()
-    assert await svc.maybe_start_run(**_gh("o/r#2", "o/r")) == "wf-0"
+    assert rid == "wf-0"
     assert board_intake.board.calls[0].base_branch == "kestrel/issue-1"
 
 
 @pytest.mark.asyncio
 async def test_failed_create_leaves_no_run_or_dismissal() -> None:
     """Ensure a failed create leaves nothing for reconciliation to trip on."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     board_intake = _board_intake(fail=True)
     with pytest.raises(RuntimeError):
-        await _service(
-            wf, dis, board_intake=board_intake
-        ).maybe_start_run(**_gh("o/r#5", "o/r"))
-    assert wf.runs == []
+        await _service(dis, board_intake=board_intake).maybe_start_run(
+            **_gh("o/r#5", "o/r")
+        )
+    assert board_intake.board.workflows == []
     assert dis.is_dismissed("o/r#5") is False
 
 
 @pytest.mark.asyncio
 async def test_reopened_child_starts_one_linked_successor() -> None:
     """A claimed closed-to-open child transition bypasses only has_run."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    parent = WorkflowRun(
-        id="wf-parent",
-        repo="o/r",
-        issue_number=5,
-        source="github-issue",
-        task_ref="o/r#5",
-        base_branch="main",
+    dis, children = _FakeDismissals(), _FakeChildTasks()
+    board_intake = _board_intake()
+    parent = board_intake.board.create_workflow_from_intake(
+        _intake("o/r#5", "t")
     )
-    wf.runs.append(parent)
     children.states[parent.task_ref] = "closed"
     children.latest[parent.task_ref] = parent.id
-    settings = _service(wf, dis).settings
-    svc = IngestionService(settings, wf, dis, _board_intake(), children)
+    svc = _service(dis, board_intake=board_intake, children=children)
 
-    assert await svc.maybe_start_reopened_successor(parent=parent) == "wf-0"
+    successor_id = await svc.maybe_start_reopened_successor(parent=parent)
+    assert successor_id is not None
+    assert successor_id != parent.id
     assert await svc.maybe_start_reopened_successor(parent=parent) is None
-    assert wf.runs[-1].parent_run_id == parent.id
     assert children.states[parent.task_ref] == "open"
+    assert children.latest[parent.task_ref] == successor_id
 
 
 @pytest.mark.asyncio
 async def test_failed_reopened_successor_releases_the_claim() -> None:
     """A create failure leaves the child eligible for a later reopen retry."""
-    wf = _FakeWorkflows(fail=True)
-    dis = _FakeDismissals()
-    children = _FakeChildTasks()
-    parent = WorkflowRun(id="wf-parent", repo="o/r", task_ref="o/r#5")
+    dis, children = _FakeDismissals(), _FakeChildTasks()
+    parent = Workflow(
+        id="wf-parent",
+        source="github-issue",
+        task_ref="o/r#5",
+        repo="o/r",
+        base_branch="main",
+        source_visibility="public",
+        title="t",
+    )
     children.states[parent.task_ref] = "closed"
     children.latest[parent.task_ref] = parent.id
-    settings = _service(wf, dis).settings
-    svc = IngestionService(settings, wf, dis, _board_intake(), children)
+    board_intake = _board_intake(fail=True)
+    svc = _service(dis, board_intake=board_intake, children=children)
 
     with pytest.raises(RuntimeError):
         await svc.maybe_start_reopened_successor(parent=parent)
@@ -368,36 +332,40 @@ async def test_failed_reopened_successor_releases_the_claim() -> None:
 @pytest.mark.asyncio
 async def test_missing_qualifying_child_is_closed_then_re_adopted() -> None:
     """A poll source's exit and re-entry creates one linked successor."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    parent = WorkflowRun(id="wf-parent", repo="o/r", task_ref="RFC-5")
-    wf.runs.append(parent)
+    dis, children = _FakeDismissals(), _FakeChildTasks()
+    board_intake = _board_intake()
+    parent = board_intake.board.create_workflow_from_intake(
+        _intake("RFC-5", "t")
+    )
     children.states[parent.task_ref] = "open"
     children.latest[parent.task_ref] = parent.id
-    settings = _service(wf, dis).settings
-    svc = IngestionService(settings, wf, dis, _board_intake(), children)
+    svc = _service(dis, board_intake=board_intake, children=children)
 
     await svc.observe_missing_child_source_tasks("RFC-", set())
     await svc.observe_child_source_state(parent.task_ref, "open")
     await svc.observe_child_source_state(parent.task_ref, "open")
 
-    assert wf.runs[-1].parent_run_id == parent.id
-    assert len(wf.runs) == _PARENT_AND_SUCCESSOR
+    successor_ids = [w.id for w in board_intake.board.workflows]
+    assert len(successor_ids) == _PARENT_AND_SUCCESSOR
+    assert children.latest[parent.task_ref] == successor_ids[-1]
 
 
 @pytest.mark.asyncio
 async def test_changed_local_task_generation_re_adopts_a_linked_child() -> None:
     """A local task generation changes only after its initial baseline."""
-    wf, dis, children = _FakeWorkflows(), _FakeDismissals(), _FakeChildTasks()
-    parent = WorkflowRun(id="wf-parent", repo="o/r", task_ref="local:child")
-    wf.runs.append(parent)
+    dis, children = _FakeDismissals(), _FakeChildTasks()
+    board_intake = _board_intake()
+    parent = board_intake.board.create_workflow_from_intake(
+        _intake("local:child", "t")
+    )
     children.states[parent.task_ref] = "open"
     children.latest[parent.task_ref] = parent.id
-    settings = _service(wf, dis).settings
-    svc = IngestionService(settings, wf, dis, _board_intake(), children)
+    svc = _service(dis, board_intake=board_intake, children=children)
 
     await svc.observe_child_retrigger(parent.task_ref, "1")
     await svc.observe_child_retrigger(parent.task_ref, "1")
     await svc.observe_child_retrigger(parent.task_ref, "2")
 
-    assert wf.runs[-1].parent_run_id == parent.id
-    assert len(wf.runs) == _PARENT_AND_SUCCESSOR
+    successor_ids = [w.id for w in board_intake.board.workflows]
+    assert len(successor_ids) == _PARENT_AND_SUCCESSOR
+    assert children.latest[parent.task_ref] == successor_ids[-1]
