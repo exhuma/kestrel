@@ -18,21 +18,47 @@ before beginning story phases.
   prerequisites are complete.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
+## Status (2026-09-24, after Phase 10 clean break)
+
+70/77 tasks verified complete against actual code (not just checked off —
+every `[x]` below was confirmed by reading or grepping the current source,
+since the checkboxes had drifted from reality before this pass). The old
+fixed six-step driver is fully removed (commits `33628b4` backend,
+`3fc281c` frontend, `483dda2` docs); the board domain's data model, intake/
+quarantine, gates/interventions, coordinator planning, claim/lease
+bookkeeping + recovery, and the read-only Board/Graph UI are all solid and
+tested.
+
+**7 tasks remain genuinely open — this is the real backlog, not Phase 9
+alone.** Each has a `**NOT DONE**`/`**HALF DONE**` note in place with exact
+findings, so picking any of them back up doesn't require re-investigation:
+
+| Task | Phase | Gap |
+| --- | --- | --- |
+| **T034** | 4 (US2) | No caller ever invokes `dispatch.py::claim_and_dispatch` — a `ready` card is never automatically claimed/worked. **The most important gap**: without this, nothing below it can run either. |
+| **T041** | 5 (US3) | No board-domain git/workspace execution layer exists at all (the old `services/git.py` was deleted, never replaced). Blocks T034 in practice for any `FILE_EDITS` specialist. |
+| **T051**, **T052** | 7 (US5) | `board/verification.py` doesn't exist — no code↔verify↔remediation loop, no CI-repair cards. Blocked on T034/T041. |
+| **T067**, **T068**, **T069** | 9 (US7) | No task-source write-back at all: no labels/transitions/comments post from `projections.py`'s planning output, no decomposition-to-child-cards, no rerun/cleanup (deleted, not replaced). |
+
+Suggested resume order: **T034 → T041 → T051/T052 → T067/T068/T069** (each
+roughly depends on the one before). See each task's note below for specifics
+before starting.
+
 ## Phase 1: Setup
 
 **Purpose**: Establish the file/configuration and dependency surface required
 by the replacement board.
 
-- [ ] T001 Create the default role folders, manifests, and prompts under
+- [x] T001 Create the default role folders, manifests, and prompts under
   `specialists/` for requester, pm, uiux, developer, infosec, dba, architect,
   ops, qa, coordinator, coder, verifier, and input-security.
-- [ ] T002 Add the `specialists_root` file-only setting, input bounds, lease
+- [x] T002 Add the `specialists_root` file-only setting, input bounds, lease
   defaults, and board capacity settings in `backend/app/config.py` and
   `backend/config.toml.example`.
-- [ ] T003 [P] Add `@vue-flow/core` and its lockfile entry in
+- [x] T003 [P] Add `@vue-flow/core` and its lockfile entry in
   `frontend/package.json` and `frontend/package-lock.json`; document why it is
   lazy-loaded, read-only graph enhancement rather than board state authority.
-- [ ] T004 [P] Add specialist-manifest fixtures and safe source/gate input
+- [x] T004 [P] Add specialist-manifest fixtures and safe source/gate input
   fixtures in `backend/tests/fixtures/board/`.
 
 ---
@@ -45,42 +71,42 @@ this phase.
 
 **⚠️ CRITICAL**: Complete this phase before story implementation.
 
-- [ ] T005 [P] Write state, dependency, and cycle-rejection unit tests in
+- [x] T005 [P] Write state, dependency, and cycle-rejection unit tests in
   `backend/tests/test_board_policy.py` from `data-model.md`.
-- [ ] T006 [P] Write atomic claim, repository-write lease, stale-result, and
+- [x] T006 [P] Write atomic claim, repository-write lease, stale-result, and
   lease-expiry recovery tests in `backend/tests/test_board_claims.py`.
-- [ ] T007 [P] Write immutable artifact provenance and project-material
+- [x] T007 [P] Write immutable artifact provenance and project-material
   selection tests in `backend/tests/test_board_artifacts.py`.
-- [ ] T008 Define board enums, typed value objects, card action/result schemas,
+- [x] T008 Define board enums, typed value objects, card action/result schemas,
   and pure dependency helpers in `backend/app/services/board/models.py` and
   `backend/app/services/board/policy.py` to satisfy T005.
-- [ ] T009 Add board ORM rows, indexes, foreign keys, and SQLAlchemy mappings
+- [x] T009 Add board ORM rows, indexes, foreign keys, and SQLAlchemy mappings
   for workflows, cards, dependencies, attempts, leases, artifacts, gates,
   untrusted inputs, security reviews, actions, events, and projections in
   `backend/app/persistence/tables.py`.
-- [ ] T010 Add Alembic board-schema creation revision in
+- [x] T010 Add Alembic board-schema creation revision in
   `backend/alembic/versions/` and migration tests in
   `backend/tests/test_migrations.py`.
-- [ ] T011 Implement focused board persistence stores and transactional
+- [x] T011 Implement focused board persistence stores and transactional
   conditional claim/write-lease operations in
   `backend/app/persistence/board_store.py`,
   `backend/app/persistence/board_artifact_store.py`, and
   `backend/app/persistence/board_projection_store.py` to satisfy T006-T007.
-- [ ] T012 Implement the board application service's workflow/card reads,
+- [x] T012 Implement the board application service's workflow/card reads,
   revision increments, policy-mediated transitions, and safe event append in
   `backend/app/services/board/service.py`.
-- [ ] T013 Adapt `backend/app/storage/workflow_bus.py` to publish committed
+- [x] T013 Adapt `backend/app/storage/workflow_bus.py` to publish committed
   board mutation ticks without embedding mutable payloads.
-- [ ] T014 Replace the fixed step-to-backend configuration validation with
+- [x] T014 Replace the fixed step-to-backend configuration validation with
   capability-checked specialist/card routing in `backend/app/policy.py` and
   `backend/app/config.py`.
-- [ ] T015 Implement strict specialist-root traversal, manifest parsing,
+- [x] T015 Implement strict specialist-root traversal, manifest parsing,
   prompt-file loading, role/default validation, and immutable roster snapshots
   in `backend/app/services/board/specialists.py`.
-- [ ] T016 Add specialist loader and capability/permission validation tests in
+- [x] T016 Add specialist loader and capability/permission validation tests in
   `backend/tests/test_board_specialists.py` for invalid manifests, root escape,
   missing defaults, unknown roles, and changed role definitions.
-- [ ] T017 Compose board stores, service, roster loader, and existing backend/
+- [x] T017 Compose board stores, service, roster loader, and existing backend/
   task-source/code-host ports in `backend/app/services/workflows/bootstrap.py`.
 
 **Checkpoint**: Board state, claims, artifacts, specialist definitions, and
@@ -100,39 +126,39 @@ progress until an operator release.
 
 ### Tests for User Story 1
 
-- [ ] T018 [P] [US1] Add source-task intake and duplicate-content tests in
+- [x] T018 [P] [US1] Add source-task intake and duplicate-content tests in
   `backend/tests/test_board_input_intake.py` for GitHub, Jira, and local task
   source bodies.
-- [ ] T019 [P] [US1] Add feedback webhook/poll quarantine tests in
+- [x] T019 [P] [US1] Add feedback webhook/poll quarantine tests in
   `backend/tests/test_board_feedback_intake.py` proving suspect input cannot be
   persisted as ordinary feedback, translated, acknowledged, or dispatched.
-- [ ] T020 [P] [US1] Add gate/questionnaire/direct-session input boundary tests
+- [x] T020 [P] [US1] Add gate/questionnaire/direct-session input boundary tests
   in `backend/tests/test_board_human_input.py`.
-- [ ] T021 [P] [US1] Add input-security specialist dispatch contract tests in
+- [x] T021 [P] [US1] Add input-security specialist dispatch contract tests in
   `backend/tests/test_board_input_security.py` for no-tools, no-workspace,
   malformed-result, timeout, and fail-closed behavior.
 
 ### Implementation for User Story 1
 
-- [ ] T022 [US1] Implement bounded input normalization, hashing, deterministic
+- [x] T022 [US1] Implement bounded input normalization, hashing, deterministic
   screening, constrained input-security classification, quarantine creation,
   and release/discard resolution in
   `backend/app/services/board/quarantine.py`.
-- [ ] T023 [US1] Implement trust-separated prompt envelopes and constrained
+- [x] T023 [US1] Implement trust-separated prompt envelopes and constrained
   specialist result validation in `backend/app/services/board/dispatch.py`.
-- [ ] T024 [US1] Replace source-task creation in
+- [x] T024 [US1] Replace source-task creation in
   `backend/app/services/ingestion.py` with canonical task fetch, protected
   input intake, and accepted-task board workflow creation.
-- [ ] T025 [US1] Route webhook and polling feedback through protected intake in
+- [x] T025 [US1] Route webhook and polling feedback through protected intake in
   `backend/app/services/feedback/intake.py`,
   `backend/app/services/feedback/poll.py`, and
   `backend/app/services/feedback/github_events.py`; remove unsafe pre-screen
   acknowledgement and translation paths.
-- [ ] T026 [US1] Route workflow gate/questionnaire and direct session prompt
+- [x] T026 [US1] Route workflow gate/questionnaire and direct session prompt
   bodies through protected intake in `backend/app/routers/workflows.py`,
   `backend/app/services/sessions.py`, and
   `backend/app/services/board/service.py`.
-- [ ] T027 [US1] Add safe security-review DTOs and release/discard intervention
+- [x] T027 [US1] Add safe security-review DTOs and release/discard intervention
   request shapes in `backend/app/schemas.py` and matching types in
   `frontend/src/types/workflows.ts`.
 
@@ -153,31 +179,46 @@ reconciliation card; invalid coordinator actions mutate nothing.
 
 ### Tests for User Story 2
 
-- [ ] T028 [P] [US2] Add coordinator action-schema, validation, replay, and
+- [x] T028 [P] [US2] Add coordinator action-schema, validation, replay, and
   forbidden-action tests in `backend/tests/test_board_coordinator.py`.
-- [ ] T029 [P] [US2] Add eligibility, parallel read-only dispatch, one-writer,
+- [x] T029 [P] [US2] Add eligibility, parallel read-only dispatch, one-writer,
   no-ready-work, and dependency-wait tests in
   `backend/tests/test_board_scheduler.py`.
-- [ ] T030 [P] [US2] Add reconciliation card creation and conflicting-artifact
+- [x] T030 [P] [US2] Add reconciliation card creation and conflicting-artifact
   tests in `backend/tests/test_board_reconciliation.py`.
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implement bounded coordinator action parsing, action ledger,
+- [x] T031 [US2] Implement bounded coordinator action parsing, action ledger,
   event claiming, and policy-delegated action application in
   `backend/app/services/board/coordinator.py`.
-- [ ] T032 [US2] Implement ready-card eligibility, atomic claims, heartbeats,
+- [x] T032 [US2] Implement ready-card eligibility, atomic claims, heartbeats,
   read-only capacity, write leases, completion, and stale-result handling in
   `backend/app/services/board/claims.py`.
-- [ ] T033 [US2] Implement card-result acceptance, immutable artifact inputs,
+- [x] T033 [US2] Implement card-result acceptance, immutable artifact inputs,
   dependency updates, and reconciliation-card creation in
   `backend/app/services/board/artifacts.py`.
-- [ ] T034 [US2] Implement event-driven specialist claiming and backend turn
-  dispatch in `backend/app/services/board/dispatch.py` and trigger coordinator
-  scheduling from `backend/app/services/board/service.py`.
-- [ ] T035 [US2] Replace static profile lookup and generic role fallback in
-  `backend/app/profiles.py` and fixed profile callers under
-  `backend/app/services/workflows/interview/` with validated specialist roles.
+- [ ] T034 [US2] **HALF DONE (2026-09-24 verified).** Coordinator scheduling
+  IS wired: `BoardService`'s `on_mutation` hook fires
+  `bootstrap.py::_trigger_scheduling` on every committed mutation, which
+  wakes `SchedulingService.wake()` → one coordinator LLM turn →
+  `CoordinatorService.apply_actions`. But the coordinator's own action
+  vocabulary (`coordinator.py::ProposedAction`) is limited to
+  `create_card`/`transition_card`/`create_reconciliation_card` — pure
+  planning. **The actual specialist-claims-and-works-a-card half was never
+  wired up**: `dispatch.py::claim_and_dispatch` (which claims a `ready` card
+  for a specialist and runs its turn) has zero callers anywhere in the app.
+  A card can sit `ready` forever. Remaining work: decide how/when a
+  specialist should be invoked per eligible role (a coordinator action type?
+  a per-role poll loop alongside `SchedulingService`?) and wire
+  `claim_and_dispatch` into it. This is the single most important gap — see
+  `docs/architecture.md#current-gap-no-automatic-specialist-execution-loop-yet`.
+- [x] T035 [US2] Done via a different mechanism than described: `profiles.py`
+  and `workflows/interview/` were deleted outright in Phase 10 rather than
+  edited in place. The board domain never reused them — `specialists.py`'s
+  `SpecialistRoster` (built in Phase 2, T015) is a wholly separate,
+  file-backed roster that every board service already resolves roles
+  through.
 
 **Checkpoint**: Specialist work is selected from ready cards and all proposed
 delegation, graph, and transition changes are policy validated.
@@ -195,27 +236,39 @@ only explicitly project-material artifacts enter a delivered project change.
 
 ### Tests for User Story 3
 
-- [ ] T036 [P] [US3] Add restart/expiry/retry/reassign/escalate recovery tests
+- [x] T036 [P] [US3] Add restart/expiry/retry/reassign/escalate recovery tests
   in `backend/tests/test_board_recovery.py`.
-- [ ] T037 [P] [US3] Add durable artifact content-store, provenance, retention,
+- [x] T037 [P] [US3] Add durable artifact content-store, provenance, retention,
   and commit-exclusion tests in `backend/tests/test_board_artifact_content.py`.
-- [ ] T038 [P] [US3] Add duplicate/late external projection recovery tests in
+- [x] T038 [P] [US3] Add duplicate/late external projection recovery tests in
   `backend/tests/test_board_projection_recovery.py`.
 
 ### Implementation for User Story 3
 
-- [ ] T039 [US3] Implement durable artifact content storage, immutable revision
+- [x] T039 [US3] Implement durable artifact content storage, immutable revision
   writes, provenance reads, and project-material selection in
   `backend/app/services/board/artifacts.py`.
-- [ ] T040 [US3] Implement startup and periodic claim/projection expiry recovery
+- [x] T040 [US3] Implement startup and periodic claim/projection expiry recovery
   in `backend/app/services/board/recovery.py` and register it from
   `backend/app/main.py` or the existing lifespan composition root.
-- [ ] T041 [US3] Update `backend/app/services/git.py` and delivery handoff code
-  to commit only project-material board artifacts and exclude orchestration-only
-  content from target repositories.
-- [ ] T042 [US3] Remove the fixed driver's mid-step restart failure behavior in
-  `backend/app/services/workflows/driver/__init__.py` and replace its callers
-  with board recovery entry points.
+- [ ] T041 [US3] **NOT DONE, target file gone (2026-09-24 verified).**
+  `backend/app/services/git.py` was deleted outright in Phase 10 (confirmed
+  zero importers at the time) and never replaced with a board-domain
+  equivalent. There is currently **no git/workspace execution layer for the
+  board at all**: no workspace provisioning, clone, commit, push, or
+  PR-open code exists under `app/services/board/`. `WorkspaceLease`
+  (`claims.py`) is pure bookkeeping (one-writer-per-repo locking), not tied
+  to an actual checkout anywhere. This blocks T034 in practice even once
+  wired: a `coder`-type specialist needs `FILE_EDITS` capability and a real
+  worktree to do anything. Remaining work: design and build this layer
+  from scratch (it can likely reuse patterns from the deleted
+  `services/git.py`/`workflows/service.py`, available in git history at
+  `33628b4^`), then apply the project-material filtering this task
+  originally asked for.
+- [x] T042 [US3] Done via deletion: `workflows/driver/__init__.py` (and the
+  whole `driver/` package) was removed outright in Phase 10.
+  `board/recovery.py`'s startup + periodic sweep (registered in
+  `app/main.py`'s lifespan) is the board's only recovery entry point now.
 
 **Checkpoint**: Process loss produces recoverable durable state rather than a
 terminal generic workflow failure.
@@ -233,24 +286,24 @@ input leaves its original gate unresolved.
 
 ### Tests for User Story 4
 
-- [ ] T043 [P] [US4] Add human-gate revision, decision provenance, PRD scope,
+- [x] T043 [P] [US4] Add human-gate revision, decision provenance, PRD scope,
   and targeted invalidation tests in `backend/tests/test_board_gates.py`.
-- [ ] T044 [P] [US4] Add revisioned intervention conflict and stale-action tests
+- [x] T044 [P] [US4] Add revisioned intervention conflict and stale-action tests
   in `backend/tests/test_board_interventions.py`.
 
 ### Implementation for User Story 4
 
-- [ ] T045 [US4] Implement revisioned human-gate cards, decision records,
+- [x] T045 [US4] Implement revisioned human-gate cards, decision records,
   approved PRD authority, and targeted downstream invalidation in
   `backend/app/services/board/gates.py` and
   `backend/app/services/board/service.py`.
-- [ ] T046 [US4] Implement policy-mediated retry, cancel, reassign, resolve
+- [x] T046 [US4] Implement policy-mediated retry, cancel, reassign, resolve
   gate, release/discard quarantine, and coordinator-review interventions in
   `backend/app/services/board/interventions.py`.
-- [ ] T047 [US4] Replace fixed gate control queues and positional re-entry in
-  `backend/app/services/workflows/gate.py`,
-  `backend/app/services/workflows/reentry.py`, and
-  `backend/app/services/feedback/dispatch.py` with card-targeted board events.
+- [x] T047 [US4] Done via deletion: `workflows/gate.py`, `workflows/reentry.py`,
+  and `feedback/dispatch.py` were all removed outright in Phase 10.
+  `board/gates.py` + `board/interventions.py` (T045/T046) already provide
+  card-targeted gate resolution; nothing further needed replacing.
 
 **Checkpoint**: Human approval remains the scope authority, with no global run
 pause or fixed-step rewind.
@@ -269,22 +322,26 @@ an ambiguous criterion creates coordinator review and cannot mutate the PRD.
 
 ### Tests for User Story 5
 
-- [ ] T048 [P] [US5] Add verifier finding classification and internal
+- [x] T048 [P] [US5] Add verifier finding classification and internal
 remediation tests in `backend/tests/test_board_verifier_routing.py`.
-- [ ] T049 [P] [US5] Add ambiguity, conflict, infeasibility, and policy-risk
+- [x] T049 [P] [US5] Add ambiguity, conflict, infeasibility, and policy-risk
   escalation tests in `backend/tests/test_board_verifier_escalation.py`.
 
 ### Implementation for User Story 5
 
-- [ ] T050 [US5] Define the closed verifier finding/result schema and validate
+- [x] T050 [US5] Define the closed verifier finding/result schema and validate
   it in `backend/app/services/board/validation.py`.
-- [ ] T051 [US5] Replace the fixed code/verify loop in
-  `backend/app/services/workflows/driver/code_verify.py` with code, check,
-  verify, remediation, and coordinator-escalation card behavior in
-  `backend/app/services/board/verification.py`.
-- [ ] T052 [US5] Replace fixed CI repair resumption in
-  `backend/app/services/workflows/ci.py` with policy-bounded CI evidence and
-  repair cards in `backend/app/services/board/verification.py`.
+- [ ] T051 [US5] **NOT DONE, target module doesn't exist (2026-09-24
+  verified).** `backend/app/services/board/verification.py` does not exist.
+  Only the finding *schema and classification* (`validation.py`'s
+  `VerifierFinding`/`is_remediation`/`is_escalation`, T050) is built — there
+  is no card-lifecycle behavior that actually runs a code→check→verify
+  cycle, creates remediation cards on a clear violation, or escalates
+  ambiguity/conflict/infeasibility/policy-risk to the coordinator. Blocked
+  on T034/T041 in practice (nothing drives a `code`/`verify` card's turn at
+  all yet).
+- [ ] T052 [US5] **NOT DONE**, same missing module as T051. No CI-evidence or
+  CI-repair card behavior exists anywhere in `app/services/board/`.
 
 **Checkpoint**: Verification preserves autonomous implementation repair without
 allowing the verifier to extend approved scope.
@@ -303,38 +360,38 @@ selects the same detail and does not allow state-changing drag interactions.
 
 ### Tests for User Story 6
 
-- [ ] T053 [P] [US6] Add board DTO serialization, safe quarantine-field, and
+- [x] T053 [P] [US6] Add board DTO serialization, safe quarantine-field, and
   snapshot SSE tests in `backend/tests/test_workflows_router.py`.
-- [ ] T054 [P] [US6] Add mirrored board contract and graph-projection tests in
+- [x] T054 [P] [US6] Add mirrored board contract and graph-projection tests in
   `frontend/tests/lib/boardGraph.test.ts` and
   `frontend/tests/types/workflows.test.ts`.
-- [ ] T055 [P] [US6] Add Board/List state grouping, safe review rendering,
+- [x] T055 [P] [US6] Add Board/List state grouping, safe review rendering,
   permitted action, keyboard focus, and narrow-layout tests in
   `frontend/tests/components/WorkBoard.test.ts`.
-- [ ] T056 [P] [US6] Add graph selection, filtering, and no-mutation interaction
+- [x] T056 [P] [US6] Add graph selection, filtering, and no-mutation interaction
   tests in `frontend/tests/components/WorkflowGraph.test.ts`.
 
 ### Implementation for User Story 6
 
-- [ ] T057 [US6] Replace fixed step schemas with board summary, detail, card,
+- [x] T057 [US6] Replace fixed step schemas with board summary, detail, card,
   artifact, relation, gate, and intervention schemas in
   `backend/app/schemas.py`.
-- [ ] T058 [US6] Replace fixed-step routes with board collection/detail/card,
+- [x] T058 [US6] Replace fixed-step routes with board collection/detail/card,
   revisioned intervention, and board snapshot SSE routes in
   `backend/app/routers/workflows.py`.
-- [ ] T059 [US6] Replace fixed workflow types and step constants with the
+- [x] T059 [US6] Replace fixed workflow types and step constants with the
   mirrored board contract in `frontend/src/types/workflows.ts`.
-- [ ] T060 [US6] Adapt selected-workflow HTTP/SSE lifecycle, board revisions,
+- [x] T060 [US6] Adapt selected-workflow HTTP/SSE lifecycle, board revisions,
   stale action errors, and card interventions in
   `frontend/src/composables/useWorkflows.ts`.
-- [ ] T061 [US6] Implement accessible state-grouped Board/List, responsive card
+- [x] T061 [US6] Implement accessible state-grouped Board/List, responsive card
   detail, security-review summary, safe confirmation dialogs, and live status
   announcements in `frontend/src/components/WorkBoard.vue`,
   `frontend/src/components/WorkCardDetail.vue`, and
   `frontend/src/components/WorkflowPanel.vue`.
-- [ ] T062 [US6] Implement deterministic card/relation-to-graph projection in
+- [x] T062 [US6] Implement deterministic card/relation-to-graph projection in
   `frontend/src/lib/boardGraph.ts`.
-- [ ] T063 [US6] Implement lazy-loaded, read-only Vue Flow graph selection,
+- [x] T063 [US6] Implement lazy-loaded, read-only Vue Flow graph selection,
   filters, fit/focus controls, and Vuetify-theme custom nodes in
   `frontend/src/components/WorkflowGraph.vue` and
   `frontend/src/components/WorkflowPanel.vue`.
@@ -355,26 +412,36 @@ public cleanup only sees recorded Kestrel-owned resources.
 
 ### Tests for User Story 7
 
-- [ ] T064 [P] [US7] Add projection eligibility, idempotency, retry, and
+- [x] T064 [P] [US7] Add projection eligibility, idempotency, retry, and
   no-routine-update tests in `backend/tests/test_board_projections.py`.
-- [ ] T065 [P] [US7] Add public/private visibility and cleanup-ownership tests
+- [x] T065 [P] [US7] Add public/private visibility and cleanup-ownership tests
   in `backend/tests/test_board_projection_cleanup.py`.
 
 ### Implementation for User Story 7
 
-- [ ] T066 [US7] Implement projection planning, durable idempotency records,
+- [x] T066 [US7] Implement projection planning, durable idempotency records,
   Kestrel-owned external artifact ledger, and retry handling in
   `backend/app/services/board/projections.py`.
-- [ ] T067 [US7] Replace fixed workflow lifecycle/source notification behavior
-  in `backend/app/notifications.py` and
-  `backend/app/services/lifecycle.py` with allowed board milestone projections.
-- [ ] T068 [US7] Replace fixed decomposition child publication and scheduling in
-  `backend/app/services/workflows/driver/technical_analysis.py` and
-  `backend/app/services/task_scheduler.py` with coordinator-created child cards
-  and source projections.
-- [ ] T069 [US7] Adapt cleanup and rerun policy in
-  `backend/app/services/workflows/reset.py` to use the projection ownership
-  ledger and preserve public forward-only constraints.
+- [ ] T067 [US7] **NOT DONE (2026-09-24 verified).** `lifecycle.py` was
+  deleted outright in Phase 10; `notifications.py` now only holds the
+  `Notification` record/`signal_class` shape (its own module docstring:
+  "nothing currently produces a Notification row"). Nothing calls
+  `projections.py` (T066) to actually post a label/transition/comment back
+  to a task source. Remaining work: wire `projections.py`'s planning output
+  into real `TaskSource.transition()`/`post_comment()` calls at the right
+  board-mutation points.
+- [ ] T068 [US7] **NOT DONE.** `workflows/driver/technical_analysis.py` was
+  deleted in Phase 10 with no board-domain replacement; `task_scheduler.py`
+  survives only as pure branch-selection helpers
+  (`integration_branch`/`ScheduledTask`) consulted by `ingestion.py` for an
+  *already-linked* child — nothing in the board domain decomposes a task
+  and coordinator-creates child cards/tickets yet. Depends on T034/T041
+  (something has to actually do the decomposition work first).
+- [ ] T069 [US7] **NOT DONE, no equivalent exists.** `workflows/reset.py`
+  (rerun) was deleted outright in Phase 10 with no replacement — confirmed
+  via the constitution's amendment 1.5.0→1.5.1 ("rerun action... removed").
+  There is no cleanup action either. Both would need the projection
+  ownership ledger (T066) as their foundation once (re)built.
 
 **Checkpoint**: Task sources carry approvals, material blockers, artifacts,
 child work, and delivery outcomes without becoming a noisy board mirror.
@@ -386,30 +453,30 @@ child work, and delivery outcomes without becoming a noisy board mirror.
 **Purpose**: Remove obsolete fixed-workflow behavior, complete operator
 documentation, and prove end-to-end behavior.
 
-- [ ] T070 Delete obsolete fixed driver modules under
+- [x] T070 Delete obsolete fixed driver modules under
   `backend/app/services/workflows/driver/` and remove their imports/tests after
   equivalent board coverage is passing.
-- [ ] T071 Remove legacy workflow-step models, stores, review/gate fields, and
+- [x] T071 Remove legacy workflow-step models, stores, review/gate fields, and
   fixed profile registry in `backend/app/models_workflow.py`,
   `backend/app/persistence/workflow_store.py`, and `backend/app/profiles.py`.
-- [ ] T072 Create a final Alembic clean-break revision in
+- [x] T072 Create a final Alembic clean-break revision in
   `backend/alembic/versions/` that drops legacy fixed-workflow tables and
   preserves only semantically valid retained records/FKs.
-- [ ] T073 [P] Update system context, task-source setup guides, configuration
+- [x] T073 [P] Update system context, task-source setup guides, configuration
   reference, and operator security guidance in `docs/architecture.md`,
   `docs/setup-github-workflow.md`, `docs/setup-jira-workflow.md`,
   `docs/setup-local-tasks.md`, and `docs/configuration.md`.
-- [ ] T074 [P] Update `README.md`, `config.toml.example`, and container/source
+- [x] T074 [P] Update `README.md`, `config.toml.example`, and container/source
   startup documentation for specialist roots, board recovery, direct-prompt
   confirmation, and security review operation.
-- [ ] T075 Update `.specify/memory/constitution.md` only if implementation
+- [x] T075 Update `.specify/memory/constitution.md` only if implementation
   introduces a binding trust, access, or cleanup behavior beyond the existing
   recorded constraints; otherwise document explicit no-amendment confirmation
   in the feature completion notes.
-- [ ] T076 Run every scenario in
+- [x] T076 Run every scenario in
   `specs/026-autonomous-work-board/quickstart.md`, recording outcomes in
   `specs/026-autonomous-work-board/quickstart.md` or follow-up defects.
-- [ ] T077 Run `task quality` from the repository root and resolve all findings
+- [x] T077 Run `task quality` from the repository root and resolve all findings
   without suppressions or quality-threshold changes.
 
 ---
