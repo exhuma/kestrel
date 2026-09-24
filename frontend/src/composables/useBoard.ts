@@ -8,9 +8,8 @@ import type {
   WorkCardSummary,
 } from '../types/workflows'
 
-// Additive alongside useWorkflows.ts (the old driver's composable) — the
-// board domain has its own collection/snapshot/intervention surface under
-// /api/board, never replacing the fixed-step one (feature 026, US6).
+// The board domain's collection/snapshot/intervention surface under
+// /api/board (feature 026, US6).
 
 const workflows = ref<BoardWorkflowSummary[]>([])
 const current = ref<BoardSnapshot | null>(null)
@@ -95,7 +94,7 @@ function openDetailStream(id: string): void {
 
 async function select(id: string): Promise<void> {
   // Push, not poll: the server streams a fresh snapshot on every
-  // committed board mutation, the same convention as useWorkflows.
+  // committed board mutation.
   stopDetail()
   selectedId.value = id
   const ok = await fetchSnapshot(id)

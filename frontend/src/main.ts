@@ -6,7 +6,7 @@ import { aliases as appAliases } from './plugins/icons'
 import './styles/theme.css'
 import App from './App.vue'
 import { applyDeepLink } from './lib/deeplink'
-import { useWorkflows } from './composables/useWorkflows'
+import { useBoard } from './composables/useBoard'
 
 // Vuetify's built-in `light` and `dark` themes carry the whole palette — the
 // app no longer ships a bespoke colour system. Components auto-import on demand
@@ -48,6 +48,6 @@ const vuetify = createVuetify({
 
 // Deep-link: if the URL carries `?run=<id>` (from a gate-notification
 // comment), open that run before mount so the panel shows its gate form.
-applyDeepLink(window.location.search, (id) => void useWorkflows().select(id))
+applyDeepLink(window.location.search, (id) => void useBoard().select(id))
 
 createApp(App).use(vuetify).mount('#app')

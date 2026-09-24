@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { useNotifications } from '../composables/useNotifications'
-import { useWorkflows } from '../composables/useWorkflows'
+import { useBoard } from '../composables/useBoard'
 
 const emit = defineEmits<{ navigate: [] }>()
 const {
@@ -14,11 +14,11 @@ const {
   start,
   stop,
 } = useNotifications()
-const { select } = useWorkflows()
+const { select } = useBoard()
 
 onMounted(() => {
   // Reliable baseline via plain fetch, independent of the SSE stream
-  // actually connecting — see WorkflowPanel.vue for the same pattern.
+  // actually connecting.
   void refresh()
   start()
 })
@@ -26,7 +26,7 @@ onUnmounted(stop)
 
 async function onClick(id: number, workflowId: string): Promise<void> {
   await markRead(id)
-  select(workflowId)
+  await select(workflowId)
   emit('navigate')
 }
 </script>

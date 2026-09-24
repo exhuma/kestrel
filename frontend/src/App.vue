@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import WorkflowPanel from './components/WorkflowPanel.vue'
 import WorkBoard from './components/WorkBoard.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
@@ -10,7 +9,7 @@ import IdentityBadge from './components/IdentityBadge.vue'
 import PanelLoading from './components/PanelLoading.vue'
 import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
-import { useWorkflows } from './composables/useWorkflows'
+import { useBoard } from './composables/useBoard'
 import { useConnectivity } from './composables/useConnectivity'
 
 // Workflows is the default view; the raw sessions view is a secondary
@@ -27,7 +26,7 @@ const SessionPanel = defineAsyncComponent({
 
 // Shared composable state: the header reflects fleet-wide status.
 const { sessions, loading: sessionsLoading } = useSessions()
-const { loading: workflowsLoading } = useWorkflows()
+const { loading: boardLoading } = useBoard()
 
 // Registered once, here, before any child's onMounted fetch runs — every
 // api.* call anywhere in the app feeds this, so a request that can't even
@@ -39,15 +38,14 @@ const running = computed(() =>
 )
 
 // Page-level loading: a thin indeterminate bar under the app bar while any
-// primary fetch (sessions or workflows) is in flight (module-vue-vuetify
+// primary fetch (sessions or board) is in flight (module-vue-vuetify
 // loading-feedback rule).
-const loading = computed(() => sessionsLoading.value || workflowsLoading.value)
+const loading = computed(() => sessionsLoading.value || boardLoading.value)
 
-// Workflows lead; the raw sessions view is kept only as a debugging
-// affordance (the muted toggle in the header). Board (feature 026, US6)
-// is additive — a separate view onto the new autonomous work board
-// domain, alongside (not replacing) the fixed-step workflows view.
-const view = ref<'sessions' | 'workflows' | 'board'>('workflows')
+// Board (the autonomous work board, feature 026) is the default view; the
+// raw sessions view is kept only as a debugging affordance (the muted
+// toggle in the header).
+const view = ref<'sessions' | 'board'>('board')
 
 // Light/dark toggle over Vuetify's two built-in themes.
 const theme = useTheme()
@@ -95,9 +93,6 @@ function toggleTheme() {
         density="comfortable"
         class="me-4"
       >
-        <v-btn value="workflows" size="small" class="text-none"
-          >Workflows</v-btn
-        >
         <v-btn value="board" size="small" class="text-none">Board</v-btn>
         <v-btn
           value="sessions"
@@ -124,7 +119,7 @@ function toggleTheme() {
       </v-chip>
 
       <SourceHealthIndicator />
-      <NotificationCenter @navigate="view = 'workflows'" />
+      <NotificationCenter @navigate="view = 'board'" />
       <v-btn
         :icon="isDark ? '$weatherNight' : '$weatherSunny'"
         variant="text"
@@ -145,8 +140,7 @@ function toggleTheme() {
 
     <v-main class="stageroot">
       <SessionPanel v-if="view === 'sessions'" />
-      <WorkBoard v-else-if="view === 'board'" />
-      <WorkflowPanel v-else />
+      <WorkBoard v-else />
     </v-main>
   </v-app>
 </template>
