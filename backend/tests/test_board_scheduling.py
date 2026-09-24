@@ -30,13 +30,15 @@ from app.services.board.claims import ClaimsService, NoEligibleCardError
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
     CardTurnError,
-    DispatchServices,
     SchedulingService,
     build_card_envelope,
     build_coordinator_envelope,
     claim_and_dispatch,
-    dispatch_ready_work,
     run_card_turn,
+)
+from app.services.board.dispatch_ready import (
+    DispatchServices,
+    dispatch_ready_work,
 )
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster

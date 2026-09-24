@@ -141,43 +141,56 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: no verification loop or task-source write-back yet
+### Current gap: no task-source write-back or delivery yet
 
 Everything above through gate/intervention resolution is live, and so is
 the automatic specialist dispatch loop (spec 026 T034):
 `app/services/board/bootstrap.py`'s `_trigger_scheduling` fires on every
 committed board mutation, wakes the coordinator for one planning turn, then
-calls `app/services/board/dispatch.py::dispatch_ready_work`, which tries a
-claim→turn→accept cycle for every non-coordinator role in the roster. A
-`ready` card is now genuinely claimed, turned, and (on success) accepted
-into `review`/`done` without any operator action — see
+calls `app/services/board/dispatch_ready.py::dispatch_ready_work`, which
+tries a claim→turn→accept cycle for every non-coordinator role in the
+roster. A `ready` card is now genuinely claimed, turned, and (on success)
+accepted into `review`/`done` without any operator action — see
 `tests/test_board_scheduling.py::TestDispatchReadyWork`.
 
-**As of 2026-09-26, a `read_only`/`write` card also gets a real workspace**
-(spec 026 T041): `app/services/board/workspace.py::WorkspaceService`
-provisions a per-repo shared bare mirror plus one worktree per workflow,
-cut from it on demand and reused (never reset) across a workflow's turns.
-A `write` card additionally dispatches with `permission_mode="acceptEdits"`
-(every turn used to run in read-only `"plan"` mode regardless of the
-card's actual permission), so the `coder` role can now genuinely read and
-edit files — its prompt instructs it to commit its own work locally. See
-`tests/test_board_dispatch_workspace.py`.
+A `read_only`/`write` card also gets a real workspace (spec 026 T041):
+`app/services/board/workspace.py::WorkspaceService` provisions a per-repo
+shared bare mirror plus one worktree per workflow, cut from it on demand
+and reused (never reset) across a workflow's turns. A `write` card
+additionally dispatches with `permission_mode="acceptEdits"`, so the
+`coder` role can now genuinely read and edit files — its prompt instructs
+it to commit its own work locally. See `tests/test_board_dispatch_workspace.py`.
 
-**Deliberately still out of scope** (T041's own boundary, not an
-oversight): kestrel never pushes a coder's commits or opens a change
-request. That is a delivery decision left for verification (T051/T052,
-still not built) to gate — nothing unverified should ever reach a remote.
+**As of 2026-09-26, a `verification` card's result is also routed** (spec
+026 T051): `app/services/board/verification.py::route_verifier_result`
+parses the verifier's `<VERIFIER_FINDINGS>` block and creates one follow-up
+card per finding — a `nonconformance`/`verification_gap` finding becomes a
+new, immediately-ready `implementation` card for `coder` (internal
+remediation, FR-027); an `ambiguity`/`requirement_conflict`/
+`infeasibility`/`policy_risk` finding, or a result that fails to parse at
+all, becomes a `coordinator_review` card that no specialist ever claims
+(escalation, FR-028, fail closed). Every card is still created only through
+`CoordinatorService.apply_actions` (FR-006). See
+`tests/test_board_verification.py`.
+
+**Deliberately still out of scope**: kestrel never pushes a coder's
+commits or opens a change request, for either an initial implementation
+or a verified remediation. Nothing currently decides "verification
+passed, therefore deliver" — a clean verification result (empty findings)
+creates no follow-up card at all, so the loop has no explicit "done, ship
+it" signal yet. This is now the most important remaining gap (tasks.md
+T067-T069, which also covers the rest of task-source write-back below).
 
 What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
 operator should not expect today:
 
-- **Any verification of a coder's work, or delivery of it.**
-  `app/services/board/verification.py` doesn't exist: no code↔verify↔
-  remediation loop, no CI-repair cards, and (per the paragraph above) no
-  push/change-request step either. A coder's commits stay local to its
-  worktree. This is now the most important remaining gap (tasks.md
-  T051/T052).
+- **Delivery: pushing a coder's verified work, or opening a change
+  request.** A coder's commits stay local to its worktree even after a
+  clean verification. Also not built: CI-pipeline-specific evidence/repair
+  cards (tasks.md T052) — distinct from T051's verifier-finding routing,
+  which covers a verifier's own findings (code review/local test run
+  style) regardless of any CI system.
 - **Any write-back to the task source beyond ingestion itself.** The
   external-projection ledger (`app/services/board/projections.py`) records
   planned gate/escalation/approved-artifact/child-work/delivery milestones

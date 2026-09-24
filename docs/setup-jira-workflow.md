@@ -97,7 +97,7 @@ itself by exercising the running, modified project directly, rather than
 re-running the coder's own checks — durable test coverage is the coder's TDD
 responsibility. As of this writing there is no automated loop that actually
 claims and runs a card (see
-[Architecture → Current gap](architecture.md#current-gap-no-verification-loop-or-task-source-write-back-yet)),
+[Architecture → Current gap](architecture.md#current-gap-no-task-source-write-back-or-delivery-yet)),
 so this is the specialist's intended contract rather than something you can
 currently observe end-to-end against a live RFC.
 
@@ -115,7 +115,7 @@ currently observe end-to-end against a live RFC.
    (the Board), not on the RFC. Nothing is currently posted back to the RFC
    itself: no status comment, no attached PRD, no decomposition into linked
    sub-tasks, no change-request link. See
-   [Architecture → Current gap](architecture.md#current-gap-no-verification-loop-or-task-source-write-back-yet)
+   [Architecture → Current gap](architecture.md#current-gap-no-task-source-write-back-or-delivery-yet)
    for the full list of what's not yet wired up and why.
 
 This replaces the old fixed driver's `describe → refine →

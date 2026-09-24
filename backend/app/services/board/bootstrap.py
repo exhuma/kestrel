@@ -28,9 +28,9 @@ from app.policy import get_specialist_backend_policy
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import ClaimsService
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.dispatch import (
+from app.services.board.dispatch import SchedulingService
+from app.services.board.dispatch_ready import (
     DispatchServices,
-    SchedulingService,
     dispatch_ready_work,
 )
 from app.services.board.gates import GatesService
@@ -174,6 +174,7 @@ def get_dispatch_services() -> DispatchServices:
         get_artifacts_service(),
         workspace=get_workspace_service(),
         task_sources=get_task_source_registry(),
+        coordinator=get_coordinator_service(),
     )
 
 

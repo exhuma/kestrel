@@ -18,32 +18,31 @@ before beginning story phases.
   prerequisites are complete.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
-## Status (2026-09-26, after Phase 10 clean break + T034 + T041)
+## Status (2026-09-26, after Phase 10 clean break + T034 + T041 + T051)
 
-72/77 tasks verified complete against actual code (not just checked off —
+73/77 tasks verified complete against actual code (not just checked off —
 every `[x]` below was confirmed by reading/grepping the current source or,
-for T034/T041, by writing and passing new tests). The old fixed six-step
-driver is fully removed (commits `33628b4` backend, `3fc281c` frontend,
-`483dda2` docs); the board domain's data model, intake/quarantine, gates/
-interventions, coordinator planning, claim/lease bookkeeping + recovery,
-the read-only Board/Graph UI, the automatic specialist claim→turn→accept
-dispatch loop (T034), **and now a real per-workflow git worktree for
-`read_only`/`write` cards, with `coder` actually able to edit files
-(T041)** are all solid and tested.
+for T034/T041/T051, by writing and passing new tests). The old fixed
+six-step driver is fully removed (commits `33628b4` backend, `3fc281c`
+frontend, `483dda2` docs); the board domain's data model, intake/
+quarantine, gates/interventions, coordinator planning, claim/lease
+bookkeeping + recovery, the read-only Board/Graph UI, the automatic
+specialist claim→turn→accept dispatch loop (T034), a real per-workflow
+git worktree with `coder` actually able to edit files (T041), **and now
+verifier-finding routing into remediation/escalation cards (T051)** are
+all solid and tested.
 
-**5 tasks remain genuinely open**, all downstream of T041's deliberate
-scope boundary (provisioning only — no push/PR-open, no delivery). Each
-has a `**NOT DONE**` note in place with exact findings:
+**4 tasks remain genuinely open.** Each has a `**NOT DONE**` note in place
+with exact findings:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T051**, **T052** | 7 (US5) | **Now the most important gap.** `board/verification.py` doesn't exist — no code↔verify↔remediation loop, no CI-repair cards. A coder can now commit locally (T041), but nothing checks or verifies that work, and nothing decides when it's safe to push/deliver it. |
-| **T067**, **T068**, **T069** | 9 (US7) | No task-source write-back at all: no labels/transitions/comments post from `projections.py`'s planning output, no decomposition-to-child-cards, no rerun/cleanup (deleted, not replaced). |
+| **T052** | 7 (US5) | CI-pipeline-specific evidence/repair cards — distinct from T051's verifier-finding routing, which is done. Lower priority now: local remediation already works without it. |
+| **T067**, **T068**, **T069** | 9 (US7) | No task-source write-back at all: no labels/transitions/comments post from `projections.py`'s planning output, no decomposition-to-child-cards, no rerun/cleanup (deleted, not replaced). Also now the natural place to add push/opening a change request (T041/T051's deferred delivery step) — a clean verification result creates no follow-up card today, so there is still no explicit "done, ship it" signal anywhere. |
 
-Suggested resume order: **T051/T052 → T067/T068/T069**. T051/T052 is also
-the natural place to finally add push/opening a change request (T041's
-scope note above) — delivery gated on verification passing, not automatic.
-See each task's note below for specifics before starting.
+Suggested resume order: **T067/T068/T069 → T052** (delivery/write-back is
+more operator-visible value than CI-specific repair). See each task's note
+below for specifics before starting.
 
 ## Phase 1: Setup
 
@@ -350,17 +349,51 @@ remediation tests in `backend/tests/test_board_verifier_routing.py`.
 
 - [x] T050 [US5] Define the closed verifier finding/result schema and validate
   it in `backend/app/services/board/validation.py`.
-- [ ] T051 [US5] **NOT DONE, target module doesn't exist (2026-09-24
-  verified).** `backend/app/services/board/verification.py` does not exist.
-  Only the finding *schema and classification* (`validation.py`'s
-  `VerifierFinding`/`is_remediation`/`is_escalation`, T050) is built — there
-  is no card-lifecycle behavior that actually runs a code→check→verify
-  cycle, creates remediation cards on a clear violation, or escalates
-  ambiguity/conflict/infeasibility/policy-risk to the coordinator. Blocked
-  on T034/T041 in practice (nothing drives a `code`/`verify` card's turn at
-  all yet).
-- [ ] T052 [US5] **NOT DONE**, same missing module as T051. No CI-evidence or
-  CI-repair card behavior exists anywhere in `app/services/board/`.
+- [x] T051 [US5] **Done 2026-09-26.** New
+  `app/services/board/verification.py::route_verifier_result`: parses a
+  completed `verification` card's turn result via `validation.py`'s
+  `parse_verifier_result` (T050) and creates exactly one follow-up card
+  per finding — `is_remediation` → a `coder`-eligible, `ready`
+  `implementation` card (no dependency: new work, not a revision);
+  `is_escalation`, or a result that fails to parse at all (fail closed) →
+  a `coordinator_review` card, claimed by no specialist. Every card is
+  created exclusively through `CoordinatorService.apply_actions`
+  (`CreateCardAction`) — this module never touches the board store
+  directly, preserving FR-006's "only the coordinator creates cards."
+  Idempotent per verification attempt (`verification:<card.id>
+  :<card.attempt_count>` trigger), reusing `apply_actions`'s own
+  per-trigger dedup. Wired into `dispatch_ready.py`'s `_dispatch_one`
+  (best-effort — a routing failure never undoes the verification card's
+  own already-accepted result) and into `_resolve_workspace`: a
+  `verification` card now dispatches with `permission_mode="acceptEdits"`
+  despite being `read_only`, since it needs to actually run tests/checks
+  (tool execution), which the previously-universal `"plan"` mode for
+  non-write cards does not reliably support headlessly — a real card
+  never edits/commits regardless of this mode; that boundary is enforced
+  by its prompt and by `required_abilities` excluding `file_edits`, the
+  same trust model the rest of this project already relies on (agent
+  instructions + capability-based routing, not a runtime sandbox).
+  `verifier`'s prompt now specifies the exact `<VERIFIER_FINDINGS>` output
+  format. Covered by `tests/test_board_verification.py` (7 tests:
+  remediation/escalation/mixed/clean/unparseable routing, idempotency,
+  and one full `dispatch_ready_work` end-to-end integration test).
+  `dispatch.py` was split into `dispatch.py` (classification + card/
+  coordinator-turn primitives) and `dispatch_ready.py` (the ready-work
+  loop) to stay under the 500-line module ceiling.
+
+  **Deliberately still out of scope**: pushing/opening a change request
+  once a `coder`'s remediation is verified clean. Nothing currently
+  decides "verification passed, therefore deliver" — a clean verification
+  result (empty findings) creates no follow-up card at all today, so the
+  loop has no explicit "done, ship it" signal yet. That decision point is
+  the natural place to finally add T041's deferred push/PR-open step.
+- [ ] T052 [US5] **Still NOT DONE.** T051 covers a verifier's own
+  findings (code review / local test run style) but nothing about a CI
+  pipeline specifically: no CI-status polling, no CI-evidence card, no
+  bounded CI-repair-attempt tracking (the old driver's
+  `max_ci_repair_iterations` setting still exists in config but has no
+  reader). Lower priority than it looked before T051 landed — a repo
+  without CI can already get real, verified local remediation today.
 
 **Checkpoint**: Verification preserves autonomous implementation repair without
 allowing the verifier to extend approved scope.

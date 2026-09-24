@@ -11,7 +11,10 @@ from pathlib import Path
 import pytest
 
 from app.models_board import WorkCard
-from app.services.board.dispatch import DispatchServices, dispatch_ready_work
+from app.services.board.dispatch_ready import (
+    DispatchServices,
+    dispatch_ready_work,
+)
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.workspace import WorkspaceService
 from tests.test_board_scheduling import (

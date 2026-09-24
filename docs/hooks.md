@@ -5,7 +5,7 @@ old fixed driver's lifecycle-notification code that invoked a `hooks_dir`
 executable at each lifecycle event was removed in the Phase 10 clean break
 (spec 026-autonomous-work-board) and has no board-domain replacement yet —
 see [Architecture → Current
-gap](architecture.md#current-gap-no-verification-loop-or-task-source-write-back-yet).
+gap](architecture.md#current-gap-no-task-source-write-back-or-delivery-yet).
 Today, configuring `hooks_dir` only gets you the startup audit-log pass (the
 executables it finds are logged, and flagged if group/world-writable); no
 hook is ever actually invoked. This page documents the wire format for when

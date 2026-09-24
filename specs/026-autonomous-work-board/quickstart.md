@@ -140,7 +140,7 @@ exercised end-to-end; everything else is a static code-path check.
   board's only mutation hook (`bootstrap.py`'s `_trigger_scheduling`) wakes
   the coordinator, never a specialist. A card can sit `ready` indefinitely.
   This is a real gap, not a sandbox limitation — see
-  `docs/architecture.md#current-gap-no-verification-loop-or-task-source-write-back-yet`.
+  `docs/architecture.md#current-gap-no-task-source-write-back-or-delivery-yet`.
 - *Gates, Verification, and Projection*, step 4 ("Inspect the source task
   after... gate, escalation, approved artifact, child work, and delivery"):
   **cannot currently pass** either — `app/services/board/projections.py`'s
