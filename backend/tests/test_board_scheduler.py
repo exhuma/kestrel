@@ -9,11 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
-
-from alembic import command
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
@@ -23,6 +18,7 @@ from app.services.board.claims import (
     ReadCapacityExceededError,
 )
 from app.services.board.specialists import SpecialistRoster
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -63,18 +59,12 @@ _ROSTER = SpecialistRoster(
 )
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 def _service(
     tmp_path: Path, *, max_parallel_read_cards: int = 4
 ) -> tuple[ClaimsService, BoardStore]:
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     claims_store = BoardClaimsStore(factory)
     store.create_workflow(_WORKFLOW)

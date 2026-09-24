@@ -15,7 +15,12 @@ from functools import lru_cache
 from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_board import ClaimOutcome, ClaimRequest, CompleteOutcome
+from app.models_board import (
+    ClaimLease,
+    ClaimOutcome,
+    ClaimRequest,
+    CompleteOutcome,
+)
 from app.persistence.board_tables import (
     BoardCardAttemptRow,
     BoardCardRow,
@@ -264,6 +269,19 @@ class BoardClaimsStore:
             ).delete()
             db.commit()
             return True
+
+    def get_active_lease(self, card_id: str) -> ClaimLease | None:
+        """Return *card_id*'s current claim lease, or ``None`` if unclaimed."""
+        with self._factory() as db:
+            row = db.get(BoardClaimLeaseRow, card_id)
+            if row is None:
+                return None
+            return ClaimLease(
+                card_id=row.card_id,
+                attempt_sequence=row.attempt_sequence,
+                specialist_id=row.holder_specialist_id,
+                expires_at=row.expires_at,
+            )
 
     def count_active_read_claims(self, *, now: datetime | None = None) -> int:
         """Count active claims on non-write cards (across all workflows).

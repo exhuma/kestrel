@@ -232,6 +232,113 @@ class QuarantineInterventionIn(BaseModel):
     action: Literal["release_quarantine", "discard_quarantine"]
 
 
+class BoardRoleRefOut(BaseModel):
+    """One specialist role reference (board-api.md ``CardSummary``)."""
+
+    id: str
+    label: str
+
+
+class BoardOwnerOut(BaseModel):
+    """The specialist currently holding a card's claim, if any."""
+
+    specialist_id: str
+    label: str
+
+
+class BoardLeaseOut(BaseModel):
+    """A claimed card's active lease (board-api.md ``CardSummary``)."""
+
+    expires_at: datetime
+    attempt: int
+
+
+class BoardArtifactRefOut(BaseModel):
+    """A safe pointer to one card's latest artifact — never its content."""
+
+    id: str
+    label: str
+    revision: int
+
+
+class WorkCardSummaryOut(BaseModel):
+    """One card's board-visible state (board-api.md ``CardSummary``).
+
+    :param dependency_count: How many ``dependency``-kind edges this card
+        has, not their resolution — the detail view carries the full
+        relationship list.
+    :param allowed_actions: This card's currently valid interventions
+        (``app.services.board.interventions.allowed_actions_for``).
+    """
+
+    id: str
+    title: str
+    card_type: str
+    state: str
+    eligible_roles: list[BoardRoleRefOut]
+    owner: BoardOwnerOut | None = None
+    lease: BoardLeaseOut | None = None
+    waiting_reason: str | None = None
+    dependency_count: int
+    latest_artifact: BoardArtifactRefOut | None = None
+    allowed_actions: list[str]
+
+
+class WorkCardRelationOut(BaseModel):
+    """One directed edge in a workflow's card graph."""
+
+    card_id: str
+    depends_on_card_id: str
+    kind: str
+
+
+class BoardSnapshotOut(BaseModel):
+    """One workflow's full board (board-api.md "Board Snapshot").
+
+    ``revision`` is the client's optimistic-concurrency token: every
+    intervention against a card in this snapshot must echo it back as
+    ``expected_revision``.
+    """
+
+    id: str
+    revision: int
+    task_label: str
+    status: str
+    cards: list[WorkCardSummaryOut]
+    relationships: list[WorkCardRelationOut]
+    state_counts: dict[str, int]
+
+
+class WorkflowSummaryOut(BaseModel):
+    """One workflow's row in the board collection listing."""
+
+    id: str
+    task_label: str
+    status: str
+    state_counts: dict[str, int]
+    action_required_count: int
+
+
+class BoardInterventionIn(BaseModel):
+    """Request body for one card intervention (board-api.md
+    "Intervention").
+
+    ``expected_revision`` is mandatory (optimistic concurrency): a stale
+    value is rejected with 409 rather than silently applying to a board
+    state the operator never actually saw.
+    """
+
+    action: Literal[
+        "retry",
+        "cancel",
+        "reassign",
+        "resolve_gate",
+        "request_coordinator_review",
+    ]
+    expected_revision: int
+    decision: str | None = None
+
+
 class NotificationOut(BaseModel):
     """One notification for the API."""
 

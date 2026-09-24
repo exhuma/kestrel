@@ -169,6 +169,12 @@ class BoardStore:
             row = db.get(BoardWorkflowRow, workflow_id)
             return _row_to_workflow(row) if row is not None else None
 
+    def list_workflows(self) -> list[Workflow]:
+        """Return every workflow (board collection listing)."""
+        with self._factory() as db:
+            rows = db.query(BoardWorkflowRow).all()
+            return [_row_to_workflow(row) for row in rows]
+
     def bump_workflow_revision(self, workflow_id: str) -> int:
         """Increment and return a workflow's snapshot revision."""
         with self._factory.begin() as db:

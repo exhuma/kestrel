@@ -11,11 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.models_board import CardAction, ClaimRequest, WorkCard, Workflow
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -25,8 +21,10 @@ from app.services.board.interventions import (
     InterventionsService,
     InvalidInterventionError,
     StaleInterventionError,
+    allowed_actions_for,
 )
 from app.services.board.service import BoardService
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -39,12 +37,6 @@ _WORKFLOW = Workflow(
 )
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 _Stores = tuple[
@@ -53,7 +45,7 @@ _Stores = tuple[
 
 
 def _service(tmp_path: Path) -> _Stores:
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     claims_store = BoardClaimsStore(factory)
     board_service = BoardService(store)
@@ -288,3 +280,26 @@ class TestUnknownCard:
                 CardAction.CANCEL,
                 expected_revision=_revision(store),
             )
+
+
+class TestAllowedActions:
+    """A card's allowed actions are a pure function of its own state."""
+
+    def test_failed_card_allows_retry_and_cancel(self) -> None:
+        actions = allowed_actions_for(_card(state="failed"))
+        assert CardAction.RETRY in actions
+        assert CardAction.CANCEL in actions
+        assert CardAction.REASSIGN not in actions
+
+    def test_claimed_card_allows_reassign_and_cancel(self) -> None:
+        actions = allowed_actions_for(_card(state="claimed"))
+        assert CardAction.REASSIGN in actions
+        assert CardAction.CANCEL in actions
+        assert CardAction.RETRY not in actions
+
+    def test_awaiting_human_card_allows_resolve_gate(self) -> None:
+        actions = allowed_actions_for(_card(state="awaiting_human"))
+        assert CardAction.RESOLVE_GATE in actions
+
+    def test_done_card_allows_no_actions(self) -> None:
+        assert allowed_actions_for(_card(state="done")) == []

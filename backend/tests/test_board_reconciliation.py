@@ -13,11 +13,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.models_board import CardRelation, HandoffArtifact, WorkCard, Workflow
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
@@ -26,6 +22,7 @@ from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.service import BoardService
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -40,16 +37,10 @@ _WORKFLOW = Workflow(
 _Stores = tuple[ArtifactsService, BoardStore, BoardArtifactStore]
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 def _service(tmp_path: Path) -> _Stores:
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     artifact_store = BoardArtifactStore(factory)
     board_service = BoardService(store)
@@ -284,7 +275,7 @@ class TestSubmitResult:
         )
 
     def test_no_content_store_configured_raises(self, tmp_path: Path) -> None:
-        factory = _factory(tmp_path)
+        factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         artifact_store = BoardArtifactStore(factory)
         board_service = BoardService(store)

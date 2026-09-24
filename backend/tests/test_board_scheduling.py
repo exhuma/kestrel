@@ -14,11 +14,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.backends.base import TurnRequest, TurnResult
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.persistence.board_claims_store import BoardClaimsStore
@@ -36,6 +32,7 @@ from app.services.board.dispatch import (
 )
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -96,16 +93,10 @@ def _coordinator_specialist() -> SpecialistDefinition:
     )
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     coordinator_store = BoardCoordinatorStore(factory)
     board_service = BoardService(store)
@@ -173,7 +164,7 @@ class TestClaimAndDispatch:
     async def test_claims_and_dispatches_the_eligible_card(
         self, tmp_path: Path
     ) -> None:
-        factory = _factory(tmp_path)
+        factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
         store.create_workflow(_WORKFLOW)
@@ -214,7 +205,7 @@ class TestClaimAndDispatch:
 
     @pytest.mark.asyncio
     async def test_no_ready_work_returns_none(self, tmp_path: Path) -> None:
-        factory = _factory(tmp_path)
+        factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
         store.create_workflow(_WORKFLOW)

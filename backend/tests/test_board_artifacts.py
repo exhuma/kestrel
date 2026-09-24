@@ -9,31 +9,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.models_board import HandoffArtifact, WorkCard, Workflow
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     DuplicateArtifactError,
 )
 from app.persistence.board_store import BoardStore
-
-
-def _factory(tmp_path: Path) -> sessionmaker:
-    """Return a session factory for an isolated, migrated SQLite database."""
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
+from tests.board_test_support import board_session_factory
 
 
 def _seeded(tmp_path: Path) -> tuple[BoardStore, BoardArtifactStore]:
     """A board with one workflow and one card, plus an artifact store."""
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     board = BoardStore(factory)
     board.create_workflow(
         Workflow(

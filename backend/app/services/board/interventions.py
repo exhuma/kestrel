@@ -143,3 +143,24 @@ class InterventionsService:
         )
         self._store.create_card(review)
         return review
+
+
+def allowed_actions_for(card: WorkCard) -> list[CardAction]:
+    """The subset of :class:`CardAction` currently valid for *card*.
+
+    Pure precondition check — no ``apply`` call, so it's safe for a
+    read-only DTO (board-api.md's ``allowed_actions``) to call on every
+    card in a listing without risking a mutation.
+    """
+    actions: list[CardAction] = []
+    if card.state == CardState.FAILED.value:
+        actions.append(CardAction.RETRY)
+    if card.state not in _CANCEL_BLOCKED_STATES:
+        actions.append(CardAction.CANCEL)
+    if card.state == CardState.CLAIMED.value:
+        actions.append(CardAction.REASSIGN)
+    if card.state == CardState.AWAITING_HUMAN.value:
+        actions.append(CardAction.RESOLVE_GATE)
+    if card.state not in _CANCEL_BLOCKED_STATES:
+        actions.append(CardAction.REQUEST_COORDINATOR_REVIEW)
+    return actions

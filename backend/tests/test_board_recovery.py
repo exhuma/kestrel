@@ -12,16 +12,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
-
-from alembic import command
 from app.models_board import ClaimRequest, WorkCard, Workflow
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -34,18 +30,12 @@ _WORKFLOW = Workflow(
 )
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 def _service(
     tmp_path: Path, *, attempt_limit: int = 3
 ) -> tuple[RecoveryService, BoardStore, BoardClaimsStore, list[str]]:
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     claims_store = BoardClaimsStore(factory)
     woken: list[str] = []

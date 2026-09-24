@@ -9,29 +9,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.models_board import AcceptedTaskIntake, WorkCard, Workflow
 from app.persistence.board_store import BoardStore, WorkflowAlreadyExistsError
 from app.services.board.policy import PolicyViolation
 from app.services.board.service import BoardService
-
-
-def _factory(tmp_path: Path) -> sessionmaker:
-    """Return a session factory for an isolated, migrated SQLite database."""
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
+from tests.board_test_support import board_session_factory
 
 
 def _seeded(tmp_path: Path) -> BoardService:
     """A service over a store with one workflow and one ready card."""
-    store = BoardStore(_factory(tmp_path))
+    store = BoardStore(board_session_factory(tmp_path))
     store.create_workflow(
         Workflow(
             id="wf-1",
@@ -110,7 +98,7 @@ class TestCreateWorkflowFromIntake:
     def test_creates_workflow_and_understanding_gate_card(
         self, tmp_path: Path
     ) -> None:
-        store = BoardStore(_factory(tmp_path))
+        store = BoardStore(board_session_factory(tmp_path))
         service = BoardService(store)
 
         workflow = service.create_workflow_from_intake(
@@ -130,7 +118,7 @@ class TestCreateWorkflowFromIntake:
         assert cards[0].state == "awaiting_human"
 
     def test_records_a_workflow_created_event(self, tmp_path: Path) -> None:
-        store = BoardStore(_factory(tmp_path))
+        store = BoardStore(board_session_factory(tmp_path))
         service = BoardService(store)
 
         workflow = service.create_workflow_from_intake(
@@ -148,7 +136,7 @@ class TestCreateWorkflowFromIntake:
         assert [e.event_type for e in events] == ["workflow.created"]
 
     def test_duplicate_task_ref_is_rejected(self, tmp_path: Path) -> None:
-        store = BoardStore(_factory(tmp_path))
+        store = BoardStore(board_session_factory(tmp_path))
         service = BoardService(store)
         intake = AcceptedTaskIntake(
             source="github-issue",
@@ -183,7 +171,7 @@ class TestOnMutationHook:
     def test_workflow_creation_triggers_the_hook(
         self, tmp_path: Path
     ) -> None:
-        store = BoardStore(_factory(tmp_path))
+        store = BoardStore(board_session_factory(tmp_path))
         woken: list[str] = []
         service = BoardService(store, on_mutation=woken.append)
 
@@ -201,7 +189,7 @@ class TestOnMutationHook:
         assert woken == [workflow.id]
 
     def test_transition_triggers_the_hook(self, tmp_path: Path) -> None:
-        store = BoardStore(_factory(tmp_path))
+        store = BoardStore(board_session_factory(tmp_path))
         store.create_workflow(
             Workflow(
                 id="wf-1",

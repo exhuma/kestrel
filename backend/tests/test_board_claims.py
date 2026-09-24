@@ -11,14 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
-
-from alembic import command
 from app.models_board import ClaimRequest, WorkCard, Workflow
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -31,13 +27,6 @@ _WORKFLOW = Workflow(
 )
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    """Return a session factory for an isolated, migrated SQLite database."""
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 @dataclass(frozen=True)
@@ -55,7 +44,7 @@ def _seeded_store(
     tmp_path: Path, *, card_id: str = "card-1", attempt_limit: int = 3
 ) -> _Stores:
     """A store pair with one workflow and one ready card."""
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     board = BoardStore(factory)
     claims = BoardClaimsStore(factory)
     board.create_workflow(_WORKFLOW)
@@ -256,3 +245,21 @@ class TestLeaseExpiryRecovery:
 
         assert expired == []
         assert store.get_card("card-1").state == "claimed"
+
+
+class TestActiveLease:
+    """The current holder of a claimed card is readable directly."""
+
+    def test_unclaimed_card_has_no_active_lease(self, tmp_path: Path) -> None:
+        store = _seeded_store(tmp_path)
+        assert store.claims.get_active_lease("card-1") is None
+
+    def test_claimed_card_reports_its_holder(self, tmp_path: Path) -> None:
+        store = _seeded_store(tmp_path)
+        store.claims.claim_card(ClaimRequest("card-1", "developer", 600))
+
+        lease = store.claims.get_active_lease("card-1")
+
+        assert lease is not None
+        assert lease.specialist_id == "developer"
+        assert lease.attempt_sequence == 1

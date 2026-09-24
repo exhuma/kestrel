@@ -15,6 +15,7 @@ from app.models_board import (
     AcceptedTaskIntake,
     BoardEventRecord,
     CardKind,
+    CardRelation,
     CardState,
     WorkCard,
     Workflow,
@@ -49,6 +50,10 @@ class BoardService:
         """Return one workflow by id, or ``None`` if it does not exist."""
         return self._store.get_workflow(workflow_id)
 
+    def list_workflows(self) -> list[Workflow]:
+        """Return every workflow (board collection listing)."""
+        return self._store.list_workflows()
+
     def get_card(self, card_id: str) -> WorkCard | None:
         """Return one card by id, or ``None`` if it does not exist."""
         return self._store.get_card(card_id)
@@ -56,6 +61,10 @@ class BoardService:
     def list_cards(self, workflow_id: str) -> list[WorkCard]:
         """Return every card belonging to *workflow_id*."""
         return self._store.list_cards(workflow_id)
+
+    def list_relations(self, workflow_id: str) -> list[CardRelation]:
+        """Return every relation among *workflow_id*'s cards."""
+        return self._store.list_relations(workflow_id)
 
     def list_events(self, workflow_id: str) -> list[BoardEventRecord]:
         """Return every board event for *workflow_id*, oldest first."""

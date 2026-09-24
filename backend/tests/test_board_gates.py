@@ -12,16 +12,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
-from alembic.config import Config
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.models_board import CardRelation, WorkCard, Workflow
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.gates import GatesService, UnknownGateError
 from app.services.board.service import BoardService
+from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -34,16 +31,10 @@ _WORKFLOW = Workflow(
 )
 
 
-def _factory(tmp_path: Path) -> sessionmaker:
-    database = tmp_path / "board.db"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
-    command.upgrade(config, "head")
-    return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
 def _service(tmp_path: Path) -> tuple[GatesService, BoardStore]:
-    factory = _factory(tmp_path)
+    factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     board_service = BoardService(store)
     gate_store = BoardGateStore(factory)
