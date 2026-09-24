@@ -181,6 +181,15 @@ creates no follow-up card at all, so the loop has no explicit "done, ship
 it" signal yet. This is now the most important remaining gap (tasks.md
 T067-T069, which also covers the rest of task-source write-back below).
 
+**As of 2026-09-26, one of the five milestone kinds actually posts** (spec
+026 T067, partial): `app/services/board/write_back.py::post_projection`
+plans (via `projections.py`), posts via `TaskSource.post_comment()`, and
+resolves exactly one projection, idempotent by key and never raising on a
+post failure (recorded as retryable instead). Wired for **gate decisions
+only**: resolving a human gate now posts `"Gate approved: <title>"` (or
+`rejected`) back to the workflow's task source — see
+`tests/test_board_write_back.py` and `bootstrap.py::schedule_gate_projection`.
+
 What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
 operator should not expect today:
@@ -191,16 +200,17 @@ operator should not expect today:
   cards (tasks.md T052) — distinct from T051's verifier-finding routing,
   which covers a verifier's own findings (code review/local test run
   style) regardless of any CI system.
-- **Any write-back to the task source beyond ingestion itself.** The
-  external-projection ledger (`app/services/board/projections.py`) records
-  planned gate/escalation/approved-artifact/child-work/delivery milestones
-  idempotently, but — per its own module docstring — "actually posting to
-  a task source is a later phase's concern"; nothing calls it yet. In
-  practice this means: no status labels or Jira transitions are applied as
-  a workflow progresses (`app/notifications.py`'s own docstring: "nothing
-  currently produces a Notification row"); no `hooks_dir` executable is
-  ever invoked (only the startup audit-log pass runs); no comment-based
-  feedback steering (the old `@kestrel` marker mechanism was deleted with
+- **Write-back for anything except a resolved gate.** The other four
+  FR-033 milestone kinds — escalation, approved-artifact, child-work,
+  delivery — are not yet wired to `post_projection`, even though a
+  `coordinator_review` card (escalation) is already created in two places
+  (T051's verifier routing, and an operator's own "request coordinator
+  review" intervention). In practice this still means: no status labels
+  or Jira transitions are applied as a workflow progresses
+  (`app/notifications.py`'s own docstring: "nothing currently produces a
+  Notification row"); no `hooks_dir` executable is ever invoked (only the
+  startup audit-log pass runs); no comment-based feedback steering (the
+  old `@kestrel` marker mechanism was deleted with
   the driver and has no board-domain replacement); no decomposition is
   published back to the task source as child tickets; the optional
   translation backing service has no caller; and there is no **rerun**

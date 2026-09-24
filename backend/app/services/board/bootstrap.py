@@ -1,11 +1,4 @@
-"""Composition root for the board domain (feature 026).
-
-Kept separate from ``services/workflows/bootstrap.py`` (the fixed
-driver's composition root): the two coexist during this feature's
-rollout, and board wiring does not yet need the old driver's task-source/
-code-host ports — those are wired into board intake directly where the
-protected-intake path calls into ingestion (see ``services/ingestion.py``).
-"""
+"""Composition root for the board domain (feature 026)."""
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +7,7 @@ from functools import lru_cache
 
 from app.backends.base import Backend
 from app.config import get_settings
+from app.models_board import WorkCard
 from app.persistence.board_artifact_content_store import (
     get_board_artifact_content_store,
 )
@@ -41,6 +35,7 @@ from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
 from app.services.board.workspace import WorkspaceService
+from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.task_sources import get_task_source_registry
 from app.storage.workflow_bus import get_workflow_bus
 
@@ -228,3 +223,40 @@ def _log_scheduling_exception(task: asyncio.Task, workflow_id: str) -> None:
             "workflow %s: scheduling/dispatch failed", workflow_id,
             exc_info=exc,
         )
+
+
+def schedule_gate_projection(
+    workflow_id: str, card: WorkCard, decision: str
+) -> None:
+    """Schedule posting a resolved gate's decision to its task source
+    (feature 026, T067), in the background.
+
+    Mirrors ``_trigger_scheduling``'s own fire-and-forget pattern: the
+    caller (a router handler) must not block its HTTP response on a
+    task-source round trip.
+    """
+    task = asyncio.create_task(_project_gate(workflow_id, card, decision))
+    task.add_done_callback(
+        lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
+    )
+
+
+async def _project_gate(
+    workflow_id: str, card: WorkCard, decision: str
+) -> None:
+    workflow = get_board_store().get_workflow(workflow_id)
+    task_source = get_task_source_registry().sources.get(workflow.source)
+    if task_source is None:
+        _logger.warning(
+            "workflow %s: no task source for source %r; gate decision "
+            "not projected", workflow_id, workflow.source,
+        )
+        return
+    request = ProjectionRequest(
+        workflow_id=workflow_id,
+        task_ref=workflow.task_ref,
+        kind="gate",
+        idempotency_key=f"gate:{card.id}",
+        payload=f"Gate {decision}: {card.title}",
+    )
+    await post_projection(request, task_source, get_projections_service())

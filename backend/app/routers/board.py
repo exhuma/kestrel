@@ -1,12 +1,8 @@
-"""HTTP routes for the board domain (feature 026, T027/T057/T058).
-
-Additive alongside the old driver's ``/api/workflows`` surface, under its
-own ``/api/board`` prefix — it never replaces or modifies that surface,
-which stays the only thing operators actually drive until the Phase 10
-clean break. Route shapes mirror board-api.md as closely as that
-additive placement allows; card detail returns the same summary shape
-as the listing for this pass (the richer detail — attempt/event history,
-gate/security-review summary — is a follow-up, not yet built).
+"""HTTP routes for the board domain (feature 026, T027/T057/T058), under
+the ``/api/board`` prefix. Route shapes mirror board-api.md as closely
+as practical; card detail returns the same summary shape as the listing
+for this pass (the richer detail — attempt/event history, gate/security-
+review summary — is a follow-up, not yet built).
 """
 from __future__ import annotations
 
@@ -45,6 +41,7 @@ from app.services.board.bootstrap import (
     get_interventions_service,
     get_quarantine_service,
     get_specialist_roster,
+    schedule_gate_projection,
 )
 from app.services.board.interventions import (
     InterventionsService,
@@ -286,5 +283,7 @@ async def apply_board_intervention(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except InvalidInterventionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if body.action == CardAction.RESOLVE_GATE.value and body.decision:
+        schedule_gate_projection(workflow_id, updated, body.decision)
     relations = deps.board.list_relations(workflow_id)
     return card_summary(updated, relations, _lookups([updated], deps))
