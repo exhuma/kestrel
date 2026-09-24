@@ -11,13 +11,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
 from app.backends.base import TurnRequest, TurnResult
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.persistence.board_store import BoardStore
-from app.services.board.claims import ClaimsService, NoEligibleCardError
+from app.policy import SpecialistCapabilityError
+from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.claims import (
+    ClaimsService,
+    NoEligibleCardError,
+    ReadCapacityExceededError,
+)
 from app.services.board.coordinator import (
     CoordinatorService,
     parse_coordinator_actions,
@@ -197,6 +205,103 @@ async def claim_and_dispatch(
         backend, envelope, cwd="", timeout_seconds=timeout_seconds
     )
     return card, result
+
+
+_dispatch_log = logging.getLogger("kestrel.board.dispatch")
+
+
+@dataclass(frozen=True)
+class DispatchServices:
+    """The board collaborators :func:`dispatch_ready_work` claims/reports
+    through. Bundled to keep that function's argument count within the
+    repo's limit."""
+
+    claims: ClaimsService
+    roster: SpecialistRoster
+    artifacts: ArtifactsService
+
+
+async def dispatch_ready_work(
+    workflow_id: str,
+    services: DispatchServices,
+    backend_for: Callable[[SpecialistDefinition], _TurnBackend],
+    *,
+    timeout_seconds: float,
+) -> None:
+    """Try one claim-and-turn cycle per non-coordinator role (FR-004).
+
+    Best-effort per specialist: a capability mismatch, absent eligible
+    work, or a turn failure for one role must never stop the others from
+    being tried. A card left claimed after a failed/timed-out turn is
+    recovered by the periodic lease-expiry sweep (``recovery.py``), not
+    retried here.
+
+    Known limitation (tracked in tasks.md T041): every turn runs with
+    ``cwd=""`` (see :func:`claim_and_dispatch`) — there is no board-domain
+    git/workspace provisioning yet, so a card needing ``FILE_EDITS`` has
+    nowhere real to write. Text-only roles work end-to-end today.
+    """
+    for specialist_id in sorted(services.roster.ids() - {"coordinator"}):
+        specialist = services.roster.get(specialist_id)
+        if specialist is None:
+            continue
+        await _dispatch_one(
+            workflow_id, services, specialist, backend_for,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+async def _dispatch_one(
+    workflow_id: str,
+    services: DispatchServices,
+    specialist: SpecialistDefinition,
+    backend_for: Callable[[SpecialistDefinition], _TurnBackend],
+    *,
+    timeout_seconds: float,
+) -> None:
+    """Claim, turn, and accept one card's result for one specialist."""
+    try:
+        backend = backend_for(specialist)
+    except SpecialistCapabilityError:
+        _dispatch_log.warning(
+            "workflow %s: specialist %s has no capable backend",
+            workflow_id, specialist.id,
+        )
+        return
+    try:
+        claimed = await claim_and_dispatch(
+            services.claims, workflow_id, specialist, backend,
+            timeout_seconds=timeout_seconds,
+        )
+    except (ReadCapacityExceededError, CardTurnError) as exc:
+        _dispatch_log.warning(
+            "workflow %s: %s dispatch skipped: %s",
+            workflow_id, specialist.id, exc,
+        )
+        return
+    if claimed is None:
+        return
+    card, result = claimed
+    outcome = services.claims.complete(
+        card.id, card.attempt_count,
+        result=result.final_text, new_state="review",
+    )
+    if not outcome.success:
+        _dispatch_log.warning(
+            "workflow %s: %s's claim on card %s went stale before it "
+            "could complete (%s) — leaving it for recovery",
+            workflow_id, specialist.id, card.id, outcome.reason,
+        )
+        return
+    services.artifacts.submit_result(
+        ArtifactDraft(
+            producer_card_id=card.id,
+            logical_name="report",
+            revision=card.attempt_count,
+            content=result.final_text,
+            trust="agent_output",
+        )
+    )
 
 
 def build_coordinator_envelope(

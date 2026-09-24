@@ -141,21 +141,31 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: no automatic specialist execution loop yet
+### Current gap: no board-domain workspace/execution layer yet
 
-Everything above through gate/intervention resolution is live. What is
-**not** currently wired up, as of the Phase 10 clean break — tracked as
-follow-on work, most of it under spec 026's still-unimplemented Phase 9
-("Selectively Project External Milestones") — an operator should not expect
-today:
+Everything above through gate/intervention resolution is live, **and, as of
+2026-09-25, so is the automatic specialist dispatch loop** (spec 026 T034):
+`app/services/board/bootstrap.py`'s `_trigger_scheduling` fires on every
+committed board mutation, wakes the coordinator for one planning turn, then
+calls `app/services/board/dispatch.py::dispatch_ready_work`, which tries a
+claim→turn→accept cycle for every non-coordinator role in the roster. A
+`ready` card is now genuinely claimed, turned, and (on success) accepted
+into `review`/`done` without any operator action — see
+`tests/test_board_scheduling.py::TestDispatchReadyWork`.
 
-- **A specialist automatically claiming and performing a `ready` card's
-  substantive work.** `app/services/board/dispatch.py` has the building
-  blocks (`claim_and_dispatch`, `run_card_turn`), and `main.py` starts the
-  coordinator-wake and claim-recovery loops, but nothing currently invokes
-  `claim_and_dispatch` on a running schedule or event, so a card can sit
-  `ready` with no specialist ever picking it up. Card claims/results
-  observed today come only from tests exercising these functions directly.
+What is **still not** wired up, as of Phase 10 — tracked as follow-on work
+(spec 026 `tasks.md`'s Status section has the authoritative, per-task
+detail) — an operator should not expect today:
+
+- **Any real git/workspace for a specialist to actually edit files in.**
+  Every card turn — including the coordinator's — runs with `cwd=""`; there
+  is no board-domain equivalent of the old driver's workspace provisioning,
+  clone, commit, push, or PR-open code (`app/services/git.py` was deleted
+  in Phase 10 and never replaced). A text-only role (e.g. `requester`,
+  `architect`, `qa`) can already complete a card end-to-end; a
+  `FILE_EDITS`-capable role (`coder`) is claimed and dispatched correctly
+  but has nowhere real to write, so its output is text only, not a code
+  change. This is now the most important remaining gap (tasks.md T041).
 - **Any write-back to the task source beyond ingestion itself.** The
   external-projection ledger (`app/services/board/projections.py`) records
   planned gate/escalation/approved-artifact/child-work/delivery milestones
@@ -174,10 +184,10 @@ today:
   constraint) and no **cleanup** action.
 - Practically, this means a configured GitHub/Jira/local source today
   creates a board **Workflow** and its initial cards on a qualifying task
-  (after quarantine screening), and everything past that — watching card
-  state, resolving gates, retrying/reassigning/cancelling a card, releasing
-  a quarantined review — happens **only in the Kestrel web UI**, not on the
-  ticket itself.
+  (after quarantine screening); text-only specialist cards then progress
+  automatically, and human gates/interventions still happen only in the
+  Kestrel web UI. None of it is ever reported back to the ticket itself —
+  the operator has to look at Kestrel, not the source, to see progress.
 
 ## Design trade-offs
 

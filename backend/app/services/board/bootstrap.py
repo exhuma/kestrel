@@ -12,6 +12,7 @@ import asyncio
 import logging
 from functools import lru_cache
 
+from app.backends.base import Backend
 from app.config import get_settings
 from app.persistence.board_artifact_content_store import (
     get_board_artifact_content_store,
@@ -27,7 +28,11 @@ from app.policy import get_specialist_backend_policy
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import ClaimsService
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.dispatch import SchedulingService
+from app.services.board.dispatch import (
+    DispatchServices,
+    SchedulingService,
+    dispatch_ready_work,
+)
 from app.services.board.gates import GatesService
 from app.services.board.interventions import InterventionsService
 from app.services.board.projections import ProjectionsService
@@ -152,8 +157,16 @@ def get_scheduling_service() -> SchedulingService:
     )
 
 
+@lru_cache
+def get_dispatch_services() -> DispatchServices:
+    """Return the process-wide DispatchServices bundle."""
+    return DispatchServices(
+        get_claims_service(), get_specialist_roster(), get_artifacts_service()
+    )
+
+
 def _trigger_scheduling(workflow_id: str) -> None:
-    """Wake the coordinator for *workflow_id* in the background (FR-004).
+    """Wake the coordinator, then try dispatching ready work (FR-004).
 
     ``BoardService``'s ``on_mutation`` hook: fired synchronously from
     inside a committed mutation, so it only schedules the (async, LLM-
@@ -162,18 +175,36 @@ def _trigger_scheduling(workflow_id: str) -> None:
     """
     coordinator = get_specialist_roster().get("coordinator")
     backend = get_specialist_backend_policy().backend_for(coordinator)
-    task = asyncio.create_task(
-        get_scheduling_service().wake(workflow_id, backend)
-    )
+    task = asyncio.create_task(_wake_and_dispatch(workflow_id, backend))
     task.add_done_callback(
         lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
     )
 
 
-def _log_scheduling_exception(task: asyncio.Task, workflow_id: str) -> None:
-    """Log a coordinator wake-up's terminal exception, if any.
+async def _wake_and_dispatch(
+    workflow_id: str, coordinator_backend: Backend
+) -> None:
+    """One coordinator turn, then one best-effort dispatch pass per role.
 
-    Without this, a failed background wake dies with its exception
+    Sequential, not concurrent: the coordinator's own proposed cards
+    (create_card/transition_card) should exist before specialists are
+    tried against this same trigger, though a specialist claim is safe
+    either way (atomic, per-card).
+    """
+    await get_scheduling_service().wake(workflow_id, coordinator_backend)
+    settings = get_settings()
+    await dispatch_ready_work(
+        workflow_id,
+        get_dispatch_services(),
+        get_specialist_backend_policy().backend_for,
+        timeout_seconds=settings.board_input_security_timeout_seconds,
+    )
+
+
+def _log_scheduling_exception(task: asyncio.Task, workflow_id: str) -> None:
+    """Log a coordinator wake-up/dispatch pass's terminal exception, if any.
+
+    Without this, a failed background task dies with its exception
     unretrieved (asyncio only logs a generic, easy-to-miss warning).
     """
     if task.cancelled():
@@ -181,6 +212,6 @@ def _log_scheduling_exception(task: asyncio.Task, workflow_id: str) -> None:
     exc = task.exception()
     if exc is not None:
         _logger.error(
-            "workflow %s: coordinator wake-up failed", workflow_id,
+            "workflow %s: scheduling/dispatch failed", workflow_id,
             exc_info=exc,
         )

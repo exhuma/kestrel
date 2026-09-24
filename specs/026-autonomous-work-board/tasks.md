@@ -18,29 +18,28 @@ before beginning story phases.
   prerequisites are complete.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
-## Status (2026-09-24, after Phase 10 clean break)
+## Status (2026-09-25, after Phase 10 clean break + T034)
 
-70/77 tasks verified complete against actual code (not just checked off —
-every `[x]` below was confirmed by reading or grepping the current source,
-since the checkboxes had drifted from reality before this pass). The old
-fixed six-step driver is fully removed (commits `33628b4` backend,
-`3fc281c` frontend, `483dda2` docs); the board domain's data model, intake/
-quarantine, gates/interventions, coordinator planning, claim/lease
-bookkeeping + recovery, and the read-only Board/Graph UI are all solid and
-tested.
+71/77 tasks verified complete against actual code (not just checked off —
+every `[x]` below was confirmed by reading/grepping the current source or,
+for T034, by writing and passing new tests). The old fixed six-step driver
+is fully removed (commits `33628b4` backend, `3fc281c` frontend, `483dda2`
+docs); the board domain's data model, intake/quarantine, gates/
+interventions, coordinator planning, claim/lease bookkeeping + recovery,
+the read-only Board/Graph UI, **and now the automatic specialist
+claim→turn→accept dispatch loop (T034)** are all solid and tested.
 
-**7 tasks remain genuinely open — this is the real backlog, not Phase 9
-alone.** Each has a `**NOT DONE**`/`**HALF DONE**` note in place with exact
-findings, so picking any of them back up doesn't require re-investigation:
+**6 tasks remain genuinely open.** Each has a `**NOT DONE**` note in place
+with exact findings, so picking any of them back up doesn't require
+re-investigation:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T034** | 4 (US2) | No caller ever invokes `dispatch.py::claim_and_dispatch` — a `ready` card is never automatically claimed/worked. **The most important gap**: without this, nothing below it can run either. |
-| **T041** | 5 (US3) | No board-domain git/workspace execution layer exists at all (the old `services/git.py` was deleted, never replaced). Blocks T034 in practice for any `FILE_EDITS` specialist. |
-| **T051**, **T052** | 7 (US5) | `board/verification.py` doesn't exist — no code↔verify↔remediation loop, no CI-repair cards. Blocked on T034/T041. |
+| **T041** | 5 (US3) | **Now the most important gap.** No board-domain git/workspace execution layer exists at all (the old `services/git.py` was deleted, never replaced). T034's dispatch loop runs every turn with `cwd=""`, so a `FILE_EDITS` specialist (`coder`) is claimed/dispatched correctly but has nowhere real to write. Text-only roles already work end-to-end. |
+| **T051**, **T052** | 7 (US5) | `board/verification.py` doesn't exist — no code↔verify↔remediation loop, no CI-repair cards. Blocked on T041 (needs a real workspace to verify anything in). |
 | **T067**, **T068**, **T069** | 9 (US7) | No task-source write-back at all: no labels/transitions/comments post from `projections.py`'s planning output, no decomposition-to-child-cards, no rerun/cleanup (deleted, not replaced). |
 
-Suggested resume order: **T034 → T041 → T051/T052 → T067/T068/T069** (each
+Suggested resume order: **T041 → T051/T052 → T067/T068/T069** (each
 roughly depends on the one before). See each task's note below for specifics
 before starting.
 
@@ -198,21 +197,23 @@ reconciliation card; invalid coordinator actions mutate nothing.
 - [x] T033 [US2] Implement card-result acceptance, immutable artifact inputs,
   dependency updates, and reconciliation-card creation in
   `backend/app/services/board/artifacts.py`.
-- [ ] T034 [US2] **HALF DONE (2026-09-24 verified).** Coordinator scheduling
-  IS wired: `BoardService`'s `on_mutation` hook fires
-  `bootstrap.py::_trigger_scheduling` on every committed mutation, which
-  wakes `SchedulingService.wake()` → one coordinator LLM turn →
-  `CoordinatorService.apply_actions`. But the coordinator's own action
-  vocabulary (`coordinator.py::ProposedAction`) is limited to
-  `create_card`/`transition_card`/`create_reconciliation_card` — pure
-  planning. **The actual specialist-claims-and-works-a-card half was never
-  wired up**: `dispatch.py::claim_and_dispatch` (which claims a `ready` card
-  for a specialist and runs its turn) has zero callers anywhere in the app.
-  A card can sit `ready` forever. Remaining work: decide how/when a
-  specialist should be invoked per eligible role (a coordinator action type?
-  a per-role poll loop alongside `SchedulingService`?) and wire
-  `claim_and_dispatch` into it. This is the single most important gap — see
-  `docs/architecture.md#current-gap-no-automatic-specialist-execution-loop-yet`.
+- [x] T034 [US2] **Done 2026-09-25.** `dispatch.py::dispatch_ready_work` (+
+  `DispatchServices`, `_dispatch_one`) now runs one claim→turn→`claims
+  .complete(new_state="review")`→`artifacts.submit_result` cycle per
+  non-coordinator role. Wired into `bootstrap.py::_trigger_scheduling` (now
+  `_wake_and_dispatch`): every committed board mutation wakes the
+  coordinator, then tries dispatching each role in turn. Per-specialist
+  errors (`SpecialistCapabilityError`, `ReadCapacityExceededError`,
+  `CardTurnError`) are caught and logged individually so one role's failure
+  never blocks the others; a card left `claimed` after a failure is picked
+  up by the existing lease-expiry recovery sweep, not retried inline.
+  Covered by `tests/test_board_scheduling.py::TestDispatchReadyWork` (4
+  tests: happy path, coordinator exclusion, one-specialist-failure
+  isolation, failed-turn-leaves-card-claimed). **Still limited**: every
+  turn runs with `cwd=""` (T041 not done — no board git/workspace layer
+  exists), so a `FILE_EDITS` specialist (e.g. `coder`) is claimed and
+  dispatched correctly but has nowhere real to write; text-only roles work
+  end-to-end today. T041 is now the most important remaining gap.
 - [x] T035 [US2] Done via a different mechanism than described: `profiles.py`
   and `workflows/interview/` were deleted outright in Phase 10 rather than
   edited in place. The board domain never reused them — `specialists.py`'s

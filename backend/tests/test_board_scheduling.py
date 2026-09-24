@@ -17,17 +17,25 @@ import pytest
 
 from app.backends.base import TurnRequest, TurnResult
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
+from app.persistence.board_artifact_content_store import (
+    BoardArtifactContentStore,
+)
+from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
+from app.policy import SpecialistCapabilityError
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import ClaimsService, NoEligibleCardError
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
     CardTurnError,
+    DispatchServices,
     SchedulingService,
     build_card_envelope,
     build_coordinator_envelope,
     claim_and_dispatch,
+    dispatch_ready_work,
     run_card_turn,
 )
 from app.services.board.service import BoardService
@@ -302,3 +310,138 @@ class TestSchedulingServiceWake:
 def test_claims_service_no_eligible_card_error_is_importable() -> None:
     """Sanity import check: dispatch.py depends on this error type too."""
     assert issubclass(NoEligibleCardError, Exception)
+
+
+def _dispatch_services(tmp_path: Path, roster: SpecialistRoster) -> tuple[
+    DispatchServices, BoardStore
+]:
+    """A DispatchServices bundle over a fresh board with one workflow."""
+    factory = board_session_factory(tmp_path)
+    store = BoardStore(factory)
+    claims_store = BoardClaimsStore(factory)
+    board_service = BoardService(store)
+    artifact_store = BoardArtifactStore(factory)
+    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
+    store.create_workflow(_WORKFLOW)
+    claims = ClaimsService(
+        store=store,
+        claims_store=claims_store,
+        roster=roster,
+        max_parallel_read_cards=4,
+        default_lease_seconds=60,
+        default_workspace_lease_seconds=600,
+    )
+    artifacts = ArtifactsService(
+        store, artifact_store, board_service, content_store
+    )
+    return DispatchServices(claims, roster, artifacts), store
+
+
+class TestDispatchReadyWork:
+    """T034: the previously-missing automatic claim-and-turn loop."""
+
+    @pytest.mark.asyncio
+    async def test_claims_turns_and_accepts_the_eligible_card(
+        self, tmp_path: Path
+    ) -> None:
+        roster = SpecialistRoster({"developer": _specialist()})
+        services, store = _dispatch_services(tmp_path, roster)
+        store.create_card(
+            WorkCard(
+                id="card-1",
+                workflow_id="wf-1",
+                kind="analysis",
+                title="Investigate",
+                state="ready",
+                eligible_roles=("developer",),
+            )
+        )
+        backend = _FakeBackend("<RESULT>the finding</RESULT>")
+
+        await dispatch_ready_work(
+            "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+        )
+
+        card = store.get_card("card-1")
+        assert card.state == "done"
+
+    @pytest.mark.asyncio
+    async def test_coordinator_role_is_never_dispatched(
+        self, tmp_path: Path
+    ) -> None:
+        roster = SpecialistRoster(
+            {
+                "developer": _specialist(),
+                "coordinator": _coordinator_specialist(),
+            }
+        )
+        services, store = _dispatch_services(tmp_path, roster)
+        seen: list[str] = []
+
+        def _backend_for(specialist: SpecialistDefinition) -> _FakeBackend:
+            seen.append(specialist.id)
+            return _FakeBackend("<RESULT>ok</RESULT>")
+
+        await dispatch_ready_work(
+            "wf-1", services, _backend_for, timeout_seconds=5
+        )
+
+        assert "coordinator" not in seen
+        assert store.list_cards("wf-1") == []
+
+    @pytest.mark.asyncio
+    async def test_one_specialists_capability_error_does_not_block_others(
+        self, tmp_path: Path
+    ) -> None:
+        roster = SpecialistRoster(
+            {"developer": _specialist(), "requester": _specialist("requester")}
+        )
+        services, store = _dispatch_services(tmp_path, roster)
+        store.create_card(
+            WorkCard(
+                id="card-1",
+                workflow_id="wf-1",
+                kind="analysis",
+                title="Investigate",
+                state="ready",
+                eligible_roles=("requester",),
+            )
+        )
+        backend = _FakeBackend("<RESULT>ok</RESULT>")
+
+        def _backend_for(specialist: SpecialistDefinition) -> _FakeBackend:
+            if specialist.id == "developer":
+                raise SpecialistCapabilityError(
+                    "developer", "claude", frozenset()
+                )
+            return backend
+
+        await dispatch_ready_work(
+            "wf-1", services, _backend_for, timeout_seconds=5
+        )
+
+        assert store.get_card("card-1").state == "done"
+
+    @pytest.mark.asyncio
+    async def test_backend_failure_leaves_card_claimed_for_recovery(
+        self, tmp_path: Path
+    ) -> None:
+        roster = SpecialistRoster({"developer": _specialist()})
+        services, store = _dispatch_services(tmp_path, roster)
+        store.create_card(
+            WorkCard(
+                id="card-1",
+                workflow_id="wf-1",
+                kind="analysis",
+                title="Investigate",
+                state="ready",
+                eligible_roles=("developer",),
+            )
+        )
+        backend = _FakeBackend(raises=True)
+
+        await dispatch_ready_work(
+            "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+        )
+
+        assert store.get_card("card-1").state == "claimed"
