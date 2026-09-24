@@ -46,6 +46,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "database_url",
         "workspace_root",
         "screenshots_root",
+        "board_artifacts_root",
         "comment_sentinel_enabled",
         "comment_sentinel",
         "specialists_root",
@@ -54,6 +55,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_claim_lease_seconds",
         "board_workspace_lease_seconds",
         "board_max_parallel_read_cards",
+        "board_recovery_interval_seconds",
     }
 )
 
@@ -122,6 +124,10 @@ class Settings(BaseSettings):
     #: is torn down (see ``services/workflows/screenshots.py``). Keyed by run
     #: id; in Docker point this at the ``/data`` volume so shots survive.
     screenshots_root: str = "./.kestrel-screenshots"
+    #: Durable, content-addressed store for handoff-artifact bodies
+    #: (feature 026, FR-013). Keyed by content hash, so recovery after
+    #: restart can always re-read a card's output.
+    board_artifacts_root: str = "./.kestrel-board-artifacts"
     permission_mode: str = "acceptEdits"
     # Directory of the built SPA to serve. Empty (dev default) means the
     # backend is API-only and the SPA is served by the Vite dev server; the
@@ -289,6 +295,9 @@ class Settings(BaseSettings):
     #: active at once across the whole process (feature 026,
     #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).
     board_max_parallel_read_cards: int = Field(default=4, gt=0)
+    #: How often the recovery sweep checks for expired claim leases
+    #: (feature 026, ``KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS``).
+    board_recovery_interval_seconds: float = Field(default=60.0, gt=0)
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

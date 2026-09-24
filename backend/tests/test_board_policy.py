@@ -47,6 +47,12 @@ class TestStateTransitions:
     def test_ready_to_awaiting_human_is_valid(self) -> None:
         assert is_valid_transition(CardState.READY, CardState.AWAITING_HUMAN)
 
+    def test_awaiting_human_to_done_is_valid(self) -> None:
+        """A gate's own approval is its "validated completion" — no
+        specialist ever claims a gate card (data-model.md "Card
+        States")."""
+        assert is_valid_transition(CardState.AWAITING_HUMAN, CardState.DONE)
+
     def test_claimed_cannot_skip_directly_to_done(self) -> None:
         assert not is_valid_transition(CardState.CLAIMED, CardState.DONE)
 
@@ -57,13 +63,25 @@ class TestStateTransitions:
         )
 
     @pytest.mark.parametrize(
-        "terminal", [CardState.DONE, CardState.FAILED, CardState.CANCELLED]
+        "terminal", [CardState.DONE, CardState.CANCELLED]
     )
     def test_terminal_states_accept_no_further_transition(
         self, terminal: CardState
     ) -> None:
         assert not is_valid_transition(terminal, CardState.READY)
         assert not is_valid_transition(terminal, CardState.CLAIMED)
+
+    def test_failed_cannot_skip_directly_to_claimed(self) -> None:
+        """Failed is not hard-terminal like done/cancelled: an operator can
+        retry or cancel it (FR-032), but nothing may re-claim it directly
+        without going through ready first."""
+        assert not is_valid_transition(CardState.FAILED, CardState.CLAIMED)
+
+    def test_failed_to_ready_is_valid_for_operator_retry(self) -> None:
+        assert is_valid_transition(CardState.FAILED, CardState.READY)
+
+    def test_failed_to_cancelled_is_valid(self) -> None:
+        assert is_valid_transition(CardState.FAILED, CardState.CANCELLED)
 
     @pytest.mark.parametrize(
         "origin",

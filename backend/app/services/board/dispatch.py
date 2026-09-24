@@ -1,23 +1,29 @@
 """Trust-separated specialist dispatch (feature 026, FR-024).
 
-Scoped, in this slice, to the one specialist call User Story 1 needs: the
-input-security classification turn used by ``quarantine.py``. General
-claim/backend dispatch for autonomous card work is a later phase's
-concern.
+Covers the input-security classification turn (User Story 1), generic
+specialist card-turn dispatch, and the coordinator's own wake-up turn
+(User Story 2, FR-004). What a card turn's result *means* — durable
+artifact storage, acceptance-contract validation — is a later phase's
+concern (see ``app/services/board/artifacts.py``); this module only
+gets a trustworthy turn result back from the backend.
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import re
 from dataclasses import dataclass
 from typing import Protocol
 
 from app.backends.base import TurnRequest, TurnResult
-
-_CLASSIFICATION_BLOCK = re.compile(
-    r"<CLASSIFICATION>(.*?)</CLASSIFICATION>", re.DOTALL
+from app.models_board import SpecialistDefinition, WorkCard, Workflow
+from app.persistence.board_store import BoardStore
+from app.services.board.claims import ClaimsService, NoEligibleCardError
+from app.services.board.coordinator import (
+    CoordinatorService,
+    parse_coordinator_actions,
 )
+from app.services.board.specialists import SpecialistRoster
+from app.text_extract import extract_tag
 
 
 class ClassificationError(Exception):
@@ -100,11 +106,11 @@ async def classify_input(
 
 def _parse_classification(text: str) -> ClassificationResult:
     """Parse the specialist's ``<CLASSIFICATION>`` block, or fail closed."""
-    match = _CLASSIFICATION_BLOCK.search(text)
-    if match is None:
+    raw = extract_tag(text, "CLASSIFICATION")
+    if raw is None:
         raise ClassificationError("malformed result: no CLASSIFICATION block")
     try:
-        data = json.loads(match.group(1))
+        data = json.loads(raw)
         return ClassificationResult(
             safe=bool(data["safe"]),
             category=str(data.get("category", "")),
@@ -112,3 +118,152 @@ def _parse_classification(text: str) -> ClassificationResult:
         )
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise ClassificationError(f"malformed result: {exc}") from exc
+
+
+class CardTurnError(Exception):
+    """Raised when a specialist's card or coordinator turn cannot be
+    trusted (timeout or backend failure)."""
+
+
+@dataclass(frozen=True)
+class SpecialistTurnResult:
+    """One specialist's raw final text from a dispatched turn."""
+
+    final_text: str
+
+
+def build_card_envelope(
+    specialist: SpecialistDefinition, card: WorkCard
+) -> str:
+    """Build the prompt for one specialist's turn on a claimed card.
+
+    The card's title and kind are system/operator-authored (quarantine
+    already screened any source-originated content before a card could
+    exist, see ``quarantine.py``), so no untrusted-content separation is
+    needed here — only ``build_classification_envelope`` handles that.
+    """
+    return (
+        f"{specialist.prompt}\n\n"
+        "You are working on this card:\n"
+        f"Kind: {card.kind}\n"
+        f"Title: {card.title}\n\n"
+        "Respond with your result in a single <RESULT>...</RESULT> block."
+    )
+
+
+async def run_card_turn(
+    backend: _TurnBackend, envelope: str, *, cwd: str, timeout_seconds: float
+) -> SpecialistTurnResult:
+    """Dispatch one card turn and return its raw result.
+
+    :raises CardTurnError: On timeout or backend failure.
+    """
+    request = TurnRequest(prompt=envelope, cwd=cwd, permission_mode="plan")
+    try:
+        result = await asyncio.wait_for(
+            backend.run_turn(request), timeout=timeout_seconds
+        )
+    except TimeoutError as exc:
+        raise CardTurnError("card turn timed out") from exc
+    except Exception as exc:
+        raise CardTurnError(f"card turn backend error: {exc}") from exc
+    return SpecialistTurnResult(final_text=result.final_text)
+
+
+async def claim_and_dispatch(
+    claims: ClaimsService,
+    workflow_id: str,
+    specialist: SpecialistDefinition,
+    backend: _TurnBackend,
+    *,
+    timeout_seconds: float,
+) -> tuple[WorkCard, SpecialistTurnResult] | None:
+    """Claim the next eligible ready card and dispatch its turn.
+
+    :returns: The claimed card and its turn result, or ``None`` if this
+        specialist currently has no eligible ready work.
+    :raises CardTurnError: On timeout or backend failure once claimed —
+        the claim itself is left to lease-expiry recovery.
+    """
+    backend_id = getattr(backend, "id", None)
+    try:
+        card = claims.claim_next_ready_card(
+            workflow_id, specialist.id, backend_id=backend_id
+        )
+    except NoEligibleCardError:
+        return None
+    envelope = build_card_envelope(specialist, card)
+    result = await run_card_turn(
+        backend, envelope, cwd="", timeout_seconds=timeout_seconds
+    )
+    return card, result
+
+
+def build_coordinator_envelope(
+    specialist: SpecialistDefinition,
+    workflow: Workflow,
+    cards: list[WorkCard],
+) -> str:
+    """Build the coordinator's wake-up prompt: its role plus a safe summary
+    of the workflow's current cards (system-authored, never raw external
+    content)."""
+    lines = "\n".join(
+        f"- {c.id} [{c.kind}] {c.state}: {c.title}" for c in cards
+    )
+    return (
+        f"{specialist.prompt}\n\n"
+        f"Workflow: {workflow.title}\n"
+        "Current cards:\n"
+        f"{lines}\n\n"
+        "Propose any next actions in a single "
+        '<COORDINATOR_ACTIONS>{"actions": [...]}</COORDINATOR_ACTIONS> '
+        "block, or omit the block if nothing should change."
+    )
+
+
+class SchedulingService:
+    """Wakes the coordinator and applies whatever it validly proposes.
+
+    One coordinator turn per wake, idempotent per board revision
+    (``CoordinatorService.apply_actions``'s own per-trigger idempotency):
+    a repeated wake for a board snapshot that hasn't changed since is a
+    no-op rather than a second LLM call (FR-004's event-driven triggers —
+    card creation, completion, gate resolution, claim expiry, absence of
+    eligible work — all bump the workflow's revision before waking).
+    """
+
+    def __init__(
+        self,
+        store: BoardStore,
+        roster: SpecialistRoster,
+        coordinator: CoordinatorService,
+        *,
+        default_timeout_seconds: float,
+    ) -> None:
+        self._store = store
+        self._roster = roster
+        self._coordinator = coordinator
+        self._default_timeout_seconds = default_timeout_seconds
+
+    async def wake(self, workflow_id: str, backend: _TurnBackend) -> None:
+        """Run one coordinator turn for *workflow_id* and apply its result.
+
+        A malformed or empty proposal applies nothing (``coordinator.py``'s
+        "propose nothing this cycle" contract) rather than raising —
+        only backend/timeout failure raises :class:`CardTurnError`.
+        """
+        specialist = self._roster.get("coordinator")
+        workflow = self._store.get_workflow(workflow_id)
+        cards = self._store.list_cards(workflow_id)
+        envelope = build_coordinator_envelope(specialist, workflow, cards)
+        result = await run_card_turn(
+            backend,
+            envelope,
+            cwd="",
+            timeout_seconds=self._default_timeout_seconds,
+        )
+        actions = parse_coordinator_actions(result.final_text)
+        if not actions:
+            return
+        trigger = f"revision:{workflow.revision}"
+        self._coordinator.apply_actions(workflow_id, trigger, actions)

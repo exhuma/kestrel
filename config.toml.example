@@ -66,6 +66,11 @@ board_claim_lease_seconds = 600
 board_workspace_lease_seconds = 1800
 # Maximum number of read-only board cards claimed and active at once.
 board_max_parallel_read_cards = 4
+# How often the recovery sweep checks for expired claim leases.
+board_recovery_interval_seconds = 60.0
+# Durable, content-addressed store for handoff-artifact bodies, keyed by
+# content hash. In Docker, point this at a persistent volume.
+board_artifacts_root = "./.kestrel-board-artifacts"
 
 # Optional, stateless OpenAI-compatible feedback translation. It is not a
 # workflow backend. Keep its credential in the named environment variable.

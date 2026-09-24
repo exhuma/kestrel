@@ -53,6 +53,10 @@ class CardKind(StrEnum):
     IMPLEMENTATION = "implementation"
     VERIFICATION = "verification"
     RECONCILIATION = "reconciliation"
+    #: An operator-requested coordinator escalation (FR-032); visible to
+    #: the coordinator's own wake-up turn like any other card, never
+    #: claimed by a specialist.
+    COORDINATOR_REVIEW = "coordinator_review"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves
@@ -413,3 +417,48 @@ class CompleteOutcome:
 
     success: bool
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class CoordinatorActionRecord:
+    """One proposed structured action and its policy outcome (data-model.md
+    "Coordinator Action"; FR-005).
+
+    :param id: Stable record identity.
+    :param workflow_id: The workflow this action targets.
+    :param trigger: What woke the coordinator (e.g. ``"card.done"``).
+    :param sequence: Monotonic per-workflow ordering.
+    :param action_payload: The proposed action, JSON-serialized.
+    :param validation_decision: ``"accepted"`` or ``"rejected"``.
+    :param rejection_reason: Safe reason, when rejected.
+    :param applied: Whether the accepted action was actually applied.
+    """
+
+    id: str
+    workflow_id: str
+    trigger: str
+    sequence: int
+    action_payload: str
+    validation_decision: str
+    rejection_reason: str | None = None
+    applied: bool = False
+
+
+@dataclass(frozen=True)
+class HumanGateRecord:
+    """One gate card's decision record (data-model.md "Human Gate"; FR-016).
+
+    :param id: Stable record identity.
+    :param card_id: The one gate card this record belongs to.
+    :param requested_decision: Safe, closed description of what's asked.
+    :param target_artifact_id: The artifact revision this gate decides on,
+        if any (e.g. the PRD revision a ``prd_gate`` approves).
+    :param decision: ``None`` until the operator decides; then
+        ``"approved"`` or ``"rejected"``.
+    """
+
+    id: str
+    card_id: str
+    requested_decision: str
+    target_artifact_id: str | None = None
+    decision: str | None = None

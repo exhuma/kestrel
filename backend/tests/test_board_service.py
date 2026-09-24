@@ -175,3 +175,64 @@ class TestEventAppend:
         events = service.list_events("wf-1")
         assert [e.event_type for e in events] == ["card.cancelled"]
         assert events[0].card_id == "card-1"
+
+
+class TestOnMutationHook:
+    """The coordinator's wake trigger fires on every committed mutation."""
+
+    def test_workflow_creation_triggers_the_hook(
+        self, tmp_path: Path
+    ) -> None:
+        store = BoardStore(_factory(tmp_path))
+        woken: list[str] = []
+        service = BoardService(store, on_mutation=woken.append)
+
+        workflow = service.create_workflow_from_intake(
+            AcceptedTaskIntake(
+                source="github-issue",
+                task_ref="owner/repo#1",
+                repo="owner/repo",
+                base_branch="main",
+                source_visibility="public",
+                title="Add a thing",
+            )
+        )
+
+        assert woken == [workflow.id]
+
+    def test_transition_triggers_the_hook(self, tmp_path: Path) -> None:
+        store = BoardStore(_factory(tmp_path))
+        store.create_workflow(
+            Workflow(
+                id="wf-1",
+                source="github-issue",
+                task_ref="owner/repo#1",
+                repo="owner/repo",
+                base_branch="main",
+                source_visibility="public",
+                title="Add a thing",
+            )
+        )
+        store.create_card(
+            WorkCard(
+                id="card-1",
+                workflow_id="wf-1",
+                kind="analysis",
+                title="Investigate",
+                state="ready",
+            )
+        )
+        woken: list[str] = []
+        service = BoardService(store, on_mutation=woken.append)
+
+        service.transition_card(
+            "card-1", "cancelled", event_type="card.cancelled"
+        )
+
+        assert woken == ["wf-1"]
+
+    def test_no_hook_configured_is_a_safe_no_op(self, tmp_path: Path) -> None:
+        service = _seeded(tmp_path)
+        service.transition_card(
+            "card-1", "cancelled", event_type="card.cancelled"
+        )

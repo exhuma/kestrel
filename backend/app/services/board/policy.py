@@ -37,7 +37,10 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
         {CardState.READY, CardState.CANCELLED}
     ),
     CardState.AWAITING_HUMAN: frozenset(
-        {CardState.READY, CardState.CANCELLED}
+        # READY resumes claimable work paused for a human answer; DONE is
+        # a gate's own approval (no specialist ever claims a gate card,
+        # so "validated completion" is the human decision itself).
+        {CardState.READY, CardState.DONE, CardState.CANCELLED}
     ),
     CardState.REVIEW: frozenset(
         {CardState.DONE, CardState.FAILED, CardState.CANCELLED}
@@ -46,7 +49,11 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
         {CardState.READY, CardState.CANCELLED}
     ),
     CardState.DONE: frozenset(),
-    CardState.FAILED: frozenset(),
+    # No automatic path ever re-opens a failed card — only an explicit
+    # operator retry/cancel intervention does (FR-032), which is why this
+    # edge exists in the graph but nothing in the automatic coordinator/
+    # claim flow ever proposes it.
+    CardState.FAILED: frozenset({CardState.READY, CardState.CANCELLED}),
     CardState.CANCELLED: frozenset(),
 }
 

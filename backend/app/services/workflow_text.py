@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 
 from app.design_contract import (
     DesignContract,
@@ -12,6 +11,7 @@ from app.design_contract import (
 from app.markers import SENTINEL, SUBTASK_SENTINEL  # noqa: F401
 from app.models import CanonicalEvent, EventKind
 from app.questionnaire import Questionnaire, parse_questionnaire_json
+from app.text_extract import extract_tag
 
 _log = logging.getLogger(__name__)
 
@@ -82,41 +82,19 @@ def append_subtask_sentinel(body: str) -> str:
     return f"{body.rstrip()}\n\n{SUBTASK_SENTINEL}\n"
 
 
-def _extract_tag(text: str, tag: str) -> str | None:
-    """Return the trimmed content of a <tag>...</tag> block, or None.
-
-    Tries an exact match first; on failure, falls back to a case-
-    insensitive prefix match (minimum 6 chars) to tolerate minor LLM
-    typos in the tag name (e.g. ``<UNDERSTING>`` for ``<UNDERSTANDING>``).
-    """
-    match = re.search(
-        rf"<{tag}>\s*(.*?)\s*</{tag}>", text, re.DOTALL
-    )
-    if match:
-        return match.group(1).strip()
-    # Fuzzy fallback: match a tag whose name starts with at least the
-    # first 6 characters of the expected tag (case-insensitive).
-    prefix = tag[:6]
-    pattern = r"<([A-Z_]{6,})>\s*(.*?)\s*</\1>"
-    for m in re.finditer(pattern, text, re.DOTALL):
-        if m.group(1).upper().startswith(prefix):
-            return m.group(2).strip()
-    return None
-
-
 def extract_refined_issue(text: str) -> str | None:
     """Return the refined issue if the agent emitted the delimiter block."""
-    return _extract_tag(text, "REFINED_ISSUE")
+    return extract_tag(text, "REFINED_ISSUE")
 
 
 def extract_understanding(text: str) -> str | None:
     """Return the describe step's restatement, if the agent emitted it."""
-    return _extract_tag(text, "UNDERSTANDING")
+    return extract_tag(text, "UNDERSTANDING")
 
 
 def extract_tech_analysis(text: str) -> str | None:
     """Return the technical_analysis technical-analysis summary, if emitted."""
-    return _extract_tag(text, "TECH_ANALYSIS")
+    return extract_tag(text, "TECH_ANALYSIS")
 
 
 def _is_followup_task(item: object) -> bool:
@@ -138,7 +116,7 @@ def extract_followup_tasks(text: str) -> list[dict[str, str]] | None:
         ``<FOLLOWUP_TASKS>`` tag is absent, its JSON is malformed, or it
         contains no usable entries.
     """
-    raw = _extract_tag(text, "FOLLOWUP_TASKS")
+    raw = extract_tag(text, "FOLLOWUP_TASKS")
     if raw is None:
         return None
     try:
@@ -160,7 +138,7 @@ def extract_containment_verdicts(text: str) -> dict[int, dict] | None:
         None if the ``<CONTAINMENT>`` tag is absent or its JSON does not
         match the expected shape.
     """
-    raw = _extract_tag(text, "CONTAINMENT")
+    raw = extract_tag(text, "CONTAINMENT")
     if raw is None:
         return None
     try:
@@ -186,12 +164,12 @@ def extract_containment_verdicts(text: str) -> dict[int, dict] | None:
 
 def extract_plan(text: str) -> str | None:
     """Return the plan if the agent emitted the delimiter block."""
-    return _extract_tag(text, "PLAN")
+    return extract_tag(text, "PLAN")
 
 
 def extract_design_contract(text: str) -> DesignContract | None:
     """Return the validated structured design output, or ``None`` on a miss."""
-    raw = _extract_tag(text, "DESIGN_CONTRACT")
+    raw = extract_tag(text, "DESIGN_CONTRACT")
     return parse_design_contract(raw) if raw is not None else None
 
 
@@ -209,7 +187,7 @@ def extract_boundary(text: str) -> str | None:
         when the ``<BOUNDARY>`` tag is missing or its content is not one of
         those four values.
     """
-    raw = _extract_tag(text, "BOUNDARY")
+    raw = extract_tag(text, "BOUNDARY")
     if raw is None:
         return None
     value = raw.strip().lower()
@@ -229,7 +207,7 @@ def extract_profiles(text: str) -> list[str] | None:
     :returns: The list of ids (possibly empty), or None if the tag is
         absent or its content is not valid JSON of the right shape.
     """
-    raw = _extract_tag(text, "PROFILES")
+    raw = extract_tag(text, "PROFILES")
     if raw is None:
         return None
     try:
@@ -258,7 +236,7 @@ def extract_coverage(text: str) -> dict[str, bool] | None:
     :param text: The agent's full response text.
     :returns: ``{audience: covered}``, or None.
     """
-    raw = _extract_tag(text, "COVERAGE")
+    raw = extract_tag(text, "COVERAGE")
     if raw is None:
         return None
     try:
@@ -294,7 +272,7 @@ def extract_questionnaire(text: str) -> Questionnaire | None:
         tag is absent or its content is not valid JSON matching
         the schema.
     """
-    raw = _extract_tag(text, "QUESTIONS")
+    raw = extract_tag(text, "QUESTIONS")
     if raw is None:
         return None
     return parse_questionnaire_json(raw)
@@ -326,7 +304,7 @@ def extract_mockups(text: str) -> list[dict[str, str]]:
     :param text: The mockup turn's full response text.
     :returns: A list of ``{"file", "explanation"}`` dicts (possibly empty).
     """
-    raw = _extract_tag(text, "MOCKUPS")
+    raw = extract_tag(text, "MOCKUPS")
     if raw is None:
         return []
     try:
@@ -374,7 +352,7 @@ def extract_feedback_triage(text: str) -> dict[str, str]:
     :param text: The triage turn's full response text.
     :returns: ``{"step", "reason", "instruction"}``, all strings.
     """
-    raw = _extract_tag(text, "TRIAGE")
+    raw = extract_tag(text, "TRIAGE")
     if raw is None:
         _log.warning("extract_feedback_triage: no <TRIAGE> tag found")
         return dict(_EMPTY_TRIAGE)

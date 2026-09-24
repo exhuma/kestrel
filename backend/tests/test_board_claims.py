@@ -1,11 +1,13 @@
 """Atomic claim, write-lease, and lease-expiry recovery tests (feature 026).
 
-Exercises ``app.persistence.board_store.BoardStore`` against a real,
-migrated SQLite database — the same convention as the existing store tests
-(e.g. ``test_child_task_store.py``).
+Exercises ``app.persistence.board_claims_store.BoardClaimsStore`` (claims)
+alongside ``app.persistence.board_store.BoardStore`` (reads/seeding)
+against a real, migrated SQLite database — the same convention as the
+existing store tests (e.g. ``test_child_task_store.py``).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from alembic import command
 from app.models_board import ClaimRequest, WorkCard, Workflow
+from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 
 _WORKFLOW = Workflow(
@@ -37,13 +40,26 @@ def _factory(tmp_path: Path) -> sessionmaker:
     return sessionmaker(bind=sa.create_engine(f"sqlite:///{database}"))
 
 
+@dataclass(frozen=True)
+class _Stores:
+    """A board store (reads/seeding) paired with its claims store."""
+
+    board: BoardStore
+    claims: BoardClaimsStore
+
+    def get_card(self, card_id: str) -> WorkCard | None:
+        return self.board.get_card(card_id)
+
+
 def _seeded_store(
     tmp_path: Path, *, card_id: str = "card-1", attempt_limit: int = 3
-) -> BoardStore:
-    """A store with one workflow and one ready card."""
-    store = BoardStore(_factory(tmp_path))
-    store.create_workflow(_WORKFLOW)
-    store.create_card(
+) -> _Stores:
+    """A store pair with one workflow and one ready card."""
+    factory = _factory(tmp_path)
+    board = BoardStore(factory)
+    claims = BoardClaimsStore(factory)
+    board.create_workflow(_WORKFLOW)
+    board.create_card(
         WorkCard(
             id=card_id,
             workflow_id="wf-1",
@@ -54,7 +70,7 @@ def _seeded_store(
             attempt_limit=attempt_limit,
         )
     )
-    return store
+    return _Stores(board, claims)
 
 
 class TestAtomicClaim:
@@ -62,7 +78,7 @@ class TestAtomicClaim:
 
     def test_claim_ready_card_succeeds(self, tmp_path: Path) -> None:
         store = _seeded_store(tmp_path)
-        outcome = store.claim_card(
+        outcome = store.claims.claim_card(
             ClaimRequest("card-1", "developer", lease_seconds=60)
         )
         assert outcome.success
@@ -73,14 +89,18 @@ class TestAtomicClaim:
         self, tmp_path: Path
     ) -> None:
         store = _seeded_store(tmp_path)
-        store.claim_card(ClaimRequest("card-1", "developer", 60))
-        second = store.claim_card(ClaimRequest("card-1", "architect", 60))
+        store.claims.claim_card(ClaimRequest("card-1", "developer", 60))
+        second = store.claims.claim_card(
+            ClaimRequest("card-1", "architect", 60)
+        )
         assert not second.success
         assert second.reason == "not_ready"
 
     def test_claiming_an_unknown_card_fails(self, tmp_path: Path) -> None:
         store = _seeded_store(tmp_path)
-        outcome = store.claim_card(ClaimRequest("missing", "developer", 60))
+        outcome = store.claims.claim_card(
+            ClaimRequest("missing", "developer", 60)
+        )
         assert not outcome.success
 
 
@@ -91,7 +111,7 @@ class TestWorkspaceWriteLease:
         self, tmp_path: Path
     ) -> None:
         store = _seeded_store(tmp_path)
-        store.create_card(
+        store.board.create_card(
             WorkCard(
                 id="card-2",
                 workflow_id="wf-1",
@@ -102,12 +122,12 @@ class TestWorkspaceWriteLease:
                 workspace_permission="write",
             )
         )
-        first = store.claim_card(
+        first = store.claims.claim_card(
             ClaimRequest(
                 "card-1", "coder", 60, workspace_repo="owner/repo"
             )
         )
-        second = store.claim_card(
+        second = store.claims.claim_card(
             ClaimRequest(
                 "card-2", "coder", 60, workspace_repo="owner/repo"
             )
@@ -120,7 +140,7 @@ class TestWorkspaceWriteLease:
         self, tmp_path: Path
     ) -> None:
         store = _seeded_store(tmp_path)
-        store.create_card(
+        store.board.create_card(
             WorkCard(
                 id="card-2",
                 workflow_id="wf-1",
@@ -130,8 +150,10 @@ class TestWorkspaceWriteLease:
                 eligible_roles=("architect",),
             )
         )
-        first = store.claim_card(ClaimRequest("card-1", "developer", 60))
-        second = store.claim_card(ClaimRequest("card-2", "architect", 60))
+        first = store.claims.claim_card(ClaimRequest("card-1", "developer", 60))
+        second = store.claims.claim_card(
+            ClaimRequest("card-2", "architect", 60)
+        )
         assert first.success
         assert second.success
 
@@ -144,18 +166,18 @@ class TestStaleResult:
     ) -> None:
         store = _seeded_store(tmp_path)
         now = datetime.now(timezone.utc)
-        first = store.claim_card(
+        first = store.claims.claim_card(
             ClaimRequest("card-1", "developer", 60), now=now
         )
-        store.expire_leases(now=now + timedelta(seconds=120))
-        second = store.claim_card(
+        store.claims.expire_leases(now=now + timedelta(seconds=120))
+        second = store.claims.claim_card(
             ClaimRequest("card-1", "developer", 60),
             now=now + timedelta(seconds=121),
         )
         assert second.success
         assert second.attempt_sequence == first.attempt_sequence + 1
 
-        stale = store.complete_attempt(
+        stale = store.claims.complete_attempt(
             "card-1",
             first.attempt_sequence,
             result="late result",
@@ -170,8 +192,8 @@ class TestStaleResult:
         self, tmp_path: Path
     ) -> None:
         store = _seeded_store(tmp_path)
-        claim = store.claim_card(ClaimRequest("card-1", "developer", 60))
-        outcome = store.complete_attempt(
+        claim = store.claims.claim_card(ClaimRequest("card-1", "developer", 60))
+        outcome = store.claims.complete_attempt(
             "card-1",
             claim.attempt_sequence,
             result="done",
@@ -189,9 +211,11 @@ class TestLeaseExpiryRecovery:
     ) -> None:
         store = _seeded_store(tmp_path)
         now = datetime.now(timezone.utc)
-        store.claim_card(ClaimRequest("card-1", "developer", 60), now=now)
+        store.claims.claim_card(
+            ClaimRequest("card-1", "developer", 60), now=now
+        )
 
-        expired = store.expire_leases(now=now + timedelta(seconds=120))
+        expired = store.claims.expire_leases(now=now + timedelta(seconds=120))
 
         assert expired == ["card-1"]
 
@@ -200,9 +224,11 @@ class TestLeaseExpiryRecovery:
     ) -> None:
         store = _seeded_store(tmp_path)
         now = datetime.now(timezone.utc)
-        store.claim_card(ClaimRequest("card-1", "developer", 60), now=now)
+        store.claims.claim_card(
+            ClaimRequest("card-1", "developer", 60), now=now
+        )
 
-        store.expire_leases(now=now + timedelta(seconds=120))
+        store.claims.expire_leases(now=now + timedelta(seconds=120))
 
         assert store.get_card("card-1").state == "ready"
 
@@ -211,18 +237,22 @@ class TestLeaseExpiryRecovery:
     ) -> None:
         store = _seeded_store(tmp_path, attempt_limit=1)
         now = datetime.now(timezone.utc)
-        store.claim_card(ClaimRequest("card-1", "developer", 60), now=now)
+        store.claims.claim_card(
+            ClaimRequest("card-1", "developer", 60), now=now
+        )
 
-        store.expire_leases(now=now + timedelta(seconds=120))
+        store.claims.expire_leases(now=now + timedelta(seconds=120))
 
         assert store.get_card("card-1").state == "failed"
 
     def test_unexpired_lease_is_left_alone(self, tmp_path: Path) -> None:
         store = _seeded_store(tmp_path)
         now = datetime.now(timezone.utc)
-        store.claim_card(ClaimRequest("card-1", "developer", 600), now=now)
+        store.claims.claim_card(
+            ClaimRequest("card-1", "developer", 600), now=now
+        )
 
-        expired = store.expire_leases(now=now + timedelta(seconds=10))
+        expired = store.claims.expire_leases(now=now + timedelta(seconds=10))
 
         assert expired == []
         assert store.get_card("card-1").state == "claimed"

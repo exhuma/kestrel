@@ -103,6 +103,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         for src in configured_poll_sources(settings)
     ]
 
+    # Board claim-expiry recovery (feature 026, FR-004/FR-012): runs
+    # unconditionally alongside the poll loops above, since it recovers
+    # abandoned specialist claims rather than polling any task source.
+    from app.services.board.bootstrap import get_recovery_service
+
+    poll_tasks.append(asyncio.create_task(get_recovery_service().run_forever()))
+
     try:
         yield
     finally:

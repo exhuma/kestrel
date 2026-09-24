@@ -9,6 +9,7 @@ is enforced consistently regardless of what triggered the transition.
 from __future__ import annotations
 
 import uuid
+from typing import Callable
 
 from app.models_board import (
     AcceptedTaskIntake,
@@ -27,10 +28,22 @@ class BoardService:
     """Policy-mediated reads, transitions, and event append."""
 
     def __init__(
-        self, store: BoardStore, bus: WorkflowBus | None = None
+        self,
+        store: BoardStore,
+        bus: WorkflowBus | None = None,
+        *,
+        on_mutation: Callable[[str], None] | None = None,
     ) -> None:
+        """
+        :param on_mutation: Called with the workflow id after every
+            committed mutation — the coordinator's event-driven wake
+            trigger (FR-004: card creation, completion, and other board
+            changes). Decoupled from any particular scheduling
+            implementation the same way ``bus`` is decoupled from SSE.
+        """
         self._store = store
         self._bus = bus
+        self._on_mutation = on_mutation
 
     def get_workflow(self, workflow_id: str) -> Workflow | None:
         """Return one workflow by id, or ``None`` if it does not exist."""
@@ -83,6 +96,8 @@ class BoardService:
         )
         if self._bus is not None:
             self._bus.publish(workflow.id)
+        if self._on_mutation is not None:
+            self._on_mutation(workflow.id)
         return workflow
 
     def transition_card(
@@ -116,14 +131,45 @@ class BoardService:
         self._store.set_card_state(
             card_id, target_state, wait_reason=wait_reason
         )
+        self._after_mutation(card.workflow_id, card_id, event_type)
+        return self._store.get_card(card_id)
+
+    def record_recovery_event(
+        self, card_id: str, event_type: str
+    ) -> WorkCard | None:
+        """Record a recovery-driven event for a card the recovery sweep
+        already moved (``BoardClaimsStore.expire_leases``).
+
+        The bulk lease-expiry sweep enforces its own two valid
+        destinations (``ready`` or ``failed``) directly at the store
+        layer rather than one card at a time through
+        :meth:`transition_card`; this appends the event, bumps the
+        revision, and wakes the coordinator afterward (FR-004's claim-
+        expiry wake trigger) so recovery is visible the same way any
+        other mutation is.
+
+        :returns: The card's current state, or ``None`` if it no longer
+            exists.
+        """
+        card = self._store.get_card(card_id)
+        if card is None:
+            return None
+        self._after_mutation(card.workflow_id, card_id, event_type)
+        return card
+
+    def _after_mutation(
+        self, workflow_id: str, card_id: str | None, event_type: str
+    ) -> None:
+        """Append the event, bump the revision, and notify subscribers."""
         self._store.append_event(
             BoardEventRecord(
-                workflow_id=card.workflow_id,
+                workflow_id=workflow_id,
                 card_id=card_id,
                 event_type=event_type,
             )
         )
-        self._store.bump_workflow_revision(card.workflow_id)
+        self._store.bump_workflow_revision(workflow_id)
         if self._bus is not None:
-            self._bus.publish(card.workflow_id)
-        return self._store.get_card(card_id)
+            self._bus.publish(workflow_id)
+        if self._on_mutation is not None:
+            self._on_mutation(workflow_id)
