@@ -42,16 +42,17 @@ decision or a coordinator escalation posting back to its task source
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T067** | 9 (US7) | Partial — see its own note. `kind="gate"` and `kind="escalation"` projection are done and tested (both `coordinator_review`-creating call sites); `approved_artifact`/`child_work`/`delivery` are not. `write_back.py::post_projection` is the shared, tested mechanism any of these can reuse — the remaining work per kind is a new call site, not new infrastructure. |
-| **T068** | 9 (US7) | No decomposition-to-child-cards publication at all. |
-| **T069** | 9 (US7) | No rerun/cleanup using the projection ownership ledger. Also the natural place to add push/opening a change request (T041/T051's deferred delivery step, `kind="delivery"`) — a clean verification result creates no follow-up card today, so there is still no explicit "done, ship it" signal anywhere. |
-| **T052** | 7 (US5) | CI-pipeline-specific evidence/repair cards — distinct from T051's verifier-finding routing, which is done. Lower priority now: local remediation already works without it. |
+| **T067** | 9 (US7) | Partial — see its own note. `kind="gate"` and `kind="escalation"` projection are done and tested (both `coordinator_review`-creating call sites); `approved_artifact`/`child_work`/`delivery` are not — each just needs a new `write_back.py::post_projection` call site once its own upstream event exists (T068 for `child_work`, T069 for `delivery`). |
+| **T068** | 9 (US7) | **Genuine design gap, not a wiring gap** (scope investigated 2026-09-26 — see its own note). The deleted `technical_analysis.py` ran a full propose→critique→revise LLM loop behind a human gate before ever publishing a child ticket; the board domain has no equivalent concept yet (no card kind for "a proposed decomposition awaiting approval"). Needs a real design pass before code — see its note for a concrete recommendation. |
+| **T069** | 9 (US7) | More tractable than T068 but still real design work (scope investigated 2026-09-26 — see its own note): the board's claim/lease/workspace model doesn't map 1:1 onto the deleted `reset.py`'s single-driver-task-per-run assumption. Also where `kind="delivery"` projection belongs. |
+| **T052** | 7 (US5) | **Blocked on T069**, not just lower priority (confirmed 2026-09-26): CI status is inherently a property of an open change request, and nothing opens one until T069's delivery step exists. |
 
-Suggested resume order: **T068 → T069 → T052**, optionally finishing
-T067's remaining two kinds (`approved_artifact`, `child_work` — the
-latter naturally lands alongside T068 itself) along the way; each still
-just needs a new `write_back.py::post_projection` call site, not new
-infrastructure. See each task's note below for specifics before starting.
+Suggested resume order: **T069 first** (delivery unblocks both T052 and
+T067's `kind="delivery"`, and is the more tractable of the two remaining
+US7 implementation tasks) **→ T068** (needs its own design pass — see its
+note; worth a design conversation with the user before implementation,
+not a solo engineering call) **→ T052**. See each task's note below for
+specifics before starting.
 
 ## Phase 1: Setup
 
@@ -396,13 +397,18 @@ remediation tests in `backend/tests/test_board_verifier_routing.py`.
   result (empty findings) creates no follow-up card at all today, so the
   loop has no explicit "done, ship it" signal yet. That decision point is
   the natural place to finally add T041's deferred push/PR-open step.
-- [ ] T052 [US5] **Still NOT DONE.** T051 covers a verifier's own
-  findings (code review / local test run style) but nothing about a CI
-  pipeline specifically: no CI-status polling, no CI-evidence card, no
-  bounded CI-repair-attempt tracking (the old driver's
-  `max_ci_repair_iterations` setting still exists in config but has no
-  reader). Lower priority than it looked before T051 landed — a repo
-  without CI can already get real, verified local remediation today.
+- [ ] T052 [US5] **Still NOT DONE. Actually blocked on T069, not just
+  lower priority** (confirmed 2026-09-26 reading the deleted
+  `workflows/ci.py`, 55 lines): the old `inspect_required_ci` read
+  `run.pr_number` and called `CodeHost.required_ci_statuses(repo,
+  pr_number, names)` — CI status is inherently a property of an *open
+  change request*, and nothing opens one yet (T041/T069's deferred
+  delivery step). T052 cannot be meaningfully built before that exists.
+  T051 already covers a verifier's own findings (code review/local test
+  run style) independent of any CI system, so a repo without CI (or
+  before delivery is built) already gets real, verified local
+  remediation today; the old driver's `max_ci_repair_iterations` setting
+  still exists in config with no reader.
 
 **Checkpoint**: Verification preserves autonomous implementation repair without
 allowing the verifier to extend approved scope.
@@ -525,18 +531,52 @@ public cleanup only sees recorded Kestrel-owned resources.
   with T068); `kind="delivery"` (belongs with T069/the push-a-verified-
   coder's-work gap noted under T041/T051). `lifecycle.py` stays deleted
   with no replacement; `notifications.py` still produces nothing.
-- [ ] T068 [US7] **NOT DONE.** `workflows/driver/technical_analysis.py` was
-  deleted in Phase 10 with no board-domain replacement; `task_scheduler.py`
-  survives only as pure branch-selection helpers
-  (`integration_branch`/`ScheduledTask`) consulted by `ingestion.py` for an
-  *already-linked* child — nothing in the board domain decomposes a task
-  and coordinator-creates child cards/tickets yet. Depends on T034/T041
-  (something has to actually do the decomposition work first).
-- [ ] T069 [US7] **NOT DONE, no equivalent exists.** `workflows/reset.py`
-  (rerun) was deleted outright in Phase 10 with no replacement — confirmed
-  via the constitution's amendment 1.5.0→1.5.1 ("rerun action... removed").
-  There is no cleanup action either. Both would need the projection
-  ownership ledger (T066) as their foundation once (re)built.
+- [ ] T068 [US7] **NOT DONE — scope investigated 2026-09-26, materially
+  bigger than "add a call site."** `workflows/driver/technical_analysis.py`
+  (deleted, `git show 33628b4^:backend/app/services/workflows/driver/
+  technical_analysis.py` to read it) was not a simple publish step: it ran
+  a full **propose → self-critique → revise** LLM loop
+  (`_MAX_CONTAINMENT_PASSES` bounded revision against a self-containment
+  check), held the candidate decomposition behind an explicit **human
+  gate** before any task-source write ("a human gate holds that candidate
+  before any task-source write" — its own docstring), and only then
+  published via `TaskSource.create_subtask()` + recorded the link
+  (`child_task_store.py`, which still exists and is still read by
+  `ingestion.py` for re-adoption — only the *write* side is gone).
+  `task_scheduler.py` survives only as the pure branch-selection remnant
+  (`integration_branch`/`ScheduledTask`).
+
+  This is a genuine design gap, not a wiring gap: the board domain has no
+  concept yet of "a proposed decomposition awaiting approval" — no card
+  kind for it (`CardKind` has `DECOMPOSITION_GATE` for the *gate*, but
+  nothing upstream that proposes what the gate approves), no critique/
+  revision loop equivalent to T051's verifier routing. Building this
+  properly needs a real design pass (a new `analysis`-produced artifact
+  shape for the candidate, a `DECOMPOSITION_GATE` card wired to it, and a
+  publish step that runs only after approval) before writing code —
+  recommend a `/speckit.specify`-style pass or at least a design
+  conversation with the user on how much of the propose/critique loop to
+  carry forward vs. simplify, rather than guessing under a single
+  implementation session.
+- [ ] T069 [US7] **NOT DONE — scope investigated 2026-09-26, more
+  tractable than T068 but still real design work.**
+  `workflows/reset.py` (`git show 33628b4^:backend/app/services/
+  workflows/reset.py`, 208 lines) was deleted outright with no
+  replacement — confirmed via the constitution's amendment 1.5.0→1.5.1
+  ("rerun action... removed"). Its `abandon_common` (cancel the driver
+  task, terminate/remove every session attributed to the run's
+  workspace, drop the registry record, tear down the workspace) is the
+  shared core `delete`/`cleanup`/`rerun` each layer on. The board's
+  equivalent state shape differs enough that this isn't a port: there is
+  no single "driver task" per workflow to cancel (work happens via
+  discrete claim/dispatch cycles, not one long-running task), and
+  cleanup now needs to reason about `WorkspaceService`'s worktree/mirror
+  (T041) and the content-addressed artifact store (T039) instead of a
+  single `run.workspace` directory. Also where `kind="delivery"`
+  projection (push/open a change request once verification passes —
+  T041/T051's deferred step) naturally belongs, since delivery and
+  cleanup/rerun both need the projection ownership ledger (T066) as
+  their shared foundation for "what does Kestrel actually own here."
 
 **Checkpoint**: Task sources carry approvals, material blockers, artifacts,
 child work, and delivery outcomes without becoming a noisy board mirror.
