@@ -14,6 +14,7 @@ from app.persistence.board_artifact_content_store import (
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_coordinator_store import BoardCoordinatorStore
+from app.persistence.board_projection_store import BoardProjectionStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import ClaimsService
@@ -22,6 +23,7 @@ from app.services.board.dispatch_ready import (
     DispatchServices,
     dispatch_ready_work,
 )
+from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
@@ -228,3 +230,72 @@ class TestEndToEndDispatchRouting:
         assert len(remediation) == 1
         assert remediation[0].kind == "implementation"
         assert "off-by-one" in remediation[0].title
+
+    @pytest.mark.asyncio
+    async def test_an_escalation_finding_projects_to_the_task_source(
+        self, tmp_path: Path,
+    ) -> None:
+        factory = board_session_factory(tmp_path)
+        store = BoardStore(factory)
+        claims_store = BoardClaimsStore(factory)
+        coordinator_store = BoardCoordinatorStore(factory)
+        board_service = BoardService(store)
+        artifact_store = BoardArtifactStore(factory)
+        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
+        projections = ProjectionsService(BoardProjectionStore(factory))
+        roster = SpecialistRoster({"verifier": _verifier()})
+        store.create_workflow(
+            Workflow(
+                id="wf-1", source="github-issue", task_ref="owner/repo#1",
+                repo="owner/repo", base_branch="main",
+                source_visibility="public", title="Add a thing",
+            )
+        )
+        store.create_card(
+            WorkCard(
+                id="card-1", workflow_id="wf-1", kind="verification",
+                title="Verify", state="ready", eligible_roles=("verifier",),
+            )
+        )
+        claims = ClaimsService(
+            store=store, claims_store=claims_store, roster=roster,
+            max_parallel_read_cards=4, default_lease_seconds=60,
+            default_workspace_lease_seconds=600,
+        )
+        artifacts = ArtifactsService(
+            store, artifact_store, board_service, content_store
+        )
+        coordinator = CoordinatorService(
+            store, coordinator_store, board_service
+        )
+        task_source = _FakeTaskSource()
+        services = DispatchServices(
+            claims, roster, artifacts, coordinator=coordinator,
+            task_sources=_FakeTaskSources({"github-issue": task_source}),
+            projections=projections,
+        )
+        backend = _FakeBackend(_findings_block(
+            '{"category": "ambiguity", "summary": "unclear boundary"}'
+        ))
+
+        await dispatch_ready_work(
+            "wf-1", services, lambda _s: backend, timeout_seconds=5
+        )
+
+        assert task_source.calls == [
+            ("owner/repo#1", "Escalation: unclear boundary")
+        ]
+
+
+class _FakeTaskSource:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def post_comment(self, ref: str, body: str) -> str:
+        self.calls.append((ref, body))
+        return "comment-1"
+
+
+class _FakeTaskSources:
+    def __init__(self, sources: dict[str, object]) -> None:
+        self.sources = sources

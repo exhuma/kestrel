@@ -32,9 +32,11 @@ from app.services.board.dispatch import (
     build_card_envelope,
     run_card_turn,
 )
+from app.services.board.projections import ProjectionsService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
+from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.exceptions import GitError
 from app.services.task_sources import TaskSourceRegistry
 
@@ -52,12 +54,15 @@ class DispatchServices:
         pre-T041 behavior) — e.g. for a deployment with no configured
         task sources to resolve a code host from.
     :param task_sources: Resolves a workflow's ``CodeHost`` (for the clone
-        remote/credential a workspace is provisioned from) by its
-        ``source``.
+        remote/credential a workspace is provisioned from) and, for
+        escalation projection, its ``TaskSource`` — both by ``source``.
     :param coordinator: Routes a completed ``verification`` card's parsed
         findings into new remediation/escalation cards (T051). ``None``
         leaves a verification card's result generically accepted like any
         other card's, with no follow-up card created.
+    :param projections: Posts a routed escalation finding to its task
+        source (T067). ``None`` skips projection — the escalation card
+        is still created either way.
     """
 
     claims: ClaimsService
@@ -66,6 +71,7 @@ class DispatchServices:
     workspace: WorkspaceService | None = None
     task_sources: TaskSourceRegistry | None = None
     coordinator: CoordinatorService | None = None
+    projections: ProjectionsService | None = None
 
 
 async def dispatch_ready_work(
@@ -186,10 +192,12 @@ async def _dispatch_one(
         )
     )
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
-        _route_verification(workflow_id, card, result.final_text, services)
+        await _route_verification(
+            workflow_id, card, result.final_text, services
+        )
 
 
-def _route_verification(
+async def _route_verification(
     workflow_id: str,
     card: WorkCard,
     final_text: str,
@@ -198,10 +206,50 @@ def _route_verification(
     """Best-effort: a routing failure must not undo the already-accepted
     verification card result above it."""
     try:
-        route_verifier_result(final_text, card, services.coordinator)
+        escalations = route_verifier_result(
+            final_text, card, services.coordinator
+        )
     except Exception:  # noqa: BLE001 — never let routing crash dispatch
         _dispatch_log.exception(
             "workflow %s: verifier-finding routing failed for card %s",
+            workflow_id, card.id,
+        )
+        return
+    for index, summary in enumerate(escalations):
+        await _project_escalation(workflow_id, card, index, summary, services)
+
+
+async def _project_escalation(
+    workflow_id: str,
+    card: WorkCard,
+    index: int,
+    summary: str,
+    services: DispatchServices,
+) -> None:
+    """Best-effort projection of one escalation finding (T067)."""
+    if services.projections is None or services.task_sources is None:
+        return
+    workflow = services.claims.store.get_workflow(workflow_id)
+    task_source = services.task_sources.sources.get(workflow.source)
+    if task_source is None:
+        return
+    try:
+        await post_projection(
+            ProjectionRequest(
+                workflow_id=workflow_id,
+                task_ref=workflow.task_ref,
+                kind="escalation",
+                idempotency_key=(
+                    f"escalation:{card.id}:{card.attempt_count}:{index}"
+                ),
+                payload=f"Escalation: {summary}",
+            ),
+            task_source,
+            services.projections,
+        )
+    except Exception:  # noqa: BLE001 — never let projection crash dispatch
+        _dispatch_log.exception(
+            "workflow %s: escalation projection failed for card %s",
             workflow_id, card.id,
         )
 

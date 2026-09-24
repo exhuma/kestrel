@@ -26,7 +26,7 @@ from app.services.board.validation import (
 
 def route_verifier_result(
     text: str, card: WorkCard, coordinator: CoordinatorService
-) -> None:
+) -> list[str]:
     """Parse *card*'s verifier turn result and create any follow-up cards.
 
     One :class:`CreateCardAction` per finding: a remediation finding
@@ -42,22 +42,29 @@ def route_verifier_result(
     ``verification:<card.id>:<card.attempt_count>``, the same guarantee
     ``CoordinatorService.apply_actions`` already gives a repeated
     coordinator wake for one board revision.
+
+    :returns: The escalation summaries routed (including a synthetic one
+        for an unparseable result) — nothing else needs to know about a
+        created ``implementation`` remediation card, but a caller wiring
+        an escalation's projection to its task source (T067) needs these
+        without re-parsing *text* itself.
     """
     try:
         findings = parse_verifier_result(text)
     except VerifierResultError:
+        escalations = [f"Unparseable verifier result on card {card.id}"]
         actions = [
             CreateCardAction(
-                kind=CardKind.COORDINATOR_REVIEW.value,
-                title=f"Unparseable verifier result on card {card.id}",
+                kind=CardKind.COORDINATOR_REVIEW.value, title=escalations[0]
             )
         ]
     else:
+        escalations = [f.summary for f in findings if is_escalation(f)]
         actions = [_action_for(finding) for finding in findings]
-    if not actions:
-        return
-    trigger = f"verification:{card.id}:{card.attempt_count}"
-    coordinator.apply_actions(card.workflow_id, trigger, actions)
+    if actions:
+        trigger = f"verification:{card.id}:{card.attempt_count}"
+        coordinator.apply_actions(card.workflow_id, trigger, actions)
+    return escalations
 
 
 def _action_for(finding: VerifierFinding) -> CreateCardAction:

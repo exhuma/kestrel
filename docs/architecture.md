@@ -181,14 +181,17 @@ creates no follow-up card at all, so the loop has no explicit "done, ship
 it" signal yet. This is now the most important remaining gap (tasks.md
 T067-T069, which also covers the rest of task-source write-back below).
 
-**As of 2026-09-26, one of the five milestone kinds actually posts** (spec
+**As of 2026-09-26, two of the five milestone kinds actually post** (spec
 026 T067, partial): `app/services/board/write_back.py::post_projection`
 plans (via `projections.py`), posts via `TaskSource.post_comment()`, and
 resolves exactly one projection, idempotent by key and never raising on a
-post failure (recorded as retryable instead). Wired for **gate decisions
-only**: resolving a human gate now posts `"Gate approved: <title>"` (or
-`rejected`) back to the workflow's task source — see
-`tests/test_board_write_back.py` and `bootstrap.py::schedule_gate_projection`.
+post failure (recorded as retryable instead). Wired for **gate decisions**
+(resolving a human gate posts `"Gate approved: <title>"` or `rejected`)
+and **escalations** (a `coordinator_review` card — created either by a
+verifier's routed finding, T051, or an operator's own "request
+coordinator review" — posts `"Escalation: <summary/title>"`) — see
+`tests/test_board_write_back.py`, `tests/test_board_verification.py`, and
+`bootstrap.py::schedule_gate_projection`/`schedule_escalation_projection`.
 
 What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
@@ -200,23 +203,20 @@ operator should not expect today:
   cards (tasks.md T052) — distinct from T051's verifier-finding routing,
   which covers a verifier's own findings (code review/local test run
   style) regardless of any CI system.
-- **Write-back for anything except a resolved gate.** The other four
-  FR-033 milestone kinds — escalation, approved-artifact, child-work,
-  delivery — are not yet wired to `post_projection`, even though a
-  `coordinator_review` card (escalation) is already created in two places
-  (T051's verifier routing, and an operator's own "request coordinator
-  review" intervention). In practice this still means: no status labels
-  or Jira transitions are applied as a workflow progresses
+- **Write-back for approved-artifact, child-work, or delivery.** Gate and
+  escalation project (above); the other three FR-033 milestone kinds are
+  not yet wired to `post_projection`. In practice this still means: no
+  status labels or Jira transitions are applied as a workflow progresses
   (`app/notifications.py`'s own docstring: "nothing currently produces a
   Notification row"); no `hooks_dir` executable is ever invoked (only the
   startup audit-log pass runs); no comment-based feedback steering (the
-  old `@kestrel` marker mechanism was deleted with
-  the driver and has no board-domain replacement); no decomposition is
-  published back to the task source as child tickets; the optional
-  translation backing service has no caller; and there is no **rerun**
-  action (the endpoint that implemented it was deleted along with the
-  fixed driver's router — see the constitution's access-model third
-  constraint) and no **cleanup** action.
+  old `@kestrel` marker mechanism was deleted with the driver and has no
+  board-domain replacement); no decomposition is published back to the
+  task source as child tickets; the optional translation backing service
+  has no caller; and there is no **rerun** action (the endpoint that
+  implemented it was deleted along with the fixed driver's router — see
+  the constitution's access-model third constraint) and no **cleanup**
+  action.
 - Practically, this means a configured GitHub/Jira/local source today
   creates a board **Workflow** and its initial cards on a qualifying task
   (after quarantine screening); specialist cards then progress

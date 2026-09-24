@@ -170,6 +170,7 @@ def get_dispatch_services() -> DispatchServices:
         workspace=get_workspace_service(),
         task_sources=get_task_source_registry(),
         coordinator=get_coordinator_service(),
+        projections=get_projections_service(),
     )
 
 
@@ -244,19 +245,49 @@ def schedule_gate_projection(
 async def _project_gate(
     workflow_id: str, card: WorkCard, decision: str
 ) -> None:
+    await _project(
+        workflow_id, "gate", f"gate:{card.id}",
+        f"Gate {decision}: {card.title}",
+    )
+
+
+def schedule_escalation_projection(workflow_id: str, card: WorkCard) -> None:
+    """Schedule posting an operator-requested coordinator review to its
+    task source (feature 026, T067), in the background.
+
+    The verifier-routed escalation path (T051,
+    ``dispatch_ready.py::_project_escalation``) posts its own; this is
+    the other place a ``coordinator_review`` card is created.
+    """
+    task = asyncio.create_task(_project_escalation(workflow_id, card))
+    task.add_done_callback(
+        lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
+    )
+
+
+async def _project_escalation(workflow_id: str, card: WorkCard) -> None:
+    await _project(
+        workflow_id, "escalation", f"escalation:{card.id}",
+        f"Escalation: {card.title}",
+    )
+
+
+async def _project(
+    workflow_id: str, kind: str, idempotency_key: str, payload: str
+) -> None:
     workflow = get_board_store().get_workflow(workflow_id)
     task_source = get_task_source_registry().sources.get(workflow.source)
     if task_source is None:
         _logger.warning(
-            "workflow %s: no task source for source %r; gate decision "
-            "not projected", workflow_id, workflow.source,
+            "workflow %s: no task source for source %r; %s not "
+            "projected", workflow_id, workflow.source, kind,
         )
         return
     request = ProjectionRequest(
         workflow_id=workflow_id,
         task_ref=workflow.task_ref,
-        kind="gate",
-        idempotency_key=f"gate:{card.id}",
-        payload=f"Gate {decision}: {card.title}",
+        kind=kind,
+        idempotency_key=idempotency_key,
+        payload=payload,
     )
     await post_projection(request, task_source, get_projections_service())

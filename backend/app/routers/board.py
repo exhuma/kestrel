@@ -41,6 +41,7 @@ from app.services.board.bootstrap import (
     get_interventions_service,
     get_quarantine_service,
     get_specialist_roster,
+    schedule_escalation_projection,
     schedule_gate_projection,
 )
 from app.services.board.interventions import (
@@ -285,5 +286,7 @@ async def apply_board_intervention(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.action == CardAction.RESOLVE_GATE.value and body.decision:
         schedule_gate_projection(workflow_id, updated, body.decision)
+    elif body.action == CardAction.REQUEST_COORDINATOR_REVIEW.value:
+        schedule_escalation_projection(workflow_id, updated)
     relations = deps.board.list_relations(workflow_id)
     return card_summary(updated, relations, _lookups([updated], deps))

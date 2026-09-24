@@ -19,37 +19,39 @@ before beginning story phases.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
 ## Status (2026-09-26, after Phase 10 clean break + T034 + T041 + T051 +
-partial T067)
+partial T067 [gate + escalation])
 
 73/77 tasks fully verified `[x]` complete against actual code (not just
 checked off — every one confirmed by reading/grepping the current source
 or, for T034/T041/T051, by writing and passing new tests); **T067 is
 additionally now partially done** (still `[ ]`, see its own note — gate
-decisions project to the task source, the other four FR-033 kinds don't
-yet). The old fixed six-step driver is fully removed (commits `33628b4`
-backend, `3fc281c` frontend, `483dda2` docs); the board domain's data
-model, intake/quarantine, gates/interventions, coordinator planning,
-claim/lease bookkeeping + recovery, the read-only Board/Graph UI, the
-automatic specialist claim→turn→accept dispatch loop (T034), a real
-per-workflow git worktree with `coder` actually able to edit files
-(T041), verifier-finding routing into remediation/escalation cards
-(T051), **and now a resolved gate's decision posting back to its task
-source (T067, partial)** are all solid and tested.
+and escalation decisions project to the task source; approved-artifact,
+child-work, and delivery don't yet). The old fixed six-step driver is
+fully removed (commits `33628b4` backend, `3fc281c` frontend, `483dda2`
+docs); the board domain's data model, intake/quarantine, gates/
+interventions, coordinator planning, claim/lease bookkeeping + recovery,
+the read-only Board/Graph UI, the automatic specialist claim→turn→accept
+dispatch loop (T034), a real per-workflow git worktree with `coder`
+actually able to edit files (T041), verifier-finding routing into
+remediation/escalation cards (T051), **and now a resolved gate's
+decision or a coordinator escalation posting back to its task source
+(T067, partial)** are all solid and tested.
 
 **4 tasks remain open** (T067 among them, partially). Each has a
 `**NOT DONE**`/`**PARTIAL**` note in place with exact findings:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T067** | 9 (US7) | Partial — see its own note. `kind="gate"` projection is done and tested; `escalation`/`approved_artifact`/`child_work`/`delivery` are not. `write_back.py::post_projection` is the shared, tested mechanism any of these can reuse — the remaining work per kind is a new call site, not new infrastructure. |
+| **T067** | 9 (US7) | Partial — see its own note. `kind="gate"` and `kind="escalation"` projection are done and tested (both `coordinator_review`-creating call sites); `approved_artifact`/`child_work`/`delivery` are not. `write_back.py::post_projection` is the shared, tested mechanism any of these can reuse — the remaining work per kind is a new call site, not new infrastructure. |
 | **T068** | 9 (US7) | No decomposition-to-child-cards publication at all. |
 | **T069** | 9 (US7) | No rerun/cleanup using the projection ownership ledger. Also the natural place to add push/opening a change request (T041/T051's deferred delivery step, `kind="delivery"`) — a clean verification result creates no follow-up card today, so there is still no explicit "done, ship it" signal anywhere. |
 | **T052** | 7 (US5) | CI-pipeline-specific evidence/repair cards — distinct from T051's verifier-finding routing, which is done. Lower priority now: local remediation already works without it. |
 
-Suggested resume order: **finish T067 (escalation projection is the
-cheapest next slice — same `write_back.py` infrastructure, two known call
-sites) → T068 → T069 → T052**. See each task's note
-below for specifics before starting.
+Suggested resume order: **T068 → T069 → T052**, optionally finishing
+T067's remaining two kinds (`approved_artifact`, `child_work` — the
+latter naturally lands alongside T068 itself) along the way; each still
+just needs a new `write_back.py::post_projection` call site, not new
+infrastructure. See each task's note below for specifics before starting.
 
 ## Phase 1: Setup
 
@@ -481,31 +483,48 @@ public cleanup only sees recorded Kestrel-owned resources.
 - [x] T066 [US7] Implement projection planning, durable idempotency records,
   Kestrel-owned external artifact ledger, and retry handling in
   `backend/app/services/board/projections.py`.
-- [ ] T067 [US7] **PARTIAL (2026-09-26): gate projection done, the other
-  four FR-033 milestone kinds are not.** New
+- [ ] T067 [US7] **PARTIAL (2026-09-26): gate + escalation projection
+  done, two of five FR-033 kinds remain.** New
   `app/services/board/write_back.py::post_projection`: plans (via
   `projections.py`, T066), posts via `TaskSource.post_comment()`, and
   resolves (`complete`/`fail`) exactly one projection — idempotent by
-  key, a post failure recorded as retryable rather than raised. Wired for
-  **`kind="gate"` only**: `routers/board.py`'s `apply_board_intervention`
+  key, a post failure recorded as retryable rather than raised.
+
+  **`kind="gate"`**: `routers/board.py`'s `apply_board_intervention`
   calls `bootstrap.py::schedule_gate_projection` (fire-and-forget,
   mirrors `_trigger_scheduling`'s own pattern) after a `resolve_gate`
-  intervention succeeds, which resolves the workflow's `TaskSource` via
-  `get_task_source_registry()` and posts `"Gate {decision}: {title}"`.
-  Covered by `tests/test_board_write_back.py` (3 tests: post-and-complete,
-  idempotent re-post, failure-is-retryable-not-raised); the
-  `bootstrap.py`/router wiring itself is intentionally untested directly,
-  matching this codebase's existing convention for `_trigger_scheduling`
-  (no dedicated test either) — trusted by code review plus the full app
-  import/startup check.
+  intervention succeeds, posting `"Gate {decision}: {title}"`.
 
-  **Not done**: `kind="escalation"` (a `coordinator_review` card is
-  created in two places — `verification.py` T051 and
-  `interventions.py::_request_coordinator_review` — neither posts a
-  projection yet); `kind="approved_artifact"`; `kind="child_work"`
-  (belongs with T068); `kind="delivery"` (belongs with T069/the push-a-
-  verified-coder's-work gap noted under T041/T051). `lifecycle.py` stays
-  deleted with no replacement; `notifications.py` still produces nothing.
+  **`kind="escalation"`**: both places a `coordinator_review` card is
+  created now project it. `verification.py::route_verifier_result`
+  (T051) was changed to return the escalation summaries it routed (not
+  just create the cards), so `dispatch_ready.py`'s new
+  `_project_escalation` can post `"Escalation: {summary}"` per finding
+  without re-parsing the verifier's result — keyed
+  `escalation:<verification_card.id>:<attempt>:<finding_index>`, so a
+  verifier reporting several escalations in one turn projects each
+  once. The operator-triggered path
+  (`interventions.py::_request_coordinator_review`) posts
+  `"Escalation: {title}"` via the router's new
+  `schedule_escalation_projection`, keyed `escalation:<review_card.id>`.
+  Both call sites share `bootstrap.py::_project` (workflow/task-source
+  resolution + `post_projection`), factored out once a second call site
+  existed, to avoid duplicating it.
+
+  Covered by `tests/test_board_write_back.py` (3 tests on
+  `post_projection` itself) and
+  `tests/test_board_verification.py::TestEndToEndDispatchRouting::
+  test_an_escalation_finding_projects_to_the_task_source` (full
+  `dispatch_ready_work` → escalation → projected-comment integration).
+  The `bootstrap.py`/router wiring itself is intentionally untested
+  directly, matching this codebase's existing convention for
+  `_trigger_scheduling` (no dedicated test either) — trusted by code
+  review plus the full app import/startup check.
+
+  **Not done**: `kind="approved_artifact"`; `kind="child_work"` (belongs
+  with T068); `kind="delivery"` (belongs with T069/the push-a-verified-
+  coder's-work gap noted under T041/T051). `lifecycle.py` stays deleted
+  with no replacement; `notifications.py` still produces nothing.
 - [ ] T068 [US7] **NOT DONE.** `workflows/driver/technical_analysis.py` was
   deleted in Phase 10 with no board-domain replacement; `task_scheduler.py`
   survives only as pure branch-selection helpers
