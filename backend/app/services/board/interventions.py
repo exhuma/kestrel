@@ -16,7 +16,7 @@ import uuid
 from app.models_board import CardAction, CardKind, CardState, WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
-from app.services.board.gates import GatesService
+from app.services.board.gates import GatesService, UnknownGateError
 from app.services.board.service import BoardService
 
 #: DONE and CANCELLED are hard-terminal; FAILED may still be cancelled
@@ -131,7 +131,10 @@ class InterventionsService:
             raise InvalidInterventionError(
                 "resolve_gate requires a decision"
             )
-        return self._gates_service.resolve(card.id, decision)
+        try:
+            return self._gates_service.resolve(card.id, decision)
+        except UnknownGateError as exc:
+            raise InvalidInterventionError(str(exc)) from exc
 
     def _request_coordinator_review(self, card: WorkCard) -> WorkCard:
         review = WorkCard(

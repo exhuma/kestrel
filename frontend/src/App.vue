@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { useTheme } from 'vuetify'
 import WorkflowPanel from './components/WorkflowPanel.vue'
+import WorkBoard from './components/WorkBoard.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
 import GithubLink from './components/GithubLink.vue'
@@ -43,8 +44,10 @@ const running = computed(() =>
 const loading = computed(() => sessionsLoading.value || workflowsLoading.value)
 
 // Workflows lead; the raw sessions view is kept only as a debugging
-// affordance (the muted toggle in the header).
-const view = ref<'sessions' | 'workflows'>('workflows')
+// affordance (the muted toggle in the header). Board (feature 026, US6)
+// is additive — a separate view onto the new autonomous work board
+// domain, alongside (not replacing) the fixed-step workflows view.
+const view = ref<'sessions' | 'workflows' | 'board'>('workflows')
 
 // Light/dark toggle over Vuetify's two built-in themes.
 const theme = useTheme()
@@ -95,6 +98,7 @@ function toggleTheme() {
         <v-btn value="workflows" size="small" class="text-none"
           >Workflows</v-btn
         >
+        <v-btn value="board" size="small" class="text-none">Board</v-btn>
         <v-btn
           value="sessions"
           size="small"
@@ -141,6 +145,7 @@ function toggleTheme() {
 
     <v-main class="stageroot">
       <SessionPanel v-if="view === 'sessions'" />
+      <WorkBoard v-else-if="view === 'board'" />
       <WorkflowPanel v-else />
     </v-main>
   </v-app>

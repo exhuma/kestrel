@@ -247,6 +247,25 @@ class TestResolveGate:
                 expected_revision=_revision(store),
             )
 
+    def test_resolve_gate_on_a_card_with_no_gate_record_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """A card in awaiting_human but with no paired gate record (should
+        never happen through GatesService.create_gate, but is a real
+        malformed-data case an intervention must fail closed on rather
+        than leak an unhandled exception)."""
+        service, store, _claims, _gates = _service(tmp_path)
+        store.create_card(_card(state="awaiting_human"))
+
+        with pytest.raises(InvalidInterventionError):
+            service.apply(
+                "wf-1",
+                "card-1",
+                CardAction.RESOLVE_GATE,
+                expected_revision=_revision(store),
+                decision="approved",
+            )
+
 
 class TestRequestCoordinatorReview:
     """Requesting coordinator review creates a new coordinator-facing card."""
