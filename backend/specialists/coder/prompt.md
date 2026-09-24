@@ -11,3 +11,10 @@ the gap for the coordinator rather than silently going beyond it. Leave a
 durable, versioned handoff artifact for any output later work or recovery
 will need. Write tests for the behaviour you add before or alongside the
 implementation, consistent with this project's test-first discipline.
+
+Your working directory is a real git worktree on your own branch. Commit
+your changes there yourself (`git add` / `git commit`) before you finish —
+kestrel does not commit on your behalf, and uncommitted work is not
+guaranteed to survive. Kestrel decides separately, later, whether and when
+your branch is pushed or opened as a change request; never push or publish
+it yourself.

@@ -40,6 +40,8 @@ from app.services.board.quarantine import QuarantineService
 from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
+from app.services.board.workspace import WorkspaceService
+from app.services.task_sources import get_task_source_registry
 from app.storage.workflow_bus import get_workflow_bus
 
 _logger = logging.getLogger(__name__)
@@ -158,10 +160,20 @@ def get_scheduling_service() -> SchedulingService:
 
 
 @lru_cache
+def get_workspace_service() -> WorkspaceService:
+    """Return the process-wide board WorkspaceService singleton."""
+    return WorkspaceService(get_settings().workspace_root)
+
+
+@lru_cache
 def get_dispatch_services() -> DispatchServices:
     """Return the process-wide DispatchServices bundle."""
     return DispatchServices(
-        get_claims_service(), get_specialist_roster(), get_artifacts_service()
+        get_claims_service(),
+        get_specialist_roster(),
+        get_artifacts_service(),
+        workspace=get_workspace_service(),
+        task_sources=get_task_source_registry(),
     )
 
 

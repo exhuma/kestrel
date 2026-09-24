@@ -141,10 +141,10 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: no board-domain workspace/execution layer yet
+### Current gap: no verification loop or task-source write-back yet
 
-Everything above through gate/intervention resolution is live, **and, as of
-2026-09-25, so is the automatic specialist dispatch loop** (spec 026 T034):
+Everything above through gate/intervention resolution is live, and so is
+the automatic specialist dispatch loop (spec 026 T034):
 `app/services/board/bootstrap.py`'s `_trigger_scheduling` fires on every
 committed board mutation, wakes the coordinator for one planning turn, then
 calls `app/services/board/dispatch.py::dispatch_ready_work`, which tries a
@@ -153,19 +153,31 @@ claim→turn→accept cycle for every non-coordinator role in the roster. A
 into `review`/`done` without any operator action — see
 `tests/test_board_scheduling.py::TestDispatchReadyWork`.
 
-What is **still not** wired up, as of Phase 10 — tracked as follow-on work
-(spec 026 `tasks.md`'s Status section has the authoritative, per-task
-detail) — an operator should not expect today:
+**As of 2026-09-26, a `read_only`/`write` card also gets a real workspace**
+(spec 026 T041): `app/services/board/workspace.py::WorkspaceService`
+provisions a per-repo shared bare mirror plus one worktree per workflow,
+cut from it on demand and reused (never reset) across a workflow's turns.
+A `write` card additionally dispatches with `permission_mode="acceptEdits"`
+(every turn used to run in read-only `"plan"` mode regardless of the
+card's actual permission), so the `coder` role can now genuinely read and
+edit files — its prompt instructs it to commit its own work locally. See
+`tests/test_board_dispatch_workspace.py`.
 
-- **Any real git/workspace for a specialist to actually edit files in.**
-  Every card turn — including the coordinator's — runs with `cwd=""`; there
-  is no board-domain equivalent of the old driver's workspace provisioning,
-  clone, commit, push, or PR-open code (`app/services/git.py` was deleted
-  in Phase 10 and never replaced). A text-only role (e.g. `requester`,
-  `architect`, `qa`) can already complete a card end-to-end; a
-  `FILE_EDITS`-capable role (`coder`) is claimed and dispatched correctly
-  but has nowhere real to write, so its output is text only, not a code
-  change. This is now the most important remaining gap (tasks.md T041).
+**Deliberately still out of scope** (T041's own boundary, not an
+oversight): kestrel never pushes a coder's commits or opens a change
+request. That is a delivery decision left for verification (T051/T052,
+still not built) to gate — nothing unverified should ever reach a remote.
+
+What is **still not** wired up — tracked as follow-on work (spec 026
+`tasks.md`'s Status section has the authoritative, per-task detail) — an
+operator should not expect today:
+
+- **Any verification of a coder's work, or delivery of it.**
+  `app/services/board/verification.py` doesn't exist: no code↔verify↔
+  remediation loop, no CI-repair cards, and (per the paragraph above) no
+  push/change-request step either. A coder's commits stay local to its
+  worktree. This is now the most important remaining gap (tasks.md
+  T051/T052).
 - **Any write-back to the task source beyond ingestion itself.** The
   external-projection ledger (`app/services/board/projections.py`) records
   planned gate/escalation/approved-artifact/child-work/delivery milestones
@@ -184,10 +196,13 @@ detail) — an operator should not expect today:
   constraint) and no **cleanup** action.
 - Practically, this means a configured GitHub/Jira/local source today
   creates a board **Workflow** and its initial cards on a qualifying task
-  (after quarantine screening); text-only specialist cards then progress
-  automatically, and human gates/interventions still happen only in the
-  Kestrel web UI. None of it is ever reported back to the ticket itself —
-  the operator has to look at Kestrel, not the source, to see progress.
+  (after quarantine screening); specialist cards then progress
+  automatically, including a `coder` role committing real file edits to its
+  own local worktree branch, and human gates/interventions still happen
+  only in the Kestrel web UI. None of it is ever reported back to the
+  ticket itself, and no coder's commits ever leave their local worktree —
+  the operator has to look at Kestrel, not the source or a PR, to see
+  progress.
 
 ## Design trade-offs
 

@@ -18,30 +18,32 @@ before beginning story phases.
   prerequisites are complete.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
-## Status (2026-09-25, after Phase 10 clean break + T034)
+## Status (2026-09-26, after Phase 10 clean break + T034 + T041)
 
-71/77 tasks verified complete against actual code (not just checked off —
+72/77 tasks verified complete against actual code (not just checked off —
 every `[x]` below was confirmed by reading/grepping the current source or,
-for T034, by writing and passing new tests). The old fixed six-step driver
-is fully removed (commits `33628b4` backend, `3fc281c` frontend, `483dda2`
-docs); the board domain's data model, intake/quarantine, gates/
+for T034/T041, by writing and passing new tests). The old fixed six-step
+driver is fully removed (commits `33628b4` backend, `3fc281c` frontend,
+`483dda2` docs); the board domain's data model, intake/quarantine, gates/
 interventions, coordinator planning, claim/lease bookkeeping + recovery,
-the read-only Board/Graph UI, **and now the automatic specialist
-claim→turn→accept dispatch loop (T034)** are all solid and tested.
+the read-only Board/Graph UI, the automatic specialist claim→turn→accept
+dispatch loop (T034), **and now a real per-workflow git worktree for
+`read_only`/`write` cards, with `coder` actually able to edit files
+(T041)** are all solid and tested.
 
-**6 tasks remain genuinely open.** Each has a `**NOT DONE**` note in place
-with exact findings, so picking any of them back up doesn't require
-re-investigation:
+**5 tasks remain genuinely open**, all downstream of T041's deliberate
+scope boundary (provisioning only — no push/PR-open, no delivery). Each
+has a `**NOT DONE**` note in place with exact findings:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T041** | 5 (US3) | **Now the most important gap.** No board-domain git/workspace execution layer exists at all (the old `services/git.py` was deleted, never replaced). T034's dispatch loop runs every turn with `cwd=""`, so a `FILE_EDITS` specialist (`coder`) is claimed/dispatched correctly but has nowhere real to write. Text-only roles already work end-to-end. |
-| **T051**, **T052** | 7 (US5) | `board/verification.py` doesn't exist — no code↔verify↔remediation loop, no CI-repair cards. Blocked on T041 (needs a real workspace to verify anything in). |
+| **T051**, **T052** | 7 (US5) | **Now the most important gap.** `board/verification.py` doesn't exist — no code↔verify↔remediation loop, no CI-repair cards. A coder can now commit locally (T041), but nothing checks or verifies that work, and nothing decides when it's safe to push/deliver it. |
 | **T067**, **T068**, **T069** | 9 (US7) | No task-source write-back at all: no labels/transitions/comments post from `projections.py`'s planning output, no decomposition-to-child-cards, no rerun/cleanup (deleted, not replaced). |
 
-Suggested resume order: **T041 → T051/T052 → T067/T068/T069** (each
-roughly depends on the one before). See each task's note below for specifics
-before starting.
+Suggested resume order: **T051/T052 → T067/T068/T069**. T051/T052 is also
+the natural place to finally add push/opening a change request (T041's
+scope note above) — delivery gated on verification passing, not automatic.
+See each task's note below for specifics before starting.
 
 ## Phase 1: Setup
 
@@ -252,20 +254,36 @@ only explicitly project-material artifacts enter a delivered project change.
 - [x] T040 [US3] Implement startup and periodic claim/projection expiry recovery
   in `backend/app/services/board/recovery.py` and register it from
   `backend/app/main.py` or the existing lifespan composition root.
-- [ ] T041 [US3] **NOT DONE, target file gone (2026-09-24 verified).**
-  `backend/app/services/git.py` was deleted outright in Phase 10 (confirmed
-  zero importers at the time) and never replaced with a board-domain
-  equivalent. There is currently **no git/workspace execution layer for the
-  board at all**: no workspace provisioning, clone, commit, push, or
-  PR-open code exists under `app/services/board/`. `WorkspaceLease`
-  (`claims.py`) is pure bookkeeping (one-writer-per-repo locking), not tied
-  to an actual checkout anywhere. This blocks T034 in practice even once
-  wired: a `coder`-type specialist needs `FILE_EDITS` capability and a real
-  worktree to do anything. Remaining work: design and build this layer
-  from scratch (it can likely reuse patterns from the deleted
-  `services/git.py`/`workflows/service.py`, available in git history at
-  `33628b4^`), then apply the project-material filtering this task
-  originally asked for.
+- [x] T041 [US3] **Done 2026-09-26, partial scope — see below.** New
+  `app/services/board/workspace.py::WorkspaceService`: a per-repo shared
+  bare mirror (`ensure_mirror`) plus one worktree per workflow cut from it
+  on demand (`ensure_workspace`, idempotent — an existing worktree is
+  reused unchanged, never reset, so it never clobbers a specialist's
+  local commits). Wired into `dispatch.py`'s `_resolve_workspace`: a
+  `read_only`/`write` card now gets a real, git-backed `cwd` instead of
+  `""`, and a `write` card additionally runs with
+  `permission_mode="acceptEdits"` (was hardcoded `"plan"` — read-only —
+  for every card regardless of `workspace_permission`, a second bug this
+  fixed alongside the missing workspace itself). If provisioning fails or
+  no workspace/code-host is configured for a card that needs one, the
+  dispatch aborts and leaves the card `claimed` for recovery rather than
+  silently running a repo-blind turn. `coder`'s prompt now instructs it to
+  commit its own work locally (kestrel does not commit on its behalf).
+  Covered by `tests/test_board_workspace.py` (4 tests) and
+  `tests/test_board_dispatch_workspace.py` (3 tests: write card gets
+  `acceptEdits` + real cwd, no-workspace-configured leaves card claimed,
+  read-only card gets a workspace but stays in `plan` mode).
+
+  **Deliberately out of scope, matching the module's own docstring**: push,
+  opening a change request, and any other "delivery" decision. A coder's
+  commits stay local to its worktree; kestrel never pushes or publishes
+  them automatically. This is intentional, not an oversight — delivery
+  should wait for verification (T051/T052, still not done) to exist, so
+  nothing unverified ever reaches a remote. `git.py`'s old
+  `diff`/`diff_stat`/`remove_worktree`/`ensure_remote_branch` and any
+  project-material commit *filtering* (this task's original literal ask)
+  were not carried over either — there is no verify loop yet to make that
+  filtering meaningful. Revisit when building T051/T052.
 - [x] T042 [US3] Done via deletion: `workflows/driver/__init__.py` (and the
   whole `driver/` package) was removed outright in Phase 10.
   `board/recovery.py`'s startup + periodic sweep (registered in
