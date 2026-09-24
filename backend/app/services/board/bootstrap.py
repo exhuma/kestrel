@@ -20,6 +20,7 @@ from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
 from app.persistence.board_coordinator_store import get_board_coordinator_store
 from app.persistence.board_gate_store import get_board_gate_store
+from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
 from app.persistence.board_store import get_board_store
 from app.policy import get_specialist_backend_policy
@@ -29,6 +30,7 @@ from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import SchedulingService
 from app.services.board.gates import GatesService
 from app.services.board.interventions import InterventionsService
+from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
 from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
@@ -119,6 +121,12 @@ def get_interventions_service() -> InterventionsService:
         get_board_service(),
         get_gates_service(),
     )
+
+
+@lru_cache
+def get_projections_service() -> ProjectionsService:
+    """Return the process-wide ProjectionsService singleton."""
+    return ProjectionsService(get_board_projection_store())
 
 
 @lru_cache

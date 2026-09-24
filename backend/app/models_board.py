@@ -462,3 +462,38 @@ class HumanGateRecord:
     requested_decision: str
     target_artifact_id: str | None = None
     decision: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalProjectionRecord:
+    """One selected, idempotent milestone update to a task source
+    (data-model.md "External Projection"; FR-033/FR-034/FR-035).
+
+    Only five kinds ever project by default (FR-033): ordinary claims,
+    retries, and routine completions never reach this ledger at all
+    (FR-034) — callers decide what's projection-worthy, this record only
+    makes recording that decision idempotent and retryable.
+
+    :param id: Stable record identity.
+    :param workflow_id: The workflow this milestone belongs to.
+    :param kind: ``"gate"``, ``"escalation"``, ``"approved_artifact"``,
+        ``"child_work"``, or ``"delivery"``.
+    :param idempotency_key: Unique per real-world event; a webhook and a
+        poll cycle racing to report the same milestone still project it
+        at most once.
+    :param payload_hash: Integrity hash of the safe payload sent.
+    :param state: ``"pending"``, ``"completed"``, or
+        ``"retryable_failure"``.
+    :param error: Safe failure reason, when ``retryable_failure``.
+    :param external_id: The task-source resource Kestrel now owns, once
+        ``completed`` — the durable cleanup ledger (FR-035).
+    """
+
+    id: str
+    workflow_id: str
+    kind: str
+    idempotency_key: str
+    payload_hash: str
+    state: str = "pending"
+    error: str | None = None
+    external_id: str | None = None
