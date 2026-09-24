@@ -10,14 +10,11 @@ KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
 
 Copy [`config.toml.example`](../config.toml.example) to `config.toml` and
 edit. Alongside the applicative settings (see
-[Configuration](configuration.md)), it declares the available backends, the
-ad-hoc-session default, and the per-workflow-step assignments:
+[Configuration](configuration.md)), it declares the available backends and
+the ad-hoc-session default:
 
 ```toml
 default_session_backend = "local"
-
-[step_backends]           # step -> backend id; omitted steps use the default
-code = "claude"           # keep code on claude (see the opencode note)
 
 [[backends]]
 id = "claude"
@@ -28,6 +25,20 @@ id = "local"
 type = "openai_compat"    # a self-hosted OpenAI-compatible LLM
 base_url = "http://localhost:11434/v1"
 model = "llama3.1:8b"
+```
+
+Per-**specialist** routing — which backend a given board role (`coder`,
+`verifier`, `requester`, `pm`, …) dispatches to — is not set in
+`config.toml`. It is each role's `model_policy` field in its own
+`specialists/<role>/manifest.toml` (see
+[Architecture → The work board](architecture.md#the-work-board-spec-026)):
+`"default"`
+resolves to `default_session_backend` above; any other value names a
+specific `[[backends]]` id directly, e.g.:
+
+```toml
+# specialists/coder/manifest.toml
+model_policy = "claude"   # the coder needs file-editing, so pin it explicitly
 ```
 
 Config is read once at startup — **restart the backend after editing it**. On
@@ -59,21 +70,28 @@ running the image.
 
 ## Where backends apply
 
-Ad-hoc sessions (the **Sessions** panel / `POST /api/sessions`) use
-`default_session_backend`. Each workflow step (`refine`, `design`, `code`,
-`verify`) uses its `step_backends` entry if set, else the same default.
+Ad-hoc sessions (the **Sessions** debug panel / `POST /api/sessions`) use
+`default_session_backend`. Every board specialist (`requester`, `pm`,
+`uiux`, `developer`, `infosec`, `dba`, `architect`, `ops`, `qa`,
+`coordinator`, `coder`, `verifier`, `input-security`) uses its own
+manifest's `model_policy` — `"default"` for the same default, or a pinned
+backend id.
 
-A step only accepts a backend that can satisfy it: `code` needs file-editing
-(`claude`/`opencode`), while `refine`/`design`/`verify` need only text — so
-a plain LLM may serve them (it just won't read the repo). A bad mapping (e.g.
-a text-only LLM on `code`) fails that run with a clear capability error.
+A specialist only accepts a backend that satisfies its `required_abilities`:
+`coder` needs file-editing (`claude`/`opencode`), since it is the only role
+that holds a repository write lease, while most other roles need only text
+— so a plain LLM may serve them (it just won't read the repo). A bad mapping
+(e.g. a text-only LLM pinned to `coder`) fails capability-checked routing
+(`SpecialistBackendPolicy.backend_for`) with a clear error rather than
+silently dispatching anyway.
 
 ## Concurrency and rate limits
 
 Every configured backend has a process-wide concurrency cap. It is shared by
-all workflow runs and ad-hoc sessions using that backend ID, not reset for each
-workflow. The conservative default is one in-flight LLM turn. Backends have
-independent caps, so a busy local backend does not delay a Claude backend.
+every specialist dispatch and ad-hoc session using that backend ID, not
+reset per board workflow. The conservative default is one in-flight LLM
+turn. Backends have independent caps, so a busy local backend does not
+delay a Claude backend.
 
 ```toml
 [[backends]]
@@ -157,11 +175,13 @@ password = "changeme"                      # inline (gitignored file), or:
 > started. The `opencode serve` process must be able to reach that path — run
 > it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
 >
-> **opencode read-only steps and permissions.** The reasoning steps (`refine`,
-> `design`, `verify`) run read-only: kestrel disables opencode's file-mutating
-> tools (`edit`/`write`/`patch`) for those turns and rejects any edit permission
-> the agent still asks for, so they can read and run commands but cannot change
-> the workspace. `code` runs with edits enabled. kestrel answers opencode's
+> **opencode read-only specialists and permissions.** A specialist whose
+> manifest declares `workspace_permission = "read_only"` (or `"none"`) runs
+> read-only: kestrel disables opencode's file-mutating tools
+> (`edit`/`write`/`patch`) for its turns and rejects any edit permission the
+> agent still asks for, so it can read and run commands but cannot change the
+> workspace. Only `coder` (`workspace_permission = "write"`) runs with edits
+> enabled. kestrel answers opencode's
 > permission prompts itself — it streams the server's `/event` bus and replies
 > to each request — so a headless `opencode serve` never blocks waiting for a
 > human to click "allow"; you do **not** need to pre-configure opencode's

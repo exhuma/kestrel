@@ -121,5 +121,5 @@ misbehaves, restore the backup and pin the previous version tag.
 
 - [Configuration](configuration.md) — every setting, config file, and mount.
 - [Backends](backends.md) — dispatch to opencode or a self-hosted LLM.
-- [GitHub workflow](setup-github-workflow.md) — the issue → PR feature.
+- [GitHub workflow](setup-github-workflow.md) — watch a repo's issues.
 - [Troubleshooting](troubleshooting.md) — common speed-bumps.

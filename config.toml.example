@@ -3,12 +3,16 @@
 # Point kestrel at this file with KESTREL_CONFIG_FILE (see README). Copy to
 # `config.toml` and edit. It holds two kinds of settings:
 #
-#   1. Applicative (non-secret) config — watched repos, cadences, the verify
-#      iteration cap. These may also be given as KESTREL_* env vars; this
-#      file wins where it sets a key, and env fills in the rest.
-#   2. Backend routing (`default_session_backend`, `[step_backends]`,
-#      `[[backends]]`). These are file-only — the matching env vars are
-#      inert.
+#   1. Applicative (non-secret) config — watched repos, cadences, board
+#      lease/recovery timings. These may also be given as KESTREL_* env
+#      vars; this file wins where it sets a key, and env fills in the rest.
+#   2. Backend routing (`default_session_backend`, `[[backends]]`). These
+#      are file-only — the matching env vars are inert. Per-specialist
+#      routing (which backend a given role — coder, verifier, requester,
+#      ...  — dispatches to) is not set here: it is each role's
+#      `model_policy` field in its `specialists/<role>/manifest.toml`
+#      ("default" for `default_session_backend` above, or a specific
+#      backend id from `[[backends]]`).
 #
 # SECRETS STAY IN THE ENVIRONMENT: KESTREL_GITHUB_TOKEN,
 # KESTREL_WEBHOOK_SECRET, KESTREL_JIRA_API_TOKEN, KESTREL_CODE_HOST_TOKEN, and
@@ -96,6 +100,9 @@ trigger_label = "kestrel"
 #
 # Lifecycle sync (feature 006): labels applied as a run progresses. These are
 # the defaults — override only if they clash with an existing label scheme.
+# NOTE: dormant since the Phase 10 clean break (spec 026) removed the fixed
+# driver's lifecycle-notification code; nothing currently applies these
+# labels or invokes hooks_dir below. See docs/setup-github-workflow.md.
 # in_progress_label = "kestrel-in-progress"
 # failed_label = "kestrel-failed"
 # escalated_label = "kestrel-escalated"
@@ -130,7 +137,8 @@ trigger_label = "kestrel"
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
 #
 # Lifecycle sync (feature 006): Jira workflow-transition ids for each
-# lifecycle point (look these up via your instance's issue transitions
+# lifecycle point (dormant — see the NOTE on the GitHub entry above; look
+# these up via your instance's issue transitions
 # endpoint/admin UI — every workflow is different, so none are guessed).
 # Unset = no native transition for that point; falls back to a comment
 # footer. Optionally write active time to a field (the builtin "timespent"
@@ -156,18 +164,9 @@ trigger_label = "kestrel"
 # code_host = "local"
 
 # --- backend routing --------------------------------------------------------
-# Backend used for ad-hoc /api/sessions dispatch.
+# Backend used for ad-hoc /api/sessions dispatch, and the "default" a
+# specialist's model_policy resolves to (see the header note above).
 default_session_backend = "claude"
-
-# Per-workflow-step backend (step -> backend id); steps omitted use the
-# default above. The workflow sequence is: refine → design → code → verify.
-# The `code` step edits a per-run workspace, so keep it on an agent that
-# honours the working directory (claude).
-[step_backends]
-refine  = "claude"
-design  = "claude"
-code    = "claude"
-verify  = "claude"
 
 # --- backends ---------------------------------------------------------------
 # Each [[backends]] entry: id, type (claude_cli | openai_compat | opencode),

@@ -49,6 +49,14 @@ only in their owner's `attachments/` and `children/` directories.
 
 ## Feedback
 
+**Currently dormant**: the file format below is still read by
+`LocalTaskSource`, but nothing in the current board domain calls it to
+steer a workflow — the old fixed driver's feedback pipeline that consumed
+it was removed in the Phase 10 clean break and has no board-domain
+replacement yet (see
+[Architecture → Current gap](architecture.md#current-gap-no-automatic-specialist-execution-loop-yet)).
+Use the Kestrel UI to act on a board workflow's cards and gates instead.
+
 Put human feedback in `comments/` as UTF-8 Markdown with a UTC filename:
 
 ```text

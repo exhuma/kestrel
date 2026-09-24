@@ -1,11 +1,10 @@
 # Jira workflow (feature 003)
 
-Kestrel can ingest change requests (RFCs) from a Jira project and drive them
-through the **describe → refine → technical_analysis → design → code → verify →
-change request** workflow (see [Architecture](architecture.md) for the full
-pipeline). Ingestion is **poll-only** — kestrel polls Jira outbound over HTTPS
-and exposes **no inbound endpoint**, so no tunnel or reverse proxy is needed
-and no off-loopback exception is introduced.
+Kestrel can ingest change requests (RFCs) from a Jira project into the
+**work board** (see [Architecture](architecture.md#the-work-board-spec-026)
+for the domain model). Ingestion is **poll-only** — kestrel polls Jira
+outbound over HTTPS and exposes **no inbound endpoint**, so no tunnel or
+reverse proxy is needed and no off-loopback exception is introduced.
 
 ## Configure
 
@@ -93,92 +92,51 @@ uv run python -m app poll
 
 ### Verify grounding
 
-The verifier weighs evidence it observes itself by launching and exercising
-the running, modified project — real HTTP requests for an API boundary,
-browser-driven interaction for a UI boundary — rather than re-running the
-coder's own checks; durable test coverage is the coder's TDD responsibility.
-The one applicable knob is the iteration cap:
+The `verifier` specialist's design intent is to weigh evidence it observes
+itself by exercising the running, modified project directly, rather than
+re-running the coder's own checks — durable test coverage is the coder's TDD
+responsibility. As of this writing there is no automated loop that actually
+claims and runs a card (see
+[Architecture → Current gap](architecture.md#current-gap-no-automatic-specialist-execution-loop-yet)),
+so this is the specialist's intended contract rather than something you can
+currently observe end-to-end against a live RFC.
 
-```bash
-KESTREL_MAX_VERIFY_ITERATIONS=3
-```
+## The flow, from a human's point of view, today
 
-A failing observation forces a reject; the feedback is fed back to the coder.
-On exhausting the iteration limit the run **escalates** — it posts a comment
-on the RFC and stops rather than shipping unverified work.
+1. Create/transition an RFC so it matches the qualifying filter, with the
+   repo field set. Kestrel notices it within one poll interval.
+2. Kestrel screens the RFC's content through the fail-closed input-security
+   quarantine. Safe content creates a board **Workflow** and its initial
+   cards; suspect content instead creates a quarantined security review that
+   only an operator can release or discard, in the Kestrel UI.
+3. Everything from here — watching card state, answering an
+   understanding/refinement/PRD/decomposition gate, retrying or reassigning
+   a card, resolving a quarantined review — happens **in the Kestrel UI**
+   (the Board), not on the RFC. Nothing is currently posted back to the RFC
+   itself: no status comment, no attached PRD, no decomposition into linked
+   sub-tasks, no change-request link. See
+   [Architecture → Current gap](architecture.md#current-gap-no-automatic-specialist-execution-loop-yet)
+   for the full list of what's not yet wired up and why.
 
-## The flow, from a human's point of view
+This replaces the old fixed driver's `describe → refine →
+technical_analysis → design → code → verify` sequence, its PRD/questionnaire
+gates, and its decomposition into native Jira Sub-tasks — all removed in the
+Phase 10 clean break with no board-domain replacement yet. If you're used to
+that flow, don't expect RFC comments, a `PRD.md` attachment, or automatically
+created Sub-tasks; expect a Workflow to appear on the Board instead.
 
-1. Create/transition an RFC so it matches the qualifying filter, with the repo
-   field set. Kestrel notices it within one poll interval and starts a run.
-2. Kestrel first restates its understanding of the RFC and asks you to confirm
-   or correct it (a thin comment + deep-link) — before any clarifying
-   question is asked.
-3. If refinement needs clarification, kestrel posts a **thin** comment on the
-   RFC with a deep-link to the kestrel questionnaire — answer there. The
-   questions stay business-altitude: this phase never asks about
-   implementation or architecture.
-4. When the requirements document is ready it is **attached** to the RFC
-   (`PRD.md`) and kestrel asks for approval (a thin comment + deep-link).
-   Approve/reject in the UI.
-5. On approval, kestrel performs technical analysis and decomposes the
-   approved work into one or more independent, self-contained follow-up
-   RFCs — each a native Jira **Sub-task** linked to the parent — plus an
-   attached technical-analysis summary. Each child inherits the resolved
-   repository context needed to run independently. The original RFC's run
-   then ends; kestrel does not implement it directly.
-6. To implement a follow-up sub-task, transition **it** into the qualifying
-   filter the same way you would any RFC. Kestrel recognizes it as already
-   scoped and starts directly at `design` — no repeat of steps 2-5. From
-   there the design → code → verify loop runs autonomously; on success a
-   change request is opened and its link is posted to the sub-task RFC, and
-   on exhaustion the run escalates to it.
+### Re-triggering an RFC
 
-### Scoping `jql` so follow-up sub-tasks aren't picked up on creation
+The old fixed driver recorded a "dismissal" when a PRD was rejected or a run
+abandoned, so polling wouldn't silently re-create it, clearing that
+dismissal only once the RFC left and re-entered the qualifying filter. That
+dismissal-setting code was removed with the driver and has no board-domain
+replacement, so there is currently no dismissal to clear or re-trigger by
+cycling the RFC's status.
 
-A follow-up sub-task is created without any status/label kestrel controls —
-it starts wherever your Jira Sub-task creation defaults land it. **Write
-your `jql` so a newly created sub-task does not already qualify** (e.g. keep
-the same `status = "Ready for Kestrel"` gate you use for top-level RFCs, so a
-sub-task is only picked up once a human deliberately transitions it, exactly
-like step 6 above). Kestrel does not inspect issue type or parentage when
-matching `jql` — this is operator-authored query scope, the same posture the
-project already takes for `hooks_dir` and other operator-configured trust
-boundaries (see the constitution's Access model).
+### Lifecycle sync and operator hooks
 
-### Re-running a rejected RFC
-
-Rejecting a PRD (or abandoning a run) records a dismissal so polling won't
-silently re-create it. The **re-trigger gesture** is the RFC leaving and
-re-entering the qualifying filter (e.g. a status change out of and back into the
-JQL): once it no longer qualifies the dismissal is cleared, so re-qualifying it
-starts a fresh run.
-
-### Lifecycle sync
-
-As a run progresses, kestrel can apply configured workflow transitions
-(`transition_start`/`transition_done`/etc.) and write active time to a
-configured field — every Jira workflow is different, so none of this is
-guessed; unset fields fall back to a comment footer. See [Configuration →
-Task sources](configuration.md#task-sources) for the fields, and
-[Operator hooks](hooks.md) for the escape hatch when your instance needs
-a custom transition or action kestrel doesn't natively support.
-
-### Steering a run with feedback
-
-A marked comment (default trigger: `@kestrel`) on the RFC redirects the run
-it started. To decide an external gate, include the active
-`[kestrel-review:<token>]` token and one of `@kestrel approve`,
-`@kestrel reject`, or `@kestrel request changes`. Jira has no comment-reaction
-endpoint, so after an immediate action kestrel posts one concise reply
-describing what it did. Queued feedback receives no acknowledgement comment.
-Amending the same merge/pull request from a review comment is supported when
-`code_host` is
-`gitlab` or `github`; `gitea` does not yet support reading review comments.
-See [Feedback intake](feedback-intake.md) for token rules, translations,
-retirement, and revive-versus-successor behaviour.
-
-Published child RFCs continue to accept marked feedback after their workflow
-completes, including when it completes by decomposition. This monitoring ends
-only when the child reaches its configured retirement deadline; see
-[Feedback intake](feedback-intake.md#translation-and-retirement).
+`transition_start`/`transition_done`/etc., `time_spent_field`, and
+`hooks_dir` are still accepted on a Jira source entry, but nothing currently
+applies them — see [Configuration → Lifecycle sync and operator hooks
+(currently dormant)](configuration.md#lifecycle-sync-and-operator-hooks-currently-dormant).

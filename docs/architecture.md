@@ -1,7 +1,13 @@
 # Architecture
 
-_System context as of 2026-07-05 (alpha). Design history and the backlog now
-live in the [GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
+_System context as of 2026-09-24 (alpha), after spec
+[026-autonomous-work-board](../specs/026-autonomous-work-board/spec.md)'s
+Phase 10 "clean break": the old fixed six-step workflow driver (describe →
+refine → technical_analysis → design → code → verify) and its
+`WorkflowPanel.vue` frontend were deleted outright, with no data migration,
+and replaced by the event-driven **work board** described below. Design
+history and the backlog live in the
+[GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
 
 Kestrel is a **single-user** tool that dispatches and monitors coding-agent
 sessions from a web UI. One process serves both the API and (when packaged)
@@ -11,7 +17,7 @@ the built SPA.
 
 | Component | Responsibility |
 | --- | --- |
-| **FastAPI backend** (`backend/app`) | HTTP API, session/workflow orchestration, SSE streaming |
+| **FastAPI backend** (`backend/app`) | HTTP API, session/board orchestration, SSE streaming |
 | **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode`, `openai_compat` |
 | **Persistence** (`backend/app/persistence`) | SQLite via SQLAlchemy, schema managed by Alembic |
 | **SPA** (`frontend/`) | Vue 3 + Vuetify UI; in the image it is served same-origin by the backend |
@@ -21,10 +27,10 @@ the built SPA.
 - **The `Backend` protocol** (`backends/base.py`) is the seam everything above
   the adapters talks to. It exposes `start` / `resume` / `run_turn` /
   `terminate` and a `Capability` set (`TEXT`, `FILE_EDITS`, `TOOL_USE`). A
-  step is served only by a backend whose capabilities are a superset of the
-  step's requirement, so a plain LLM can serve a text step but not an
-  `implement` step. Adapters never leak a tool's flags or output format
-  upward.
+  board specialist is served only by a backend whose capabilities are a
+  superset of its `required_abilities`, so a plain LLM can serve a
+  text-only role but not `coder`. Adapters never leak a tool's flags or
+  output format upward.
 - **A canonical event vocabulary** (`models.py`) normalizes each backend's
   native stream (claude's `stream-json`, opencode's SSE, an LLM's tokens)
   onto one timeline the UI consumes.
@@ -48,6 +54,131 @@ the image small and lets a deploy attach or swap backends purely by config.
   into the container), never re-implemented by kestrel. The only secret
   kestrel itself consumes is an optional `KESTREL_GITHUB_TOKEN`.
 
+## The work board (spec 026)
+
+Replacing the old fixed driver, an accepted task becomes one **Workflow**
+aggregate owning a graph of typed **Work Cards** — there is no fixed step
+sequence. See `specs/026-autonomous-work-board/data-model.md` for the full
+entity reference; this is the operator-relevant shape:
+
+- **Work Card.** A single policy-governed unit of work with a closed `kind`
+  vocabulary (`understanding_gate`, `refinement_gate`, `prd_gate`,
+  `decomposition_gate`, `security_review`, `analysis`, `design`,
+  `implementation`, `verification`, `reconciliation`, `coordinator_review`)
+  and a universal state lifecycle: `ready → claimed →
+  {waiting_dependency|awaiting_human|review|quarantined} →
+  {done|failed|cancelled}`. A **Card Relation** is a directed
+  `dependency`/`reconciliation`/`supersedes` edge; only `dependency` edges
+  gate readiness.
+- **Claims and leases.** A specialist claims one `ready` card at a time
+  (`ClaimLease`, time-bounded, `board_claim_lease_seconds`). A
+  write-permission card additionally needs a per-repository
+  `WorkspaceLease` (`board_workspace_lease_seconds`) so only one writer can
+  touch a given repo at once — read-only cards may run concurrently, up to
+  `board_max_parallel_read_cards`. A background sweep
+  (`board_recovery_interval_seconds`) reclaims expired leases and applies
+  each card's bounded retry/reassign/escalate policy.
+- **Handoff artifacts.** A card's accepted output is retained as an
+  immutable, versioned `HandoffArtifact` (content-addressed under
+  `board_artifacts_root`), with explicit pinned-revision input provenance
+  and a `project_material` flag — set only when the artifact belongs in the
+  eventual code change, so orchestration-only output never leaks into a
+  commit.
+- **Specialists** (`specialists/<role>/manifest.toml` + `prompt.md`,
+  loaded from `specialists_root`): `requester`, `pm`, `uiux`, `developer`,
+  `infosec`, `dba`, `architect`, `ops`, `qa` (read-only `analysis`/`design`
+  work), `coordinator` (proposes, never claims), `coder` (the **only** role
+  with a repository write lease), `verifier` (validates an implementation
+  against its approved scope, exercising the change directly rather than
+  re-running the coder's own checks), and `input-security` (quarantine
+  classification). Each manifest's `model_policy` routes that role to a
+  backend — `"default"` for `default_session_backend`, or a specific
+  `[[backends]]` id — capability-checked against the role's
+  `required_abilities` (`app/policy.py`). See [Backends](backends.md).
+- **The coordinator** is event-driven, not polling: every committed board
+  mutation wakes it in the background for the affected workflow
+  (`BoardService`'s `on_mutation` hook). It proposes bounded, structured
+  actions (`create_card` / `transition_card` /
+  `create_reconciliation_card`) which are validated against deterministic
+  policy and only then applied — it never mutates board state directly, and
+  a rejected proposal is still recorded in the append-only `BoardEvent`
+  ledger. A specialist may likewise propose follow-up work, but only the
+  coordinator turns a proposal into a card.
+- **Human gates.** `understanding_gate`/`refinement_gate`/`prd_gate`/
+  `decomposition_gate` cards are never claimed by a specialist — only an
+  operator resolves them, via `POST
+  /api/board/workflows/{id}/cards/{id}/interventions` (`resolve_gate`).
+  Approval cascades ready-dependent cards; rejection cancels only the cards
+  that actually depended on that gate, never the whole workflow. Other
+  interventions (`retry`, `cancel`, `reassign`,
+  `request_coordinator_review`) are optimistic-concurrency-checked against
+  `expected_revision`.
+- **Quarantine — the fail-closed untrusted-input boundary.** Every external
+  or human-supplied input (a task body, a gate answer, a direct session
+  prompt) passes through `QuarantineService` before it can reach an agent, a
+  workflow transition, or a task-source write. Oversized content
+  (`board_input_max_bytes`), a missing/incapable `input-security`
+  specialist, and any malformed or timed-out classification
+  (`board_input_security_timeout_seconds`) all fail **closed** into a
+  `security_review` card — nothing here ever treats an unclear result as
+  safe. An operator releases or discards a pending review via `POST
+  /api/board/security-reviews/{id}/resolve`; suspect content itself never
+  enters board events, logs, or summaries.
+
+**API surface** (all under `/api/board`, SSE-streamed as full-snapshot
+replacement, never incremental patches): `GET /workflows` (collection
+summary) and `GET /workflows/events` (its SSE stream); `GET
+/workflows/{id}/board` (one workflow's full snapshot: cards, relations,
+`revision`) and `GET /workflows/{id}/board/events`; `GET
+/workflows/{id}/cards/{id}`; `POST
+/workflows/{id}/cards/{id}/interventions`; `POST
+/security-reviews/{id}/resolve`. See
+`specs/026-autonomous-work-board/contracts/board-api.md`.
+
+**Frontend.** `WorkBoard.vue` is the app's default view: a workflow list
+plus a card-state-grouped list layout and a lazy graph layout
+(`WorkflowGraph.vue`, Vue Flow), with `WorkCardDetail.vue` for one card and
+its intervention actions. `useBoard.ts` wraps the API above. The old
+per-run session panel remains reachable as a secondary debug view.
+
+### Current gap: no automatic specialist execution loop yet
+
+Everything above through gate/intervention resolution is live. What is
+**not** currently wired up, as of the Phase 10 clean break — tracked as
+follow-on work, most of it under spec 026's still-unimplemented Phase 9
+("Selectively Project External Milestones") — an operator should not expect
+today:
+
+- **A specialist automatically claiming and performing a `ready` card's
+  substantive work.** `app/services/board/dispatch.py` has the building
+  blocks (`claim_and_dispatch`, `run_card_turn`), and `main.py` starts the
+  coordinator-wake and claim-recovery loops, but nothing currently invokes
+  `claim_and_dispatch` on a running schedule or event, so a card can sit
+  `ready` with no specialist ever picking it up. Card claims/results
+  observed today come only from tests exercising these functions directly.
+- **Any write-back to the task source beyond ingestion itself.** The
+  external-projection ledger (`app/services/board/projections.py`) records
+  planned gate/escalation/approved-artifact/child-work/delivery milestones
+  idempotently, but — per its own module docstring — "actually posting to
+  a task source is a later phase's concern"; nothing calls it yet. In
+  practice this means: no status labels or Jira transitions are applied as
+  a workflow progresses (`app/notifications.py`'s own docstring: "nothing
+  currently produces a Notification row"); no `hooks_dir` executable is
+  ever invoked (only the startup audit-log pass runs); no comment-based
+  feedback steering (the old `@kestrel` marker mechanism was deleted with
+  the driver and has no board-domain replacement); no decomposition is
+  published back to the task source as child tickets; the optional
+  translation backing service has no caller; and there is no **rerun**
+  action (the endpoint that implemented it was deleted along with the
+  fixed driver's router — see the constitution's access-model third
+  constraint) and no **cleanup** action.
+- Practically, this means a configured GitHub/Jira/local source today
+  creates a board **Workflow** and its initial cards on a qualifying task
+  (after quarantine screening), and everything past that — watching card
+  state, resolving gates, retrying/reassigning/cancelling a card, releasing
+  a quarantined review — happens **only in the Kestrel web UI**, not on the
+  ticket itself.
+
 ## Design trade-offs
 
 - **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
@@ -55,206 +186,36 @@ the image small and lets a deploy attach or swap backends purely by config.
   the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
   face the network so GitHub can deliver events; its authenticity gate is an
   HMAC signature, not loopback binding (see the constitution's access model).
-  Feature 013 (feedback intake) adds three more event types to that same
-  endpoint — `issue_comment`, `pull_request_review`, and
-  `pull_request_review_comment` — rather than a second endpoint; they carry
-   the identical HMAC gate. Kestrel identifies every comment it writes with a
-   configurable `[kestrel:posted]` sentinel by default. Feedback intake rejects
-   a sentinel-tagged comment before marker parsing, persistence, or dispatch,
-   preventing self-approval when Kestrel uses an operator's personal token.
-   Operators can disable the sentinel only for an incompatible source; a future
-   dedicated Kestrel account remains covered by the existing bot/author guards.
-- **Feedback intake: a marked ticket/review comment steers a run in flight
-  (feature 013).** A run is never a fire-and-forget dispatch: once started,
-  a comment carrying the configured trigger marker (`feedback_marker`,
-  default `@kestrel`) redirects it, on either a GitHub webhook delivery or
-  the poll backstop every task source shares (`FeedbackPollService`).
-  Every transport funnels through one convergence point,
-  `FeedbackIntakeService.intake` — marker gate → author/bot guard → claim
-  (dedup on `feedback_item.external_id`) → route to the newest run for the
-  ticket (or, for a PR review comment, the run whose `pr_number` matches) →
-   persist `queued` → dispatch. After an immediate visible action, Kestrel
-   best-effort confirms it with a reaction where the source supports one, or a
-   concise reply explaining that action. `FeedbackDispatcher` then branches on
-   that run's *current*
-  status: parked at a human gate → applied immediately, exactly like a UI
-  reject-with-feedback; mid-step with no open gate → left `queued` for
-  `drain_feedback` to fold in at the next round/step boundary the driver
-  reaches on its own (never interrupting a turn in flight); `escalated` →
-  retried from the base branch with the feedback as guidance; `done` → the
-  same PR is resumed if still open, else a linked successor run starts
-  (`WorkflowRun.parent_run_id`). Self-feedback-loops (kestrel reacting to
-  its own comments) are guarded three ways at once — no fixed template
-  kestrel writes ever contains the marker, an author denylist plus
-  GitHub's bot-account flag, and the `external_id` primary key that caps
-  any breach of the first two guards at exactly one iteration. See
-  `docs/setup-github-workflow.md`, `docs/setup-jira-workflow.md`, and
-   `docs/setup-local-tasks.md` for the per-source operator picture
-  (configuration, acknowledgment behaviour, revive-vs-successor).
-- **Ingestion is a seam, and the ports are now extracted.** GitHub ingestion
-  (webhook + reconciliation) and **Jira ingestion (poll-only, feature 003)**
-  both feed one source-neutral entry point (`ingestion.maybe_start_run`, on a
-  `task_ref`). The load-bearing axis — *task source* (the ticket) vs *code host*
-  (the repo) — is now realized as two protocols in `app/ports.py`: `TaskSource`
-  (read/comment/attach/publish/deep-link/**display-label**, feature 009) and
-  `CodeHost` (default branch, clone remote, open a merge/pull request).
-  GitHub implements both roles; **Jira**
-  implements `TaskSource` and delegates the `CodeHost` role to a configured,
-  **self-hostable** git host (GitLab reference; Gitea/Forgejo the same port) —
-  kestrel is sovereign by design, so a Jira-resolved repo can live on an on-prem
-  GitLab. The outbound `Notifier` is source-dispatching (`TaskSourceNotifier`),
-  posting thin gate/escalation comments to *the run's own* ticket. Jira is
-  poll-only, so it adds **no** off-loopback endpoint (no amendment); the entry
-  point is shaped so a future Jira webhook is one added caller. A third
-   `TaskSource`, **local**, is file-backed: recursive local task folders with
-  root-contained `task.json`, Markdown feedback, attachments, and children.
-  It uses a local `CodeHost` for an absolute bare repository, publishing a
-  branch without a change request or review. Every `TaskSource` now also
-  declares a `visibility()` capability (`"public"` | `"private"`): GitHub and
-   Jira are `"public"` — their tickets are externally shared and only ever
-    move forward in time; local tasks are `"private"`. The **rerun** action (abandon
-  a run, delete its branch, and immediately restart it against the same
-  task) is permitted only when `visibility() == "private"`, so it can never
-  be exposed for a GitHub- or Jira-sourced run (see the constitution's access
-   model, amendment 1.4.0). **Cleanup** is distinct from abandon/rerun: its
-   durable workflow-artifact ledger records only resources Kestrel itself
-   created. It removes local and remote branches, restores an in-place PRD to
-   the exact pre-publication task body, deletes generated source resources where
-   supported, and closes generated items when deletion is unavailable. A missing
-   artifact is a successful cleanup; comment removal is best effort. Required
-   failures remain attached to the workflow for retry, while successful cleanup
-   clears the run and dismissal so the source task receives a complete fresh
-   run on the next poll.
-- **One unified, source-agnostic workflow.** Every run — Jira, GitHub, or local
-   task — traverses the identical `describe → refine → technical_analysis →
-   design → code → verify → delivery` sequence
-  (`services/workflows/driver/`). There is no hand-entered run: a run exists
-  because a task source produced a task. **Two** human gates open the
-  pipeline: `describe` restates kestrel's understanding of the task in plain
-  language and parks for the requester to confirm or amend it, before any
-  clarifying question is asked; `refine`'s interview is then restricted to
-  non-technical, requestor-altitude profiles only (`requester`/`pm`/`uiux`),
-  producing a business-only, go/no-go requirements document — the PRD
-   approval gate. Once approved, `technical_analysis` runs **gatelessly** (feature
-  012): technical-altitude profiles (`developer`/`infosec`/`dba`/`architect`/
-  `ops`/`qa`) analyze the approved requirements, producing an
-  architecture/technical-decision record and one or more independent,
-  self-contained follow-up tasks — checked by a completeness self-review
-   turn before publishing — which are published back to the task source as
-   subdivisions of the original ticket. Every child includes a man-day effort
-   estimate, coding-agent token budget, and a backend-qualified model
-   recommendation or explicit `unknown`. A recommendation needs a discovered
-   coding model with quality and input/output cost metadata; unknown discovery
-   never becomes an invented recommendation. Feature 015 adds a decomposition
-  approval gate: kestrel holds the candidate analysis and children until the
-  requester approves its tokenized review revision. Publishing starts no new
-  run because child creation does not satisfy the source's ingestion trigger.
-  The original run then ends (`status = "decomposed"`); it never itself reaches
-   `design`/`code`/`verify`. After child publication, Kestrel posts the detailed
-   analysis and then a concise, mandatory CAB summary. The parent reaches
-   `decomposed` only once both ordered comments are recorded, making the CAB
-   summary the final workflow-generated parent comment. A promoted follow-up
-   task, recognized via a
-   second sentinel marker in its body (`SUBTASK_SENTINEL`, alongside the
-   existing "already refined" `SENTINEL`), skips its applicable earlier
-   phases but parks at PRD approval; neither marker is approval provenance.
-   From `design` onward, every run — original or follow-up — runs **without
-   human gates**. The **verifier** adjudicates the implementation
-  against the PRD/design weighing **evidence** it observes by exercising the
-  running, modified project itself (see below); a failing observation forces
-  a reject, the loop is bounded by `max_verify_iterations`, and it
-  **escalates** to the ticket on exhaustion. The task source is only the
-  human↔agent boundary — the process behind it is the same, so the system is
-   predictable.
-  - **Accepted PRD scope authority.** The exact PRD accepted at the refine
-    approval gate is retained as the immutable authority for the parent
-    decomposition and every linked child task. Technical analysis starts after
-    that approval without a further PRD gate. Before Kestrel regenerates a
-    parent candidate or reopens a child from feedback, it evaluates the request
-    against that accepted PRD. An in-scope request can continue through the
-    normal amendment lifecycle; an out-of-scope, malformed, or inconclusive
-    request is refused without changing technical work. The task source receives
-    a reason and direction to revise and approve the PRD before expanding scope.
-- **External feedback decisions and bounded child monitoring (feature 015).**
-  Each externally posted understanding, PRD, or decomposition review has a
-  durable revision and an opaque `[kestrel-review:<token>]` token. A response
-  must target the active revision and choose `@kestrel approve`,
-  `@kestrel reject`, or `@kestrel request changes`; old or unclassified
-  responses cannot change a gate. Revised posts give a delta-only summary,
-  leaving the linked or attached artifact canonical. Feedback acknowledgement
-  prefers a source reaction and falls back to a concise reply. An optional,
-  separate OpenAI-compatible translation backing service posts an English
-  translation with a mistake warning without blocking workflow processing.
-  Published children retain source-state and successor lineage: a closed to
-  open transition creates exactly one linked successor. A decomposed linked
-  child continues to receive feedback polling after completion, including
-  while it is closed. A child still closed after
-  `child_task_closure_retention_days` (183 by default) receives one retirement
-  notice and is excluded from later feedback and reopening polls.
-- **Behavioral verify evidence, grounded in real, observed behaviour.** The
-  `design` step classifies the project's user-facing boundary — HTTP API, web
-  UI, both, or none (`run.boundary`, from a `<BOUNDARY>` tag) — once per run.
-  When a boundary exists, verify runs a **tool-enabled explore turn** first,
-  instructed to launch and exercise the running, modified project for real
-  (real HTTP requests for an HTTP boundary, browser-driven interaction for a
-  UI boundary) using whatever tools the operator's own backend already
-  provides (Bash, MCP — Playwright or otherwise). Kestrel owns no HTTP client
-  or browser-automation code itself; it delegates entirely to the verifying
-  agent's own capabilities, trusting the operator's environment the same way
-  the `code` step already does. A second, disciplined **verdict turn** then
-  resumes that same session back in `plan` mode with no new tools — preserving
-  the single-shot `<VERDICT>` reliability the original design already depended
-  on — and self-reports its observations as part of that same verdict, so the
-  failing-observation invariant applies to whatever it found. This is
-  deliberately verify's *only* evidence source: durable, deterministic checks
-  (tests, lint) are the coder's TDD responsibility (`CODE_PROMPT`), not
-  something verify re-runs — blending the two would let a purely technical
-  failure (a coder that didn't test its own work) masquerade as a behavioral
-  one, undermining the "judge like a stakeholder, not a code reviewer"
-  principle below. Requirement conformance is the only thing that can force a
-  reject; code-quality/documentation observations are advisory feedback only.
-  Each run's verify rounds are recorded as a committed `verify-report.md`
-  audit-trail artifact (same `.kestrel/` handover mechanism as `prd.md`/
-  `design.md`) — history for a human, never a regression contract a later
-  run's verify step is obligated to satisfy.
-- **File-based step handover (`.kestrel/`).** The steps share one worktree, so a
-  step's artifacts pass to the next as *files* under
-  `.kestrel/<YYYY-MM-DD>-<serial>/` (`prd.md`, `technical-analysis.md`,
-  `design.md`) — spec-kit's
-  `.specify/` in spirit. A file-capable backend (claude, opencode) is pointed at
-  the file so a large PRD/design never bloats its prompt; a text-only LLM, which
-  cannot read the worktree, still gets the content inlined. The artifacts are
-  committed with the change (they appear in the PR/MR and accumulate in the repo
-  under dated folders) but are excluded from the operator-facing code diff
-  (`code_step.deliverable`).
-- **The coder commits, the verifier never sees a diff.** Coder and verifier
-  share the same worktree, so there is no need to serialize a diff between
-  them: the coder commits its own work each round (`WIP:`-prefixed when
-  unsure) via an instruction in `CODE_PROMPT`, and kestrel commits on its
-  behalf as a safety net if the tree is still dirty afterwards — never
-  blindly trusting the model to have committed correctly. The verifier judges
-  the PRD/design against the running, checked-out tree and what it observes
-  by exercising it live; it is never shown diff text. `code_step.deliverable`
-  (the UI's diff view) is instead the cumulative diff since the run's branch
-  point, computed on kestrel's side from git history.
-- **Little to no persistence — nothing kestrel-caused reaches a commit.**
-  Kestrel's own state lives in source code and task-source items only, so a
-  run must be handoff-able to a human at any moment with nothing hidden in
-  kestrel-side state. This extends to the worktree itself: a work-time
-  artifact caused purely by kestrel's own dispatch (e.g. the operator's
-  Playwright MCP server writing its cache into the worktree because
-  kestrel points its `cwd` there during the verify step's explore turn)
-  must never leak into a commit or the PR. Known cases are seeded once,
-  deterministically, into the run's mirror's shared `info/exclude`
-  (`GitService._write_kestrel_excludes`) — `git add -A` (used throughout
-  the commit path, and by the coding agent's own instructed commit) already
-  honours it, so no commit-path call site needs to special-case anything.
-  For a case kestrel doesn't yet know about, the coding agent is instructed
-  (`_COMMIT_INSTRUCTION`, `prompts.py`) to triage any untracked file itself
-  before committing: material to the change → commit it; the *project's*
-  own toolchain artifact → the tracked `.gitignore`; a work-time artifact
-  of kestrel's own dispatch → `.git/info/exclude`, never `.gitignore`,
-  since it is not the project's concern.
+  The endpoint currently handles only the `issues` event (label-trigger
+  ingestion and child-issue lifecycle observation) — the `issue_comment` /
+  `pull_request_review` / `pull_request_review_comment` handling the old
+  feedback-intake subsystem added was removed with the fixed driver (see
+  "Current gap" above) and carried no separate access-model exception of its
+  own. Kestrel still identifies every comment it writes with a configurable
+  `[kestrel:posted]` sentinel by default, independent of feedback intake.
+- **Ingestion is a seam, and the ports are extracted.** GitHub ingestion
+  (webhook + reconciliation), **Jira ingestion** (poll-only), and a
+  file-backed **local** source all feed one source-neutral entry point
+  (`ingestion.maybe_start_run`, on a `task_ref`) that now creates a board
+  workflow rather than a driver run. The load-bearing axis — *task source*
+  (the ticket) vs *code host* (the repo) — is realized as two protocols in
+  `app/ports.py`: `TaskSource` (read/comment/attach/deep-link/
+  display-label) and `CodeHost` (default branch, clone remote, open a
+  merge/pull request). GitHub implements both roles; **Jira** implements
+  `TaskSource` and delegates the `CodeHost` role to a configured,
+  **self-hostable** git host (GitLab reference; Gitea/Forgejo the same
+  port) — kestrel is sovereign by design, so a Jira-resolved repo can live
+  on an on-prem GitLab. Jira is poll-only, so it adds **no** off-loopback
+  endpoint. The local source uses recursive task folders with
+  root-contained `task.json`, publishing a branch to a local bare
+  repository without a change request or review. Every `TaskSource`
+  declares a `visibility()` capability (`"public"` | `"private"`): GitHub
+  and Jira are `"public"` — their tickets are externally shared and only
+  ever move forward in time; local tasks are `"private"`. This capability
+  is snapshotted onto every board workflow at ingestion time; it currently
+  has no consumer (see "Current gap" above for rerun/cleanup, its intended
+  use).
+
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).

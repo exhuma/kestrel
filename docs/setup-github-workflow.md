@@ -1,16 +1,20 @@
-# GitHub access for the issue → code workflow
+# GitHub access for the issue → board workflow
 
-The workflow feature (refine → plan → implement → draft PR) needs a GitHub
-personal access token to read/update issues, clone/push, and open PRs. There
-is no separate "API key" concept — it's one setting: `KESTREL_GITHUB_TOKEN`.
+Watching a GitHub repository for board work needs a GitHub personal access
+token to read/update issues and clone/push. There is no separate "API key"
+concept — it's one setting: `KESTREL_GITHUB_TOKEN`.
 
-## Preventing self-feedback
+## Marking kestrel's own comments
 
-Kestrel appends `[kestrel:posted]` to every comment it posts by default. The
-feedback pipeline ignores this marker before it evaluates `@kestrel approve`,
-`@kestrel reject`, or `@kestrel request changes`. This is important when
-Kestrel uses a personal access token, because GitHub reports such comments as
-being written by the operator rather than by a bot account.
+Kestrel appends `[kestrel:posted]` to every comment it posts by default, so
+a future consumer of comment history can tell a kestrel-authored comment
+from a human one. (The old fixed driver's `@kestrel approve` /
+`@kestrel reject` / `@kestrel request changes` feedback pipeline, which also
+used this marker to avoid reacting to its own comments, was removed in the
+Phase 10 clean break — see
+[Architecture](architecture.md#the-work-board-spec-026) — and currently has
+no board-domain replacement, so nothing currently reads ticket comments back
+into kestrel.)
 
 Keep `comment_sentinel_enabled = true` in `config.toml` unless the connected
 source cannot preserve the marker. Change `comment_sentinel` only to a stable,
@@ -23,10 +27,12 @@ Fine-grained PAT (recommended), scoped to just the test repo. On
 tokens → Fine-grained tokens**.
 
 Required repository permissions:
-- **Contents**: Read and write (push the branch)
-- **Issues**: Read and write (read the issue, PATCH it with the refined text)
-- **Pull requests**: Read and write (open the draft PR, read review feedback,
-  and add reactions)
+- **Contents**: Read and write (clone/push a delivery branch)
+- **Issues**: Read and write (read the labeled issue that seeds a board
+  workflow; write access is forward-looking for once task-source write-back
+  is wired up — see [Architecture](architecture.md#the-work-board-spec-026))
+- **Pull requests**: Read and write (forward-looking, same reason — opening
+  a change request is not yet automated)
 
 A classic PAT with the `repo` scope also works for a quick throwaway test.
 
@@ -61,7 +67,7 @@ trigger label are a `github` [task source](configuration.md#task-sources) in
 | --- | --- | --- | --- |
 | `KESTREL_WEBHOOK_SECRET` | Yes | HMAC shared secret verifying deliveries. Empty disables the webhook path | _(empty)_ |
 | `KESTREL_POLL_INTERVAL_SECONDS` | No | How often to reconcile for missed deliveries | `300` |
-| `KESTREL_PUBLIC_BASE_URL` | No | Public URL of the kestrel UI, used to make gate-notification links clickable | _(empty)_ |
+| `KESTREL_PUBLIC_BASE_URL` | No | Public URL of the kestrel UI, used to build a deep link back to a run | _(empty)_ |
 
 ```toml
 # config.toml — the repos to watch and the trigger label:
@@ -87,35 +93,22 @@ In the repository's **Settings → Webhooks → Add webhook**:
 - **Payload URL**: `https://<your-public-host>/api/github/webhook`
 - **Content type**: `application/json`
 - **Secret**: the same value as `KESTREL_WEBHOOK_SECRET`
-- **Events**: select **Issues**, **Issue comments**, **Pull request reviews**,
-  and **Pull request review comments**. Kestrel uses issue labels to start
-  runs and the comment/review events for feedback decisions.
+- **Events**: select **Issues**. (Older setup instructions also selected
+  **Issue comments**, **Pull request reviews**, and **Pull request review
+  comments** for the old driver's comment-based feedback pipeline; that
+  pipeline was removed in the Phase 10 clean break and the webhook handler
+  no longer reads those event types at all, so there's no need to select
+  them — see [Architecture](architecture.md#the-work-board-spec-026).)
 
 ### Use it
 
-Apply the `kestrel` label to an issue in a watched repo. A run starts on its
-own and appears in the **Workflows** tab. Abandoning a run dismisses that issue
-so it is not re-ingested while the label remains; remove and re-add the label to
-run it again. Deliveries missed while kestrel was offline are picked up on the
-next reconciliation cycle.
-
-### Lifecycle sync
-
-As a run progresses, kestrel labels the issue `kestrel-in-progress`, then
-swaps that for a terminal label on completion or failure — and reports
-active/wait time via a comment footer (GitHub issues have no native
-time-tracking field). See [Configuration → Task
-sources](configuration.md#task-sources) for the label names, and
-[Operator hooks](hooks.md) if you need custom actions kestrel doesn't
-support natively.
-
-### Steering a run with feedback
-
-A marked comment (default trigger: `@kestrel`) on the issue *or* on the PR it
-opened redirects the run in flight. To decide an external gate, include the
-active `[kestrel-review:<token>]` token and one of `@kestrel approve`,
-`@kestrel reject`, or `@kestrel request changes`. After an immediate action,
-GitHub prefers an eyes reaction and uses a concise, action-specific reply only
-if that reaction cannot be added. Queued feedback receives no acknowledgement.
-See [Feedback intake](feedback-intake.md) for token rules, translations,
-retirement, and revive-versus-successor behaviour.
+Apply the `kestrel` label to an issue in a watched repo. Kestrel creates a
+board workflow for it — after screening the issue body through the
+fail-closed input-security quarantine — and it appears on the **Board**.
+Deliveries missed while kestrel was offline are picked up on the next
+reconciliation cycle. From here, watching progress, resolving any human
+gate or quarantined security review, and retrying/cancelling/reassigning a
+card all happen **in the Kestrel UI**, not on the GitHub issue — see
+[Architecture](architecture.md#the-work-board-spec-026) for what's wired up
+today and what (lifecycle labels, comment-based feedback, decomposition
+into linked issues) is not yet.

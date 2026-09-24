@@ -91,3 +91,74 @@ recovery, artifact provenance, all input transports, quarantine side-effect
 blocking, and projection idempotency. Add frontend tests using mocked HTTP/SSE
 for state grouping, safe rendering, interventions, stale revisions, keyboard
 operation, and graph-to-detail selection.
+
+## Validation results (2026-09-24, docs pass after Phase 10)
+
+Run against the code as of the Phase 10 clean break (commits `33628b4`,
+`3fc281c`), in a sandbox with no live `claude` login and no real GitHub/Jira
+credentials, so only what's listed as "confirmed live" below was actually
+exercised end-to-end; everything else is a static code-path check.
+
+**Confirmed live:**
+- *Specialist Configuration* (steps 1-5): `uv run python -c
+  "from app.services.board.bootstrap import get_specialist_roster; ..."`
+  loads all 13 default roles. Corrupting `specialists/coder/manifest.toml`
+  (dropping `file_edits` from `required_abilities` while
+  `workspace_permission = "write"`) makes `load_roster()` raise
+  `SpecialistLoadError: coder: workspace_permission 'write' requires the
+  'file_edits' ability`; `app/main.py`'s startup path calls
+  `get_specialist_roster()` unguarded, so this blocks app boot, not just a
+  later dispatch. Manifest restored after the check; `git diff` confirms no
+  residual change.
+- Fresh-DB migration to head (`alembic upgrade head`) produces exactly the
+  `board_*` tables (plus `child_task_link`, `event`, `issue_dismissal`,
+  `notification`, `session`, `webhook_delivery`) and **no**
+  `workflow_run`/`workflow_step`/`workflow_round_chip`/`workflow_artifact`/
+  `review_request`/`feedback_item`/`feedback_cursor` table.
+  `GET /api/board/workflows` returns `200 []` against that empty DB and
+  `GET /livez` returns `200`, via `TestClient(create_app())`.
+  `uv run python -m app poll` runs and reports "No task sources configured."
+  (as expected with none set).
+
+**Static-only (no live backend/credentials available in this sandbox):**
+- *Safe Intake and Quarantine*: `QuarantineService`'s deterministic
+  fail-closed paths (oversized content, missing/incapable `input-security`
+  specialist) are code-confirmed; the LLM-classification path itself needs
+  a working backend to exercise. Note: step 3's "marked feedback containing
+  an unsafe instruction pattern" describes the old, now-removed
+  comment-marker feedback pipeline (see `docs/feedback-intake.md`) — there
+  is currently no board-domain path that ingests ticket-comment feedback at
+  all, so this step cannot be driven as written; only the *task-body*
+  intake half of this scenario is currently reachable.
+- *Scheduling and Recovery*, step 2 ("Observe both analysis cards claim
+  concurrently") and *Gates, Verification, and Projection*, step 2
+  ("Submit an implementation nonconformance from verifier work"): **cannot
+  currently pass**. `app/services/board/dispatch.py`'s `claim_and_dispatch`/
+  `run_card_turn` (the code that has a specialist actually claim and work a
+  `ready` card) has no caller anywhere in the app — `app/main.py` only
+  starts the coordinator-wake and claim-recovery background loops, and the
+  board's only mutation hook (`bootstrap.py`'s `_trigger_scheduling`) wakes
+  the coordinator, never a specialist. A card can sit `ready` indefinitely.
+  This is a real gap, not a sandbox limitation — see
+  `docs/architecture.md#current-gap-no-automatic-specialist-execution-loop-yet`.
+- *Gates, Verification, and Projection*, step 4 ("Inspect the source task
+  after... gate, escalation, approved artifact, child work, and delivery"):
+  **cannot currently pass** either — `app/services/board/projections.py`'s
+  own module docstring states posting to a task source is not yet
+  implemented, and `app/notifications.py`'s docstring confirms nothing
+  currently produces a `Notification` row. No task-source-visible change
+  should be expected for any of these milestones today.
+- *Validate Operator UI*: not exercised (no browser in this sandbox);
+  `WorkBoard.vue`/`WorkCardDetail.vue`/`WorkflowGraph.vue` and their
+  `useBoard.ts` composable exist and match the described List/Graph/detail
+  structure, but keyboard operation and the stale-intervention-conflict UI
+  behaviour were not driven interactively.
+
+**Net assessment**: the board's *data model, intake/quarantine, gates,
+interventions, and read/SSE API* are solid and match this quickstart.
+The *scheduling loop that actually performs specialist work* and *all
+task-source write-back* (Phase 9 of `tasks.md`) are not yet built, so the
+back half of this quickstart (concurrent claiming, live verification
+findings, and source-visible projections) describes intended, not current,
+behavior. Recommend either implementing Phase 9 before relying on those
+scenarios, or annotating them here as forward-looking until then.

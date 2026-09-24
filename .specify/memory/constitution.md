@@ -1,6 +1,31 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-09-24 (1.5.0 -> 1.5.1, PATCH): Correct a factual drift left by
+the Phase 10 clean break (spec 026-autonomous-work-board): the fixed six-step
+workflow driver and its `/api/workflows/*` router — the sole implementation of
+"Kestrel's rerun action" referenced in the access model's third recorded
+constraint — were removed. No principle or binding constraint is added,
+removed, or redefined: the visibility()-gated restriction on any local-only
+destructive action remains binding for if/when such an action is
+reintroduced; only the constraint's description is updated to state plainly
+that no such action exists in the current board-domain implementation.
+Therefore PATCH, per the same class of change as the 1.0.0 -> 1.0.1 amendment
+below.
+
+Modified sections:
+  - Technology & Architecture Constraints -> access-model third constraint:
+    added a note that rerun is not currently implemented, without altering
+    the underlying restriction.
+
+Templates & docs reviewed for consistency:
+  - docs/architecture.md, docs/configuration.md, docs/setup-local-tasks.md,
+    README.md ... updated in the same pass to drop the "Rerun action" as a
+    currently offered feature (see those files' own history for detail).
+
+Follow-up TODOs: none.
+
+--------------------------------------------------------------------------------
 Amendment 2026-09-15 (1.4.0 -> 1.5.0, MINOR): Permit tightly scoped cleanup
 writes for artifacts Kestrel itself created and durably recorded. The prior
 public-source constraint made delete/cleanup local-only so externally shared
@@ -338,7 +363,13 @@ section records only the non-negotiable constraints an agent must honour.
   immediately restart it against the same task, discarding and replacing the run's
   history — MUST be refused unless the run's task source reports `"private"`; this is
 enforced once, centrally, in the service layer (never left to the frontend to
-enforce alone, per Principle II). Delete remains local-only. Cleanup may modify
+enforce alone, per Principle II). **Not currently implemented**: the fixed
+driver's `/api/workflows/*` router, the sole implementation of rerun, was
+removed in the Phase 10 clean break (spec 026-autonomous-work-board);
+`visibility()` is still recorded on every board workflow, and this same
+visibility-gated restriction and central-enforcement requirement apply
+unchanged if rerun, or an equivalent local-only destructive action, is
+reintroduced. Delete remains local-only. Cleanup may modify
 a public source solely to remove, close, or restore artifacts Kestrel itself
 created and recorded against that workflow; it MUST NOT alter an untracked
 resource or change the original source task except to restore its exact
@@ -386,4 +417,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.5.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-09-15
+**Version**: 1.5.1 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-09-24

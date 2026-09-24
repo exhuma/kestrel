@@ -21,7 +21,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_CLAUDE_BIN` | `claude` | Path/name of the `claude` CLI to spawn |
 | `KESTREL_WORKSPACE_ROOT` | `./.kestrel-workspaces` | Where per-session git workspaces are created (image: `/workspaces`) |
 | `KESTREL_PERMISSION_MODE` | `acceptEdits` | Passed to `claude --permission-mode` for spawned sessions |
-| `KESTREL_MODEL_OVERRIDES` | `{}` | JSON map of per-step model overrides, e.g. `{"sonnet":"claude-sonnet-5"}` |
 | `KESTREL_GITHUB_TOKEN` | _(empty)_ | Token for GitHub ingestion (issues, clone/push, PRs). See [GitHub workflow](setup-github-workflow.md) |
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
@@ -36,12 +35,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_CODE_HOST_TOKEN` | _(empty)_ | Default code-host token for a Jira source's resolved repos. Secret; falls back to `KESTREL_GITHUB_TOKEN` when its `code_host` is github |
 | `KESTREL_PUBLIC_BASE_URL` | _(empty)_ | Public URL of the kestrel UI, used to build clickable gate-notification deep-links. Empty ⇒ link-less comments |
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
-| `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Max code↔verify rounds before the loop escalates to the ticket |
-| `KESTREL_WORKFLOW_DEBUG` | `false` | Debug the code↔verify dialogue: appends every coder/verifier prompt and result to `<workspace>-debug/dialogue.log` and skips auto-deleting the worktree (done/escalated/failed) so both stay inspectable. An explicit abandon still deletes the workspace |
-| `KESTREL_REFINE_SAMPLES` | `1` | Run the refine coordinator/generators N times and union the result, to reduce variance on weaker/local models |
-| `KESTREL_REFINE_CRITIC` | `false` | Add an adversarial completeness pass after refine's reconciliation step |
-| `KESTREL_RECONCILE_MODE` | `rewrite` | How refine consolidates overlapping questions: `rewrite` (LLM rewriter), `dedup` (no-LLM, coverage-safe within-audience dedup), or `off` (keep the pooled questions as-is) |
-| `KESTREL_ALLOW_INCOMPLETE_ANSWERS` | `false` | Safety net: let a questionnaire be submitted with required questions left blank. Provided answers are still validated for well-formedness |
 | `KESTREL_SPECIALISTS_ROOT` | `./specialists` | Root of file-backed specialist role definitions for the work board (feature 026). Treated as a trust boundary — a manifest resolving outside this root is refused |
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
 | `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine |
@@ -51,25 +44,20 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
 | `KESTREL_BOARD_ARTIFACTS_ROOT` | `./.kestrel-board-artifacts` | Durable, content-addressed store for handoff-artifact bodies |
 
-A project's user-facing boundary (HTTP API, web UI, both, or none) is inferred
-by the `design` step from the PRD and codebase, not configured — there is no
-`KESTREL_*` setting for it. When a boundary is found, `verify` launches and
-exercises the running project for real using whatever tools (Bash, MCP) the
-configured backend already has available — this is verify's only evidence
-source; durable, deterministic checks (tests, lint) are the coder's TDD
-responsibility, not something kestrel re-runs during verify.
-
-### Feedback environment variables
-
-- `KESTREL_FEEDBACK_MARKER` defaults to `@kestrel`. It is a whole-token,
-  case-insensitive marker that admits ticket and review feedback.
-- `KESTREL_FEEDBACK_IGNORE_AUTHORS` is empty by default. It is a
-  comma-separated list of authors whose marked feedback is ignored; GitHub
-  bot authors are also ignored.
-- `KESTREL_FEEDBACK_WINDOW_DAYS` defaults to `14`. It is the polling window
-  after a `done` or `escalated` run became terminal.
-- `KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS` defaults to `183`. It is the
-  time a closed published child stays monitored before one retirement notice.
+**Vestigial settings, not currently read by anything.** A handful of
+`Settings` fields survive from the deleted fixed driver purely because
+nobody has removed them yet from `backend/app/config.py`:
+`max_verify_iterations`, `max_ci_repair_iterations`, `workflow_debug`,
+`feedback_marker`, `feedback_ignore_authors`, `feedback_window_days`,
+`child_task_closure_retention_days`, `refine_samples`, `refine_critic`,
+`reconcile_mode`, `allow_incomplete_answers`, and `mockups_enabled`. Setting
+their `KESTREL_*` env var or `config.toml` key is accepted at startup but has
+**no effect** — nothing in the codebase reads any of them outside
+`config.py` itself. They described the old driver's verify-iteration cap,
+debug transcript, `@kestrel`-marker feedback steering, and refine-interview
+robustness knobs, none of which exist post-Phase-10; do not rely on any of
+them. (This is a known cleanup gap, not something this documentation pass
+resolves — it's a code change, tracked separately.)
 
 **Task sources are configured in `config.toml`, not via env vars.** Which
 GitHub repos and Jira instances kestrel pulls from — the former
@@ -78,10 +66,9 @@ GitHub repos and Jira instances kestrel pulls from — the former
 [Task sources](#task-sources) below). Those env keys have been removed and are
 ignored if left over.
 
-The applicative keys `KESTREL_POLL_INTERVAL_SECONDS` and
-`KESTREL_MAX_VERIFY_ITERATIONS` can also be set in `config.toml` (as
-`poll_interval_seconds`, …). The file wins where it sets a key; the environment
-fills in the rest. Secrets have no TOML equivalent.
+The applicative key `KESTREL_POLL_INTERVAL_SECONDS` can also be set in
+`config.toml` (as `poll_interval_seconds`). The file wins where it sets a
+key; the environment fills in the rest. Secrets have no TOML equivalent.
 
 ## Task sources
 
@@ -125,17 +112,19 @@ code_host = "local"                    # required; no credential
 
 A `local` source runs disposable task folders, each with `task.json`, under
 `tasks_dir`. It uses an absolute local bare repository path from the
-task's `code_repo`, publishes a branch there, and never opens a change request.
-Its runs are the only ones that offer the **Rerun** action. See [Fixture
-workflow](setup-local-tasks.md) for the task file format and how
-Rerun works.
+task's `code_repo`, publishes a branch there, and never opens a change
+request. See [Local tasks workflow](setup-local-tasks.md) for the task file
+format. (The fixed driver's **Rerun** action — abandon a run, delete its
+branch, restart it against the same task — was removed with that driver in
+the Phase 10 clean break and has no board-domain replacement yet; see
+[Architecture](architecture.md#the-work-board-spec-026).)
 
 ### Translation
 
-Translation is disabled unless `config.toml` contains a separate
-OpenAI-compatible service. It is not a workflow backend: kestrel makes one
-stateless request for accepted feedback and continues if that request fails.
-Keep the key in the environment by using `api_key_env`.
+`config.toml` may declare a separate OpenAI-compatible translation service
+(shown below), but nothing in the current board domain calls it — it was
+wired to the deleted feedback-intake subsystem and has no board-domain
+caller yet. Declaring it is a no-op for now.
 
 ```toml
 [translation]
@@ -145,25 +134,18 @@ api_key_env = "KESTREL_TRANSLATION_API_KEY"
 # timeout = 30.0
 ```
 
-When a translation differs from the submitted text, kestrel posts it with an
-automated-translation warning. The original feedback remains the source text.
+### Child-task tracking
 
-### Child-task retirement
-
-Kestrel tracks published child tasks separately from ordinary source tasks.
-When an approved decomposition is published, Kestrel first publishes the
-parent feature integration branch. Each child then starts from that branch.
-For links persisted by an earlier Kestrel version, Kestrel restores a missing
-remote integration branch only when the shared mirror still holds the exact
-parent branch. If that local ref is gone, scheduling fails without creating a
-replacement branch; restore the parent workspace or branch, then retry.
-
-A closed child is still monitored for
-`child_task_closure_retention_days` (183 days by default). It then receives
-one notice, `Kestrel has retired this closed child task. Create a new task for
-further work.`, and is never automatically reopened or polled again. This
-setting can be placed in `config.toml` as shown in the example or supplied as
-`KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS`.
+Kestrel still persists a link (`child_task_link`, now attached to a board
+workflow) between a parent task and any child task it previously published,
+and observes a linked child's open/closed source state to decide whether a
+reopened ticket needs a fresh linked successor run. What currently has
+**no** implementation is the producing side: publishing an approved
+decomposition as new child tickets in the first place (see
+[Architecture](architecture.md#the-work-board-spec-026) — this is
+board-domain follow-on work, not yet built). `child_task_closure_retention_days`
+and the retirement notice it used to drive are accordingly also currently
+inert; a closed child is not retired today.
 
 A Jira RFC's target repository is resolved from `repo_field` when set, otherwise
 from a remote/web link on the issue whose title matches `repo_link_text`
@@ -184,24 +166,24 @@ use their own bundled CA set, not the OS trust store). It does **not** affect
 `git` clone/fetch/push, which use the system trust store — install the internal
 CA there for git.
 
-### Lifecycle sync and operator hooks
+### Lifecycle sync and operator hooks (currently dormant)
 
-Each source also carries fields governing how kestrel reports a run's
-status ("in progress" / "done" / a failure terminal) and its active/wait
-time back to the ticket, and an optional escape hatch for anything kestrel
-doesn't natively support:
+Each source still accepts the fields below, and the `TaskSource.transition()`
+methods and hook-invocation code they'd drive still exist, but **nothing in
+the current board domain calls either** — the old driver code that invoked
+them at each lifecycle point (start/done/failed/escalated/rejected) was
+removed in the Phase 10 clean break and has no board-domain replacement yet
+(see [Architecture](architecture.md#the-work-board-spec-026)). Setting these
+fields today has no observable effect: no label is applied, no transition
+fires, and no `hooks_dir` executable runs (only its startup audit-log pass
+still does). They are documented here for when this is wired back up.
 
 | Field | Source type | Purpose |
 | --- | --- | --- |
-| `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels applied as a run progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |
-| `transition_start`, `transition_done`, `transition_failed`, `transition_escalated`, `transition_rejected` | jira | Workflow-transition ids applied at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
-| `time_spent_field` | jira | Field to write active-work seconds to (e.g. the builtin `timespent` or a custom field id). Unset ⇒ no native write |
-| `hooks_dir` | both | A directory of operator executables invoked at every lifecycle event. **Security-sensitive** — a hook inherits kestrel's full environment/credentials. See [Operator hooks](hooks.md) before setting this |
-
-Wherever a field above doesn't apply (the platform has no such mechanism,
-none is configured, or the native call itself fails), kestrel falls back to
-a footer appended to the comment it already posts — the operator always
-sees the status/time information somewhere, on every platform.
+| `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels a run would apply as it progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |
+| `transition_start`, `transition_done`, `transition_failed`, `transition_escalated`, `transition_rejected` | jira | Workflow-transition ids that would apply at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
+| `time_spent_field` | jira | Field that would receive active-work seconds (e.g. the builtin `timespent` or a custom field id). Unset ⇒ no native write |
+| `hooks_dir` | both | A directory of operator executables that would be invoked at every lifecycle event. **Security-sensitive** — a hook inherits kestrel's full environment/credentials. See [Operator hooks](hooks.md) before setting this |
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 
@@ -233,8 +215,8 @@ failure, so a leftover key from a rename never crashes the service.
 The recommended layout keeps the two kinds of settings apart:
 
 - **`config.toml` — the preferred home for non-secret configuration.** The
-  file-only `[[task_sources]]` list and backend routing, plus the applicative
-  overrides (`poll_interval_seconds`, `max_verify_iterations`),
+  file-only `[[task_sources]]` list and backend routing, plus applicative
+  overrides such as `poll_interval_seconds` and the `board_*` settings,
   pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
   mount it and set the env var (see [Backends](backends.md)). Read once at
   startup — restart after editing. (`KESTREL_BACKENDS_FILE` still works as a

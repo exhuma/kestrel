@@ -2,9 +2,11 @@
 
 Dispatch and monitor [Claude Code](https://github.com/anthropics/claude-code)
 CLI sessions from a web UI. Kestrel is a single-user tool: a FastAPI backend
-spawns `claude` sessions in per-run workspaces, persists them to SQLite, and
-streams events over SSE to a Vue 3 / Vuetify frontend. It can also dispatch to
-[opencode](https://opencode.ai) or a self-hosted LLM — see
+ingests tasks from GitHub, Jira, or local task folders into an event-driven
+**work board** of typed cards claimed by configurable specialist agents (see
+[Architecture](docs/architecture.md)), persists everything to SQLite, and
+streams live state over SSE to a Vue 3 / Vuetify frontend. It can also
+dispatch to [opencode](https://opencode.ai) or a self-hosted LLM — see
 [Backends](docs/backends.md).
 
 > **Status: alpha.** Interfaces and data formats may change between releases.
@@ -34,12 +36,12 @@ and how your host Claude config is used.
 - [Configuration](docs/configuration.md) — every `KESTREL_*` setting, config
   files, and mounts.
 - [Backends](docs/backends.md) — dispatch to opencode or a self-hosted LLM.
-- [GitHub workflow](docs/setup-github-workflow.md) — the issue → PR feature.
-- [Jira workflow](docs/setup-jira-workflow.md) — the RFC → change request feature.
+- [GitHub workflow](docs/setup-github-workflow.md) — watch a repo's issues.
+- [Jira workflow](docs/setup-jira-workflow.md) — poll a Jira project's RFCs.
 - [Local tasks workflow](docs/setup-local-tasks.md) — disposable local
-  tasks for testing/retrying the pipeline, plus the Rerun action.
-- [Feedback intake](docs/feedback-intake.md) — steer a run in flight from a
-  marked ticket/PR comment, across every task source.
+  tasks for testing.
+- [Feedback intake](docs/feedback-intake.md) — removed in the Phase 10
+  clean break; kept as a pointer to what replaces it.
 - [Operator hooks](docs/hooks.md) — custom actions on lifecycle events.
 - [Troubleshooting](docs/troubleshooting.md) — common speed-bumps.
 - [Observability](docs/observability.md) — logs (text/JSON) and health.
