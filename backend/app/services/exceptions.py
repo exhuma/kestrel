@@ -57,3 +57,18 @@ class GitHubError(Exception):
 
 class GitError(Exception):
     """Raised when a git subprocess fails."""
+
+
+class UnconfirmedDirectPromptError(Exception):
+    """A direct session prompt was not explicitly confirmed (FR-023).
+
+    A direct session prompt intentionally addresses an agent, so it is
+    not automatically quarantined like external/gate input — but it
+    still requires an explicit, recorded injection-risk confirmation
+    before dispatch.
+    """
+
+
+class DirectPromptTooLargeError(Exception):
+    """A direct session prompt exceeded the configured input bound
+    (FR-023)."""

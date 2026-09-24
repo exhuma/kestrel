@@ -42,6 +42,12 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_REFINE_CRITIC` | `false` | Add an adversarial completeness pass after refine's reconciliation step |
 | `KESTREL_RECONCILE_MODE` | `rewrite` | How refine consolidates overlapping questions: `rewrite` (LLM rewriter), `dedup` (no-LLM, coverage-safe within-audience dedup), or `off` (keep the pooled questions as-is) |
 | `KESTREL_ALLOW_INCOMPLETE_ANSWERS` | `false` | Safety net: let a questionnaire be submitted with required questions left blank. Provided answers are still validated for well-formedness |
+| `KESTREL_SPECIALISTS_ROOT` | `./specialists` | Root of file-backed specialist role definitions for the work board (feature 026). Treated as a trust boundary — a manifest resolving outside this root is refused |
+| `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
+| `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine |
+| `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a card claim lease is held before it is considered abandoned |
+| `KESTREL_BOARD_WORKSPACE_LEASE_SECONDS` | `1800` | How long a repository workspace-write lease is held before recovery may reclaim it |
+| `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 
 A project's user-facing boundary (HTTP API, web UI, both, or none) is inferred
 by the `design` step from the PRD and codebase, not configured — there is no

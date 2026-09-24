@@ -20,6 +20,7 @@ from tests.test_jira_poll import (
     _FakeDismissals as _JiraDismissals,
 )
 from tests.test_reconcile import (
+    _board_intake,
     _FakeDismissals,
     _FakeGitHub,
     _FakeWorkflows,
@@ -32,7 +33,10 @@ async def test_reconcile_list_work_items_starts_no_run() -> None:
     source = TaskSourceConfig(type="github", watched_repos=["o/r"])
     wf, dis = _FakeWorkflows(), _FakeDismissals()
     ingestion = IngestionService(
-        Settings(_env_file=None, task_sources=[source]), wf, dis
+        Settings(_env_file=None, task_sources=[source]),
+        wf,
+        dis,
+        _board_intake(),
     )
     svc = ReconcileService(
         source,

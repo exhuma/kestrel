@@ -25,12 +25,22 @@ class _FakeService:
         self._start_error = start_error
         self._known = known
 
-    async def start(self, prompt: str) -> str:
+    async def start(
+        self, prompt: str, *, confirmed_injection_risk: bool = False
+    ) -> str:
+        del confirmed_injection_risk
         if self._start_error:
             raise SessionStartError("no session id")
         return "fake-1"
 
-    async def resume(self, session_id: str, prompt: str) -> str:
+    async def resume(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        confirmed_injection_risk: bool = False,
+    ) -> str:
+        del confirmed_injection_risk
         if not self._known:
             raise SessionNotFoundError(session_id)
         return session_id

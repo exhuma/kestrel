@@ -5,9 +5,11 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
+from app.models_board import IntakeOutcome, Workflow
 from app.models_workflow import WorkflowRun
+from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.ports import Task
-from app.services.ingestion import IngestionService
+from app.services.ingestion import BoardIntake, IngestionService
 from app.services.jira_poll import JiraPollService
 from tests.test_jira_poll import (
     _FakeCodeHost,
@@ -16,11 +18,20 @@ from tests.test_jira_poll import (
 )
 
 
+class _FakeTaskSource:
+    async def get_task(self, ref):
+        return Task(ref=ref, title="t", body="b")
+
+    def visibility(self):
+        return "public"
+
+
 class _RecordingWorkflows:
     """A WorkflowService stand-in that records created runs by task_ref."""
 
     def __init__(self) -> None:
         self.runs: list[WorkflowRun] = []
+        self.sources = {"jira-issue": _FakeTaskSource()}
 
     def list(self) -> list[WorkflowRun]:
         return self.runs
@@ -35,8 +46,43 @@ class _RecordingWorkflows:
         return rid
 
 
-def _poll(jira, wf, dismissals) -> JiraPollService:
-    ingestion = IngestionService(Settings(_env_file=None), wf, dismissals)
+class _FakeQuarantine:
+    async def intake_for_new_task(self, intake):
+        return IntakeOutcome(released=True, safe_content=intake.body)
+
+
+class _FakeBoard:
+    """Records accepted intakes and rejects a repeated (source, task_ref)."""
+
+    def __init__(self) -> None:
+        self.calls = []
+        self._seen: set[tuple[str, str]] = set()
+
+    def create_workflow_from_intake(self, intake):
+        key = (intake.source, intake.task_ref)
+        if key in self._seen:
+            raise WorkflowAlreadyExistsError(f"{key[0]}:{key[1]}")
+        self._seen.add(key)
+        self.calls.append(intake)
+        return Workflow(
+            id=f"wf-{len(self.calls) - 1}",
+            source=intake.source,
+            task_ref=intake.task_ref,
+            repo=intake.repo,
+            base_branch=intake.base_branch,
+            source_visibility=intake.source_visibility,
+            title=intake.title,
+        )
+
+
+def _poll(jira, wf, dismissals, board=None) -> JiraPollService:
+    board = board or _FakeBoard()
+    ingestion = IngestionService(
+        Settings(_env_file=None),
+        wf,
+        dismissals,
+        BoardIntake(_FakeQuarantine(), board),
+    )
     cfg = TaskSourceConfig(
         type="jira", base_url="https://jira.example",
         jql='project = "RFC"', key="RFC", repo_field="cf1",
@@ -51,10 +97,11 @@ async def test_overlapping_cycles_start_one_run_per_rfc() -> None:
     """Ensure two poll cycles start exactly one run per qualifying RFC."""
     jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
     wf, dis = _RecordingWorkflows(), _FakeDismissals()
-    poll = _poll(jira, wf, dis)
+    board = _FakeBoard()
+    poll = _poll(jira, wf, dis, board)
     await poll.run_cycle()
     await poll.run_cycle()  # second cycle observes the same RFC
-    assert [r.task_ref for r in wf.runs] == ["RFC-1"]
+    assert [c.task_ref for c in board.calls] == ["RFC-1"]
 
 
 @pytest.mark.asyncio

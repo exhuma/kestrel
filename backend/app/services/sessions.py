@@ -6,6 +6,7 @@ delegation to the subprocess runner. Holds no HTTP concepts.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from typing import AsyncIterator
 
@@ -14,15 +15,22 @@ from fastapi import Depends
 from app import sse
 from app.backends.base import Backend
 from app.backends.registry import get_backend_registry
+from app.config import get_settings
 from app.models import CanonicalEvent
 from app.schemas import SessionSummary
 from app.services import liveness
-from app.services.exceptions import SessionNotFoundError
+from app.services.exceptions import (
+    DirectPromptTooLargeError,
+    SessionNotFoundError,
+    UnconfirmedDirectPromptError,
+)
 from app.storage.registry import SessionRegistry, get_registry
 from app.storage.workflow_registry import (
     WorkflowRegistry,
     get_workflow_registry,
 )
+
+_log = logging.getLogger("kestrel.sessions.direct_prompt")
 
 
 class SessionService:
@@ -33,33 +41,70 @@ class SessionService:
         backend: Backend,
         registry: SessionRegistry,
         workflows: WorkflowRegistry | None = None,
+        max_prompt_bytes: int | None = None,
     ) -> None:
         self.backend = backend
         self.registry = registry
         self.workflows = workflows
+        self._max_prompt_bytes = (
+            max_prompt_bytes or get_settings().board_input_max_bytes
+        )
 
-    async def start(self, prompt: str) -> str:
+    async def start(
+        self, prompt: str, *, confirmed_injection_risk: bool = False
+    ) -> str:
         """
         Start a new session.
 
         :param prompt: The initial prompt text.
+        :param confirmed_injection_risk: Whether the operator explicitly
+            confirmed this direct prompt's injection-risk warning
+            (FR-023) — required, since a direct prompt is not
+            automatically quarantined like external/gate input.
         :returns: The resolved session id.
+        :raises DirectPromptTooLargeError: If the prompt exceeds bounds.
+        :raises UnconfirmedDirectPromptError: If not confirmed.
         """
+        self._validate_direct_prompt(prompt, confirmed_injection_risk)
         return await self.backend.start(prompt)
 
-    async def resume(self, session_id: str, prompt: str) -> str:
+    async def resume(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        confirmed_injection_risk: bool = False,
+    ) -> str:
         """
         Resume an existing session with new input.
 
         :param session_id: Id of the session to resume.
         :param prompt: The follow-up prompt text.
+        :param confirmed_injection_risk: See :meth:`start`.
         :returns: The resolved session id.
         :raises SessionNotFoundError: If the session is unknown.
+        :raises DirectPromptTooLargeError: If the prompt exceeds bounds.
+        :raises UnconfirmedDirectPromptError: If not confirmed.
         """
         if self.registry.get(session_id) is None:
             raise SessionNotFoundError(session_id)
+        self._validate_direct_prompt(prompt, confirmed_injection_risk)
         self.registry.set_status(session_id, "running")
         return await self.backend.resume(session_id, prompt)
+
+    def _validate_direct_prompt(self, prompt: str, confirmed: bool) -> None:
+        """Enforce FR-023's bounds and explicit-confirmation requirement."""
+        size = len(prompt.encode("utf-8", "replace"))
+        if size > self._max_prompt_bytes:
+            raise DirectPromptTooLargeError(
+                f"direct prompt is {size} bytes, exceeds bound of "
+                f"{self._max_prompt_bytes}"
+            )
+        if not confirmed:
+            raise UnconfirmedDirectPromptError(
+                "direct prompt requires explicit injection-risk confirmation"
+            )
+        _log.info("direct prompt confirmed chars=%d", len(prompt))
 
     def delete(self, session_id: str) -> None:
         """

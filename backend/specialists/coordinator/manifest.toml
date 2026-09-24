@@ -1,0 +1,9 @@
+id = "coordinator"
+label = "Coordinator"
+purpose = "Proposes bounded board actions in reaction to events; never mutates state directly."
+allowed_card_types = []
+required_abilities = []
+model_policy = "default"
+workspace_permission = "none"
+retry_limit = 1
+prompt_file = "prompt.md"

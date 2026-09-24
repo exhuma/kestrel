@@ -48,6 +48,12 @@ _CONFIG_FILE_FIELDS = frozenset(
         "screenshots_root",
         "comment_sentinel_enabled",
         "comment_sentinel",
+        "specialists_root",
+        "board_input_max_bytes",
+        "board_input_security_timeout_seconds",
+        "board_claim_lease_seconds",
+        "board_workspace_lease_seconds",
+        "board_max_parallel_read_cards",
     }
 )
 
@@ -254,6 +260,35 @@ class Settings(BaseSettings):
     #: Kestrel posts its retirement notice. Environment variable:
     #: ``KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS``. Six months is the default.
     child_task_closure_retention_days: int = 183
+    #: Root directory of file-backed specialist definitions (feature 026,
+    #: ``KESTREL_SPECIALISTS_ROOT``): one subdirectory per named role, each
+    #: holding a manifest and prompt file. Relative paths resolve against the
+    #: working directory; the board's specialist loader (see
+    #: ``services/board/specialists.py``) treats this as a trust boundary and
+    #: refuses to load a manifest that resolves outside it.
+    specialists_root: str = "./specialists"
+    #: Maximum size in bytes of one untrusted board input (task body,
+    #: feedback item, gate/questionnaire answer, or direct session prompt)
+    #: accepted before board intake (feature 026,
+    #: ``KESTREL_BOARD_INPUT_MAX_BYTES``). Oversized input is quarantined
+    #: rather than truncated, so no partial untrusted content is ever used.
+    board_input_max_bytes: int = Field(default=65536, gt=0)
+    #: Timeout in seconds for the input-security specialist's classification
+    #: call (feature 026, ``KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS``). A
+    #: timeout is treated as a malformed result and fails closed into
+    #: quarantine.
+    board_input_security_timeout_seconds: float = Field(default=30.0, gt=0)
+    #: How long a card claim lease is held before it is considered abandoned
+    #: and eligible for recovery (feature 026,
+    #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
+    board_claim_lease_seconds: int = Field(default=600, gt=0)
+    #: How long a repository workspace-write lease is held before recovery
+    #: may reclaim it (feature 026, ``KESTREL_BOARD_WORKSPACE_LEASE_SECONDS``).
+    board_workspace_lease_seconds: int = Field(default=1800, gt=0)
+    #: Maximum number of read-only board cards that may be claimed and
+    #: active at once across the whole process (feature 026,
+    #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).
+    board_max_parallel_read_cards: int = Field(default=4, gt=0)
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

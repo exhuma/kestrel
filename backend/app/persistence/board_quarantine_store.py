@@ -1,0 +1,242 @@
+"""Untrusted-input and security-review persistence (feature 026, FR-020,
+FR-021).
+
+Split out of ``board_store.py`` for module-length budget and because
+quarantine is a distinct concern: every write here either records a
+bounded, hashed input or resolves an existing review — it never mutates
+an ordinary work card's state.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from functools import lru_cache
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models_board import (
+    CardKind,
+    CardState,
+    SecurityReviewRecord,
+    UntrustedInputRecord,
+    Workflow,
+)
+from app.persistence.board_tables import (
+    BoardCardRow,
+    BoardSecurityReviewRow,
+    BoardUntrustedInputRow,
+    BoardWorkflowRow,
+)
+from app.persistence.db import get_sessionmaker
+
+
+@dataclass(frozen=True)
+class QuarantineRequest:
+    """Everything needed to record one quarantine decision.
+
+    :param workflow: The existing workflow to attach the review card to,
+        or ``None`` to create a new one to host it (a brand-new suspect
+        task has no workflow yet).
+    :param source_identity: Bounded source metadata for the input.
+    :param content_hash: Integrity hash of the screened content.
+    :param policy_version: The screening policy version applied.
+    :param safe_content_ref: Reference to the safely stored content.
+    :param classification_category: The deterministic/classifier finding.
+    :param card_title: Safe operator-facing label for the review card.
+    """
+
+    workflow: Workflow | None
+    source_identity: str
+    content_hash: str
+    policy_version: str
+    safe_content_ref: str
+    classification_category: str
+    card_title: str = "Security review"
+
+
+def _quarantine_id(prefix: str, request: QuarantineRequest) -> str:
+    """A deterministic id for one (prefix, source, content) triple."""
+    return f"{prefix}-{request.source_identity}-{request.content_hash[:12]}"
+
+
+def _row_to_input(row: BoardUntrustedInputRow) -> UntrustedInputRecord:
+    return UntrustedInputRecord(
+        id=row.id,
+        source_identity=row.source_identity,
+        content_hash=row.content_hash,
+        policy_version=row.policy_version,
+        safe_content_ref=row.safe_content_ref,
+    )
+
+
+def _row_to_review(
+    row: BoardSecurityReviewRow, workflow_id: str
+) -> SecurityReviewRecord:
+    return SecurityReviewRecord(
+        id=row.id,
+        untrusted_input_id=row.untrusted_input_id,
+        card_id=row.card_id,
+        workflow_id=workflow_id,
+        classification_category=row.classification_category,
+        review_state=row.review_state,
+        resolution=row.resolution,
+    )
+
+
+class BoardQuarantineStore:
+    """Records quarantine decisions and resolves them."""
+
+    def __init__(self, factory: sessionmaker[Session]) -> None:
+        self._factory = factory
+
+    def find_untrusted_input(
+        self, source_identity: str, content_hash: str
+    ) -> UntrustedInputRecord | None:
+        """Return the prior record for this exact (source, content), if any."""
+        with self._factory() as db:
+            row = db.scalar(
+                select(BoardUntrustedInputRow).where(
+                    BoardUntrustedInputRow.source_identity == source_identity,
+                    BoardUntrustedInputRow.content_hash == content_hash,
+                )
+            )
+            return _row_to_input(row) if row is not None else None
+
+    def find_review_for_input(
+        self, untrusted_input_id: str
+    ) -> SecurityReviewRecord | None:
+        """Return the review covering *untrusted_input_id*, if any."""
+        with self._factory() as db:
+            row = db.scalar(
+                select(BoardSecurityReviewRow).where(
+                    BoardSecurityReviewRow.untrusted_input_id
+                    == untrusted_input_id
+                )
+            )
+            if row is None:
+                return None
+            card = db.get(BoardCardRow, row.card_id)
+            return _row_to_review(row, card.workflow_id)
+
+    def quarantine(
+        self, request: QuarantineRequest, *, now: datetime | None = None
+    ) -> SecurityReviewRecord:
+        """Record one quarantine: untrusted input, review, and its card.
+
+        Creates a new workflow only when ``request.workflow`` is ``None``.
+        """
+        now = now or datetime.now(timezone.utc)
+        with self._factory.begin() as db:
+            if request.workflow is not None:
+                workflow_id = request.workflow.id
+            else:
+                workflow_id = self._create_hosting_workflow(db, request, now)
+            input_id = self._record_input(db, request, now)
+            card_id = self._create_review_card(db, workflow_id, request, now)
+            review = BoardSecurityReviewRow(
+                id=f"review-{input_id}",
+                untrusted_input_id=input_id,
+                card_id=card_id,
+                classification_category=request.classification_category,
+                review_state="pending",
+                created_at=now,
+            )
+            db.add(review)
+            db.flush()
+            db.expunge(review)
+            return _row_to_review(review, workflow_id)
+
+    def _create_hosting_workflow(
+        self, db: Session, request: QuarantineRequest, now: datetime
+    ) -> str:
+        """Create a minimal quarantined workflow to host a new review."""
+        workflow_id = f"wf-quarantine-{request.source_identity}"
+        db.add(
+            BoardWorkflowRow(
+                id=workflow_id,
+                source=request.source_identity.split(":", 1)[0],
+                task_ref=request.source_identity,
+                repo="",
+                base_branch="",
+                source_visibility="private",
+                title=request.card_title,
+                state="quarantined",
+                created_at=now,
+            )
+        )
+        return workflow_id
+
+    def _record_input(
+        self, db: Session, request: QuarantineRequest, now: datetime
+    ) -> str:
+        input_id = _quarantine_id("input", request)
+        db.add(
+            BoardUntrustedInputRow(
+                id=input_id,
+                source_identity=request.source_identity,
+                content_hash=request.content_hash,
+                policy_version=request.policy_version,
+                safe_content_ref=request.safe_content_ref,
+                created_at=now,
+            )
+        )
+        return input_id
+
+    def _create_review_card(
+        self,
+        db: Session,
+        workflow_id: str,
+        request: QuarantineRequest,
+        now: datetime,
+    ) -> str:
+        card_id = _quarantine_id("card", request)
+        db.add(
+            BoardCardRow(
+                id=card_id,
+                workflow_id=workflow_id,
+                kind=CardKind.SECURITY_REVIEW.value,
+                title=request.card_title,
+                state=CardState.QUARANTINED.value,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        return card_id
+
+    def resolve_review(
+        self,
+        review_id: str,
+        resolution: str,
+        *,
+        now: datetime | None = None,
+    ) -> SecurityReviewRecord | None:
+        """Resolve a pending review as ``"released"`` or ``"discarded"``.
+
+        :returns: The updated review, or ``None`` if it does not exist.
+        """
+        now = now or datetime.now(timezone.utc)
+        with self._factory.begin() as db:
+            review = db.get(BoardSecurityReviewRow, review_id)
+            if review is None:
+                return None
+            card = db.get(BoardCardRow, review.card_id)
+            review.review_state = resolution
+            review.resolution = resolution
+            review.resolved_at = now
+            next_state = (
+                CardState.READY.value
+                if resolution == "released"
+                else CardState.CANCELLED.value
+            )
+            card.state = next_state
+            card.updated_at = now
+            db.flush()
+            db.expunge(review)
+            return _row_to_review(review, card.workflow_id)
+
+
+@lru_cache
+def get_board_quarantine_store() -> BoardQuarantineStore:
+    """Return the process-wide BoardQuarantineStore singleton."""
+    return BoardQuarantineStore(get_sessionmaker())

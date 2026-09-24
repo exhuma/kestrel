@@ -1,0 +1,9 @@
+id = "coder"
+label = "Coder"
+purpose = "Fixture coder role for board specialist-loader tests."
+allowed_card_types = ["implementation"]
+required_abilities = ["text", "file_edits"]
+model_policy = "default"
+workspace_permission = "write"
+retry_limit = 2
+prompt_file = "prompt.md"

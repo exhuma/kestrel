@@ -72,7 +72,7 @@ def test_list_summaries_links_session_to_workflow_by_workspace() -> None:
 async def test_start_delegates_to_runner() -> None:
     """Ensure start forwards the prompt to the runner."""
     service, _, runner = _service()
-    sid = await service.start("hello")
+    sid = await service.start("hello", confirmed_injection_risk=True)
     assert sid == "new-1"
     assert runner.calls == [("start", "hello")]
 
@@ -91,7 +91,7 @@ async def test_resume_resets_status_to_running() -> None:
     service, registry, runner = _service()
     registry.create("s1", "/tmp/s1")
     registry.set_status("s1", "idle")
-    sid = await service.resume("s1", "again")
+    sid = await service.resume("s1", "again", confirmed_injection_risk=True)
     assert sid == "s1"
     assert registry.get("s1").status == "running"
     assert runner.calls == [("resume", "s1", "again")]

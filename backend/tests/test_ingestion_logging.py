@@ -4,25 +4,31 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
+from app.models_board import IntakeOutcome, Workflow
 from app.models_workflow import WorkflowRun
-from app.services.ingestion import IngestionService
+from app.persistence.board_store import WorkflowAlreadyExistsError
+from app.ports import Task
+from app.services.ingestion import BoardIntake, IngestionService
+
+
+class _TaskSource:
+    async def get_task(self, ref):
+        return Task(ref=ref, title="t", body="b")
+
+    def visibility(self):
+        return "public"
 
 
 class _Workflows:
     def __init__(self) -> None:
         self.runs: list[WorkflowRun] = []
+        self.sources = {
+            "jira-issue": _TaskSource(),
+            "github-issue": _TaskSource(),
+        }
 
     def list(self):
         return self.runs
-
-    async def create(self, repo, issue_number=None, *, source="manual",
-                     task_ref=None, base_branch=None):
-        rid = f"wf-{len(self.runs)}"
-        self.runs.append(WorkflowRun(
-            id=rid, repo=repo, issue_number=issue_number, source=source,
-            task_ref=task_ref or f"{repo}#{issue_number}",
-        ))
-        return rid
 
 
 class _Dismissals:
@@ -36,9 +42,39 @@ class _Dismissals:
         return list(self._d)
 
 
+class _Quarantine:
+    async def intake_for_new_task(self, intake):
+        return IntakeOutcome(released=True, safe_content=intake.body)
+
+
+class _Board:
+    def __init__(self) -> None:
+        self.calls = []
+        self._seen: set[tuple[str, str]] = set()
+
+    def create_workflow_from_intake(self, intake):
+        key = (intake.source, intake.task_ref)
+        if key in self._seen:
+            raise WorkflowAlreadyExistsError(f"{key[0]}:{key[1]}")
+        self._seen.add(key)
+        self.calls.append(intake)
+        return Workflow(
+            id=f"wf-{len(self.calls) - 1}",
+            source=intake.source,
+            task_ref=intake.task_ref,
+            repo=intake.repo,
+            base_branch=intake.base_branch,
+            source_visibility=intake.source_visibility,
+            title=intake.title,
+        )
+
+
 def _svc(dismissed=()) -> IngestionService:
     return IngestionService(
-        Settings(jira_project="RFC"), _Workflows(), _Dismissals(dismissed)
+        Settings(jira_project="RFC"),
+        _Workflows(),
+        _Dismissals(dismissed),
+        BoardIntake(_Quarantine(), _Board()),
     )
 
 
@@ -54,7 +90,7 @@ async def test_started_and_duplicate_outcomes_logged(caplog) -> None:
             source="jira-issue", task_ref="RFC-1", code_repo="team/svc"
         )
     assert "outcome=started RFC-1" in caplog.text
-    assert "outcome=skipped-duplicate RFC-1" in caplog.text
+    assert "outcome=skipped-duplicate-board RFC-1" in caplog.text
 
 
 @pytest.mark.asyncio

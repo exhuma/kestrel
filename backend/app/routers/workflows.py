@@ -18,6 +18,7 @@ from app.models_workflow import (
 )
 from app.policy import label_policy
 from app.questionnaire import parse_envelope
+from app.routers.workflow_gate_screening import answers_text, screen_gate_input
 from app.schemas import (
     AnswersIn,
     ApproveIn,
@@ -30,6 +31,8 @@ from app.schemas import (
     WorkflowStepOut,
     WorkflowSummary,
 )
+from app.services.board.bootstrap import get_quarantine_service
+from app.services.board.quarantine import QuarantineService
 from app.services.workflows import (
     MAX_REFINE_ROUNDS,
     MAX_REFINE_ROUNDS_HARD,
@@ -371,8 +374,14 @@ async def reply_workflow(
     workflow_id: str,
     body: ReplyIn,
     service: WorkflowService = Depends(get_workflow_service),
-) -> dict[str, str]:
+    quarantine: QuarantineService = Depends(get_quarantine_service),
+) -> dict[str, object]:
     """Answer the refine interview."""
+    blocked = await screen_gate_input(
+        quarantine, workflow_id, "gate_reply", body.text
+    )
+    if blocked is not None:
+        return blocked
     service.reply(workflow_id, body.text)
     return {"status": "ok"}
 
@@ -382,8 +391,14 @@ async def approve_workflow(
     workflow_id: str,
     body: ApproveIn,
     service: WorkflowService = Depends(get_workflow_service),
-) -> dict[str, str]:
+    quarantine: QuarantineService = Depends(get_quarantine_service),
+) -> dict[str, object]:
     """Approve the current gate (optionally with an edited deliverable)."""
+    blocked = await screen_gate_input(
+        quarantine, workflow_id, "gate_approval_edit", body.deliverable or ""
+    )
+    if blocked is not None:
+        return blocked
     service.approve(workflow_id, body.deliverable)
     return {"status": "ok"}
 
@@ -393,8 +408,17 @@ async def reject_workflow(
     workflow_id: str,
     body: RejectIn,
     service: WorkflowService = Depends(get_workflow_service),
-) -> dict[str, str]:
+    quarantine: QuarantineService = Depends(get_quarantine_service),
+) -> dict[str, object]:
     """Reject the current gate, optionally with feedback."""
+    blocked = await screen_gate_input(
+        quarantine,
+        workflow_id,
+        "gate_rejection_feedback",
+        body.refinement_prompt or "",
+    )
+    if blocked is not None:
+        return blocked
     service.reject(workflow_id, body.refinement_prompt)
     return {"status": "ok"}
 
@@ -404,8 +428,17 @@ async def save_draft_answers(
     workflow_id: str,
     body: AnswersIn,
     service: WorkflowService = Depends(get_workflow_service),
-) -> dict[str, str]:
+    quarantine: QuarantineService = Depends(get_quarantine_service),
+) -> dict[str, object]:
     """Persist a partial answer set without finalizing the interview."""
+    blocked = await screen_gate_input(
+        quarantine,
+        workflow_id,
+        "questionnaire_draft",
+        answers_text(body.answers),
+    )
+    if blocked is not None:
+        return blocked
     service.save_draft(workflow_id, body.answers)
     return {"status": "ok"}
 
@@ -415,7 +448,16 @@ async def submit_answers(
     workflow_id: str,
     body: AnswersIn,
     service: WorkflowService = Depends(get_workflow_service),
-) -> dict[str, str]:
+    quarantine: QuarantineService = Depends(get_quarantine_service),
+) -> dict[str, object]:
     """Finalize the pending questionnaire (all questions answered/waived)."""
+    blocked = await screen_gate_input(
+        quarantine,
+        workflow_id,
+        "questionnaire_answers",
+        answers_text(body.answers),
+    )
+    if blocked is not None:
+        return blocked
     service.submit_answers(workflow_id, body.answers)
     return {"status": "ok"}

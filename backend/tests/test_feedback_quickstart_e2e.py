@@ -35,13 +35,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from alembic import command
+from app.models_board import IntakeOutcome
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.notifications import TaskSourceNotifier
 from app.persistence.feedback_store import FeedbackStore
 from app.persistence.review_request_store import ReviewRequestStore
 from app.persistence.workflow_store import WorkflowStore
 from app.services.feedback.dispatch import FeedbackDispatcher
-from app.services.feedback.intake import FeedbackIntakeService
+from app.services.feedback.intake import FeedbackIntakeService, FeedbackSafety
 from app.services.feedback.poll import FeedbackPollService
 from app.services.github import GitHubCodeHost
 from app.services.local_task_source import LocalTaskSource
@@ -109,6 +110,14 @@ def _stores(tmp_path) -> tuple[FeedbackStore, ReviewRequestStore]:
     return FeedbackStore(factory), ReviewRequestStore(factory)
 
 
+class _FakeQuarantine:
+    """Always releases content unscreened; the quarantine boundary itself
+    is exercised in ``test_board_feedback_intake.py``."""
+
+    async def intake_for_existing_workflow(self, intake):
+        return IntakeOutcome(released=True, safe_content=intake.content)
+
+
 def _pipeline(
     svc: WorkflowService,
     store: FeedbackStore,
@@ -120,7 +129,11 @@ def _pipeline(
     by Scenarios 1-2)."""
     dispatcher = FeedbackDispatcher(svc, store, review_requests=reviews)
     intake = FeedbackIntakeService(
-        svc.settings, store, svc, dispatcher.dispatch
+        svc.settings,
+        store,
+        svc,
+        dispatcher.dispatch,
+        FeedbackSafety(_FakeQuarantine()),
     )
     return FeedbackPollService(svc, store, intake)
 
@@ -274,7 +287,11 @@ async def test_local_feedback_queued_before_describe_gate_is_redispatched(
     svc = _local_task_service(tmp_path, runner, _FakeGitHub())
     dispatcher = FeedbackDispatcher(svc, store, review_requests=reviews)
     intake = FeedbackIntakeService(
-        svc.settings, store, svc, dispatcher.dispatch
+        svc.settings,
+        store,
+        svc,
+        dispatcher.dispatch,
+        FeedbackSafety(_FakeQuarantine()),
     )
     poll = FeedbackPollService(svc, store, intake)
     wid = await svc.create(

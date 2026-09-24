@@ -126,3 +126,25 @@ export interface WorkflowDetail {
   error: string | null
   artifacts: WorkflowArtifact[]
 }
+
+// --- Board domain (feature 026) --------------------------------------------
+// Additive alongside the fixed-step types above (a clean-break replacement
+// of them is a later phase, US6) — these mirror only what this slice's
+// quarantine intervention needs. See specs/026-autonomous-work-board/
+// contracts/board-api.md.
+
+/** Safe, read-only view of a quarantine decision. Deliberately carries only
+ *  safe metadata — never the raw suspect content that triggered the review
+ *  (FR-025). Mirrors `app.schemas.SecurityReviewOut`. */
+export interface SecurityReviewOut {
+  id: string
+  card_id: string
+  workflow_id: string
+  classification_category: string
+  review_state: 'pending' | 'released' | 'discarded'
+  resolution: string | null
+}
+
+/** Action names match the board-api.md `CardAction` vocabulary. Mirrors
+ *  `app.schemas.QuarantineInterventionIn`. */
+export type QuarantineAction = 'release_quarantine' | 'discard_quarantine'

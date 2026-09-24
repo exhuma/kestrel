@@ -5,14 +5,24 @@ import httpx
 import pytest
 
 from app.main import create_app
+from app.models_board import IntakeOutcome
 from app.models_workflow import WorkflowRun, WorkflowStep
 from app.questionnaire import AnswerValidationError
+from app.services.board.bootstrap import get_quarantine_service
 from app.services.exceptions import (
     InvalidWorkflowStateError,
     RerunNotAllowedError,
     WorkflowNotFoundError,
 )
 from app.services.workflows import get_workflow_service
+
+
+class _FakeQuarantine:
+    """Always releases gate content unscreened; the quarantine boundary
+    itself is exercised in ``test_board_human_input.py``."""
+
+    async def intake_for_existing_workflow(self, intake):
+        return IntakeOutcome(released=True, safe_content=intake.content)
 
 
 class _FakeService:
@@ -108,6 +118,7 @@ class _FakeService:
 def _client(service):
     app = create_app()
     app.dependency_overrides[get_workflow_service] = lambda: service
+    app.dependency_overrides[get_quarantine_service] = _FakeQuarantine
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )

@@ -19,10 +19,12 @@ from app.middleware import (
 )
 from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
+    DirectPromptTooLargeError,
     InvalidWorkflowStateError,
     RerunNotAllowedError,
     SessionNotFoundError,
     SessionStartError,
+    UnconfirmedDirectPromptError,
     WorkflowNotFoundError,
 )
 
@@ -55,6 +57,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         {c.id: c.type for c in settings.backends},
         settings.default_session_backend,
     )
+
+    # Board specialist roster (feature 026, FR-009): a missing, malformed,
+    # or incomplete roster must block startup before any task can be
+    # ingested, not fail later on first dispatch. Only ids are logged —
+    # never prompt content.
+    from app.services.board.bootstrap import get_specialist_roster
+
+    roster = get_specialist_roster()
+    _logger.info("board specialists loaded: %s", sorted(roster.ids()))
 
     # Operator-hooks audit trail (feature 006, FR-016): log what's found in
     # each configured hooks_dir, so an operator has a chance to notice a
@@ -121,6 +132,20 @@ def _register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=502, content={"detail": "session start failed"}
         )
+
+    @app.exception_handler(UnconfirmedDirectPromptError)
+    async def _unconfirmed_direct_prompt(
+        request: Request, exc: UnconfirmedDirectPromptError
+    ) -> JSONResponse:
+        """Map a missing injection-risk confirmation to HTTP 400."""
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(DirectPromptTooLargeError)
+    async def _direct_prompt_too_large(
+        request: Request, exc: DirectPromptTooLargeError
+    ) -> JSONResponse:
+        """Map an oversized direct prompt to HTTP 413."""
+        return JSONResponse(status_code=413, content={"detail": str(exc)})
 
     @app.exception_handler(WorkflowNotFoundError)
     async def _workflow_not_found(
@@ -241,6 +266,7 @@ def create_app() -> FastAPI:
         )
 
     from app.routers import (
+        board,
         github_webhook,
         health,
         identity,
@@ -252,6 +278,7 @@ def create_app() -> FastAPI:
 
     app.include_router(sessions.router)
     app.include_router(workflows.router)
+    app.include_router(board.router)
     app.include_router(screenshots.router)
     app.include_router(notifications.router)
     app.include_router(health.router)

@@ -44,6 +44,29 @@ child_task_closure_retention_days = 183
 comment_sentinel_enabled = true
 comment_sentinel = "[kestrel:posted]"
 
+# --- work board (feature 026) -----------------------------------------------
+# Root of file-backed specialist definitions: one subdirectory per named role
+# (requester, pm, uiux, developer, infosec, dba, architect, ops, qa,
+# coordinator, coder, verifier, input-security), each holding a manifest and
+# prompt file. Treated as a trust boundary: a manifest resolving outside this
+# root is refused.
+specialists_root = "./specialists"
+# Maximum size in bytes of one untrusted board input (task body, feedback
+# item, gate/questionnaire answer, direct session prompt) accepted before
+# intake. Oversized input is quarantined rather than truncated.
+board_input_max_bytes = 65536
+# Timeout in seconds for the input-security specialist's classification call.
+# A timeout fails closed into quarantine, the same as a malformed result.
+board_input_security_timeout_seconds = 30.0
+# How long a card claim lease is held before it is considered abandoned and
+# eligible for retry/reassignment/escalation on recovery.
+board_claim_lease_seconds = 600
+# How long a repository workspace-write lease is held before recovery may
+# reclaim it.
+board_workspace_lease_seconds = 1800
+# Maximum number of read-only board cards claimed and active at once.
+board_max_parallel_read_cards = 4
+
 # Optional, stateless OpenAI-compatible feedback translation. It is not a
 # workflow backend. Keep its credential in the named environment variable.
 # [translation]

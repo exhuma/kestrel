@@ -8,15 +8,24 @@ one-run-per-issue and dismissal rules live in exactly one place (feature
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
 
 from app.config import Settings, get_settings
+from app.models_board import AcceptedTaskIntake
 from app.models_workflow import WorkflowRun
+from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.persistence.child_task_store import (
     ChildTaskLinks,
     get_child_task_store,
 )
 from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
+from app.services.board.bootstrap import (
+    get_board_service,
+    get_quarantine_service,
+)
+from app.services.board.quarantine import NewTaskIntake, QuarantineService
+from app.services.board.service import BoardService
 from app.services.task_scheduler import (
     ScheduledTask,
     integration_branch,
@@ -28,6 +37,22 @@ from app.services.workflows import WorkflowService, get_workflow_service
 _log = logging.getLogger("kestrel.ingestion")
 
 
+@dataclass(frozen=True)
+class BoardIntake:
+    """The board-domain collaborators ``maybe_start_run`` routes through.
+
+    Bundled into one object to keep :class:`IngestionService`'s
+    constructor within the repo's argument-count limit.
+
+    :param quarantine: The fail-closed untrusted-input boundary.
+    :param board: Creates the accepted-task workflow once content clears
+        quarantine.
+    """
+
+    quarantine: QuarantineService
+    board: BoardService
+
+
 class IngestionService:
     """Starts a run for a qualifying issue, idempotently."""
 
@@ -36,11 +61,13 @@ class IngestionService:
         settings: Settings,
         workflows: WorkflowService,
         dismissals: DismissalStore,
+        board_intake: BoardIntake,
         child_tasks: ChildTaskLinks | None = None,
     ) -> None:
         self.settings = settings
         self.workflows = workflows
         self.dismissals = dismissals
+        self.board_intake = board_intake
         self.child_tasks = child_tasks
 
     def is_watched(self, repo: str) -> bool:
@@ -61,7 +88,7 @@ class IngestionService:
         base_branch: str | None = None,
     ) -> str | None:
         """
-        Start a run for a ticket unless it is filtered out.
+        Start a board workflow for a ticket unless it is filtered out.
 
         The single source-neutral entry point every trigger calls (GitHub
         webhook, GitHub reconcile, Jira poll) so one-run-per-ticket, dismissal,
@@ -69,9 +96,12 @@ class IngestionService:
         FR-034). A future Jira webhook is one more caller of this method.
 
         Filters, in order: (GitHub) unwatched repo, dismissed ticket, an
-        existing run for the ``task_ref``. Otherwise creates a run and returns
-        its id. A failure to create raises before any run row persists, leaving
-        nothing for reconciliation to trip over (FR-013a).
+        existing run for the ``task_ref``. Otherwise the ticket's canonical
+        body is fetched — never the webhook payload's own body — and
+        screened through the untrusted-input boundary (FR-018) before any
+        board workflow is created (feature 026). A failure to create raises
+        before any row persists, leaving nothing for reconciliation to trip
+        over (FR-013a).
 
         :param source: Run origin (``github-issue`` | ``jira-issue``).
         :param task_ref: Source-native ticket id (dedup/dismissal key).
@@ -79,7 +109,8 @@ class IngestionService:
         :param issue_number: GitHub issue number; ``None`` for Jira.
         :param base_branch: Resolved base branch (Jira); ``None`` ⇒ resolved by
             the driver.
-        :returns: The new run id, or ``None`` if filtered out.
+        :returns: The new board workflow id, the quarantine-hosting
+            workflow id, or ``None`` if filtered out or already started.
         """
         if source == "github-issue" and not self.is_watched(code_repo):
             _log.info("ingest outcome=skipped-filtered %s", task_ref)
@@ -96,17 +127,58 @@ class IngestionService:
             return None
         if scheduled is not None:
             base_branch = integration_branch(scheduled)
-        run_id = await self.workflows.create(
-            code_repo,
-            issue_number,
+        _log.debug("ingest issue_number=%s", issue_number)
+        return await self._start_via_board(
             source=source,
             task_ref=task_ref,
+            code_repo=code_repo,
             base_branch=base_branch,
         )
+
+    async def _start_via_board(
+        self,
+        *,
+        source: str,
+        task_ref: str,
+        code_repo: str,
+        base_branch: str | None,
+    ) -> str | None:
+        """Canonically fetch, screen, and (if safe) create a board workflow.
+
+        The task source is re-fetched here rather than trusting any
+        webhook-carried body (Edge Cases: content may change between
+        delivery and use), and every body is screened before it can create
+        board state (FR-018/FR-019).
+        """
+        task_source = self.workflows.sources.get(source)
+        if task_source is None:
+            _log.warning("ingest outcome=no-task-source %s", task_ref)
+            return None
+        task = await task_source.get_task(task_ref)
+        outcome = await self.board_intake.quarantine.intake_for_new_task(
+            NewTaskIntake(source=source, task_ref=task_ref, body=task.body)
+        )
+        if not outcome.released:
+            _log.info("ingest outcome=quarantined %s", task_ref)
+            return outcome.workflow_id
+        try:
+            workflow = self.board_intake.board.create_workflow_from_intake(
+                AcceptedTaskIntake(
+                    source=source,
+                    task_ref=task_ref,
+                    repo=code_repo,
+                    base_branch=base_branch or "main",
+                    source_visibility=task_source.visibility(),
+                    title=task.title,
+                )
+            )
+        except WorkflowAlreadyExistsError:
+            _log.info("ingest outcome=skipped-duplicate-board %s", task_ref)
+            return None
         if self.child_tasks is not None:
-            self.child_tasks.record_run(task_ref, run_id)
-        _log.info("ingest outcome=started %s -> %s", task_ref, run_id)
-        return run_id
+            self.child_tasks.record_run(task_ref, workflow.id)
+        _log.info("ingest outcome=started %s -> %s", task_ref, workflow.id)
+        return workflow.id
 
     def _scheduled_child(
         self, task_ref: str, repo: str
@@ -241,5 +313,6 @@ def get_ingestion_service() -> IngestionService:
         get_settings(),
         get_workflow_service(),
         get_dismissal_store(),
+        BoardIntake(get_quarantine_service(), get_board_service()),
         get_child_task_store(),
     )

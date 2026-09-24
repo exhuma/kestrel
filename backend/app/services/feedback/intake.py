@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Callable
@@ -23,6 +24,11 @@ from app.models_workflow import WorkflowRun
 from app.persistence.feedback_store import FeedbackStore, get_feedback_store
 from app.persistence.tables import FeedbackItemRow
 from app.ports import Acknowledgeable, Feedback, FeedbackSource
+from app.services.board.bootstrap import get_quarantine_service
+from app.services.board.quarantine import (
+    ExistingWorkflowIntake,
+    QuarantineService,
+)
 from app.services.feedback.bootstrap import get_feedback_dispatcher
 from app.services.feedback.marker import (
     has_comment_sentinel,
@@ -42,6 +48,23 @@ from app.services.workflows import WorkflowService, get_workflow_service
 _log = logging.getLogger("kestrel.feedback.intake")
 
 
+@dataclass(frozen=True)
+class FeedbackSafety:
+    """Bundles the untrusted-input boundary and optional translator.
+
+    Keeps :class:`FeedbackIntakeService`'s constructor within the repo's
+    argument-count limit.
+
+    :param quarantine: The fail-closed boundary every feedback body must
+        clear before it can be claimed, dispatched, acknowledged, or
+        translated (FR-018/FR-020).
+    :param translator: Optional stateless translation backend.
+    """
+
+    quarantine: QuarantineService
+    translator: Translator | None = None
+
+
 class FeedbackIntakeService:
     """Gates, dedups, routes, and persists one piece of raw feedback."""
 
@@ -51,13 +74,13 @@ class FeedbackIntakeService:
         store: FeedbackStore,
         workflows: WorkflowService,
         dispatch: Callable[[FeedbackItemRow], str | None],
-        translator: Translator | None = None,
+        safety: FeedbackSafety,
     ) -> None:
         self._settings = settings
         self._store = store
         self._workflows = workflows
         self._dispatch = dispatch
-        self._translator = translator
+        self._safety = safety
 
     async def intake(
         self,
@@ -89,6 +112,16 @@ class FeedbackIntakeService:
         reason = self._ignored_reason(feedback, is_bot)
         if reason is not None:
             _log.info("feedback intake ignored reason=%s", reason)
+            return
+        outcome = await self._safety.quarantine.intake_for_existing_workflow(
+            ExistingWorkflowIntake(
+                identity_ref=feedback.external_id,
+                category="feedback",
+                content=feedback.body,
+            )
+        )
+        if not outcome.released:
+            _log.info("feedback intake ignored reason=quarantined")
             return
         run = self._route(feedback, task_ref)
         if self._is_stale_token_only(feedback.body, run):
@@ -258,10 +291,11 @@ class FeedbackIntakeService:
         self, source: FeedbackSource, feedback: Feedback
     ) -> None:
         """Post a translation disclaimer when a configured client needs one."""
-        if self._translator is None:
+        translator = self._safety.translator
+        if translator is None:
             return
         try:
-            translated = await self._translator.translate(feedback.body)
+            translated = await translator.translate(feedback.body)
             if translated != feedback.body:
                 await source.reply(
                     feedback,
@@ -299,5 +333,5 @@ def get_feedback_intake_service() -> FeedbackIntakeService:
         get_feedback_store(),
         get_workflow_service(),
         get_feedback_dispatcher().dispatch,
-        get_translator(),
+        FeedbackSafety(get_quarantine_service(), get_translator()),
     )

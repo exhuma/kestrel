@@ -200,6 +200,38 @@ class AnswersIn(BaseModel):
     answers: dict[str, object]
 
 
+class SecurityReviewOut(BaseModel):
+    """Safe, read-only view of a quarantine decision (feature 026).
+
+    Carries only safe metadata (board-api.md) — never the raw suspect
+    content that triggered the review (FR-025): full suspect input is
+    never copied into an API response, log field, or operator summary.
+
+    :param id: Stable review identity.
+    :param card_id: The ``security_review`` card this review gates.
+    :param workflow_id: The workflow hosting that card.
+    :param classification_category: The deterministic/classifier finding.
+    :param review_state: ``pending``, ``released``, or ``discarded``.
+    :param resolution: Operator-recorded resolution note, once decided.
+    """
+
+    id: str
+    card_id: str
+    workflow_id: str
+    classification_category: str
+    review_state: Literal["pending", "released", "discarded"]
+    resolution: str | None = None
+
+
+class QuarantineInterventionIn(BaseModel):
+    """Request body to resolve a pending security review (FR-022).
+
+    Action names match the board-api.md ``CardAction`` vocabulary.
+    """
+
+    action: Literal["release_quarantine", "discard_quarantine"]
+
+
 class NotificationOut(BaseModel):
     """One notification for the API."""
 

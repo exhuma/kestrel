@@ -1,0 +1,9 @@
+id = "input-security"
+label = "Input Security"
+purpose = "Classifies untrusted external/gate input for the fail-closed quarantine boundary."
+allowed_card_types = ["security_review"]
+required_abilities = []
+model_policy = "default"
+workspace_permission = "none"
+retry_limit = 1
+prompt_file = "prompt.md"

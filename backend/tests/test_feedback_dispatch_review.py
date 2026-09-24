@@ -9,7 +9,7 @@ import pytest
 from app.models_workflow import Step, WorkflowRun, WorkflowStep
 from app.persistence.tables import FeedbackItemRow
 from app.services.feedback.dispatch import FeedbackDispatcher
-from app.services.ingestion import IngestionService
+from app.services.ingestion import BoardIntake, IngestionService
 from app.storage.registry import SessionRegistry
 from tests.conftest import (
     _FakeDismissals,
@@ -40,9 +40,26 @@ def _review_item(
     )
 
 
+class _UnusedBoard:
+    """Never exercised: this file only tests the unchanged successor path."""
+
+    def create_workflow_from_intake(self, intake):
+        raise NotImplementedError
+
+
+class _UnusedQuarantine:
+    async def intake_for_new_task(self, intake):
+        raise NotImplementedError
+
+
 def _ingestion_for(svc) -> IngestionService:
     """Wire real successor-run creation to a service's own registry."""
-    return IngestionService(svc.settings, svc, _FakeDismissals())
+    return IngestionService(
+        svc.settings,
+        svc,
+        _FakeDismissals(),
+        BoardIntake(_UnusedQuarantine(), _UnusedBoard()),
+    )
 
 
 def _done_run(**overrides) -> WorkflowRun:

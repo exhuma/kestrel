@@ -1,0 +1,9 @@
+id = "broken"
+label = "Broken"
+purpose = "Fixture role referencing a card kind outside the closed vocabulary."
+allowed_card_types = ["not_a_real_card_kind"]
+required_abilities = ["text"]
+model_policy = "default"
+workspace_permission = "read_only"
+retry_limit = 1
+prompt_file = "prompt.md"

@@ -82,9 +82,15 @@ class PromptIn(BaseModel):
     Request body carrying a single prompt string.
 
     :param prompt: The prompt text to send to the claude session.
+    :param confirmed_injection_risk: Explicit operator confirmation of the
+        injection-risk warning shown for a direct prompt (FR-023). A
+        direct prompt intentionally addresses an agent, so it is not
+        automatically quarantined like external/gate input — but
+        dispatch is refused until this is set.
     """
 
     prompt: str
+    confirmed_injection_risk: bool = False
 
 
 class SessionOut(BaseModel):
@@ -109,7 +115,10 @@ async def create_session(
     :param service: Session service, injected.
     :returns: The id of the newly started session.
     """
-    session_id = await service.start(body.prompt)
+    session_id = await service.start(
+        body.prompt,
+        confirmed_injection_risk=body.confirmed_injection_risk,
+    )
     return SessionOut(session_id=session_id)
 
 
@@ -127,7 +136,11 @@ async def resume_session(
     :param service: Session service, injected.
     :returns: The id of the resumed session.
     """
-    sid = await service.resume(session_id, body.prompt)
+    sid = await service.resume(
+        session_id,
+        body.prompt,
+        confirmed_injection_risk=body.confirmed_injection_risk,
+    )
     return SessionOut(session_id=sid)
 
 

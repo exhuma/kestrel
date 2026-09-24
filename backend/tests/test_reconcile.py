@@ -5,17 +5,28 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
+from app.models_board import IntakeOutcome, Workflow
 from app.models_workflow import WorkflowRun
+from app.ports import Task
 from app.services.exceptions import GitHubError
 from app.services.github import Issue
-from app.services.ingestion import IngestionService
+from app.services.ingestion import BoardIntake, IngestionService
 from app.services.reconcile import ReconcileService
+
+
+class _FakeTaskSource:
+    async def get_task(self, ref):
+        return Task(ref=ref, title="t", body="b")
+
+    def visibility(self):
+        return "public"
 
 
 class _FakeWorkflows:
     def __init__(self) -> None:
         self.runs: list[WorkflowRun] = []
         self.created: list[tuple[str, int]] = []
+        self.sources = {"github-issue": _FakeTaskSource()}
 
     def list(self) -> list[WorkflowRun]:
         return self.runs
@@ -70,6 +81,32 @@ class _FakeChildTasks:
         self.states[task_ref] = "closed"
 
 
+class _FakeQuarantine:
+    async def intake_for_new_task(self, intake):
+        return IntakeOutcome(released=True, safe_content=intake.body)
+
+
+class _FakeBoard:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def create_workflow_from_intake(self, intake):
+        self.calls.append(intake)
+        return Workflow(
+            id=f"wf-{len(self.calls) - 1}",
+            source=intake.source,
+            task_ref=intake.task_ref,
+            repo=intake.repo,
+            base_branch=intake.base_branch,
+            source_visibility=intake.source_visibility,
+            title=intake.title,
+        )
+
+
+def _board_intake() -> BoardIntake:
+    return BoardIntake(_FakeQuarantine(), _FakeBoard())
+
+
 class _FakeDismissals:
     def __init__(self) -> None:
         self._d: set[str] = set()
@@ -108,12 +145,16 @@ class _FakeGitHub:
         return list(self._issues)
 
 
-def _svc(github, wf, dismissals, children=None) -> ReconcileService:
+def _svc(
+    github, wf, dismissals, children=None, board_intake=None
+) -> ReconcileService:
     source = TaskSourceConfig(
         type="github", watched_repos=["o/r"], trigger_label="kestrel"
     )
     settings = Settings(_env_file=None, task_sources=[source])
-    ingestion = IngestionService(settings, wf, dismissals, children)
+    ingestion = IngestionService(
+        settings, wf, dismissals, board_intake or _board_intake(), children
+    )
     return ReconcileService(source, github, ingestion, dismissals)
 
 
@@ -121,14 +162,17 @@ def _svc(github, wf, dismissals, children=None) -> ReconcileService:
 async def test_starts_missing_run_once_and_is_idempotent() -> None:
     """Ensure a labelled issue starts one run; a second cycle starts none."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
+    board_intake = _board_intake()
     svc = _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
         wf,
         dis,
+        board_intake=board_intake,
     )
     await svc.run_cycle()
+    wf.runs.append(WorkflowRun(id="wf-0", repo="o/r", task_ref="o/r#5"))
     await svc.run_cycle()
-    assert wf.created == [("o/r", 5)]
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
 
 @pytest.mark.asyncio
@@ -136,12 +180,14 @@ async def test_dismissed_issue_is_skipped() -> None:
     """Ensure a dismissed, still-labelled issue is not started."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
     dis.add("o/r#5")
+    board_intake = _board_intake()
     await _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
         wf,
         dis,
+        board_intake=board_intake,
     ).run_cycle()
-    assert wf.created == []
+    assert board_intake.board.calls == []
     # Still labelled ⇒ dismissal stays.
     assert dis.is_dismissed("o/r#5") is True
 
@@ -151,13 +197,15 @@ async def test_dismissal_cleared_when_label_removed() -> None:
     """Ensure a dismissal for an unlabelled issue is cleared."""
     wf, dis = _FakeWorkflows(), _FakeDismissals()
     dis.add("o/r#9")  # dismissed, but no longer labelled
+    board_intake = _board_intake()
     await _svc(
         _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
         wf,
         dis,
+        board_intake=board_intake,
     ).run_cycle()
     assert dis.is_dismissed("o/r#9") is False
-    assert wf.created == [("o/r", 5)]
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
 
 @pytest.mark.asyncio
@@ -167,12 +215,13 @@ async def test_github_failure_is_isolated_and_recoverable() -> None:
     github = _FakeGitHub(
         issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))], fail=True
     )
-    svc = _svc(github, wf, dis)
+    board_intake = _board_intake()
+    svc = _svc(github, wf, dis, board_intake=board_intake)
     await svc.run_cycle()  # must not raise
-    assert wf.created == []
+    assert board_intake.board.calls == []
     github._fail = False
     await svc.run_cycle()
-    assert wf.created == [("o/r", 5)]
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
 
 @pytest.mark.asyncio

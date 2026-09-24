@@ -10,7 +10,13 @@ from app.backends.base import Capability, TurnRequest
 from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.registry import BackendRegistry, UnknownBackendError
 from app.config import BackendConfig, Settings
-from app.policy import BackendCapabilityError, BackendPolicy
+from app.models_board import SpecialistDefinition
+from app.policy import (
+    BackendCapabilityError,
+    BackendPolicy,
+    SpecialistBackendPolicy,
+    SpecialistCapabilityError,
+)
 from app.storage.registry import SessionRegistry
 
 
@@ -204,3 +210,53 @@ def test_policy_substep_inherits_parent_capability() -> None:
     )
     with pytest.raises(BackendCapabilityError):
         policy.backend_for("code.fix")
+
+
+# ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
+
+def _specialist(**overrides: object) -> SpecialistDefinition:
+    """A minimal valid specialist definition, with any field overridden."""
+    fields: dict[str, object] = {
+        "id": "developer",
+        "label": "Engineering",
+        "purpose": "Analysis",
+        "allowed_card_types": ("analysis",),
+        "required_abilities": ("text",),
+        "model_policy": "default",
+        "workspace_permission": "read_only",
+        "retry_limit": 1,
+        "prompt": "Ask about approach.",
+    }
+    fields.update(overrides)
+    return SpecialistDefinition(**fields)
+
+
+def test_specialist_policy_uses_default_backend() -> None:
+    """A ``"default"`` model_policy resolves to the default session backend."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
+    assert policy.backend_for(_specialist()).id == "claude"
+
+
+def test_specialist_policy_pinned_backend_wins() -> None:
+    """A specialist pinned to a specific backend id resolves to it."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
+    backend = policy.backend_for(_specialist(model_policy="local"))
+    assert backend.id == "local"
+
+
+def test_specialist_policy_rejects_missing_capability() -> None:
+    """A text-only backend cannot serve a specialist that needs file edits."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "local")
+    with pytest.raises(SpecialistCapabilityError):
+        policy.backend_for(
+            _specialist(required_abilities=("text", "file_edits"))
+        )
+
+
+def test_specialist_policy_allows_satisfied_capability() -> None:
+    """A file-editing backend can serve a specialist that needs file edits."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
+    backend = policy.backend_for(
+        _specialist(required_abilities=("text", "file_edits"))
+    )
+    assert backend.id == "claude"
