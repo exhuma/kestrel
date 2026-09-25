@@ -110,7 +110,8 @@ def get_artifacts_service() -> ArtifactsService:
 def get_gates_service() -> GatesService:
     """Return the process-wide GatesService singleton."""
     return GatesService(
-        get_board_store(), get_board_gate_store(), get_board_service()
+        get_board_store(), get_board_gate_store(), get_board_service(),
+        decomposition_required=get_settings().board_decomposition_required,
     )
 
 

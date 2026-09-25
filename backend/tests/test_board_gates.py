@@ -33,13 +33,20 @@ _WORKFLOW = Workflow(
 
 
 
-def _service(tmp_path: Path) -> tuple[GatesService, BoardStore]:
+def _service(
+    tmp_path: Path, *, decomposition_required: bool = False,
+    workflow: Workflow = _WORKFLOW,
+) -> tuple[GatesService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     board_service = BoardService(store)
     gate_store = BoardGateStore(factory)
-    store.create_workflow(_WORKFLOW)
-    return GatesService(store, gate_store, board_service), store
+    store.create_workflow(workflow)
+    service = GatesService(
+        store, gate_store, board_service,
+        decomposition_required=decomposition_required,
+    )
+    return service, store
 
 
 class TestGateCreation:
@@ -223,3 +230,83 @@ class TestUnknownGate:
         service, _store = _service(tmp_path)
         with pytest.raises(UnknownGateError):
             service.resolve("missing", "approved")
+
+
+class TestDecompositionEnforcement:
+    """T068: approving understanding_gate can deterministically create the
+    decomposition-assessment card, independent of the coordinator's own
+    judgment."""
+
+    def test_required_and_not_skipped_creates_a_decomposition_card(
+        self, tmp_path: Path
+    ) -> None:
+        service, store = _service(tmp_path, decomposition_required=True)
+        gate = service.create_gate(
+            "wf-1", kind="understanding_gate", title="Confirm understanding",
+            requested_decision="Approve?",
+        )
+
+        service.resolve(gate.id, "approved")
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != gate.id]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "decomposition"
+        assert new_cards[0].state == "ready"
+        assert new_cards[0].eligible_roles == ("pm",)
+
+    def test_not_required_creates_nothing(self, tmp_path: Path) -> None:
+        service, store = _service(tmp_path, decomposition_required=False)
+        gate = service.create_gate(
+            "wf-1", kind="understanding_gate", title="Confirm understanding",
+            requested_decision="Approve?",
+        )
+
+        service.resolve(gate.id, "approved")
+
+        assert store.list_cards("wf-1") == [store.get_card(gate.id)]
+
+    def test_a_skip_decomposition_workflow_is_exempt_even_when_required(
+        self, tmp_path: Path
+    ) -> None:
+        subtask_workflow = Workflow(
+            id="wf-2", source="github-issue", task_ref="owner/repo#2",
+            repo="owner/repo", base_branch="main", source_visibility="public",
+            title="A published child", skip_decomposition=True,
+        )
+        service, store = _service(
+            tmp_path, decomposition_required=True, workflow=subtask_workflow,
+        )
+        gate = service.create_gate(
+            "wf-2", kind="understanding_gate", title="Confirm understanding",
+            requested_decision="Approve?",
+        )
+
+        service.resolve(gate.id, "approved")
+
+        assert store.list_cards("wf-2") == [store.get_card(gate.id)]
+
+    def test_rejecting_understanding_gate_creates_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        service, store = _service(tmp_path, decomposition_required=True)
+        gate = service.create_gate(
+            "wf-1", kind="understanding_gate", title="Confirm understanding",
+            requested_decision="Approve?",
+        )
+
+        service.resolve(gate.id, "rejected")
+
+        assert store.list_cards("wf-1") == [store.get_card(gate.id)]
+
+    def test_a_non_understanding_gate_never_triggers_this(
+        self, tmp_path: Path
+    ) -> None:
+        service, store = _service(tmp_path, decomposition_required=True)
+        gate = service.create_gate(
+            "wf-1", kind="prd_gate", title="Approve PRD",
+            requested_decision="Approve?",
+        )
+
+        service.resolve(gate.id, "approved")
+
+        assert store.list_cards("wf-1") == [store.get_card(gate.id)]
