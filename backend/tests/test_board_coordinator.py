@@ -24,7 +24,10 @@ from app.services.board.service import BoardService
 from tests.board_test_support import board_session_factory
 
 
-def _coordinator(tmp_path: Path) -> tuple[CoordinatorService, BoardStore]:
+def _coordinator(
+    tmp_path: Path, *, decomposition_required: bool = False,
+    skip_decomposition: bool = False,
+) -> tuple[CoordinatorService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     coordinator_store = BoardCoordinatorStore(factory)
@@ -38,6 +41,7 @@ def _coordinator(tmp_path: Path) -> tuple[CoordinatorService, BoardStore]:
             base_branch="main",
             source_visibility="public",
             title="Add a thing",
+            skip_decomposition=skip_decomposition,
         )
     )
     store.create_card(
@@ -49,7 +53,11 @@ def _coordinator(tmp_path: Path) -> tuple[CoordinatorService, BoardStore]:
             state="ready",
         )
     )
-    return CoordinatorService(store, coordinator_store, board_service), store
+    service = CoordinatorService(
+        store, coordinator_store, board_service,
+        decomposition_required=decomposition_required,
+    )
+    return service, store
 
 
 class TestParseCoordinatorActions:
@@ -298,3 +306,114 @@ class TestReplay:
         )
         titles = {c.title for c in store.list_cards("wf-1")}
         assert {"from a", "from b"} <= titles
+
+
+class TestDecompositionEnforcement:
+    """T068: with board_decomposition_required on, only analysis/
+    decomposition/coordinator_review cards may be created until a
+    decomposition_gate for this workflow reaches done."""
+
+    def test_a_design_card_is_rejected_while_decomposition_is_pending(
+        self, tmp_path: Path
+    ) -> None:
+        coordinator, store = _coordinator(
+            tmp_path, decomposition_required=True
+        )
+
+        results = coordinator.apply_actions(
+            "wf-1", "trigger-1",
+            [CreateCardAction(kind="design", title="Design it")],
+        )
+
+        assert results[0].validation_decision == "rejected"
+        assert "decomposition required" in results[0].rejection_reason
+        assert not results[0].applied
+        assert [c.title for c in store.list_cards("wf-1")] == ["Investigate"]
+
+    def test_analysis_and_decomposition_cards_are_still_allowed(
+        self, tmp_path: Path
+    ) -> None:
+        coordinator, store = _coordinator(
+            tmp_path, decomposition_required=True
+        )
+
+        coordinator.apply_actions(
+            "wf-1", "trigger-1",
+            [
+                CreateCardAction(kind="analysis", title="More analysis"),
+                CreateCardAction(
+                    kind="decomposition", title="Decompose",
+                    eligible_roles=("pm",),
+                ),
+            ],
+        )
+
+        titles = {c.title for c in store.list_cards("wf-1")}
+        assert {"More analysis", "Decompose"} <= titles
+
+    def test_a_design_card_is_allowed_once_decomposition_gate_is_done(
+        self, tmp_path: Path
+    ) -> None:
+        coordinator, store = _coordinator(
+            tmp_path, decomposition_required=True
+        )
+        store.create_card(
+            WorkCard(
+                id="gate-1", workflow_id="wf-1", kind="decomposition_gate",
+                title="Approve decomposition", state="done",
+            )
+        )
+
+        coordinator.apply_actions(
+            "wf-1", "trigger-1",
+            [CreateCardAction(kind="design", title="Design it")],
+        )
+
+        titles = {c.title for c in store.list_cards("wf-1")}
+        assert "Design it" in titles
+
+    def test_not_yet_done_gate_still_blocks(self, tmp_path: Path) -> None:
+        coordinator, store = _coordinator(
+            tmp_path, decomposition_required=True
+        )
+        store.create_card(
+            WorkCard(
+                id="gate-1", workflow_id="wf-1", kind="decomposition_gate",
+                title="Approve decomposition", state="awaiting_human",
+            )
+        )
+
+        results = coordinator.apply_actions(
+            "wf-1", "trigger-1",
+            [CreateCardAction(kind="design", title="Design it")],
+        )
+
+        assert results[0].validation_decision == "rejected"
+
+    def test_a_skip_decomposition_workflow_is_exempt(
+        self, tmp_path: Path
+    ) -> None:
+        coordinator, store = _coordinator(
+            tmp_path, decomposition_required=True, skip_decomposition=True,
+        )
+
+        coordinator.apply_actions(
+            "wf-1", "trigger-1",
+            [CreateCardAction(kind="design", title="Design it")],
+        )
+
+        titles = {c.title for c in store.list_cards("wf-1")}
+        assert "Design it" in titles
+
+    def test_disabled_by_default_allows_design_immediately(
+        self, tmp_path: Path
+    ) -> None:
+        coordinator, store = _coordinator(tmp_path)
+
+        coordinator.apply_actions(
+            "wf-1", "trigger-1",
+            [CreateCardAction(kind="design", title="Design it")],
+        )
+
+        titles = {c.title for c in store.list_cards("wf-1")}
+        assert "Design it" in titles

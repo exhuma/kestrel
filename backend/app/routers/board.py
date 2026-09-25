@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app import sse
-from app.models_board import CardAction, ClaimLease, WorkCard
+from app.models_board import CardAction, CardKind, ClaimLease, WorkCard
 from app.models_board_records import HandoffArtifact
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
@@ -42,6 +42,7 @@ from app.services.board.bootstrap import (
     get_interventions_service,
     get_quarantine_service,
     get_specialist_roster,
+    schedule_decomposition_publish,
     schedule_escalation_projection,
     schedule_gate_projection,
 )
@@ -287,6 +288,11 @@ async def apply_board_intervention(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.action == CardAction.RESOLVE_GATE.value and body.decision:
         schedule_gate_projection(workflow_id, updated, body.decision)
+        if (
+            body.decision == "approved"
+            and updated.kind == CardKind.DECOMPOSITION_GATE.value
+        ):
+            schedule_decomposition_publish(workflow_id, updated)
     elif body.action == CardAction.REQUEST_COORDINATOR_REVIEW.value:
         schedule_escalation_projection(workflow_id, updated)
     relations = deps.board.list_relations(workflow_id)

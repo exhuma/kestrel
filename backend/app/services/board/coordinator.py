@@ -130,6 +130,20 @@ def _parse_one_action(entry: object) -> ProposedAction | None:
         return None
 
 
+@dataclass
+class _ApplyBatch:
+    """The board-state view one ``apply_actions`` call validates against.
+
+    Bundled to keep ``_apply_one``'s argument count within the repo's
+    limit. ``cards`` is mutated in place as actions in the same batch
+    create new cards, so a later action in the batch can depend on an
+    earlier one's.
+    """
+
+    cards: dict[str, WorkCard]
+    enforce_decomposition: bool
+
+
 class CoordinatorService:
     """Validates and applies coordinator-proposed board actions."""
 
@@ -138,10 +152,18 @@ class CoordinatorService:
         store: BoardStore,
         coordinator_store: BoardCoordinatorStore,
         board_service: BoardService,
+        *,
+        decomposition_required: bool = False,
     ) -> None:
         self._store = store
         self._coordinator_store = coordinator_store
         self._board_service = board_service
+        #: The other half of "enforced decomposition" (T068): blocks any
+        #: work-creating action until decomposition resolves for this
+        #: workflow. ``gates.py``'s ``_maybe_require_decomposition``
+        #: guarantees the decomposition card itself gets created; this
+        #: guarantees nothing else can happen in parallel with it.
+        self._decomposition_required = decomposition_required
 
     def apply_actions(
         self,
@@ -159,30 +181,49 @@ class CoordinatorService:
         if any(record.trigger == trigger for record in prior):
             return []
         cards = {c.id: c for c in self._store.list_cards(workflow_id)}
+        batch = _ApplyBatch(
+            cards, self._decomposition_pending(workflow_id, cards)
+        )
         sequence = self._coordinator_store.next_sequence(workflow_id)
         results: list[CoordinatorActionRecord] = []
         for offset, action in enumerate(actions):
             results.append(
                 self._apply_one(
-                    workflow_id, trigger, sequence + offset, cards, action
+                    workflow_id, trigger, sequence + offset, batch, action
                 )
             )
         return results
+
+    def _decomposition_pending(
+        self, workflow_id: str, cards: dict[str, WorkCard]
+    ) -> bool:
+        """Whether this workflow still needs a resolved decomposition
+        gate before any other work-creating action is allowed."""
+        if not self._decomposition_required:
+            return False
+        workflow = self._store.get_workflow(workflow_id)
+        if workflow is None or workflow.skip_decomposition:
+            return False
+        return not any(
+            c.kind == CardKind.DECOMPOSITION_GATE.value
+            and c.state == CardState.DONE.value
+            for c in cards.values()
+        )
 
     def _apply_one(
         self,
         workflow_id: str,
         trigger: str,
         sequence: int,
-        cards: dict[str, WorkCard],
+        batch: "_ApplyBatch",
         action: ProposedAction,
     ) -> CoordinatorActionRecord:
-        reason = _validate(cards, action)
+        reason = _validate(batch.cards, action, batch.enforce_decomposition)
         applied = False
         if reason is None:
             new_card = self._apply(workflow_id, action)
             if new_card is not None:
-                cards[new_card.id] = new_card
+                batch.cards[new_card.id] = new_card
             applied = True
         return self._coordinator_store.record_action(
             CoordinatorActionRecord(
@@ -256,12 +297,28 @@ class CoordinatorService:
         return card
 
 
+#: Card kinds a coordinator may still propose while a required
+#: decomposition is pending (T068) — analysis/decomposition work itself,
+#: plus the fail-closed escalation path. Everything else (design,
+#: implementation, verification, reconciliation, and the later human
+#: gates) waits for decomposition to resolve first.
+_DECOMPOSITION_EXEMPT_KINDS = frozenset(
+    {
+        CardKind.ANALYSIS.value,
+        CardKind.DECOMPOSITION.value,
+        CardKind.COORDINATOR_REVIEW.value,
+    }
+)
+
+
 def _validate(
-    cards: dict[str, WorkCard], action: ProposedAction
+    cards: dict[str, WorkCard],
+    action: ProposedAction,
+    enforce_decomposition: bool = False,
 ) -> str | None:
     """Return a rejection reason, or ``None`` if *action* is allowed."""
     if isinstance(action, CreateCardAction):
-        return _validate_create_card(cards, action)
+        return _validate_create_card(cards, action, enforce_decomposition)
     if isinstance(action, TransitionCardAction):
         return _validate_transition(cards, action)
     if isinstance(action, CreateReconciliationCardAction):
@@ -270,12 +327,21 @@ def _validate(
 
 
 def _validate_create_card(
-    cards: dict[str, WorkCard], action: CreateCardAction
+    cards: dict[str, WorkCard],
+    action: CreateCardAction,
+    enforce_decomposition: bool,
 ) -> str | None:
     if action.kind not in _VALID_CARD_KINDS:
         return f"unsupported card kind: {action.kind}"
     if action.workspace_permission not in _VALID_WORKSPACE_PERMISSIONS:
         return f"unsafe workspace_permission: {action.workspace_permission}"
+    if (
+        enforce_decomposition
+        and action.kind not in _DECOMPOSITION_EXEMPT_KINDS
+    ):
+        return (
+            f"decomposition required before creating a {action.kind!r} card"
+        )
     missing = [dep for dep in action.depends_on if dep not in cards]
     if missing:
         return f"depends_on references unknown card(s): {missing}"

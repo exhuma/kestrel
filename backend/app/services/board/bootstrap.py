@@ -18,10 +18,15 @@ from app.persistence.board_gate_store import get_board_gate_store
 from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
 from app.persistence.board_store import get_board_store
+from app.persistence.child_task_store import get_child_task_store
 from app.policy import get_specialist_backend_policy
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import ClaimsService
 from app.services.board.coordinator import CoordinatorService
+from app.services.board.decomposition import (
+    DecompositionResultError,
+    publish_decomposition,
+)
 from app.services.board.dispatch import SchedulingService
 from app.services.board.dispatch_ready import (
     DispatchServices,
@@ -91,7 +96,8 @@ def get_claims_service() -> ClaimsService:
 def get_coordinator_service() -> CoordinatorService:
     """Return the process-wide CoordinatorService singleton."""
     return CoordinatorService(
-        get_board_store(), get_board_coordinator_store(), get_board_service()
+        get_board_store(), get_board_coordinator_store(), get_board_service(),
+        decomposition_required=get_settings().board_decomposition_required,
     )
 
 
@@ -293,3 +299,58 @@ async def _project(
         payload=payload,
     )
     await post_projection(request, task_source, get_projections_service())
+
+
+def schedule_decomposition_publish(workflow_id: str, card: WorkCard) -> None:
+    """Schedule publishing an approved decomposition candidate's child
+    tasks (feature 026, T068), in the background.
+
+    Fire-and-forget, mirroring ``schedule_gate_projection``: the caller
+    (a router handler) must not block its HTTP response on however many
+    ``create_subtask`` round trips the candidate needs.
+    """
+    task = asyncio.create_task(_publish_decomposition(workflow_id, card))
+    task.add_done_callback(
+        lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
+    )
+
+
+async def _publish_decomposition(workflow_id: str, card: WorkCard) -> None:
+    gate = get_gates_service().get_gate(card.id)
+    if gate is None or gate.target_artifact_id is None:
+        _logger.warning(
+            "workflow %s: decomposition_gate %s has no candidate "
+            "artifact; nothing published", workflow_id, card.id,
+        )
+        return
+    artifact = get_board_artifact_store().get(gate.target_artifact_id)
+    if artifact is None:
+        _logger.warning(
+            "workflow %s: decomposition candidate artifact %s missing",
+            workflow_id, gate.target_artifact_id,
+        )
+        return
+    workflow = get_board_store().get_workflow(workflow_id)
+    task_source = get_task_source_registry().sources.get(workflow.source)
+    if task_source is None:
+        _logger.warning(
+            "workflow %s: no task source for source %r; decomposition "
+            "not published", workflow_id, workflow.source,
+        )
+        return
+    content = get_board_artifact_content_store().read(artifact.content_ref)
+    try:
+        refs = await publish_decomposition(
+            workflow, content, task_source, get_child_task_store()
+        )
+    except DecompositionResultError:
+        _logger.exception(
+            "workflow %s: approved decomposition candidate no longer "
+            "parses", workflow_id,
+        )
+        return
+    for ref in refs:
+        await _project(
+            workflow_id, "child_work", f"child_work:{card.id}:{ref}",
+            f"Created child task: {ref}",
+        )
