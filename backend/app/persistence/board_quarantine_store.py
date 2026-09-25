@@ -45,6 +45,9 @@ class QuarantineRequest:
     :param policy_version: The screening policy version applied.
     :param safe_content_ref: Reference to the safely stored content.
     :param classification_category: The deterministic/classifier finding.
+    :param reason: The deterministic/classifier's own short, safe
+        explanation of *why* — an operator needs this to decide release
+        vs. discard, not just the category.
     :param card_title: Safe operator-facing label for the review card.
     """
 
@@ -54,6 +57,7 @@ class QuarantineRequest:
     policy_version: str
     safe_content_ref: str
     classification_category: str
+    reason: str | None = None
     card_title: str = "Security review"
 
 
@@ -82,6 +86,7 @@ def _row_to_review(
         workflow_id=workflow_id,
         classification_category=row.classification_category,
         review_state=row.review_state,
+        reason=row.reason,
         resolution=row.resolution,
     )
 
@@ -141,6 +146,7 @@ class BoardQuarantineStore:
                 untrusted_input_id=input_id,
                 card_id=card_id,
                 classification_category=request.classification_category,
+                reason=request.reason,
                 review_state="pending",
                 created_at=now,
             )
@@ -200,6 +206,10 @@ class BoardQuarantineStore:
                 kind=CardKind.SECURITY_REVIEW.value,
                 title=request.card_title,
                 state=CardState.QUARANTINED.value,
+                #: Surfaced by the existing WorkCardSummaryOut.waiting_reason
+                #: field the frontend already renders generically — a
+                #: quarantined card needs no new API/UI plumbing for this.
+                wait_reason=request.reason,
                 created_at=now,
                 updated_at=now,
             )

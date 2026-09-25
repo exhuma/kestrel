@@ -29,7 +29,10 @@ function card(overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
 
 beforeEach(() => {
   mockApplyIntervention.mockReset()
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
 })
 afterEach(() => vi.restoreAllMocks())
 
@@ -46,7 +49,15 @@ describe('WorkCardDetail safe rendering', () => {
 
   it('shows a waiting reason when present', () => {
     const wrapper = mountCard(card({ waiting_reason: 'blocked on gate' }))
-    expect(wrapper.text()).toContain('blocked on gate')
+    expect(wrapper.text()).toContain('Waiting: blocked on gate')
+  })
+
+  it('labels a quarantined card\'s reason as "Reason", not "Waiting"', () => {
+    const wrapper = mountCard(
+      card({ state: 'quarantined', waiting_reason: 'exceeds input bounds' }),
+    )
+    expect(wrapper.text()).toContain('Reason: exceeds input bounds')
+    expect(wrapper.text()).not.toContain('Waiting:')
   })
 
   it('shows no action buttons when none are allowed', () => {
@@ -93,7 +104,10 @@ describe('WorkCardDetail permitted actions', () => {
   })
 
   it('does not apply cancel when the confirmation is declined', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const wrapper = mountCard(card({ allowed_actions: ['cancel'] }))
     await wrapper.findComponent({ name: 'VBtn' }).trigger('click')
     expect(mockApplyIntervention).not.toHaveBeenCalled()

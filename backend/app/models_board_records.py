@@ -120,6 +120,9 @@ class SecurityReviewRecord:
     :param workflow_id: The workflow hosting that card (existing, or
         newly created to host a new-task quarantine).
     :param classification_category: The deterministic/classifier finding.
+    :param reason: The deterministic/classifier's own short, safe
+        explanation of *why* this content was quarantined — an operator
+        needs this to decide release vs. discard, not just the category.
     :param review_state: ``"pending"``, ``"released"``, or ``"discarded"``.
     :param resolution: Operator-recorded resolution note, once decided.
     """
@@ -130,6 +133,7 @@ class SecurityReviewRecord:
     workflow_id: str
     classification_category: str
     review_state: str
+    reason: str | None = None
     resolution: str | None = None
 
 

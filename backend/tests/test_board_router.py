@@ -102,6 +102,7 @@ async def test_response_never_carries_raw_content_fields() -> None:
         "card_id",
         "workflow_id",
         "classification_category",
+        "reason",
         "review_state",
         "resolution",
     }

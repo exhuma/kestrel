@@ -41,6 +41,9 @@ class SecurityReviewOut(BaseModel):
     :param card_id: The ``security_review`` card this review gates.
     :param workflow_id: The workflow hosting that card.
     :param classification_category: The deterministic/classifier finding.
+    :param reason: The deterministic/classifier's own short, safe
+        explanation of *why* — an operator needs this to decide release
+        vs. discard, not just the category.
     :param review_state: ``pending``, ``released``, or ``discarded``.
     :param resolution: Operator-recorded resolution note, once decided.
     """
@@ -49,6 +52,7 @@ class SecurityReviewOut(BaseModel):
     card_id: str
     workflow_id: str
     classification_category: str
+    reason: str | None = None
     review_state: Literal["pending", "released", "discarded"]
     resolution: str | None = None
 

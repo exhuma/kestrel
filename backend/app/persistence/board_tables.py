@@ -271,6 +271,9 @@ class BoardSecurityReviewRow(Base):
         ForeignKey("board_card.id"), unique=True
     )
     classification_category: Mapped[str] = mapped_column(Text)
+    #: The deterministic/classifier's own short, safe explanation of why
+    #: this content was quarantined; never raw content.
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Safe, deterministic-and-classifier findings (JSON); never raw content.
     findings: Mapped[str] = mapped_column(Text, default="{}")
     #: "pending" | "released" | "discarded".

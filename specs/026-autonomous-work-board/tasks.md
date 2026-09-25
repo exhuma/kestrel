@@ -19,12 +19,13 @@ before beginning story phases.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
 ## Status (2026-09-27, after Phase 10 clean break + T034 + T041 + T051 +
-T068 + T069 + T052 + T067 + T078 — spec 026 is complete)
+T068 + T069 + T052 + T067 + T078 + T079 — spec 026 is complete)
 
-78/78 tasks fully verified `[x]` complete against actual code — not just
+79/79 tasks fully verified `[x]` complete against actual code — not just
 checked off, every one confirmed by reading/grepping the current source
-or, for T034/T041/T051/T068/T069/T052/T078, by writing and passing new
-tests (T078 was added mid-session, on top of the original 77). The old
+or, for T034/T041/T051/T068/T069/T052/T078/T079, by writing and passing
+new tests (T078 and T079 were both added mid-session, on top of the
+original 77 — T079 from the user's own local POC feedback). The old
 fixed six-step driver is fully removed (commits
 `33628b4` backend, `3fc281c` frontend, `483dda2` docs); the board
 domain's data model, intake/quarantine, gates/interventions, coordinator
@@ -760,6 +761,25 @@ public cleanup only sees recorded Kestrel-owned resources.
   `dispatch_ready_work` loop), `test_board_router_views.py` (the
   `answer` field reaching `GatesService` over HTTP), and
   `test_migrations.py`.
+- [x] T079 [US1] **Done 2026-09-27**, reported directly by the user
+  running their own local POC: a quarantined task gave no indication of
+  *why*, even though release/discard was already available. Root cause:
+  `ClassificationResult.reason` (the classifier's own short, safe
+  explanation) was computed at `quarantine.py::_screen` but silently
+  dropped in `_intake` — never passed into `QuarantineRequest`, no
+  column on `SecurityReviewRecord`/`BoardSecurityReviewRow` to hold it
+  (migration `0032`). Fixed by threading `reason` through intake →
+  persistence, and — the actual UI payoff — setting it as the created
+  review card's `wait_reason`, a field `WorkCardSummaryOut` and
+  `WorkCardDetail.vue`/`WorkBoard.vue` already surfaced generically, so
+  no new endpoint or component was needed. Also added to
+  `SecurityReviewOut` for symmetry on the post-resolve response, and
+  relabeled the frontend's generic "Waiting: …" text to "Reason: …" for
+  a `quarantined` card specifically (`WorkCardDetail.vue`, one
+  `computed`). Covered by `tests/test_board_quarantine.py` (4 new
+  backend tests: LLM-classified and deterministic oversized rejections,
+  both intake paths) and a new frontend test in
+  `WorkCardDetail.test.ts`.
 
 **Checkpoint**: Task sources carry approvals, material blockers, artifacts,
 child work, and delivery outcomes without becoming a noisy board mirror.

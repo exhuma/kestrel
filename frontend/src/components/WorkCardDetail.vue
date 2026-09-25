@@ -23,6 +23,10 @@ const stateLabel = computed(
   () => STATE_LABELS[props.card.state] ?? props.card.state,
 )
 
+const waitingReasonLabel = computed(() =>
+  props.card.state === 'quarantined' ? 'Reason' : 'Waiting',
+)
+
 const CONFIRM_MESSAGES: Partial<Record<CardAction, string>> = {
   cancel: 'Cancel this card? This cannot be undone.',
   retry: 'Retry this card?',
@@ -53,7 +57,11 @@ const canResolveGate = computed(() =>
 </script>
 
 <template>
-  <v-card variant="flat" role="region" :aria-label="`Card detail: ${card.title}`">
+  <v-card
+    variant="flat"
+    role="region"
+    :aria-label="`Card detail: ${card.title}`"
+  >
     <v-card-title class="text-wrap">{{ card.title }}</v-card-title>
     <v-card-subtitle>{{ card.card_type }}</v-card-subtitle>
 
@@ -63,7 +71,7 @@ const canResolveGate = computed(() =>
       }}</v-chip>
 
       <div v-if="card.waiting_reason" class="mb-2 text-body-2">
-        Waiting: {{ card.waiting_reason }}
+        {{ waitingReasonLabel }}: {{ card.waiting_reason }}
       </div>
 
       <div v-if="card.owner" class="mb-1 text-body-2">

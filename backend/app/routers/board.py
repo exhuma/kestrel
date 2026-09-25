@@ -92,6 +92,7 @@ async def resolve_security_review(
         card_id=review.card_id,
         workflow_id=review.workflow_id,
         classification_category=review.classification_category,
+        reason=review.reason,
         review_state=review.review_state,
         resolution=review.resolution,
     )

@@ -141,6 +141,7 @@ class QuarantineService:
                     f"quarantine://{source_identity}/{content_hash[:12]}"
                 ),
                 classification_category=classification.category,
+                reason=classification.reason,
                 card_title=card_title,
             )
         )
