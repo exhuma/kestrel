@@ -75,10 +75,30 @@ class ArtifactsService:
         :raises ValueError: If this service has no content store
             configured.
         """
+        artifact = self._write(draft)
+        return self.accept_result(draft.producer_card_id, artifact)
+
+    def store_reference_artifact(self, draft: ArtifactDraft) -> HandoffArtifact:
+        """Durably store *draft*'s content as a plain reference, with no
+        card-acceptance side effect (no state transition, no dependency
+        cascade, no conflict check).
+
+        For content a card produces *alongside* its own already-accepted
+        result — e.g. a decomposition candidate a ``decomposition_gate``
+        needs to reference (``HumanGateRecord.target_artifact_id``) once
+        the producing card is already ``done``.
+
+        :raises ValueError: If this service has no content store
+            configured.
+        """
+        artifact = self._write(draft)
+        return self._artifact_store.record(artifact)
+
+    def _write(self, draft: ArtifactDraft) -> HandoffArtifact:
         if self._content_store is None:
             raise ValueError("no content store configured")
         content_ref, content_hash = self._content_store.write(draft.content)
-        artifact = HandoffArtifact(
+        return HandoffArtifact(
             id=f"artifact-{uuid.uuid4().hex[:8]}",
             producer_card_id=draft.producer_card_id,
             logical_name=draft.logical_name,
@@ -91,7 +111,6 @@ class ArtifactsService:
             project_material=draft.project_material,
             input_artifacts=draft.input_artifacts,
         )
-        return self.accept_result(draft.producer_card_id, artifact)
 
     def accept_result(
         self, card_id: str, artifact: HandoffArtifact

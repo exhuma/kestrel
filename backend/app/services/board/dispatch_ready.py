@@ -26,12 +26,14 @@ from app.services.board.claims import (
     ReadCapacityExceededError,
 )
 from app.services.board.coordinator import CoordinatorService
+from app.services.board.decomposition import route_decomposition_result
 from app.services.board.dispatch import (
     CardTurnError,
     _TurnBackend,
     build_card_envelope,
     run_card_turn,
 )
+from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
@@ -63,6 +65,10 @@ class DispatchServices:
     :param projections: Posts a routed escalation finding to its task
         source (T067). ``None`` skips projection — the escalation card
         is still created either way.
+    :param gates: Holds a parsed decomposition candidate behind a
+        ``decomposition_gate`` card (T068). ``None`` leaves a
+        ``decomposition`` card's result generically accepted with no
+        gate created — effectively disabling decomposition.
     """
 
     claims: ClaimsService
@@ -72,6 +78,7 @@ class DispatchServices:
     task_sources: TaskSourceRegistry | None = None
     coordinator: CoordinatorService | None = None
     projections: ProjectionsService | None = None
+    gates: GatesService | None = None
 
 
 async def dispatch_ready_work(
@@ -194,6 +201,15 @@ async def _dispatch_one(
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
         await _route_verification(
             workflow_id, card, result.final_text, services
+        )
+    elif (
+        card.kind == CardKind.DECOMPOSITION.value
+        and services.coordinator
+        and services.gates
+    ):
+        route_decomposition_result(
+            result.final_text, card, services.coordinator, services.gates,
+            services.artifacts,
         )
 
 

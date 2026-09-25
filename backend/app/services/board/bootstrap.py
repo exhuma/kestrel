@@ -171,6 +171,7 @@ def get_dispatch_services() -> DispatchServices:
         task_sources=get_task_source_registry(),
         coordinator=get_coordinator_service(),
         projections=get_projections_service(),
+        gates=get_gates_service(),
     )
 
 
