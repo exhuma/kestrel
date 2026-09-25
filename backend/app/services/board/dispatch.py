@@ -140,22 +140,45 @@ class SpecialistTurnResult:
 
 
 def build_card_envelope(
-    specialist: SpecialistDefinition, card: WorkCard
+    specialist: SpecialistDefinition,
+    workflow: Workflow,
+    card: WorkCard,
+    *,
+    extra_context: str = "",
 ) -> str:
     """Build the prompt for one specialist's turn on a claimed card.
 
-    The card's title and kind are system/operator-authored (quarantine
-    already screened any source-originated content before a card could
-    exist, see ``quarantine.py``), so no untrusted-content separation is
-    needed here — only ``build_classification_envelope`` handles that.
+    Always includes ``workflow.task_body`` (T078) — the quarantine-
+    screened task content every specialist needs to work from, not just
+    a short title — and ``workflow.approved_prd`` once a PRD gate has
+    approved one, the durable "approved scope" ``coder``'s own prompt
+    already assumes exists. *extra_context* is a caller-supplied block
+    for anything more specific to this one card kind (e.g. a ``prd``
+    card's gathered interview answers — see
+    ``refinement.py::gather_refinement_context``).
+
+    The card's title and kind, and ``workflow``'s own fields, are
+    system/operator-authored or already quarantine-screened before a
+    workflow could exist (see ``quarantine.py``), so no further
+    untrusted-content separation is needed here — only
+    ``build_classification_envelope`` handles that.
     """
-    return (
-        f"{specialist.prompt}\n\n"
-        "You are working on this card:\n"
-        f"Kind: {card.kind}\n"
-        f"Title: {card.title}\n\n"
-        "Respond with your result in a single <RESULT>...</RESULT> block."
+    sections = [
+        specialist.prompt, "",
+        "You are working on this card:",
+        f"Kind: {card.kind}",
+        f"Title: {card.title}", "",
+        "Task:",
+        workflow.task_body or "(no task body recorded)",
+    ]
+    if workflow.approved_prd:
+        sections += ["", "Approved PRD:", workflow.approved_prd]
+    if extra_context:
+        sections += ["", extra_context]
+    sections.append(
+        "\nRespond with your result in a single <RESULT>...</RESULT> block."
     )
+    return "\n".join(sections)
 
 
 async def run_card_turn(
@@ -210,7 +233,8 @@ async def claim_and_dispatch(
         )
     except NoEligibleCardError:
         return None
-    envelope = build_card_envelope(specialist, card)
+    workflow = claims.store.get_workflow(workflow_id)
+    envelope = build_card_envelope(specialist, workflow, card)
     result = await run_card_turn(
         backend, envelope, cwd="", timeout_seconds=timeout_seconds
     )
@@ -222,15 +246,17 @@ def build_coordinator_envelope(
     workflow: Workflow,
     cards: list[WorkCard],
 ) -> str:
-    """Build the coordinator's wake-up prompt: its role plus a safe summary
-    of the workflow's current cards (system-authored, never raw external
-    content)."""
+    """Build the coordinator's wake-up prompt: its role, the task body
+    (T078 — quarantine-screened at intake, see ``Workflow.task_body``),
+    and a safe summary of the workflow's current cards (system-authored,
+    never raw external content beyond that one screened field)."""
     lines = "\n".join(
         f"- {c.id} [{c.kind}] {c.state}: {c.title}" for c in cards
     )
     return (
         f"{specialist.prompt}\n\n"
         f"Workflow: {workflow.title}\n"
+        f"Task: {workflow.task_body or '(no task body recorded)'}\n\n"
         "Current cards:\n"
         f"{lines}\n\n"
         "Propose any next actions in a single "

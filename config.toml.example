@@ -84,6 +84,11 @@ board_artifacts_root = "./.kestrel-board-artifacts"
 # Off by default (trust the coordinator's own judgment); a task Kestrel
 # itself published as a decomposition child is always exempt.
 board_decomposition_required = false
+# Require a requester/pm/uiux interview and a pm-drafted, human-approved
+# PRD before any other work may start, right after understanding_gate.
+# Off by default, same reasoning as board_decomposition_required. When
+# both this and decomposition are required, the PRD gate resolves first.
+board_prd_gate_required = false
 # Enable the temporary /api/board/workflows/{id}/dev/{cleanup,rerun}
 # routes, for repeating a local-task-source dry run without restarting
 # kestrel. Off by default; restricted to private-visibility workflows

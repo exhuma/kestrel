@@ -45,8 +45,10 @@ from app.services.board.bootstrap import (
     schedule_decomposition_publish,
     schedule_escalation_projection,
     schedule_gate_projection,
+    schedule_prd_approval_projection,
 )
 from app.services.board.interventions import (
+    GateResolution,
     InterventionsService,
     InvalidInterventionError,
     StaleInterventionError,
@@ -280,7 +282,9 @@ async def apply_board_intervention(
             card_id,
             CardAction(body.action),
             expected_revision=body.expected_revision,
-            decision=body.decision,
+            resolution=GateResolution(
+                decision=body.decision, answer=body.answer
+            ),
         )
     except StaleInterventionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -288,12 +292,21 @@ async def apply_board_intervention(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.action == CardAction.RESOLVE_GATE.value and body.decision:
         schedule_gate_projection(workflow_id, updated, body.decision)
-        if (
-            body.decision == "approved"
-            and updated.kind == CardKind.DECOMPOSITION_GATE.value
-        ):
-            schedule_decomposition_publish(workflow_id, updated)
+        _schedule_gate_followup(workflow_id, updated, body.decision)
     elif body.action == CardAction.REQUEST_COORDINATOR_REVIEW.value:
         schedule_escalation_projection(workflow_id, updated)
     relations = deps.board.list_relations(workflow_id)
     return card_summary(updated, relations, _lookups([updated], deps))
+
+
+def _schedule_gate_followup(
+    workflow_id: str, updated: WorkCard, decision: str
+) -> None:
+    """Schedule a resolved gate's kind-specific follow-up, if it has one
+    (T068's decomposition publish, T078's PRD-approval projection)."""
+    if decision != "approved":
+        return
+    if updated.kind == CardKind.DECOMPOSITION_GATE.value:
+        schedule_decomposition_publish(workflow_id, updated)
+    elif updated.kind == CardKind.PRD_GATE.value:
+        schedule_prd_approval_projection(workflow_id, updated)

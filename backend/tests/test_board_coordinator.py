@@ -26,7 +26,7 @@ from tests.board_test_support import board_session_factory
 
 def _coordinator(
     tmp_path: Path, *, decomposition_required: bool = False,
-    skip_decomposition: bool = False,
+    prd_gate_required: bool = False, skip_decomposition: bool = False,
 ) -> tuple[CoordinatorService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
@@ -56,6 +56,7 @@ def _coordinator(
     service = CoordinatorService(
         store, coordinator_store, board_service,
         decomposition_required=decomposition_required,
+        prd_gate_required=prd_gate_required,
     )
     return service, store
 

@@ -1,0 +1,181 @@
+"""Refinement-interview and PRD-draft parsing and routing (feature 026,
+T078).
+
+A `requester`/`pm`/`uiux` ``refinement`` card proposes its own persona-
+scoped question set; this module turns it into a ``refinement_gate`` card
+holding it for the operator to answer. Once every persona's gate is
+answered, `pm`'s ``prd`` card drafts a PRD folding in all three answers;
+this module turns that into a ``prd_gate`` card holding it for approval.
+An unparseable proposal is routed as an escalation too (fail closed),
+the same convention ``decomposition.py``/``verification.py`` use.
+"""
+from __future__ import annotations
+
+import json
+
+from app.models_board import CardKind, CardState, WorkCard
+from app.persistence.board_store import BoardStore
+from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.coordinator import CoordinatorService, CreateCardAction
+from app.services.board.gates import GatesService
+from app.text_extract import extract_tag
+
+#: The one logical name every gate resolution's free-text response is
+#: stored under, regardless of gate kind or decision — each gate
+#: resolves exactly once, so there is no collision to disambiguate.
+RESPONSE_LOGICAL_NAME = "response"
+
+
+class RefinementResultError(Exception):
+    """Raised when a refinement or PRD proposal cannot be trusted."""
+
+
+def parse_refinement_questions(text: str) -> list[str]:
+    """Parse the ``<REFINEMENT_QUESTIONS>`` block.
+
+    :raises RefinementResultError: If the tag is absent, the block isn't
+        valid JSON of the right shape, or it is empty — always fail
+        closed rather than guess.
+    """
+    raw = extract_tag(text, "REFINEMENT_QUESTIONS")
+    if raw is None:
+        raise RefinementResultError("no REFINEMENT_QUESTIONS block")
+    try:
+        data = json.loads(raw)
+        questions = data["questions"]
+        if not isinstance(questions, list) or not questions:
+            raise RefinementResultError("questions must be a nonempty list")
+        if not all(isinstance(q, str) for q in questions):
+            raise RefinementResultError("every question must be a string")
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise RefinementResultError(f"malformed result: {exc}") from exc
+    return questions
+
+
+def route_refinement_result(
+    text: str,
+    card: WorkCard,
+    coordinator: CoordinatorService,
+    gates: GatesService,
+    artifacts: ArtifactsService,
+) -> None:
+    """Parse *card*'s persona question set and hold it behind a gate.
+
+    *card* is eligible for exactly one persona
+    (``requester``/``pm``/``uiux``); that persona names the gate.
+    """
+    persona = card.eligible_roles[0] if card.eligible_roles else "unknown"
+    try:
+        raw = extract_tag(text, "REFINEMENT_QUESTIONS") or ""
+        questions = parse_refinement_questions(text)
+    except RefinementResultError:
+        _escalate_unparseable(coordinator, card, "refinement", persona)
+        return
+    artifact = artifacts.store_reference_artifact(
+        ArtifactDraft(
+            producer_card_id=card.id,
+            logical_name="questions",
+            revision=card.attempt_count,
+            content=raw,
+            trust="agent_output",
+        )
+    )
+    gates.create_gate(
+        card.workflow_id,
+        kind=CardKind.REFINEMENT_GATE.value,
+        title=f"{persona} interview ({len(questions)} question"
+        f"{'s' if len(questions) != 1 else ''})",
+        requested_decision="answer",
+        target_artifact_id=artifact.id,
+    )
+
+
+def parse_prd_draft(text: str) -> str:
+    """Parse the ``<PRD>`` block.
+
+    :raises RefinementResultError: If the tag is absent or empty.
+    """
+    raw = extract_tag(text, "PRD")
+    if raw is None or not raw.strip():
+        raise RefinementResultError("no (non-empty) PRD block")
+    return raw
+
+
+def route_prd_result(
+    text: str,
+    card: WorkCard,
+    coordinator: CoordinatorService,
+    gates: GatesService,
+    artifacts: ArtifactsService,
+) -> None:
+    """Parse *card*'s PRD draft and hold it behind a gate."""
+    try:
+        draft = parse_prd_draft(text)
+    except RefinementResultError:
+        _escalate_unparseable(coordinator, card, "PRD", "pm")
+        return
+    artifact = artifacts.store_reference_artifact(
+        ArtifactDraft(
+            producer_card_id=card.id,
+            logical_name="draft",
+            revision=card.attempt_count,
+            content=draft,
+            trust="agent_output",
+        )
+    )
+    gates.create_gate(
+        card.workflow_id,
+        kind=CardKind.PRD_GATE.value,
+        title="Approve PRD",
+        requested_decision="approve_prd",
+        target_artifact_id=artifact.id,
+    )
+
+
+def _escalate_unparseable(
+    coordinator: CoordinatorService, card: WorkCard, label: str, persona: str
+) -> None:
+    trigger = f"{card.kind}:{card.id}:{card.attempt_count}"
+    coordinator.apply_actions(
+        card.workflow_id, trigger,
+        [
+            CreateCardAction(
+                kind=CardKind.COORDINATOR_REVIEW.value,
+                title=f"Unparseable {label} proposal from {persona} "
+                f"on card {card.id}",
+            )
+        ],
+    )
+
+
+def gather_refinement_context(
+    workflow_id: str, store: BoardStore, artifacts: ArtifactsService
+) -> str:
+    """Assemble every answered interview and prior PRD rejection
+    feedback for a workflow's ``prd`` card envelope.
+
+    :returns: A formatted block, or ``""`` if nothing has been answered
+        yet (a ``prd`` card is never ready before its three interviews
+        are, so this should not normally happen).
+    """
+    sections = []
+    for card in store.list_cards(workflow_id):
+        if (
+            card.kind == CardKind.REFINEMENT_GATE.value
+            and card.state == CardState.DONE.value
+        ):
+            answer = artifacts.latest_content_for_card(
+                card.id, RESPONSE_LOGICAL_NAME
+            )
+            if answer:
+                sections.append(f"### {card.title}\n{answer}")
+        elif (
+            card.kind == CardKind.PRD_GATE.value
+            and card.state == CardState.CANCELLED.value
+        ):
+            feedback = artifacts.latest_content_for_card(
+                card.id, RESPONSE_LOGICAL_NAME
+            )
+            if feedback:
+                sections.append(f"### Prior rejection feedback\n{feedback}")
+    return "\n\n".join(sections)

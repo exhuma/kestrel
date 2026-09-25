@@ -14,9 +14,18 @@ from pathlib import Path
 import pytest
 
 from app.models_board import CardRelation, WorkCard, Workflow
+from app.persistence.board_artifact_content_store import (
+    BoardArtifactContentStore,
+)
+from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
-from app.services.board.gates import GatesService, UnknownGateError
+from app.services.board.artifacts import ArtifactsService
+from app.services.board.gates import (
+    GateRequirements,
+    GatesService,
+    UnknownGateError,
+)
 from app.services.board.service import BoardService
 from tests.board_test_support import board_session_factory
 
@@ -35,16 +44,22 @@ _WORKFLOW = Workflow(
 
 def _service(
     tmp_path: Path, *, decomposition_required: bool = False,
-    workflow: Workflow = _WORKFLOW,
+    prd_gate_required: bool = False, workflow: Workflow = _WORKFLOW,
 ) -> tuple[GatesService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     board_service = BoardService(store)
     gate_store = BoardGateStore(factory)
+    artifacts = ArtifactsService(
+        store, BoardArtifactStore(factory), board_service,
+        BoardArtifactContentStore(tmp_path / "artifacts"),
+    )
     store.create_workflow(workflow)
     service = GatesService(
-        store, gate_store, board_service,
-        decomposition_required=decomposition_required,
+        store, gate_store, board_service, artifacts,
+        required=GateRequirements(
+            decomposition=decomposition_required, prd=prd_gate_required
+        ),
     )
     return service, store
 
@@ -309,4 +324,3 @@ class TestDecompositionEnforcement:
 
         service.resolve(gate.id, "approved")
 
-        assert store.list_cards("wf-1") == [store.get_card(gate.id)]

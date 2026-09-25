@@ -142,6 +142,7 @@ class _ApplyBatch:
 
     cards: dict[str, WorkCard]
     enforce_decomposition: bool
+    enforce_prd: bool
 
 
 class CoordinatorService:
@@ -154,6 +155,7 @@ class CoordinatorService:
         board_service: BoardService,
         *,
         decomposition_required: bool = False,
+        prd_gate_required: bool = False,
     ) -> None:
         self._store = store
         self._coordinator_store = coordinator_store
@@ -164,6 +166,13 @@ class CoordinatorService:
         #: guarantees the decomposition card itself gets created; this
         #: guarantees nothing else can happen in parallel with it.
         self._decomposition_required = decomposition_required
+        #: The other half of "enforced PRD gate" (T078): blocks any
+        #: work-creating action (including decomposition) until the PRD
+        #: gate resolves for this workflow. ``gates.py``'s
+        #: ``_maybe_require_refinement``/``_maybe_start_prd`` guarantee
+        #: the interview and PRD cards themselves get created; this
+        #: guarantees nothing else can happen in parallel with them.
+        self._prd_gate_required = prd_gate_required
 
     def apply_actions(
         self,
@@ -182,7 +191,9 @@ class CoordinatorService:
             return []
         cards = {c.id: c for c in self._store.list_cards(workflow_id)}
         batch = _ApplyBatch(
-            cards, self._decomposition_pending(workflow_id, cards)
+            cards,
+            self._decomposition_pending(workflow_id, cards),
+            self._prd_pending(workflow_id, cards),
         )
         sequence = self._coordinator_store.next_sequence(workflow_id)
         results: list[CoordinatorActionRecord] = []
@@ -210,6 +221,23 @@ class CoordinatorService:
             for c in cards.values()
         )
 
+    def _prd_pending(
+        self, workflow_id: str, cards: dict[str, WorkCard]
+    ) -> bool:
+        """Whether this workflow still needs a resolved PRD gate before
+        any other work-creating action (including decomposition) is
+        allowed."""
+        if not self._prd_gate_required:
+            return False
+        workflow = self._store.get_workflow(workflow_id)
+        if workflow is None or workflow.skip_decomposition:
+            return False
+        return not any(
+            c.kind == CardKind.PRD_GATE.value
+            and c.state == CardState.DONE.value
+            for c in cards.values()
+        )
+
     def _apply_one(
         self,
         workflow_id: str,
@@ -218,7 +246,9 @@ class CoordinatorService:
         batch: "_ApplyBatch",
         action: ProposedAction,
     ) -> CoordinatorActionRecord:
-        reason = _validate(batch.cards, action, batch.enforce_decomposition)
+        reason = _validate(
+            batch.cards, action, batch.enforce_decomposition, batch.enforce_prd
+        )
         applied = False
         if reason is None:
             new_card = self._apply(workflow_id, action)
@@ -310,15 +340,33 @@ _DECOMPOSITION_EXEMPT_KINDS = frozenset(
     }
 )
 
+#: Card kinds a coordinator may still propose while a required PRD gate
+#: is pending (T078) — the interview/PRD-drafting work itself, plus
+#: escalation. Notably ``DECOMPOSITION`` is *not* exempt here: PRD comes
+#: before decomposition when both are required (``gates.py``'s
+#: ``_decomposition_trigger_kind``), so this blocks it too until the PRD
+#: resolves.
+_PRD_EXEMPT_KINDS = frozenset(
+    {
+        CardKind.ANALYSIS.value,
+        CardKind.REFINEMENT.value,
+        CardKind.PRD.value,
+        CardKind.COORDINATOR_REVIEW.value,
+    }
+)
+
 
 def _validate(
     cards: dict[str, WorkCard],
     action: ProposedAction,
     enforce_decomposition: bool = False,
+    enforce_prd: bool = False,
 ) -> str | None:
     """Return a rejection reason, or ``None`` if *action* is allowed."""
     if isinstance(action, CreateCardAction):
-        return _validate_create_card(cards, action, enforce_decomposition)
+        return _validate_create_card(
+            cards, action, enforce_decomposition, enforce_prd
+        )
     if isinstance(action, TransitionCardAction):
         return _validate_transition(cards, action)
     if isinstance(action, CreateReconciliationCardAction):
@@ -330,23 +378,34 @@ def _validate_create_card(
     cards: dict[str, WorkCard],
     action: CreateCardAction,
     enforce_decomposition: bool,
+    enforce_prd: bool,
 ) -> str | None:
     if action.kind not in _VALID_CARD_KINDS:
         return f"unsupported card kind: {action.kind}"
     if action.workspace_permission not in _VALID_WORKSPACE_PERMISSIONS:
         return f"unsafe workspace_permission: {action.workspace_permission}"
-    if (
-        enforce_decomposition
-        and action.kind not in _DECOMPOSITION_EXEMPT_KINDS
-    ):
-        return (
-            f"decomposition required before creating a {action.kind!r} card"
-        )
+    reason = _enforcement_reason(
+        action.kind, enforce_decomposition, enforce_prd
+    )
+    if reason is not None:
+        return reason
     missing = [dep for dep in action.depends_on if dep not in cards]
     if missing:
         return f"depends_on references unknown card(s): {missing}"
     # A newly created card cannot close a cycle: its edges only point at
     # already-existing cards, never at itself or a not-yet-created one.
+    return None
+
+
+def _enforcement_reason(
+    kind: str, enforce_decomposition: bool, enforce_prd: bool
+) -> str | None:
+    """Return why *kind* can't be created yet under active enforcement
+    (T068/T078), or ``None`` if nothing blocks it."""
+    if enforce_prd and kind not in _PRD_EXEMPT_KINDS:
+        return f"PRD gate required before creating a {kind!r} card"
+    if enforce_decomposition and kind not in _DECOMPOSITION_EXEMPT_KINDS:
+        return f"decomposition required before creating a {kind!r} card"
     return None
 
 

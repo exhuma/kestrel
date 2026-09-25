@@ -54,6 +54,14 @@ class CardKind(StrEnum):
     #: distinct from ``ANALYSIS`` so dispatch can route its result without
     #: guessing from an ordinary analysis card's free-form text).
     DECOMPOSITION = "decomposition"
+    #: One persona's own scoped question set for a ``refinement_gate`` to
+    #: hold (T078) — created deterministically, one per persona
+    #: (`requester`/`pm`/`uiux`), never by a specialist's own initiative.
+    REFINEMENT = "refinement"
+    #: `pm`'s PRD draft, folding every ``refinement_gate`` answer, for a
+    #: ``prd_gate`` to hold before it becomes ``Workflow.approved_prd``
+    #: (T078).
+    PRD = "prd"
     DESIGN = "design"
     IMPLEMENTATION = "implementation"
     VERIFICATION = "verification"
@@ -142,6 +150,16 @@ class Workflow:
         for ``change_request_number`` (T052) — ``"pending"``,
         ``"passed"``, ``"failed"``, or ``None`` before the first check
         (or once delivery, having reset it, hasn't been re-checked yet).
+    :param task_body: The task source's own body, safe-screened once at
+        intake (T078) — the only place any specialist (including the
+        coordinator's own wake-up turn) sees what the task actually
+        asks, distinct from ``title``'s short display label. Never
+        re-screened after intake; a later edit to the source ticket
+        isn't reflected here.
+    :param approved_prd: The PRD content a ``prd_gate`` approved (T078),
+        or ``None`` before one has been. Read by every later card's
+        envelope once set, alongside ``task_body`` — the durable
+        "approved scope" `coder`'s own prompt already assumes exists.
     """
 
     id: str
@@ -157,6 +175,8 @@ class Workflow:
     change_request_number: int | None = None
     ci_repair_round: int = 0
     ci_status: str | None = None
+    task_body: str = ""
+    approved_prd: str | None = None
 
 
 @dataclass(frozen=True)

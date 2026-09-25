@@ -94,6 +94,40 @@ class ArtifactsService:
         artifact = self._write(draft)
         return self._artifact_store.record(artifact)
 
+    def read_content(self, artifact_id: str) -> str | None:
+        """Return one artifact's content by id, or ``None`` if unknown.
+
+        :raises ValueError: If this service has no content store
+            configured.
+        """
+        if self._content_store is None:
+            raise ValueError("no content store configured")
+        artifact = self._artifact_store.get(artifact_id)
+        if artifact is None:
+            return None
+        return self._content_store.read(artifact.content_ref)
+
+    def latest_content_for_card(
+        self, card_id: str, logical_name: str
+    ) -> str | None:
+        """Return the newest ``logical_name`` artifact's content for
+        *card_id*, or ``None`` if none exists (T078 — e.g. a resolved
+        gate's stored operator response).
+
+        :raises ValueError: If this service has no content store
+            configured.
+        """
+        if self._content_store is None:
+            raise ValueError("no content store configured")
+        matches = [
+            a for a in self._artifact_store.list_for_card(card_id)
+            if a.logical_name == logical_name
+        ]
+        if not matches:
+            return None
+        latest = max(matches, key=lambda a: a.revision)
+        return self._content_store.read(latest.content_ref)
+
     def _write(self, draft: ArtifactDraft) -> HandoffArtifact:
         if self._content_store is None:
             raise ValueError("no content store configured")

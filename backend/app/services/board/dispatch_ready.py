@@ -42,6 +42,11 @@ from app.services.board.dispatch import (
 )
 from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
+from app.services.board.refinement import (
+    gather_refinement_context,
+    route_prd_result,
+    route_refinement_result,
+)
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
@@ -177,7 +182,17 @@ async def _dispatch_one(
     if workspace is None:
         return
     cwd, permission_mode = workspace
-    envelope = build_card_envelope(specialist, card)
+    workflow = services.claims.store.get_workflow(workflow_id)
+    extra_context = (
+        gather_refinement_context(
+            workflow_id, services.claims.store, services.artifacts
+        )
+        if card.kind == CardKind.PRD.value
+        else ""
+    )
+    envelope = build_card_envelope(
+        specialist, workflow, card, extra_context=extra_context
+    )
     try:
         result = await run_card_turn(
             backend, envelope, cwd=cwd, timeout_seconds=timeout_seconds,
@@ -209,17 +224,45 @@ async def _dispatch_one(
             trust="agent_output",
         )
     )
+    await _route_result(workflow_id, card, result.final_text, services)
+
+
+async def _route_result(
+    workflow_id: str,
+    card: WorkCard,
+    final_text: str,
+    services: DispatchServices,
+) -> None:
+    """Route one accepted card's result, by kind, to its follow-up card
+    creation — extracted from ``_dispatch_one`` to keep it within the
+    repo's branch-count limit."""
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
-        await _route_verification(
-            workflow_id, card, result.final_text, services
-        )
+        await _route_verification(workflow_id, card, final_text, services)
     elif (
         card.kind == CardKind.DECOMPOSITION.value
         and services.coordinator
         and services.gates
     ):
         route_decomposition_result(
-            result.final_text, card, services.coordinator, services.gates,
+            final_text, card, services.coordinator, services.gates,
+            services.artifacts,
+        )
+    elif (
+        card.kind == CardKind.REFINEMENT.value
+        and services.coordinator
+        and services.gates
+    ):
+        route_refinement_result(
+            final_text, card, services.coordinator, services.gates,
+            services.artifacts,
+        )
+    elif (
+        card.kind == CardKind.PRD.value
+        and services.coordinator
+        and services.gates
+    ):
+        route_prd_result(
+            final_text, card, services.coordinator, services.gates,
             services.artifacts,
         )
 

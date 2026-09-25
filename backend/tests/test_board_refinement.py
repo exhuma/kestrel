@@ -1,0 +1,215 @@
+"""Tests for refinement-interview and PRD-draft parsing and routing
+(feature 026, T078).
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from app.models_board import WorkCard, Workflow
+from app.persistence.board_artifact_content_store import (
+    BoardArtifactContentStore,
+)
+from app.persistence.board_artifact_store import BoardArtifactStore
+from app.persistence.board_coordinator_store import BoardCoordinatorStore
+from app.persistence.board_gate_store import BoardGateStore
+from app.persistence.board_store import BoardStore
+from app.services.board.artifacts import ArtifactsService
+from app.services.board.coordinator import CoordinatorService
+from app.services.board.gates import GatesService
+from app.services.board.refinement import (
+    RefinementResultError,
+    gather_refinement_context,
+    parse_prd_draft,
+    parse_refinement_questions,
+    route_prd_result,
+    route_refinement_result,
+)
+from app.services.board.service import BoardService
+from tests.board_test_support import board_session_factory
+
+_WORKFLOW = Workflow(
+    id="wf-1", source="github-issue", task_ref="owner/repo#1",
+    repo="owner/repo", base_branch="main", source_visibility="public",
+    title="Add a thing",
+)
+
+
+def _refinement_block(*questions: str) -> str:
+    q = ",".join(f'"{q}"' for q in questions)
+    return (
+        '<REFINEMENT_QUESTIONS>{"questions": [' + q + "]}"
+        "</REFINEMENT_QUESTIONS>"
+    )
+
+
+class TestParseRefinementQuestions:
+    def test_parses_a_valid_block(self) -> None:
+        text = _refinement_block("What is the deadline?", "Who approves?")
+        assert parse_refinement_questions(text) == [
+            "What is the deadline?", "Who approves?",
+        ]
+
+    def test_missing_tag_raises(self) -> None:
+        with pytest.raises(RefinementResultError):
+            parse_refinement_questions("no tag here")
+
+    def test_empty_questions_raises(self) -> None:
+        with pytest.raises(RefinementResultError):
+            parse_refinement_questions(_refinement_block())
+
+    def test_malformed_json_raises(self) -> None:
+        text = "<REFINEMENT_QUESTIONS>{not json}</REFINEMENT_QUESTIONS>"
+        with pytest.raises(RefinementResultError):
+            parse_refinement_questions(text)
+
+    def test_non_string_question_raises(self) -> None:
+        text = (
+            '<REFINEMENT_QUESTIONS>{"questions": [1]}</REFINEMENT_QUESTIONS>'
+        )
+        with pytest.raises(RefinementResultError):
+            parse_refinement_questions(text)
+
+
+class TestParsePrdDraft:
+    def test_parses_a_valid_block(self) -> None:
+        assert parse_prd_draft("<PRD>the plan</PRD>") == "the plan"
+
+    def test_missing_tag_raises(self) -> None:
+        with pytest.raises(RefinementResultError):
+            parse_prd_draft("no tag here")
+
+    def test_empty_block_raises(self) -> None:
+        with pytest.raises(RefinementResultError):
+            parse_prd_draft("<PRD>   </PRD>")
+
+
+def _setup(tmp_path: Path):
+    factory = board_session_factory(tmp_path)
+    store = BoardStore(factory)
+    coordinator_store = BoardCoordinatorStore(factory)
+    gate_store = BoardGateStore(factory)
+    artifact_store = BoardArtifactStore(factory)
+    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
+    board_service = BoardService(store)
+    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    artifacts = ArtifactsService(
+        store, artifact_store, board_service, content_store
+    )
+    gates = GatesService(store, gate_store, board_service, artifacts)
+    store.create_workflow(_WORKFLOW)
+    return store, coordinator, gates, artifacts
+
+
+class TestRouteRefinementResult:
+    def test_creates_a_refinement_gate_named_for_the_persona(
+        self, tmp_path: Path
+    ) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="refinement",
+            title="requester interview questions", state="review",
+            eligible_roles=("requester",),
+        )
+        store.create_card(card)
+
+        route_refinement_result(
+            _refinement_block("What's the deadline?"), card, coordinator,
+            gates, artifacts,
+        )
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "refinement_gate"
+        assert new_cards[0].state == "awaiting_human"
+        assert "requester interview" in new_cards[0].title
+
+    def test_unparseable_result_escalates_fail_closed(
+        self, tmp_path: Path
+    ) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="refinement",
+            title="pm interview questions", state="review",
+            eligible_roles=("pm",),
+        )
+        store.create_card(card)
+
+        route_refinement_result(
+            "no structured block", card, coordinator, gates, artifacts,
+        )
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "coordinator_review"
+
+
+class TestRoutePrdResult:
+    def test_creates_a_prd_gate(self, tmp_path: Path) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="prd",
+            title="Draft PRD", state="review", eligible_roles=("pm",),
+        )
+        store.create_card(card)
+
+        route_prd_result(
+            "<PRD>the full plan</PRD>", card, coordinator, gates, artifacts,
+        )
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "prd_gate"
+        assert new_cards[0].state == "awaiting_human"
+
+    def test_unparseable_result_escalates_fail_closed(
+        self, tmp_path: Path
+    ) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="prd",
+            title="Draft PRD", state="review", eligible_roles=("pm",),
+        )
+        store.create_card(card)
+
+        route_prd_result("no tag here", card, coordinator, gates, artifacts)
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "coordinator_review"
+
+
+class TestGatherRefinementContext:
+    def test_gathers_every_answered_interview(self, tmp_path: Path) -> None:
+        store, _coordinator, gates, artifacts = _setup(tmp_path)
+        gate = gates.create_gate(
+            "wf-1", kind="refinement_gate", title="requester interview",
+            requested_decision="answer",
+        )
+        gates.resolve(gate.id, "approved", answer="Ship by Friday.")
+
+        context = gather_refinement_context("wf-1", store, artifacts)
+
+        assert "requester interview" in context
+        assert "Ship by Friday." in context
+
+    def test_includes_prior_prd_rejection_feedback(
+        self, tmp_path: Path
+    ) -> None:
+        store, _coordinator, gates, artifacts = _setup(tmp_path)
+        prd_gate = gates.create_gate(
+            "wf-1", kind="prd_gate", title="Approve PRD",
+            requested_decision="approve_prd",
+        )
+        gates.resolve(prd_gate.id, "rejected", answer="Too vague on scope.")
+
+        context = gather_refinement_context("wf-1", store, artifacts)
+
+        assert "Prior rejection feedback" in context
+        assert "Too vague on scope." in context
+
+    def test_empty_when_nothing_answered_yet(self, tmp_path: Path) -> None:
+        store, _coordinator, _gates, artifacts = _setup(tmp_path)
+
+        assert gather_refinement_context("wf-1", store, artifacts) == ""

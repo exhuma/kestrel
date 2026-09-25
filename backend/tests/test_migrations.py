@@ -179,6 +179,30 @@ def test_board_workflow_ci_repair_columns_default_unset(
         )).one()
     assert row == (None, 0, None)
 
+
+def test_board_workflow_task_body_and_approved_prd_default_empty_unset(
+    tmp_path: Path,
+) -> None:
+    """0031 adds task_body/approved_prd, defaulting existing rows."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0030")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "skip_decomposition, ci_repair_round, created_at) VALUES "
+            "('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', 'public', "
+            "'t', 'active', 1, 0, 0, '2026-09-24T00:00:00')"
+        ))
+    command.upgrade(cfg, "0031")
+
+    with engine.begin() as conn:
+        row = conn.execute(sa.text(
+            "SELECT task_body, approved_prd FROM board_workflow "
+            "WHERE id = 'wf-1'"
+        )).one()
+    assert row == ("", None)
+
     command.downgrade(cfg, "0028")
     columns = {c["name"] for c in sa.inspect(engine).get_columns(
         "board_workflow"

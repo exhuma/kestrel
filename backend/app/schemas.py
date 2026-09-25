@@ -167,6 +167,10 @@ class BoardInterventionIn(BaseModel):
     ]
     expected_revision: int
     decision: str | None = None
+    #: Free-text response for a ``resolve_gate`` action (T078) — a
+    #: ``refinement_gate``'s answer, or a ``prd_gate`` rejection's
+    #: feedback for `pm`'s redraft. Ignored for every other action.
+    answer: str | None = None
 
 
 class NotificationOut(BaseModel):

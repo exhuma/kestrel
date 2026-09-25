@@ -41,6 +41,8 @@ def _row_to_workflow(row: BoardWorkflowRow) -> Workflow:
         change_request_number=row.change_request_number,
         ci_repair_round=row.ci_repair_round,
         ci_status=row.ci_status,
+        task_body=row.task_body,
+        approved_prd=row.approved_prd,
     )
 
 
@@ -102,6 +104,8 @@ class BoardStore:
                         change_request_number=workflow.change_request_number,
                         ci_repair_round=workflow.ci_repair_round,
                         ci_status=workflow.ci_status,
+                        task_body=workflow.task_body,
+                        approved_prd=workflow.approved_prd,
                         created_at=now_utc(now),
                     )
                 )
@@ -222,6 +226,17 @@ class BoardStore:
             if status == "failed":
                 workflow.ci_repair_round += 1
             return workflow.ci_repair_round
+
+    def record_approved_prd(self, workflow_id: str, content: str) -> None:
+        """Record a ``prd_gate``'s approved content (T078).
+
+        The durable "approved scope" every later card's envelope reads
+        alongside ``task_body`` — set once here rather than by flipping
+        an artifact's trust value after the fact.
+        """
+        with self._factory.begin() as db:
+            workflow = db.get(BoardWorkflowRow, workflow_id)
+            workflow.approved_prd = content
 
     def set_card_state(
         self,

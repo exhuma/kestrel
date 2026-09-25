@@ -12,6 +12,7 @@ endpoint built for User Story 1 (``routers/board.py``).
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
 from app.models_board import CardAction, CardKind, CardState, WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
@@ -25,6 +26,19 @@ from app.services.board.service import BoardService
 _CANCEL_BLOCKED_STATES = frozenset(
     {CardState.DONE.value, CardState.CANCELLED.value}
 )
+
+
+@dataclass(frozen=True)
+class GateResolution:
+    """A ``resolve_gate`` action's payload (T078).
+
+    Bundled to keep :meth:`InterventionsService.apply`'s argument count
+    within the repo's limit. Ignored for every action but
+    ``resolve_gate``.
+    """
+
+    decision: str | None = None
+    answer: str | None = None
 
 
 class StaleInterventionError(Exception):
@@ -57,10 +71,13 @@ class InterventionsService:
         action: CardAction,
         *,
         expected_revision: int,
-        decision: str | None = None,
+        resolution: GateResolution | None = None,
     ) -> WorkCard:
         """Validate and apply *action* against *card_id*.
 
+        :param resolution: The decision (and, for T078, an optional
+            free-text answer/feedback) for a ``resolve_gate`` action.
+            Ignored for every other action.
         :raises StaleInterventionError: If ``expected_revision`` no
             longer matches the workflow's current revision.
         :raises InvalidInterventionError: If the workflow/card is unknown
@@ -77,10 +94,10 @@ class InterventionsService:
         card = self._store.get_card(card_id)
         if card is None:
             raise InvalidInterventionError(f"unknown card: {card_id}")
-        return self._dispatch(card, action, decision)
+        return self._dispatch(card, action, resolution or GateResolution())
 
     def _dispatch(
-        self, card: WorkCard, action: CardAction, decision: str | None
+        self, card: WorkCard, action: CardAction, resolution: GateResolution
     ) -> WorkCard:
         if action == CardAction.RETRY:
             return self._retry(card)
@@ -89,7 +106,7 @@ class InterventionsService:
         if action == CardAction.REASSIGN:
             return self._reassign(card)
         if action == CardAction.RESOLVE_GATE:
-            return self._resolve_gate(card, decision)
+            return self._resolve_gate(card, resolution)
         if action == CardAction.REQUEST_COORDINATOR_REVIEW:
             return self._request_coordinator_review(card)
         raise InvalidInterventionError(f"unsupported intervention: {action}")
@@ -126,13 +143,17 @@ class InterventionsService:
             card.id, CardState.READY.value, event_type="intervention.reassign"
         )
 
-    def _resolve_gate(self, card: WorkCard, decision: str | None) -> WorkCard:
-        if decision is None:
+    def _resolve_gate(
+        self, card: WorkCard, resolution: GateResolution
+    ) -> WorkCard:
+        if resolution.decision is None:
             raise InvalidInterventionError(
                 "resolve_gate requires a decision"
             )
         try:
-            return self._gates_service.resolve(card.id, decision)
+            return self._gates_service.resolve(
+                card.id, resolution.decision, answer=resolution.answer
+            )
         except UnknownGateError as exc:
             raise InvalidInterventionError(str(exc)) from exc
 

@@ -56,6 +56,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_recovery_interval_seconds",
         "board_ci_poll_interval_seconds",
         "board_decomposition_required",
+        "board_prd_gate_required",
         "board_dev_actions_enabled",
     }
 )
@@ -309,6 +310,15 @@ class Settings(BaseSettings):
     #: prior decomposition output) is exempt either way — decomposition
     #: never recurses into a child's children.
     board_decomposition_required: bool = False
+    #: Require a `requester`/`pm`/`uiux` interview and a `pm`-drafted,
+    #: human-approved PRD before any other work may start, right after
+    #: ``understanding_gate`` (feature 026, T078,
+    #: ``KESTREL_BOARD_PRD_GATE_REQUIRED``). Off by default, same
+    #: reasoning as ``board_decomposition_required``. When both this and
+    #: decomposition are required, the PRD gate resolves first — a
+    #: workflow whose source task already carries the subtask sentinel
+    #: is exempt from both either way.
+    board_prd_gate_required: bool = False
     #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
     #: endpoints (feature 026, T069,
     #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —

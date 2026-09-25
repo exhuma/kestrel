@@ -76,6 +76,8 @@ class AcceptedTaskIntake:
     :param source_visibility: ``public`` or ``private``.
     :param title: Safe display title.
     :param skip_decomposition: See ``Workflow.skip_decomposition``.
+    :param body: See ``Workflow.task_body`` — the quarantine-released
+        safe content, already screened by the caller (FR-018/FR-024).
     """
 
     source: str
@@ -85,6 +87,7 @@ class AcceptedTaskIntake:
     source_visibility: str
     title: str
     skip_decomposition: bool = False
+    body: str = ""
 
 
 @dataclass(frozen=True)

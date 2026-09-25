@@ -101,10 +101,10 @@ def _setup(tmp_path: Path):
     content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     board_service = BoardService(store)
     coordinator = CoordinatorService(store, coordinator_store, board_service)
-    gates = GatesService(store, gate_store, board_service)
     artifacts = ArtifactsService(
         store, artifact_store, board_service, content_store
     )
+    gates = GatesService(store, gate_store, board_service, artifacts)
     store.create_workflow(_WORKFLOW)
     card = WorkCard(
         id="card-1", workflow_id="wf-1", kind="decomposition",
@@ -253,7 +253,7 @@ class TestEndToEndDispatchRouting:
         coordinator = CoordinatorService(
             store, coordinator_store, board_service
         )
-        gates = GatesService(store, gate_store, board_service)
+        gates = GatesService(store, gate_store, board_service, artifacts)
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator, gates=gates,
         )

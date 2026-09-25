@@ -13,11 +13,17 @@ from pathlib import Path
 import pytest
 
 from app.models_board import CardAction, ClaimRequest, WorkCard, Workflow
+from app.persistence.board_artifact_content_store import (
+    BoardArtifactContentStore,
+)
+from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.gates import GatesService
 from app.services.board.interventions import (
+    GateResolution,
     InterventionsService,
     InvalidInterventionError,
     StaleInterventionError,
@@ -50,7 +56,11 @@ def _service(tmp_path: Path) -> _Stores:
     claims_store = BoardClaimsStore(factory)
     board_service = BoardService(store)
     gate_store = BoardGateStore(factory)
-    gates_service = GatesService(store, gate_store, board_service)
+    artifacts = ArtifactsService(
+        store, BoardArtifactStore(factory), board_service,
+        BoardArtifactContentStore(tmp_path / "artifacts"),
+    )
+    gates_service = GatesService(store, gate_store, board_service, artifacts)
     store.create_workflow(_WORKFLOW)
     service = InterventionsService(
         store, claims_store, board_service, gates_service
@@ -223,7 +233,7 @@ class TestResolveGate:
             gate.id,
             CardAction.RESOLVE_GATE,
             expected_revision=_revision(store),
-            decision="approved",
+            resolution=GateResolution(decision="approved"),
         )
 
         assert card.state == "done"
@@ -263,7 +273,7 @@ class TestResolveGate:
                 "card-1",
                 CardAction.RESOLVE_GATE,
                 expected_revision=_revision(store),
-                decision="approved",
+                resolution=GateResolution(decision="approved"),
             )
 
 

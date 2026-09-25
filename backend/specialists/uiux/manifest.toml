@@ -1,7 +1,7 @@
 id = "uiux"
 label = "Design & Usability"
 purpose = "User flows, information architecture, states, and accessibility."
-allowed_card_types = ["analysis", "design"]
+allowed_card_types = ["analysis", "design", "refinement"]
 required_abilities = ["text"]
 model_policy = "default"
 workspace_permission = "read_only"

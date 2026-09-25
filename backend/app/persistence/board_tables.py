@@ -54,6 +54,10 @@ class BoardWorkflowRow(Base):
     ci_repair_round: Mapped[int] = mapped_column(default=0, server_default="0")
     #: The most recently observed required-CI verdict, or ``None`` (T052).
     ci_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The task source's own body, safe-screened once at intake (T078).
+    task_body: Mapped[str] = mapped_column(Text, default="", server_default="")
+    #: The PRD content a ``prd_gate`` approved, or ``None`` (T078).
+    approved_prd: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

@@ -171,6 +171,7 @@ class IngestionService:
                     source_visibility=task_source.visibility(),
                     title=task.title,
                     skip_decomposition=has_subtask_sentinel(task.body),
+                    body=outcome.safe_content or "",
                 )
             )
         except WorkflowAlreadyExistsError:

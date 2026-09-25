@@ -20,10 +20,15 @@ from app.models_board import (
     WorkCard,
     Workflow,
 )
+from app.models_board_records import HumanGateRecord
+from app.persistence.board_artifact_content_store import (
+    BoardArtifactContentStore,
+)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.bootstrap import (
     get_board_artifact_store,
     get_board_claims_store,
@@ -73,7 +78,11 @@ def _client(tmp_path: Path) -> _Client:
     artifact_store = BoardArtifactStore(factory)
     gate_store = BoardGateStore(factory)
     board_service = BoardService(store)
-    gates_service = GatesService(store, gate_store, board_service)
+    artifacts = ArtifactsService(
+        store, artifact_store, board_service,
+        BoardArtifactContentStore(tmp_path / "artifacts"),
+    )
+    gates_service = GatesService(store, gate_store, board_service, artifacts)
     interventions_service = InterventionsService(
         store, claims_store, board_service, gates_service
     )
@@ -215,6 +224,34 @@ async def test_intervention_unknown_card_is_404(tmp_path: Path) -> None:
             json={"action": "cancel", "expected_revision": 1},
         )
     assert resp.status_code == httpx.codes.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_resolve_gate_with_an_answer_stores_it(tmp_path: Path) -> None:
+    """T078: the answer field reaches GatesService, not just decision."""
+    client, store, _claims = _client(tmp_path)
+    factory = board_session_factory(tmp_path)
+    store.create_card(
+        WorkCard(
+            id="card-1", workflow_id="wf-1", kind="refinement_gate",
+            title="requester interview", state="awaiting_human",
+        )
+    )
+    BoardGateStore(factory).create_gate(
+        HumanGateRecord(
+            id="gate-1", card_id="card-1", requested_decision="answer",
+        )
+    )
+    async with client as c:
+        resp = await c.post(
+            "/api/board/workflows/wf-1/cards/card-1/interventions",
+            json={
+                "action": "resolve_gate", "expected_revision": 1,
+                "decision": "approved", "answer": "Ship by Friday.",
+            },
+        )
+    assert resp.status_code == httpx.codes.OK
+    assert resp.json()["state"] == "done"
 
 
 @pytest.mark.asyncio

@@ -33,7 +33,7 @@ from app.services.board.dispatch_ready import (
     DispatchServices,
     dispatch_ready_work,
 )
-from app.services.board.gates import GatesService
+from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.interventions import InterventionsService
 from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
@@ -96,9 +96,11 @@ def get_claims_service() -> ClaimsService:
 @lru_cache
 def get_coordinator_service() -> CoordinatorService:
     """Return the process-wide CoordinatorService singleton."""
+    settings = get_settings()
     return CoordinatorService(
         get_board_store(), get_board_coordinator_store(), get_board_service(),
-        decomposition_required=get_settings().board_decomposition_required,
+        decomposition_required=settings.board_decomposition_required,
+        prd_gate_required=settings.board_prd_gate_required,
     )
 
 
@@ -116,9 +118,14 @@ def get_artifacts_service() -> ArtifactsService:
 @lru_cache
 def get_gates_service() -> GatesService:
     """Return the process-wide GatesService singleton."""
+    settings = get_settings()
     return GatesService(
         get_board_store(), get_board_gate_store(), get_board_service(),
-        decomposition_required=get_settings().board_decomposition_required,
+        get_artifacts_service(),
+        required=GateRequirements(
+            decomposition=settings.board_decomposition_required,
+            prd=settings.board_prd_gate_required,
+        ),
     )
 
 
@@ -368,3 +375,32 @@ async def _publish_decomposition(workflow_id: str, card: WorkCard) -> None:
             workflow_id, "child_work", f"child_work:{card.id}:{ref}",
             f"Created child task: {ref}",
         )
+
+
+def schedule_prd_approval_projection(workflow_id: str, card: WorkCard) -> None:
+    """Schedule posting an approved PRD back to the task source (T078),
+    in the background.
+
+    Fire-and-forget, mirroring ``schedule_decomposition_publish``.
+    ``GatesService.resolve()`` already set ``Workflow.approved_prd``
+    synchronously before the router calls this — this just re-fetches
+    and projects it.
+    """
+    task = asyncio.create_task(_project_prd_approval(workflow_id, card))
+    task.add_done_callback(
+        lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
+    )
+
+
+async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
+    workflow = get_board_store().get_workflow(workflow_id)
+    if workflow is None or not workflow.approved_prd:
+        _logger.warning(
+            "workflow %s: prd_gate %s approved but no approved_prd "
+            "recorded; nothing projected", workflow_id, card.id,
+        )
+        return
+    await _project(
+        workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
+        f"Approved PRD:\n\n{workflow.approved_prd}",
+    )

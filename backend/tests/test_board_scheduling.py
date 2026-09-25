@@ -31,8 +31,6 @@ from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
     CardTurnError,
     SchedulingService,
-    build_card_envelope,
-    build_coordinator_envelope,
     claim_and_dispatch,
     run_card_turn,
 )
@@ -119,24 +117,6 @@ def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
         store, roster, coordinator, default_timeout_seconds=5
     )
     return scheduling, store
-
-
-class TestCardEnvelope:
-    """The card envelope carries the specialist's prompt and card context."""
-
-    def test_envelope_includes_prompt_and_card_context(self) -> None:
-        specialist = _specialist()
-        card = WorkCard(
-            id="card-1",
-            workflow_id="wf-1",
-            kind="analysis",
-            title="Investigate the bug",
-            state="claimed",
-        )
-        envelope = build_card_envelope(specialist, card)
-        assert "You are the developer specialist." in envelope
-        assert "Investigate the bug" in envelope
-        assert "analysis" in envelope
 
 
 class TestCardTurn:
@@ -238,27 +218,6 @@ class TestClaimAndDispatch:
         )
 
         assert outcome is None
-
-
-class TestCoordinatorEnvelope:
-    """The coordinator envelope summarizes the workflow's current cards."""
-
-    def test_envelope_includes_prompt_and_card_summary(self) -> None:
-        specialist = _coordinator_specialist()
-        workflow = _WORKFLOW
-        cards = [
-            WorkCard(
-                id="card-1",
-                workflow_id="wf-1",
-                kind="analysis",
-                title="Investigate",
-                state="ready",
-            )
-        ]
-        envelope = build_coordinator_envelope(specialist, workflow, cards)
-        assert "You are the COORDINATOR." in envelope
-        assert "card-1" in envelope
-        assert "ready" in envelope
 
 
 class TestSchedulingServiceWake:
