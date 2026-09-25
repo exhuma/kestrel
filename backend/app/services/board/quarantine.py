@@ -13,7 +13,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from app.models_board import IntakeOutcome, SecurityReviewRecord, Workflow
+from app.models_board import Workflow
+from app.models_board_records import IntakeOutcome, SecurityReviewRecord
 from app.persistence.board_quarantine_store import (
     BoardQuarantineStore,
     QuarantineRequest,

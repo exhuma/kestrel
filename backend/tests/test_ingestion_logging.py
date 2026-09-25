@@ -4,7 +4,8 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
-from app.models_board import IntakeOutcome, Workflow
+from app.models_board import Workflow
+from app.models_board_records import IntakeOutcome
 from app.ports import Task
 from app.services.ingestion import BoardIntake, IngestionService
 

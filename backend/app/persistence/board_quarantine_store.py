@@ -18,9 +18,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models_board import (
     CardKind,
     CardState,
+    Workflow,
+)
+from app.models_board_records import (
     SecurityReviewRecord,
     UntrustedInputRecord,
-    Workflow,
 )
 from app.persistence.board_tables import (
     BoardCardRow,

@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from app.main import create_app
-from app.models_board import SecurityReviewRecord
+from app.models_board_records import SecurityReviewRecord
 from app.services.board.bootstrap import get_quarantine_service
 
 

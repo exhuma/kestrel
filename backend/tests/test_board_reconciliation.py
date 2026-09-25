@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from app.models_board import CardRelation, HandoffArtifact, WorkCard, Workflow
+from app.models_board import CardRelation, WorkCard, Workflow
+from app.models_board_records import HandoffArtifact
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
 )

@@ -17,11 +17,11 @@ from app.models_board import (
     CardKind,
     CardRelation,
     CardState,
-    CoordinatorActionRecord,
     RelationKind,
     WorkCard,
     WorkspacePermission,
 )
+from app.models_board_records import CoordinatorActionRecord
 from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.services.board.policy import is_valid_transition

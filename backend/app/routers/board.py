@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app import sse
-from app.models_board import CardAction, ClaimLease, HandoffArtifact, WorkCard
+from app.models_board import CardAction, ClaimLease, WorkCard
+from app.models_board_records import HandoffArtifact
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,

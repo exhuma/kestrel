@@ -13,7 +13,8 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_board import BoardEventRecord, CardRelation, WorkCard, Workflow
+from app.models_board import CardRelation, WorkCard, Workflow
+from app.models_board_records import BoardEventRecord
 from app.persistence.board_tables import (
     BoardCardRelationRow,
     BoardCardRow,
@@ -36,6 +37,7 @@ def _row_to_workflow(row: BoardWorkflowRow) -> Workflow:
         title=row.title,
         state=row.state,
         revision=row.revision,
+        skip_decomposition=row.skip_decomposition,
     )
 
 
@@ -93,6 +95,7 @@ class BoardStore:
                         title=workflow.title,
                         state=workflow.state,
                         revision=workflow.revision,
+                        skip_decomposition=workflow.skip_decomposition,
                         created_at=now_utc(now),
                     )
                 )

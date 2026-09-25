@@ -132,3 +132,31 @@ def test_board_workflow_source_task_ref_is_unique(tmp_path: Path) -> None:
             ":base_branch, :source_visibility, :title, :state, :revision, "
             ":created_at)"
         ), duplicate)
+
+
+def test_board_workflow_skip_decomposition_defaults_false(
+    tmp_path: Path,
+) -> None:
+    """0029 adds skip_decomposition, defaulting existing rows to false."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0028")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "created_at) VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', "
+            "'main', 'public', 't', 'active', 1, '2026-09-24T00:00:00')"
+        ))
+    command.upgrade(cfg, "0029")
+
+    with engine.begin() as conn:
+        value = conn.execute(sa.text(
+            "SELECT skip_decomposition FROM board_workflow WHERE id = 'wf-1'"
+        )).scalar_one()
+    assert value == 0
+
+    command.downgrade(cfg, "0028")
+    columns = {c["name"] for c in sa.inspect(engine).get_columns(
+        "board_workflow"
+    )}
+    assert "skip_decomposition" not in columns

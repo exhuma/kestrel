@@ -54,6 +54,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_workspace_lease_seconds",
         "board_max_parallel_read_cards",
         "board_recovery_interval_seconds",
+        "board_decomposition_required",
     }
 )
 
@@ -290,6 +291,16 @@ class Settings(BaseSettings):
     #: How often the recovery sweep checks for expired claim leases
     #: (feature 026, ``KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS``).
     board_recovery_interval_seconds: float = Field(default=60.0, gt=0)
+    #: Require every non-subtask workflow to publish at least one child
+    #: task through a `pm`-proposed, human-approved decomposition before
+    #: any other work may start (feature 026,
+    #: ``KESTREL_BOARD_DECOMPOSITION_REQUIRED``). Off by default: a
+    #: personal/lightweight deployment can trust the coordinator's own
+    #: judgment on whether a task needs splitting. A workflow whose
+    #: source task already carries the subtask sentinel (Kestrel's own
+    #: prior decomposition output) is exempt either way — decomposition
+    #: never recurses into a child's children.
+    board_decomposition_required: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

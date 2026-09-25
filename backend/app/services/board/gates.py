@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import uuid
 
-from app.models_board import CardState, HumanGateRecord, WorkCard
+from app.models_board import CardState, WorkCard
+from app.models_board_records import HumanGateRecord
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.dependents import advance_ready_dependents

@@ -13,7 +13,7 @@ from functools import lru_cache
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_board import HumanGateRecord
+from app.models_board_records import HumanGateRecord
 from app.persistence.board_tables import BoardHumanGateRow
 from app.persistence.db import get_sessionmaker
 

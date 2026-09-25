@@ -13,7 +13,8 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_board import AcceptedTaskIntake, IntakeOutcome, Workflow
+from app.models_board import Workflow
+from app.models_board_records import AcceptedTaskIntake, IntakeOutcome
 from app.persistence.child_task_store import ChildTaskSchedule
 from app.ports import Task
 from app.services.board.quarantine import NewTaskIntake

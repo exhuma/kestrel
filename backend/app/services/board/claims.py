@@ -11,11 +11,11 @@ from dataclasses import dataclass
 
 from app.models_board import (
     ClaimRequest,
-    CompleteOutcome,
     SpecialistDefinition,
     WorkCard,
     WorkspacePermission,
 )
+from app.models_board_records import CompleteOutcome
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board.specialists import SpecialistRoster

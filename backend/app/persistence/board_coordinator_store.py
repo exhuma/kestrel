@@ -13,7 +13,7 @@ from functools import lru_cache
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_board import CoordinatorActionRecord
+from app.models_board_records import CoordinatorActionRecord
 from app.persistence.board_tables import BoardCoordinatorActionRow
 from app.persistence.db import get_sessionmaker
 

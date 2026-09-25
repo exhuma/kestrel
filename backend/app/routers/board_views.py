@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from app.models_board import (
     CardRelation,
     ClaimLease,
-    HandoffArtifact,
     WorkCard,
     Workflow,
 )
+from app.models_board_records import HandoffArtifact
 from app.schemas import (
     BoardArtifactRefOut,
     BoardLeaseOut,

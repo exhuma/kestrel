@@ -75,6 +75,11 @@ board_recovery_interval_seconds = 60.0
 # Durable, content-addressed store for handoff-artifact bodies, keyed by
 # content hash. In Docker, point this at a persistent volume.
 board_artifacts_root = "./.kestrel-board-artifacts"
+# Require every non-subtask workflow to publish at least one child task
+# through a human-approved decomposition before any other work may start.
+# Off by default (trust the coordinator's own judgment); a task Kestrel
+# itself published as a decomposition child is always exempt.
+board_decomposition_required = false
 
 # Optional, stateless OpenAI-compatible feedback translation. It is not a
 # workflow backend. Keep its credential in the named environment variable.

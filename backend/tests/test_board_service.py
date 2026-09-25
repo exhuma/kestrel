@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from app.models_board import AcceptedTaskIntake, WorkCard, Workflow
+from app.models_board import WorkCard, Workflow
+from app.models_board_records import AcceptedTaskIntake
 from app.persistence.board_store import BoardStore, WorkflowAlreadyExistsError
 from app.services.board.policy import PolicyViolation
 from app.services.board.service import BoardService
@@ -116,6 +117,46 @@ class TestCreateWorkflowFromIntake:
         assert len(cards) == 1
         assert cards[0].kind == "understanding_gate"
         assert cards[0].state == "awaiting_human"
+
+    def test_skip_decomposition_round_trips_through_creation_and_reads(
+        self, tmp_path: Path
+    ) -> None:
+        store = BoardStore(board_session_factory(tmp_path))
+        service = BoardService(store)
+
+        workflow = service.create_workflow_from_intake(
+            AcceptedTaskIntake(
+                source="github-issue",
+                task_ref="owner/repo#9",
+                repo="owner/repo",
+                base_branch="main",
+                source_visibility="public",
+                title="Add a thing",
+                skip_decomposition=True,
+            )
+        )
+
+        assert workflow.skip_decomposition is True
+        assert store.get_workflow(workflow.id).skip_decomposition is True
+
+    def test_skip_decomposition_defaults_to_false(
+        self, tmp_path: Path
+    ) -> None:
+        store = BoardStore(board_session_factory(tmp_path))
+        service = BoardService(store)
+
+        workflow = service.create_workflow_from_intake(
+            AcceptedTaskIntake(
+                source="github-issue",
+                task_ref="owner/repo#10",
+                repo="owner/repo",
+                base_branch="main",
+                source_visibility="public",
+                title="Add a thing",
+            )
+        )
+
+        assert workflow.skip_decomposition is False
 
     def test_records_a_workflow_created_event(self, tmp_path: Path) -> None:
         store = BoardStore(board_session_factory(tmp_path))

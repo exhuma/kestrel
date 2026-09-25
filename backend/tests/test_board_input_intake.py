@@ -14,7 +14,8 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_board import AcceptedTaskIntake, IntakeOutcome, Workflow
+from app.models_board import Workflow
+from app.models_board_records import AcceptedTaskIntake, IntakeOutcome
 from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.ports import Task
 from app.services.board.quarantine import NewTaskIntake
@@ -168,6 +169,28 @@ class TestSafeIntakeCreatesBoardWorkflow:
         assert result == "wf-new"
         assert quarantine.calls[0].body == "please add"
         assert board.calls[0].task_ref == "owner/repo#1"
+        assert board.calls[0].skip_decomposition is False
+
+    @pytest.mark.asyncio
+    async def test_a_subtask_sentinel_body_sets_skip_decomposition(
+        self,
+    ) -> None:
+        task = Task(
+            ref="owner/repo#2", title="Child", body="do it\n\n"
+            "<!-- kestrel:subtask -->\n",
+        )
+        service, _quarantine, board = _service(
+            _Case(source_key="github-issue", task=task, released=True)
+        )
+
+        await service.maybe_start_run(
+            source="github-issue",
+            task_ref="owner/repo#2",
+            code_repo="owner/repo",
+            issue_number=2,
+        )
+
+        assert board.calls[0].skip_decomposition is True
 
     @pytest.mark.asyncio
     async def test_jira_task_body_creates_workflow(self) -> None:

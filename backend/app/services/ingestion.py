@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from app.config import Settings, get_settings
-from app.models_board import AcceptedTaskIntake, Workflow
+from app.models_board import Workflow
+from app.models_board_records import AcceptedTaskIntake
 from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.persistence.child_task_store import (
     ChildTaskLinks,
@@ -26,6 +27,7 @@ from app.services.board.bootstrap import (
 from app.services.board.quarantine import NewTaskIntake, QuarantineService
 from app.services.board.service import BoardService
 from app.services.task_scheduler import ScheduledTask, integration_branch
+from app.services.task_source_utils import has_subtask_sentinel
 from app.services.task_sources import (
     TaskSourceRegistry,
     get_task_source_registry,
@@ -168,6 +170,7 @@ class IngestionService:
                     base_branch=base_branch or "main",
                     source_visibility=task_source.visibility(),
                     title=task.title,
+                    skip_decomposition=has_subtask_sentinel(task.body),
                 )
             )
         except WorkflowAlreadyExistsError:

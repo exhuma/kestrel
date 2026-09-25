@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 
-from app.models_board import ExternalProjectionRecord
+from app.models_board_records import ExternalProjectionRecord
 from app.persistence.board_projection_store import BoardProjectionStore
 
 #: FR-033's closed vocabulary of default-projected milestones.

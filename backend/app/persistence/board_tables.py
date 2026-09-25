@@ -1,11 +1,8 @@
 """Board-domain ORM tables (feature 026).
 
 Mirrors ``specs/026-autonomous-work-board/data-model.md``. Kept separate
-from ``tables.py`` for cohesion and module-length budget, the same reason
-``models_workflow.py`` sits apart from it. Every table name is prefixed
-``board_`` to stay unambiguous alongside the fixed-driver's
-``workflow_run``/``workflow_step`` tables, which this schema does not
-replace or reference — the two coexist until the fixed driver is removed.
+from ``tables.py`` for cohesion and module-length budget. Every table
+name is prefixed ``board_`` for clarity.
 """
 from __future__ import annotations
 
@@ -42,6 +39,12 @@ class BoardWorkflowRow(Base):
     state: Mapped[str] = mapped_column(Text)
     #: Monotonic version for snapshots and optimistic interventions.
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    #: Set once at ingestion from the source task's own body
+    #: (``has_subtask_sentinel``): a task Kestrel itself published as a
+    #: decomposition child is never forced through decomposition again.
+    skip_decomposition: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

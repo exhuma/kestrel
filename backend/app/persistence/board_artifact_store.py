@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_board import HandoffArtifact
+from app.models_board_records import HandoffArtifact
 from app.persistence.board_tables import BoardArtifactRow, BoardCardRow
 from app.persistence.db import get_sessionmaker
 

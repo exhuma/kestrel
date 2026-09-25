@@ -20,10 +20,10 @@ from app.models_board import (
     CardKind,
     CardRelation,
     CardState,
-    HandoffArtifact,
     RelationKind,
     WorkCard,
 )
+from app.models_board_records import HandoffArtifact
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
 )

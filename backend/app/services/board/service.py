@@ -12,13 +12,15 @@ import uuid
 from typing import Callable
 
 from app.models_board import (
-    AcceptedTaskIntake,
-    BoardEventRecord,
     CardKind,
     CardRelation,
     CardState,
     WorkCard,
     Workflow,
+)
+from app.models_board_records import (
+    AcceptedTaskIntake,
+    BoardEventRecord,
 )
 from app.persistence.board_store import BoardStore
 from app.services.board.policy import PolicyViolation, is_valid_transition
@@ -88,6 +90,7 @@ class BoardService:
             base_branch=intake.base_branch,
             source_visibility=intake.source_visibility,
             title=intake.title,
+            skip_decomposition=intake.skip_decomposition,
         )
         self._store.create_workflow(workflow)
         card = WorkCard(

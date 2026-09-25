@@ -13,7 +13,7 @@ from functools import lru_cache
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models_board import ExternalProjectionRecord
+from app.models_board_records import ExternalProjectionRecord
 from app.persistence.board_tables import BoardExternalProjectionRow
 from app.persistence.db import get_sessionmaker
 

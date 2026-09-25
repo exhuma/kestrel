@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from app.models_board import HandoffArtifact, WorkCard, Workflow
+from app.models_board import WorkCard, Workflow
+from app.models_board_records import HandoffArtifact
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     DuplicateArtifactError,

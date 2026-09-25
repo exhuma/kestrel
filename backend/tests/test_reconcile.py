@@ -5,7 +5,8 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_board import AcceptedTaskIntake, IntakeOutcome, Workflow
+from app.models_board import Workflow
+from app.models_board_records import AcceptedTaskIntake, IntakeOutcome
 from app.ports import Task
 from app.services.exceptions import GitHubError
 from app.services.github import Issue

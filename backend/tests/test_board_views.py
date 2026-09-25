@@ -13,11 +13,11 @@ from datetime import datetime, timezone
 from app.models_board import (
     CardRelation,
     ClaimLease,
-    HandoffArtifact,
     SpecialistDefinition,
     WorkCard,
     Workflow,
 )
+from app.models_board_records import HandoffArtifact
 from app.routers.board_views import (
     BoardLookups,
     action_required_count,

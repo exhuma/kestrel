@@ -17,8 +17,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board import (
     ClaimLease,
-    ClaimOutcome,
     ClaimRequest,
+)
+from app.models_board_records import (
+    ClaimOutcome,
     CompleteOutcome,
 )
 from app.persistence.board_tables import (
