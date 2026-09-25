@@ -181,17 +181,67 @@ creates no follow-up card at all, so the loop has no explicit "done, ship
 it" signal yet. This is now the most important remaining gap (tasks.md
 T067-T069, which also covers the rest of task-source write-back below).
 
-**As of 2026-09-26, two of the five milestone kinds actually post** (spec
+**As of 2026-09-26, three of the five milestone kinds actually post** (spec
 026 T067, partial): `app/services/board/write_back.py::post_projection`
 plans (via `projections.py`), posts via `TaskSource.post_comment()`, and
 resolves exactly one projection, idempotent by key and never raising on a
 post failure (recorded as retryable instead). Wired for **gate decisions**
-(resolving a human gate posts `"Gate approved: <title>"` or `rejected`)
-and **escalations** (a `coordinator_review` card — created either by a
+(resolving a human gate posts `"Gate approved: <title>"` or `rejected`),
+**escalations** (a `coordinator_review` card — created either by a
 verifier's routed finding, T051, or an operator's own "request
-coordinator review" — posts `"Escalation: <summary/title>"`) — see
-`tests/test_board_write_back.py`, `tests/test_board_verification.py`, and
+coordinator review" — posts `"Escalation: <summary/title>"`), and now
+**child work** (below) — see `tests/test_board_write_back.py`,
+`tests/test_board_verification.py`, and
 `bootstrap.py::schedule_gate_projection`/`schedule_escalation_projection`.
+
+**As of 2026-09-27, task decomposition is built** (spec 026 T068): a `pm`
+card of the dedicated `decomposition` kind (distinct from the shared
+`analysis` kind other roles also use, so dispatch can route its result by
+card kind rather than sniffing free-form text) proposes a candidate
+breakdown as a `<DECOMPOSITION>{"tasks": [...]}</DECOMPOSITION>` block.
+`app/services/board/decomposition.py::route_decomposition_result` parses
+it, durably stores the raw candidate as a `HandoffArtifact` (via the new
+`ArtifactsService.store_reference_artifact`, which persists content
+without the card-acceptance side effects `submit_result` carries), and
+opens a `decomposition_gate` human gate referencing it — an unparseable
+result escalates to `coordinator_review` instead (fail closed, same
+pattern as T051's verifier routing). Approving the gate schedules
+`decomposition.py::publish_decomposition`, which creates each child via
+`TaskSource.create_subtask`, records it in the still-intact
+`child_task_store.py` (feature 012), and projects a `child_work` comment
+back to the parent per child.
+
+This intentionally does **not** resurrect the old fixed driver's
+propose→self-critique→revise loop (`technical_analysis.py`, deleted in
+Phase 10) — the human gate is the quality backstop instead; a rejected or
+poorly-scoped candidate is retried like any other card. What the port
+*did* need to preserve is the old driver's **task-vs-subtask distinction**:
+a task ingested from a task source may need decomposing, but a child task
+Kestrel itself publishes must not be decomposed again (the old driver's
+loop-breaker, `has_subtask_sentinel`/`SUBTASK_SENTINEL`). This is now
+`Workflow.skip_decomposition`, set once at ingestion
+(`app/services/ingestion.py`) from the same marker
+(`app/markers.py::SubtaskSentinel`), and `publish_decomposition` tags
+every child it creates with that same marker so it carries the exemption
+forward.
+
+Decomposition can also be **enforced**, not just offered: the
+`board_decomposition_required` setting (off by default, `config.toml`)
+reflects that Kestrel is sometimes only one part of a larger system where
+an ingested task is high-level and may include non-development work, so
+every non-exempt workflow must publish at least one child task before any
+other work starts — even if the decomposition is a single task covering
+everything. This is enforced two ways, deliberately redundant: `GatesService`
+deterministically creates the `decomposition` card itself right after
+`understanding_gate` is approved (so it isn't left to coordinator
+discretion), and `CoordinatorService.apply_actions` independently rejects
+any other card-creating action until a `decomposition_gate` card reaches
+`done` — the first guarantees the assessment starts, the second guarantees
+nothing else can happen in parallel with it. A workflow with
+`skip_decomposition` set is exempt from enforcement regardless of the
+setting. See `tests/test_board_decomposition.py`,
+`tests/test_board_gates.py::TestDecompositionEnforcement`, and
+`tests/test_board_coordinator.py::TestDecompositionEnforcement`.
 
 What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
@@ -203,17 +253,16 @@ operator should not expect today:
   cards (tasks.md T052) — distinct from T051's verifier-finding routing,
   which covers a verifier's own findings (code review/local test run
   style) regardless of any CI system.
-- **Write-back for approved-artifact, child-work, or delivery.** Gate and
-  escalation project (above); the other three FR-033 milestone kinds are
-  not yet wired to `post_projection`. In practice this still means: no
-  status labels or Jira transitions are applied as a workflow progresses
+- **Write-back for approved-artifact or delivery.** Gate, escalation, and
+  child-work project (above); these two FR-033 milestone kinds are not yet
+  wired to `post_projection`. In practice this still means: no status
+  labels or Jira transitions are applied as a workflow progresses
   (`app/notifications.py`'s own docstring: "nothing currently produces a
   Notification row"); no `hooks_dir` executable is ever invoked (only the
   startup audit-log pass runs); no comment-based feedback steering (the
   old `@kestrel` marker mechanism was deleted with the driver and has no
-  board-domain replacement); no decomposition is published back to the
-  task source as child tickets; the optional translation backing service
-  has no caller; and there is no **rerun** action (the endpoint that
+  board-domain replacement); the optional translation backing service has
+  no caller; and there is no **rerun** action (the endpoint that
   implemented it was deleted along with the fixed driver's router — see
   the constitution's access-model third constraint) and no **cleanup**
   action.

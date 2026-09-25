@@ -18,41 +18,39 @@ before beginning story phases.
   prerequisites are complete.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
-## Status (2026-09-26, after Phase 10 clean break + T034 + T041 + T051 +
-partial T067 [gate + escalation])
+## Status (2026-09-27, after Phase 10 clean break + T034 + T041 + T051 +
+T068 + partial T067 [gate + escalation + child_work])
 
-73/77 tasks fully verified `[x]` complete against actual code (not just
+74/77 tasks fully verified `[x]` complete against actual code (not just
 checked off — every one confirmed by reading/grepping the current source
-or, for T034/T041/T051, by writing and passing new tests); **T067 is
-additionally now partially done** (still `[ ]`, see its own note — gate
-and escalation decisions project to the task source; approved-artifact,
-child-work, and delivery don't yet). The old fixed six-step driver is
-fully removed (commits `33628b4` backend, `3fc281c` frontend, `483dda2`
-docs); the board domain's data model, intake/quarantine, gates/
-interventions, coordinator planning, claim/lease bookkeeping + recovery,
-the read-only Board/Graph UI, the automatic specialist claim→turn→accept
-dispatch loop (T034), a real per-workflow git worktree with `coder`
-actually able to edit files (T041), verifier-finding routing into
-remediation/escalation cards (T051), **and now a resolved gate's
-decision or a coordinator escalation posting back to its task source
-(T067, partial)** are all solid and tested.
+or, for T034/T041/T051/T068, by writing and passing new tests); **T067
+remains partially done** (still `[ ]`, see its own note — gate,
+escalation, and child_work decisions project to the task source;
+approved-artifact and delivery don't yet). The old fixed six-step driver
+is fully removed (commits `33628b4` backend, `3fc281c` frontend,
+`483dda2` docs); the board domain's data model, intake/quarantine,
+gates/interventions, coordinator planning, claim/lease bookkeeping +
+recovery, the read-only Board/Graph UI, the automatic specialist
+claim→turn→accept dispatch loop (T034), a real per-workflow git worktree
+with `coder` actually able to edit files (T041), verifier-finding
+routing into remediation/escalation cards (T051), gate/escalation
+projection (T067 partial), **and now enforced-or-optional task
+decomposition — a `pm` proposal, human-gated, published as real child
+tickets with a task-vs-subtask loop-breaker (T068)** are all solid and
+tested.
 
-**4 tasks remain open** (T067 among them, partially). Each has a
-`**NOT DONE**`/`**PARTIAL**` note in place with exact findings:
+**3 tasks remain open.** Each has a `**NOT DONE**`/`**PARTIAL**` note in
+place with exact findings:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T067** | 9 (US7) | Partial — see its own note. `kind="gate"` and `kind="escalation"` projection are done and tested (both `coordinator_review`-creating call sites); `approved_artifact`/`child_work`/`delivery` are not — each just needs a new `write_back.py::post_projection` call site once its own upstream event exists (T068 for `child_work`, T069 for `delivery`). |
-| **T068** | 9 (US7) | **Genuine design gap, not a wiring gap** (scope investigated 2026-09-26 — see its own note). The deleted `technical_analysis.py` ran a full propose→critique→revise LLM loop behind a human gate before ever publishing a child ticket; the board domain has no equivalent concept yet (no card kind for "a proposed decomposition awaiting approval"). Needs a real design pass before code — see its note for a concrete recommendation. |
-| **T069** | 9 (US7) | More tractable than T068 but still real design work (scope investigated 2026-09-26 — see its own note): the board's claim/lease/workspace model doesn't map 1:1 onto the deleted `reset.py`'s single-driver-task-per-run assumption. Also where `kind="delivery"` projection belongs. |
-| **T052** | 7 (US5) | **Blocked on T069**, not just lower priority (confirmed 2026-09-26): CI status is inherently a property of an open change request, and nothing opens one until T069's delivery step exists. |
+| **T069** | 9 (US7) | Scope investigated 2026-09-26 — see its own note. More tractable than T068 was, but still real design work: the board's claim/lease/workspace model doesn't map 1:1 onto the deleted `reset.py`'s single-driver-task-per-run assumption. Also where `kind="delivery"` projection belongs (T067's other remaining kind, alongside `approved_artifact`). |
+| **T052** | 7 (US5) | **Blocked on T069**, not just lower priority: CI status is inherently a property of an open change request, and nothing opens one until T069's delivery step exists. |
+| **T067** | 9 (US7) | Partial — `approved_artifact`/`delivery` remain; `delivery` is T069's, `approved_artifact` still needs its own call site (probably where a `prd_gate`/`refinement_gate` approves a revision). |
 
-Suggested resume order: **T069 first** (delivery unblocks both T052 and
-T067's `kind="delivery"`, and is the more tractable of the two remaining
-US7 implementation tasks) **→ T068** (needs its own design pass — see its
-note; worth a design conversation with the user before implementation,
-not a solo engineering call) **→ T052**. See each task's note below for
-specifics before starting.
+Suggested resume order: **T069** (unblocks T052 and T067's last two
+kinds) **→ T052**. See each task's note below for specifics before
+starting.
 
 ## Phase 1: Setup
 
@@ -527,37 +525,60 @@ public cleanup only sees recorded Kestrel-owned resources.
   `_trigger_scheduling` (no dedicated test either) — trusted by code
   review plus the full app import/startup check.
 
-  **Not done**: `kind="approved_artifact"`; `kind="child_work"` (belongs
-  with T068); `kind="delivery"` (belongs with T069/the push-a-verified-
-  coder's-work gap noted under T041/T051). `lifecycle.py` stays deleted
-  with no replacement; `notifications.py` still produces nothing.
-- [ ] T068 [US7] **NOT DONE — scope investigated 2026-09-26, materially
-  bigger than "add a call site."** `workflows/driver/technical_analysis.py`
-  (deleted, `git show 33628b4^:backend/app/services/workflows/driver/
-  technical_analysis.py` to read it) was not a simple publish step: it ran
-  a full **propose → self-critique → revise** LLM loop
-  (`_MAX_CONTAINMENT_PASSES` bounded revision against a self-containment
-  check), held the candidate decomposition behind an explicit **human
-  gate** before any task-source write ("a human gate holds that candidate
-  before any task-source write" — its own docstring), and only then
-  published via `TaskSource.create_subtask()` + recorded the link
-  (`child_task_store.py`, which still exists and is still read by
-  `ingestion.py` for re-adoption — only the *write* side is gone).
-  `task_scheduler.py` survives only as the pure branch-selection remnant
-  (`integration_branch`/`ScheduledTask`).
+  **`kind="child_work"`**: done alongside T068 (below) —
+  `decomposition.py`'s publish step projects one comment per published
+  child back to the parent.
 
-  This is a genuine design gap, not a wiring gap: the board domain has no
-  concept yet of "a proposed decomposition awaiting approval" — no card
-  kind for it (`CardKind` has `DECOMPOSITION_GATE` for the *gate*, but
-  nothing upstream that proposes what the gate approves), no critique/
-  revision loop equivalent to T051's verifier routing. Building this
-  properly needs a real design pass (a new `analysis`-produced artifact
-  shape for the candidate, a `DECOMPOSITION_GATE` card wired to it, and a
-  publish step that runs only after approval) before writing code —
-  recommend a `/speckit.specify`-style pass or at least a design
-  conversation with the user on how much of the propose/critique loop to
-  carry forward vs. simplify, rather than guessing under a single
-  implementation session.
+  **Still not done**: `kind="approved_artifact"`; `kind="delivery"`
+  (belongs with T069/the push-a-verified-coder's-work gap noted under
+  T041/T051). `lifecycle.py` stays deleted with no replacement;
+  `notifications.py` still produces nothing.
+- [x] T068 [US7] **Done 2026-09-27**, after a design conversation with the
+  user (not a solo engineering guess — see the git history around this
+  commit for the discussion). Deliberately simplified from the old
+  driver's propose→self-critique→revise loop: the human gate is the
+  quality backstop now, not an automated self-check — a `pm`-worked
+  `decomposition` card (new `CardKind.DECOMPOSITION`, distinct from the
+  shared `analysis` kind so dispatch can route it unambiguously) proposes
+  once, an operator approves or rejects.
+
+  - `app/services/board/decomposition.py`: parses a `pm`'s
+    `<DECOMPOSITION>{"tasks": [...]}` block (fail-closed to a
+    `coordinator_review` escalation on anything malformed, and — matching
+    the old driver's own rule — never accepts an empty task list),
+    creates a `decomposition_gate` card referencing the candidate as a
+    reference artifact (new `ArtifactsService.store_reference_artifact`,
+    no card-acceptance side effect), and — once approved —
+    `publish_decomposition` creates each child via
+    `TaskSource.create_subtask` with a `SubtaskSentinel` marker and
+    records it via `ChildTaskLinks.record`.
+  - **Tasks vs. subtasks** (the loop-breaker, confirmed against the old
+    driver's actual mechanism, `workflows/driver/__init__.py::
+    _seed_from_sentinel`): new `Workflow.skip_decomposition`, computed
+    once at ingestion from `has_subtask_sentinel(task.body)` — a task
+    Kestrel itself published as a decomposition child is exempt from
+    ever being decomposed again, independent of the config flag below.
+    Migration 0029.
+  - **Enforced decomposition** (config-gated, per the user's real
+    deployment need — kestrel is one part of a larger system, and the
+    ingested task is often a high-level coordination item bundling
+    non-development work): new `board_decomposition_required` setting
+    (off by default). Two-part enforcement: `gates.py`'s
+    `_maybe_require_decomposition` deterministically creates the
+    decomposition card right after `understanding_gate` approval (not
+    left to the coordinator's initiative), and `coordinator.py`'s
+    `_validate` rejects any other work-creating `CreateCardAction` until
+    a `decomposition_gate` for the workflow reaches `done`.
+  - `kind="child_work"` projection (T067's remaining gap) now also
+    lands here: each published child posts a `write_back.py` comment
+    back to the parent.
+
+  Commits: schema/config groundwork, routing→gate, gate auto-creation,
+  publish+enforcement (4 commits, each with its own tests — see git log
+  for exact hashes). 32 new tests across
+  `test_board_decomposition.py`/`test_board_gates.py`/
+  `test_board_coordinator.py`/`test_board_service.py`/
+  `test_board_input_intake.py`/`test_migrations.py`.
 - [ ] T069 [US7] **NOT DONE — scope investigated 2026-09-26, more
   tractable than T068 but still real design work.**
   `workflows/reset.py` (`git show 33628b4^:backend/app/services/
