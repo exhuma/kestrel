@@ -186,6 +186,9 @@ trigger_label = "kestrel"
 # --- backend routing --------------------------------------------------------
 # Backend used for ad-hoc /api/sessions dispatch, and the "default" a
 # specialist's model_policy resolves to (see the header note above).
+# Must be set before any [[backends]] table below — TOML parses a bare
+# key after an array-of-tables header as part of that table, not a
+# top-level setting.
 default_session_backend = "claude"
 
 # --- backends ---------------------------------------------------------------

@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: Default env var holding each source type's token when ``token_env`` is unset.
 _DEFAULT_TOKEN_ENV = {
@@ -28,7 +28,15 @@ class BackendConfig(BaseModel):
     backends added in later phases). ``caps`` overrides the adapter's
     default capabilities when set. This permits an on-site compatible backend
     to advertise its coding-agent abilities accurately.
+
+    ``extra="forbid"``: a stray top-level key placed after a
+    ``[[backends]]`` header in the TOML file (e.g. an accidentally
+    reordered ``default_session_backend``) is parsed as an unexpected
+    field of *this* table, not a top-level setting — reject it loudly
+    here instead of silently dropping it.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"

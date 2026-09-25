@@ -32,3 +32,10 @@ def test_backend_concurrency_and_backoff_reject_invalid_values(
     """Ensure invalid backend throttling settings fail validation by field."""
     with pytest.raises(ValueError, match=field):
         BackendConfig(id="x", **{field: value})
+
+
+def test_backend_config_rejects_unexpected_fields() -> None:
+    """Ensure a stray key (e.g. a misplaced default_session_backend after
+    a [[backends]] header) fails loudly instead of being ignored."""
+    with pytest.raises(ValueError, match="default_session_backend"):
+        BackendConfig(id="x", default_session_backend="oc")

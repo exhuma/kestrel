@@ -117,13 +117,26 @@ def test_registry_unknown_backend_raises() -> None:
         registry.get("nope")
 
 
+def test_registry_unknown_backend_error_lists_configured_ids() -> None:
+    """Ensure the error names what IS configured, not just what's missing."""
+    registry = BackendRegistry(
+        _settings(
+            backends=[BackendConfig(id="oc", type="opencode")],
+            default_session_backend="oc",
+        ),
+        SessionRegistry(),
+    )
+    with pytest.raises(UnknownBackendError, match=r"nope.*\['oc'\]"):
+        registry.get("nope")
+
+
 def test_registry_rejects_a_missing_default_at_build() -> None:
     """Ensure a default pointing at no backend fails fast, not on dispatch."""
     settings = _settings(
         backends=[BackendConfig(id="claude", type="claude_cli")],
         default_session_backend="ghost",
     )
-    with pytest.raises(UnknownBackendError):
+    with pytest.raises(UnknownBackendError, match=r"ghost.*\['claude'\]"):
         BackendRegistry(settings, SessionRegistry())
 
 

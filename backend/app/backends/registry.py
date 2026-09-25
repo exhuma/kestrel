@@ -67,11 +67,35 @@ class BackendRegistry:
         try:
             return self._backends[backend_id]
         except KeyError:
-            raise UnknownBackendError(backend_id) from None
+            raise UnknownBackendError(
+                f"{backend_id!r} (configured backend ids: "
+                f"{sorted(self._backends)})"
+            ) from None
 
     def default_session_backend(self) -> Backend:
-        """Return the backend used for ad-hoc ``/api/sessions`` dispatch."""
-        return self.get(self._settings.default_session_backend)
+        """Return the backend used for ad-hoc ``/api/sessions`` dispatch.
+
+        :raises UnknownBackendError: If ``default_session_backend`` names
+            no configured backend — commonly a TOML ordering mistake: a
+            bare key placed after a ``[[backends]]`` header parses as a
+            field of that table, not a top-level setting (rejected loudly
+            by ``BackendConfig``'s ``extra="forbid"``), or the key was
+            simply never changed from its ``"claude"`` default.
+        """
+        try:
+            return self.get(self._settings.default_session_backend)
+        except UnknownBackendError:
+            configured = sorted(self._backends)
+            raise UnknownBackendError(
+                f"default_session_backend="
+                f"{self._settings.default_session_backend!r} has no "
+                f"matching `backends` entry (configured ids: "
+                f"{configured}). Check config.toml: "
+                "`default_session_backend` must be set before any "
+                "[[backends]] table — a bare key placed after an "
+                "array-of-tables header becomes part of that table, "
+                "not a top-level setting."
+            ) from None
 
     def all(self) -> list[Backend]:
         """Return every configured backend."""

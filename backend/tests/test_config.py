@@ -312,6 +312,30 @@ def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
     assert [b.id for b in s.backends] == ["oc"]
 
 
+def test_default_session_backend_after_backends_table_fails_loud(
+    tmp_path: Path,
+) -> None:
+    """Ensure the TOML ordering trap fails at load time, not silently.
+
+    A bare key after an array-of-tables header belongs to that table in
+    TOML, not the top level — `default_session_backend` placed after
+    `[[backends]]` here is swallowed into the backends entry, so it
+    must be rejected loudly (BackendConfig's extra="forbid") rather
+    than silently leaving default_session_backend at its "claude"
+    default.
+    """
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        "[[backends]]\n"
+        'id = "oc"\n'
+        'type = "opencode"\n'
+        "\n"
+        'default_session_backend = "oc"\n'
+    )
+    with pytest.raises(ValueError, match="default_session_backend"):
+        Settings(_env_file=None, config_file=str(toml))
+
+
 def test_config_file_path_is_logged(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
