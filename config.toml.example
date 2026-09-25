@@ -72,6 +72,10 @@ board_workspace_lease_seconds = 1800
 board_max_parallel_read_cards = 4
 # How often the recovery sweep checks for expired claim leases.
 board_recovery_interval_seconds = 60.0
+# How often the CI-poll sweep checks each delivered workflow's required
+# CI status (T052). Only matters where required_ci_statuses (below) is
+# configured for a source; otherwise this sweep is a no-op.
+board_ci_poll_interval_seconds = 60.0
 # Durable, content-addressed store for handoff-artifact bodies, keyed by
 # content hash. In Docker, point this at a persistent volume.
 board_artifacts_root = "./.kestrel-board-artifacts"

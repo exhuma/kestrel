@@ -155,6 +155,30 @@ def test_board_workflow_skip_decomposition_defaults_false(
         )).scalar_one()
     assert value == 0
 
+
+def test_board_workflow_ci_repair_columns_default_unset(
+    tmp_path: Path,
+) -> None:
+    """0030 adds the CI-repair columns, defaulting existing rows unset."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0029")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "skip_decomposition, created_at) VALUES ('wf-1', "
+            "'github-issue', 'o/r#1', 'o/r', 'main', 'public', 't', "
+            "'active', 1, 0, '2026-09-24T00:00:00')"
+        ))
+    command.upgrade(cfg, "0030")
+
+    with engine.begin() as conn:
+        row = conn.execute(sa.text(
+            "SELECT change_request_number, ci_repair_round, ci_status "
+            "FROM board_workflow WHERE id = 'wf-1'"
+        )).one()
+    assert row == (None, 0, None)
+
     command.downgrade(cfg, "0028")
     columns = {c["name"] for c in sa.inspect(engine).get_columns(
         "board_workflow"

@@ -21,6 +21,7 @@ from app.persistence.board_store import get_board_store
 from app.persistence.child_task_store import get_child_task_store
 from app.policy import get_specialist_backend_policy
 from app.services.board.artifacts import ArtifactsService
+from app.services.board.ci_poll import CiPollService
 from app.services.board.claims import ClaimsService
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.decomposition import (
@@ -146,6 +147,19 @@ def get_recovery_service() -> RecoveryService:
         get_board_claims_store(),
         get_board_service(),
         interval_seconds=settings.board_recovery_interval_seconds,
+    )
+
+
+@lru_cache
+def get_ci_poll_service() -> CiPollService:
+    """Return the process-wide CiPollService singleton."""
+    settings = get_settings()
+    return CiPollService(
+        get_board_store(),
+        get_coordinator_service(),
+        get_task_source_registry(),
+        settings,
+        interval_seconds=settings.board_ci_poll_interval_seconds,
     )
 
 

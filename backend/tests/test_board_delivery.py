@@ -33,6 +33,8 @@ from tests.board_test_support import board_session_factory
 from tests.test_board_scheduling import _FakeBackend
 from tests.test_board_workspace import _seed_bare_remote
 
+_PR_NUMBER = 7
+
 
 def _run(*args: str, cwd: Path) -> str:
     return subprocess.run(
@@ -155,6 +157,25 @@ class TestDeliver:
         assert location == "local branch published: kestrel/board/wf-1"
         assert code_host.opened is None
 
+    @pytest.mark.asyncio
+    async def test_deliver_updates_rather_than_reopens_an_existing_cr(
+        self, tmp_path: Path
+    ) -> None:
+        """T052: a repair-triggered redelivery must not open a second CR."""
+        svc = await _provisioned_workspace(tmp_path)
+        code_host = _FakeCodeHost()
+        workflow = Workflow(
+            id="wf-1", source="github-issue", task_ref="owner/repo#1",
+            repo="owner/repo", base_branch="main",
+            source_visibility="public", title="Add a thing",
+            change_request_number=7,
+        )
+
+        location = await deliver(workflow, code_host, svc)
+
+        assert location == "updated existing change request #7"
+        assert code_host.opened is None
+
 
 class _FakeTaskSource:
     def __init__(self) -> None:
@@ -228,7 +249,9 @@ class TestEndToEndDelivery:
         coordinator = CoordinatorService(
             store, coordinator_store, board_service
         )
-        code_host = _FakeCodeHost(str(bare))
+        code_host = _FakeCodeHost(
+            str(bare), cr_url="https://github.com/owner/repo/pull/7"
+        )
         task_source = _FakeTaskSource()
         services = DispatchServices(
             claims, roster, artifacts, workspace=workspace,
@@ -250,6 +273,8 @@ class TestEndToEndDelivery:
         assert len(delivery_cards) == 1
         assert delivery_cards[0].state == "done"
         assert code_host.opened["head"] == "kestrel/board/wf-1"
-        assert task_source.calls == [
-            ("owner/repo#1", "Delivered: https://cr/1")
-        ]
+        assert task_source.calls == [(
+            "owner/repo#1",
+            "Delivered: https://github.com/owner/repo/pull/7",
+        )]
+        assert store.get_workflow("wf-1").change_request_number == _PR_NUMBER

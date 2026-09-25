@@ -130,6 +130,18 @@ class Workflow:
         decomposition again, regardless of ``board_decomposition_required``
         — otherwise a required-decomposition deployment would recurse
         forever, decomposing its own children's children.
+    :param change_request_number: The change request delivery opened,
+        once known (T052) — ``None`` before any delivery, or when the
+        code host doesn't support change requests at all.
+    :param ci_repair_round: How many CI-triggered repair cards this
+        workflow's current change request has gone through (T052).
+        Reset to ``0`` on every fresh delivery — a new delivery earns a
+        fresh repair budget, whether it followed an automated repair or
+        an operator's own manual fix.
+    :param ci_status: The most recently observed required-CI verdict
+        for ``change_request_number`` (T052) — ``"pending"``,
+        ``"passed"``, ``"failed"``, or ``None`` before the first check
+        (or once delivery, having reset it, hasn't been re-checked yet).
     """
 
     id: str
@@ -142,6 +154,9 @@ class Workflow:
     state: str = "active"
     revision: int = 1
     skip_decomposition: bool = False
+    change_request_number: int | None = None
+    ci_repair_round: int = 0
+    ci_status: str | None = None
 
 
 @dataclass(frozen=True)

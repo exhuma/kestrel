@@ -38,6 +38,9 @@ def _row_to_workflow(row: BoardWorkflowRow) -> Workflow:
         state=row.state,
         revision=row.revision,
         skip_decomposition=row.skip_decomposition,
+        change_request_number=row.change_request_number,
+        ci_repair_round=row.ci_repair_round,
+        ci_status=row.ci_status,
     )
 
 
@@ -96,6 +99,9 @@ class BoardStore:
                         state=workflow.state,
                         revision=workflow.revision,
                         skip_decomposition=workflow.skip_decomposition,
+                        change_request_number=workflow.change_request_number,
+                        ci_repair_round=workflow.ci_repair_round,
+                        ci_status=workflow.ci_status,
                         created_at=now_utc(now),
                     )
                 )
@@ -184,6 +190,38 @@ class BoardStore:
             workflow = db.get(BoardWorkflowRow, workflow_id)
             workflow.revision += 1
             return workflow.revision
+
+    def record_delivery(
+        self, workflow_id: str, change_request_number: int | None
+    ) -> None:
+        """Record a fresh delivery's change request (T052).
+
+        Resets ``ci_repair_round``/``ci_status`` — a new delivery, whether
+        from the original coder work, an automated CI repair, or an
+        operator's own manual fix, earns a fresh CI verdict and repair
+        budget rather than carrying over a prior one.
+        """
+        with self._factory.begin() as db:
+            workflow = db.get(BoardWorkflowRow, workflow_id)
+            workflow.change_request_number = change_request_number
+            workflow.ci_repair_round = 0
+            workflow.ci_status = None
+
+    def record_ci_status(self, workflow_id: str, status: str) -> int:
+        """Record the latest CI poll verdict (T052).
+
+        Increments ``ci_repair_round`` when *status* is ``"failed"`` —
+        one round per observed failure, since each triggers (at most) one
+        repair card.
+
+        :returns: The workflow's ``ci_repair_round`` after this call.
+        """
+        with self._factory.begin() as db:
+            workflow = db.get(BoardWorkflowRow, workflow_id)
+            workflow.ci_status = status
+            if status == "failed":
+                workflow.ci_repair_round += 1
+            return workflow.ci_repair_round
 
     def set_card_state(
         self,

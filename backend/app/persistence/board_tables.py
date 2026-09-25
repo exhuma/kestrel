@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.persistence.tables import Base
@@ -45,6 +45,15 @@ class BoardWorkflowRow(Base):
     skip_decomposition: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
+    #: The change request delivery opened, once known (T052).
+    change_request_number: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    #: How many CI-triggered repair cards this workflow's current change
+    #: request has gone through; reset on every fresh delivery (T052).
+    ci_repair_round: Mapped[int] = mapped_column(default=0, server_default="0")
+    #: The most recently observed required-CI verdict, or ``None`` (T052).
+    ci_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

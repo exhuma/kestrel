@@ -54,6 +54,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_workspace_lease_seconds",
         "board_max_parallel_read_cards",
         "board_recovery_interval_seconds",
+        "board_ci_poll_interval_seconds",
         "board_decomposition_required",
         "board_dev_actions_enabled",
     }
@@ -292,6 +293,12 @@ class Settings(BaseSettings):
     #: How often the recovery sweep checks for expired claim leases
     #: (feature 026, ``KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS``).
     board_recovery_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often the CI-poll sweep checks each delivered workflow's
+    #: required CI status (feature 026, T052,
+    #: ``KESTREL_BOARD_CI_POLL_INTERVAL_SECONDS``). Only matters for a
+    #: source/repo with ``required_ci_statuses`` configured — a workflow
+    #: with none configured is never polled regardless.
+    board_ci_poll_interval_seconds: float = Field(default=60.0, gt=0)
     #: Require every non-subtask workflow to publish at least one child
     #: task through a `pm`-proposed, human-approved decomposition before
     #: any other work may start (feature 026,

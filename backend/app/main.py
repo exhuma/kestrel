@@ -85,9 +85,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Board claim-expiry recovery (feature 026, FR-004/FR-012): runs
     # unconditionally alongside the poll loops above, since it recovers
     # abandoned specialist claims rather than polling any task source.
-    from app.services.board.bootstrap import get_recovery_service
+    from app.services.board.bootstrap import (
+        get_ci_poll_service,
+        get_recovery_service,
+    )
 
     poll_tasks.append(asyncio.create_task(get_recovery_service().run_forever()))
+
+    # Board required-CI polling (feature 026, T052): also runs
+    # unconditionally — a workflow with no required_ci_statuses configured
+    # for its source/repo is simply never eligible, so this is a no-op
+    # sweep for a deployment that hasn't configured any.
+    poll_tasks.append(asyncio.create_task(get_ci_poll_service().run_forever()))
 
     try:
         yield

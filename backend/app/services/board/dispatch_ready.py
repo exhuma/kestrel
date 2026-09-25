@@ -47,6 +47,7 @@ from app.services.board.verification import route_verifier_result
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
 from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.exceptions import GitError
+from app.services.github import change_request_number
 from app.services.task_sources import TaskSourceRegistry
 
 _dispatch_log = logging.getLogger("kestrel.board.dispatch")
@@ -354,6 +355,9 @@ async def _deliver_one(
             [TransitionCardAction(card.id, CardState.FAILED.value)],
         )
         return
+    services.claims.store.record_delivery(
+        workflow_id, change_request_number(location)
+    )
     services.coordinator.apply_actions(
         workflow_id, f"delivery:{card.id}:review",
         [TransitionCardAction(card.id, CardState.REVIEW.value)],
