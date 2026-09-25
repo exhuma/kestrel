@@ -95,11 +95,9 @@ uv run python -m app poll
 The `verifier` specialist's design intent is to weigh evidence it observes
 itself by exercising the running, modified project directly, rather than
 re-running the coder's own checks — durable test coverage is the coder's TDD
-responsibility. As of this writing there is no automated loop that actually
-claims and runs a card (see
-[Architecture → Current gap](architecture.md#current-gap-no-task-source-write-back-or-delivery-yet)),
-so this is the specialist's intended contract rather than something you can
-currently observe end-to-end against a live RFC.
+responsibility. The board now runs a real automated claim→turn→accept loop
+(spec 026 T034), so this is observable end-to-end against a live RFC, not
+just an intended contract.
 
 ## The flow, from a human's point of view, today
 
@@ -112,18 +110,20 @@ currently observe end-to-end against a live RFC.
 3. Everything from here — watching card state, answering an
    understanding/refinement/PRD/decomposition gate, retrying or reassigning
    a card, resolving a quarantined review — happens **in the Kestrel UI**
-   (the Board), not on the RFC. Nothing is currently posted back to the RFC
-   itself: no status comment, no attached PRD, no decomposition into linked
-   sub-tasks, no change-request link. See
-   [Architecture → Current gap](architecture.md#current-gap-no-task-source-write-back-or-delivery-yet)
-   for the full list of what's not yet wired up and why.
+   (the Board), not on the RFC. A resolved gate, an escalation, a published
+   child task, an approved PRD, and a clean verification's delivery each
+   post one comment back to the RFC; day-to-day card-by-card progress is
+   still Board-only. See
+   [Architecture → Specialist dispatch, delivery, and write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078)
+   for the full list of what projects and what doesn't.
 
 This replaces the old fixed driver's `describe → refine →
-technical_analysis → design → code → verify` sequence, its PRD/questionnaire
-gates, and its decomposition into native Jira Sub-tasks — all removed in the
-Phase 10 clean break with no board-domain replacement yet. If you're used to
-that flow, don't expect RFC comments, a `PRD.md` attachment, or automatically
-created Sub-tasks; expect a Workflow to appear on the Board instead.
+technical_analysis → design → code → verify` sequence and its native Jira
+Sub-task decomposition — removed in the Phase 10 clean break, then rebuilt
+on the board's own terms (spec 026 T068/T078): refinement/PRD/decomposition
+gates exist again, just resolved on the Board rather than as RFC comments,
+and a decomposition publishes real child tickets rather than native
+Sub-tasks.
 
 ### Re-triggering an RFC
 

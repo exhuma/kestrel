@@ -141,7 +141,7 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: approved-artifact write-back, blocked on a missing PRD/refinement-gate prerequisite
+### Specialist dispatch, delivery, and write-back (spec 026, complete as of T078)
 
 Everything above through gate/intervention resolution is live, and so is
 the automatic specialist dispatch loop (spec 026 T034):
@@ -299,40 +299,49 @@ an operator's own manual fix (a new delivery, same as an automated
 repair) earns a fresh repair budget rather than staying permanently
 excluded once escalated.
 
-What is **still not** wired up — tracked as follow-on work (spec 026
-`tasks.md`'s Status section has the authoritative, per-task detail) — an
-operator should not expect today:
+**As of 2026-09-27, the refinement-interview and PRD-approval gates are
+built** (spec 026 T078) — the last of the four human gates the data
+model always had slots for (`understanding_gate`/`refinement_gate`/
+`prd_gate`/`decomposition_gate`) but that, until now, only
+`understanding_gate` (and, when enabled, `decomposition_gate`) ever
+actually got created. Gated behind a new `board_prd_gate_required`
+setting (off by default): approving `understanding_gate` deterministically
+creates three parallel interview cards, one per business-altitude
+persona (`requester`/`pm`/`uiux`, matching the old deleted driver's own
+`BUSINESS_ALTITUDE_IDS` split) — each drafts its own scoped question set,
+routed into a `refinement_gate` a human answers via a new free-text
+field on the gate-resolution API. Once every interview reaches a
+terminal state, `pm` drafts a PRD folding in every answer, routed into a
+`prd_gate`; approval records `Workflow.approved_prd` and finally
+projects `kind="approved_artifact"` — the last of the five FR-033
+milestone kinds, closing that gap as a side effect of building this
+rather than as its own task (see tasks.md's T067/T078 notes). Technical-
+altitude personas (infosec/architect/dba/ops/qa) and cost-estimation
+were explicitly scoped out for this pass — decomposition still stands in
+for that "technical analysis" step, per T068 — and may become their own
+later iteration.
 
-- **Write-back for approved-artifact — blocked on a missing
-  prerequisite, not just unbuilt wiring.** Gate, escalation, child-work,
-  and delivery all project now (above); this last FR-033 milestone
-  kind's real trigger is resolving a `prd_gate`/`refinement_gate` card
-  (per `HumanGateRecord.target_artifact_id`'s own docstring and the old
-  driver's analogous `_publish_refined` PRD-approval flow), but **spec
-  026 as built never creates either gate kind** — only
-  `understanding_gate` and `decomposition_gate` are ever proposed.
-  Closing this means first deciding whether/how a role proposes a PRD or
-  refinement document needing its own approval, distinct from
-  `understanding_gate` — a new user story, not a wiring task; see
-  tasks.md's T067 note for the full investigation. In practice this
-  still means: no status labels or Jira transitions are applied as a
-  workflow progresses (`app/notifications.py`'s own docstring: "nothing
-  currently produces a Notification row"); no `hooks_dir` executable is
-  ever invoked (only the startup audit-log pass runs); no comment-based
-  feedback steering (the old `@kestrel` marker mechanism was deleted
-  with the driver and has no board-domain replacement); the optional
-  translation backing service has no caller.
-- Practically, this means a configured GitHub/Jira/local source today
-  creates a board **Workflow** and its initial cards on a qualifying task
-  (after quarantine screening); specialist cards then progress
-  automatically, including a `coder` role committing real file edits to
-  its own local worktree branch, and human gates/interventions still
-  happen only in the Kestrel web UI. Gate decisions, escalations,
-  published child tickets, and a clean verification's delivery all now
-  get reported back to the ticket itself (T067/T068/T069); what an
-  operator still can't see from the source or a PR alone is anything
-  short of those milestones — day-to-day card-by-card progress is still
-  Kestrel-UI-only.
+Building this surfaced a real foundational gap, fixed alongside it: no
+card's envelope — not even the coordinator's own wake-up turn — ever
+carried the task's actual content, only its short display title; the
+quarantine-screened body was computed at intake and silently discarded.
+`coder`'s own prompt already assumed a PRD-scoped "approved scope"
+concept with no board-domain implementation behind it. Fixed via two new
+`Workflow` fields, `task_body` (threaded from intake) and `approved_prd`,
+both now included in every card's envelope
+(`dispatch.py::build_card_envelope`/`build_coordinator_envelope`).
+
+Practically, this means a configured GitHub/Jira/local source today
+creates a board **Workflow** and its initial cards on a qualifying task
+(after quarantine screening); specialist cards then progress
+automatically, including a `coder` role committing real file edits to
+its own local worktree branch, and human gates/interventions still
+happen only in the Kestrel web UI. Gate decisions, escalations,
+published child tickets, an approved PRD, and a clean verification's
+delivery all now get reported back to the ticket itself (T067/T068/
+T069/T078); what an operator still can't see from the source or a PR
+alone is anything short of those milestones — day-to-day card-by-card
+progress is still Kestrel-UI-only.
 
 ## Design trade-offs
 

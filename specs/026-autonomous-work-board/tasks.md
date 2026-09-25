@@ -19,41 +19,32 @@ before beginning story phases.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
 ## Status (2026-09-27, after Phase 10 clean break + T034 + T041 + T051 +
-T068 + T069 + T052 + partial T067 [gate + escalation + child_work +
-delivery])
+T068 + T069 + T052 + T067 + T078 — spec 026 is complete)
 
-76/77 tasks fully verified `[x]` complete against actual code (not just
-checked off — every one confirmed by reading/grepping the current source
-or, for T034/T041/T051/T068/T069/T052, by writing and passing new
-tests). The old fixed six-step driver is fully removed (commits
+78/78 tasks fully verified `[x]` complete against actual code — not just
+checked off, every one confirmed by reading/grepping the current source
+or, for T034/T041/T051/T068/T069/T052/T078, by writing and passing new
+tests (T078 was added mid-session, on top of the original 77). The old
+fixed six-step driver is fully removed (commits
 `33628b4` backend, `3fc281c` frontend, `483dda2` docs); the board
 domain's data model, intake/quarantine, gates/interventions, coordinator
 planning, claim/lease bookkeeping + recovery, the read-only Board/Graph
 UI, the automatic specialist claim→turn→accept dispatch loop (T034), a
 real per-workflow git worktree with `coder` actually able to edit files
 (T041), verifier-finding routing into remediation/escalation cards
-(T051), gate/escalation/child_work/delivery projection (T067 partial),
-enforced-or-optional task decomposition (T068), automatic delivery on a
-clean verification (T069), and bounded CI-failure repair via the
-board's first periodic external-provider poll loop (T052) are all solid
-and tested.
+(T051), all five FR-033 milestone kinds projecting to the task source
+(T067), enforced-or-optional task decomposition (T068), automatic
+delivery on a clean verification (T069), bounded CI-failure repair via
+the board's first periodic external-provider poll loop (T052), and a
+refinement-interview + PRD-approval gate — the last of the originally
+envisioned human gates, closing T067's final projection kind as a side
+effect (T078) — are all solid and tested.
 
-**T067 is the one task left, and it is effectively closed as
-intentionally deferred rather than actively in-progress** — investigated
-2026-09-27 (see its own note): `kind="approved_artifact"`'s real trigger
-(resolving a `prd_gate`/`refinement_gate`) is blocked on a genuine
-missing prerequisite — nothing in spec 026 as built ever creates either
-gate kind at all. Closing that gap means first deciding whether/how a
-role proposes a PRD or refinement document needing its own approval
-distinct from `understanding_gate` — a new user story, not a wiring
-task. **Recommend treating spec 026 as complete with this gap
-documented**, and scoping PRD/refinement-gate creation as its own
-follow-up spec if still wanted, rather than reopening T067's original
-"identify the call site" framing.
-
-| Task | Phase | Gap |
-| --- | --- | --- |
-| **T067** | 9 (US7) | Partial by design, not by oversight — see its own note for the missing prerequisite and the recommended path forward. |
+T067's `kind="approved_artifact"` gap (previously the one open item,
+tracked as "blocked on a missing prerequisite — nothing creates a
+`prd_gate`") turned out to be exactly what T078 was for: once the user
+confirmed the refinement/PRD gate was wanted, building it closed T067
+too, with no separate task needed.
 
 ## Phase 1: Setup
 
@@ -531,8 +522,8 @@ public cleanup only sees recorded Kestrel-owned resources.
 - [x] T066 [US7] Implement projection planning, durable idempotency records,
   Kestrel-owned external artifact ledger, and retry handling in
   `backend/app/services/board/projections.py`.
-- [ ] T067 [US7] **PARTIAL (2026-09-27): gate, escalation, child_work,
-  and delivery projection done; one of five FR-033 kinds remains.** New
+- [x] T067 [US7] **Done 2026-09-27** — all five FR-033 milestone kinds
+  now project, the last (`approved_artifact`) closed by T070 below. New
   `app/services/board/write_back.py::post_projection`: plans (via
   `projections.py`, T066), posts via `TaskSource.post_comment()`, and
   resolves (`complete`/`fail`) exactly one projection — idempotent by
@@ -577,32 +568,14 @@ public cleanup only sees recorded Kestrel-owned resources.
   verification's `delivery` card projects `"Delivered: {location}"`
   (a change-request URL, or a local-branch note) once pushed.
 
-  **Still not done, and investigated 2026-09-27 — blocked on a missing
-  prerequisite, not an unidentified design question**: `kind=
-  "approved_artifact"`. FR-033 never defines the term itself, but
-  `HumanGateRecord.target_artifact_id`'s own docstring ("e.g. the PRD
-  revision a `prd_gate` approves") and the old deleted driver's PRD-
-  approval flow (`git show 33628b4^:backend/app/services/workflows/
-  driver/__init__.py`'s `_publish_refined`, which pushed the *content*
-  of an approved PRD to the task source, not just a status comment) both
-  point at the same trigger: resolving a `prd_gate` (or `refinement_gate`)
-  card. The blocker: **nothing in the new board architecture ever
-  creates a `PRD_GATE` or `REFINEMENT_GATE` card** — both kinds exist in
-  `CardKind`/`GATE_CARD_KINDS` and `quickstart.md` still describes
-  driving work to them, but no coordinator prompt, specialist, or
-  dispatch path in spec 026 as built ever proposes one; only
-  `understanding_gate` and `decomposition_gate` are ever created. `trust=
-  "operator_approved"` is likewise a documented `HandoffArtifact` value
-  (`models_board_records.py`) that no code path ever sets. Building
-  `kind="approved_artifact"` for real would mean first deciding whether/
-  how a `pm`-or-similar role proposes a PRD or refinement document that
-  needs its own human approval distinct from `understanding_gate` — a
-  new user story, not a wiring task, and out of scope for what's left of
-  spec 026. Recommend treating spec 026 as complete with this gap
-  explicitly documented, and scoping PRD/refinement-gate creation (if
-  still wanted) as its own follow-up spec rather than folding it into
-  T067. `lifecycle.py` stays deleted with no replacement;
-  `notifications.py` still produces nothing.
+  **`kind="approved_artifact"`**: done alongside T070 (below) — a
+  `prd_gate` approval projects `"Approved PRD:\n\n{content}"`.
+  Originally investigated 2026-09-27 and found blocked on a missing
+  prerequisite (nothing created a `prd_gate`/`refinement_gate` card at
+  all) — that prerequisite is exactly what T070 built, closing this gap
+  as a side effect rather than a separate task. `lifecycle.py` stays
+  deleted with no replacement; `notifications.py` still produces
+  nothing.
 - [x] T068 [US7] **Done 2026-09-27**, after a design conversation with the
   user (not a solo engineering guess — see the git history around this
   commit for the discussion). Deliberately simplified from the old
@@ -700,6 +673,93 @@ public cleanup only sees recorded Kestrel-owned resources.
   end-to-end dispatch-to-delivered-PR run), `test_board_verification.py`
   (the new `VerificationRouting.clean` signal), `test_board_dev_reset.py`,
   and `test_board_dev_router.py`.
+- [x] T078 [US7] **Done 2026-09-27**, after a design conversation with the
+  user — not originally on the task list; surfaced while explaining why
+  T067's `kind="approved_artifact"` was blocked (see that task's note),
+  and confirmed by the user as "should already have been in the old
+  kestrel implementation" — an oversight worth fixing now, not a new
+  feature to defer. Builds the refinement-interview + PRD-approval gate
+  the board's data model always had slots for
+  (`CardKind.REFINEMENT_GATE`/`PRD_GATE`) but nothing ever created.
+
+  **Scope, narrowed twice during the conversation**: the user first
+  confirmed the full old-driver shape was wanted (a real interview, not
+  just a single-shot PRD draft+approve), then clarified the interview
+  must be **parallel forms per persona** (not the old driver's
+  sequential any-persona-per-round Q&A), then — on realizing this
+  implied *every* persona should eventually get a say, not just the
+  three business-altitude ones — explicitly deferred technical-altitude
+  personas (infosec/architect/dba/ops/qa) and cost-estimation to a later
+  iteration, folding "technical analysis" into `pm`'s existing T068
+  decomposition proposal for MVP. What's built: exactly the business-
+  altitude trio (`requester`/`pm`/`uiux`), one form each, before decomposition.
+
+  **A real foundational gap surfaced along the way and was fixed too**
+  (also on the user's explicit "fix it now"): no card's envelope —
+  not even the coordinator's own wake-up turn — ever carried the actual
+  task content, only a short title; the quarantine-screened body was
+  computed at intake and silently discarded. `coder`'s own prompt
+  already assumed a "the approved PRD... exact boundary of your
+  authority" concept that had no board-domain implementation. Fixed via
+  two new `Workflow` fields (`task_body`, `approved_prd`, migration
+  `0031`) threaded from intake through `AcceptedTaskIntake` into every
+  card's envelope (`dispatch.py::build_card_envelope`/
+  `build_coordinator_envelope`).
+
+  **Flow**: approving `understanding_gate` (when `board_prd_gate_required`
+  is on) deterministically creates three `refinement` proposal cards
+  (`gates.py::_maybe_require_refinement`), one per persona
+  (`requester`/`pm`/`uiux`, matching the old driver's
+  `BUSINESS_ALTITUDE_IDS`). Each persona's turn drafts its own
+  `<REFINEMENT_QUESTIONS>` set, routed (new `refinement.py`, mirrors
+  `decomposition.py`'s parse/route shape) into a `refinement_gate` card
+  — a real form a human answers via a new free-text field on the gate-
+  resolution API (`BoardInterventionIn.answer`/
+  `InterventionsService.GateResolution`, bundled to stay within the
+  argument-count limit). Once every interview reaches a terminal state
+  (answered *or* rejected — a rejection must not deadlock the workflow),
+  `gates.py::_maybe_start_prd` creates `pm`'s `prd` card, its envelope
+  augmented with every gathered answer
+  (`refinement.py::gather_refinement_context`). `pm`'s `<PRD>` draft is
+  routed into a `prd_gate`; approval records `Workflow.approved_prd`
+  (`gates.py::_maybe_approve_prd`) and projects it via
+  `kind="approved_artifact"` (`bootstrap.py::
+  schedule_prd_approval_projection`, closing T067's last gap);
+  rejection with feedback deterministically creates a fresh `prd` card
+  (`gates.py::_maybe_redraft_prd`) rather than hard-stopping the
+  workflow the way the old driver's own rejection did.
+
+  **Ordering with decomposition** (T068): when both `board_prd_gate_required`
+  and `board_decomposition_required` are on, decomposition's trigger
+  moves from `understanding_gate` to `prd_gate`
+  (`gates.py::_decomposition_trigger_kind`), and the coordinator-side
+  enforcement blocks decomposition too, not just design/implementation
+  (`coordinator.py`'s new `_PRD_EXEMPT_KINDS`, deliberately *not*
+  including `DECOMPOSITION`) — PRD resolves before decomposition can
+  even be assessed. A workflow with `skip_decomposition` is exempt from
+  both, same reasoning as T068: a decomposition-published child
+  shouldn't re-run its parent's own scoping pass.
+
+  Gated behind a new `board_prd_gate_required` setting (off by default,
+  mirrors `board_decomposition_required`) — `pm`/`requester`/`uiux`
+  gained `"refinement"` (and `pm` also `"prd"`) in `allowed_card_types`,
+  but creation stays deterministic-only (`GatesService`), not the
+  coordinator's own discretion, since a 3-way parallel interview isn't
+  the kind of thing an LLM should spontaneously reach for the way a
+  single decomposition proposal is.
+
+  Commits: see git log for exact hashes. 40 new tests across
+  `test_board_refinement.py` (parsing/routing/context-gathering unit
+  tests), `test_board_gates_prd.py` + `test_board_coordinator_prd.py`
+  (enforcement, split out of `test_board_gates.py`/
+  `test_board_coordinator.py` to stay under the 500-line ceiling),
+  `test_board_envelopes.py` (task_body/approved_prd/extra_context
+  inclusion, split out of `test_board_scheduling.py`),
+  `test_board_refinement_e2e.py` (the full understanding→answered
+  interviews→drafted PRD→approved-and-recorded flow through the real
+  `dispatch_ready_work` loop), `test_board_router_views.py` (the
+  `answer` field reaching `GatesService` over HTTP), and
+  `test_migrations.py`.
 
 **Checkpoint**: Task sources carry approvals, material blockers, artifacts,
 child work, and delivery outcomes without becoming a noisy board mirror.

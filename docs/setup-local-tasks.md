@@ -54,7 +54,8 @@ only in their owner's `attachments/` and `children/` directories.
 steer a workflow — the old fixed driver's feedback pipeline that consumed
 it was removed in the Phase 10 clean break and has no board-domain
 replacement yet (see
-[Architecture → Current gap](architecture.md#current-gap-no-task-source-write-back-or-delivery-yet)).
+[Architecture → Specialist dispatch, delivery, and
+write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078)).
 Use the Kestrel UI to act on a board workflow's cards and gates instead.
 
 Put human feedback in `comments/` as UTF-8 Markdown with a UTC filename:
