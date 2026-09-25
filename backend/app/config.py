@@ -377,6 +377,10 @@ class Settings(BaseSettings):
         path_str = self.config_file
         if not path_str:
             if not self.backends_file:
+                _log.info(
+                    "no config file configured (KESTREL_CONFIG_FILE/"
+                    "KESTREL_BACKENDS_FILE unset) — using built-in defaults"
+                )
                 return self
             _log.warning(
                 "KESTREL_BACKENDS_FILE is deprecated; use KESTREL_CONFIG_FILE."
@@ -385,6 +389,7 @@ class Settings(BaseSettings):
         path = Path(path_str)
         if not path.is_file():
             raise ValueError(f"config_file not found: {path}")
+        _log.info("loading config file: %s", path.resolve())
         try:
             data = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as exc:

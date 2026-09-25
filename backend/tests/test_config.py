@@ -312,6 +312,28 @@ def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
     assert [b.id for b in s.backends] == ["oc"]
 
 
+def test_config_file_path_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ensure the resolved path actually opened is visible in the logs —
+    the main diagnostic for "my config edit had no effect"."""
+    toml = tmp_path / "config.toml"
+    toml.write_text('default_session_backend = "oc"\n')
+    with caplog.at_level("INFO"):
+        Settings(_env_file=None, config_file=str(toml))
+    assert f"loading config file: {toml.resolve()}" in caplog.text
+
+
+def test_missing_config_file_setting_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure an unset config_file/backends_file is visible in the logs,
+    not just a silent fall-through to the claude-only default."""
+    with caplog.at_level("INFO"):
+        Settings(_env_file=None)
+    assert "no config file configured" in caplog.text
+
+
 def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
     """Ensure the file-only ``[[task_sources]]`` list parses two entries."""
     toml = tmp_path / "config.toml"

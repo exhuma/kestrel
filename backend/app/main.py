@@ -48,7 +48,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # check when a session runs on the wrong backend.
     get_backend_registry()
     _logger.info(
-        "backends: %s | ad-hoc sessions dispatch to: %r",
+        "config file: %s | backends: %s | ad-hoc sessions dispatch to: %r",
+        settings.config_file or settings.backends_file or "(none)",
         {c.id: c.type for c in settings.backends},
         settings.default_session_backend,
     )
