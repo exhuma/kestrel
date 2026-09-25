@@ -141,7 +141,7 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: no approved-artifact write-back yet
+### Current gap: approved-artifact write-back, blocked on a missing PRD/refinement-gate prerequisite
 
 Everything above through gate/intervention resolution is live, and so is
 the automatic specialist dispatch loop (spec 026 T034):
@@ -303,17 +303,25 @@ What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
 operator should not expect today:
 
-- **Write-back for approved-artifact.** Gate, escalation, child-work, and
-  delivery all project now (above); this last FR-033 milestone kind is
-  not yet wired to `post_projection`, and no card kind or call site for
-  it has been identified. In practice this still means: no status labels
-  or Jira transitions are applied as a workflow progresses
-  (`app/notifications.py`'s own docstring: "nothing currently produces a
-  Notification row"); no `hooks_dir` executable is ever invoked (only the
-  startup audit-log pass runs); no comment-based feedback steering (the
-  old `@kestrel` marker mechanism was deleted with the driver and has no
-  board-domain replacement); the optional translation backing service has
-  no caller.
+- **Write-back for approved-artifact — blocked on a missing
+  prerequisite, not just unbuilt wiring.** Gate, escalation, child-work,
+  and delivery all project now (above); this last FR-033 milestone
+  kind's real trigger is resolving a `prd_gate`/`refinement_gate` card
+  (per `HumanGateRecord.target_artifact_id`'s own docstring and the old
+  driver's analogous `_publish_refined` PRD-approval flow), but **spec
+  026 as built never creates either gate kind** — only
+  `understanding_gate` and `decomposition_gate` are ever proposed.
+  Closing this means first deciding whether/how a role proposes a PRD or
+  refinement document needing its own approval, distinct from
+  `understanding_gate` — a new user story, not a wiring task; see
+  tasks.md's T067 note for the full investigation. In practice this
+  still means: no status labels or Jira transitions are applied as a
+  workflow progresses (`app/notifications.py`'s own docstring: "nothing
+  currently produces a Notification row"); no `hooks_dir` executable is
+  ever invoked (only the startup audit-log pass runs); no comment-based
+  feedback steering (the old `@kestrel` marker mechanism was deleted
+  with the driver and has no board-domain replacement); the optional
+  translation backing service has no caller.
 - Practically, this means a configured GitHub/Jira/local source today
   creates a board **Workflow** and its initial cards on a qualifying task
   (after quarantine screening); specialist cards then progress

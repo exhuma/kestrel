@@ -25,31 +25,35 @@ delivery])
 76/77 tasks fully verified `[x]` complete against actual code (not just
 checked off — every one confirmed by reading/grepping the current source
 or, for T034/T041/T051/T068/T069/T052, by writing and passing new
-tests); **T067 remains partially done** (still `[ ]`, see its own note —
-gate, escalation, child_work, and delivery decisions all project to the
-task source now; only approved-artifact doesn't yet). The old fixed
-six-step driver is fully removed (commits `33628b4` backend, `3fc281c`
-frontend, `483dda2` docs); the board domain's data model, intake/
-quarantine, gates/interventions, coordinator planning, claim/lease
-bookkeeping + recovery, the read-only Board/Graph UI, the automatic
-specialist claim→turn→accept dispatch loop (T034), a real per-workflow
-git worktree with `coder` actually able to edit files (T041), verifier-
-finding routing into remediation/escalation cards (T051), gate/
-escalation/child_work/delivery projection (T067 partial), enforced-or-
-optional task decomposition (T068), automatic delivery on a clean
-verification (T069), **and now bounded CI-failure repair — the board's
-first periodic external-provider poll loop, reusing the plain
-`implementation`/`coordinator_review` card kinds T051 already
-established rather than needing any new card-state or card-kind
-vocabulary (T052)** are all solid and tested.
+tests). The old fixed six-step driver is fully removed (commits
+`33628b4` backend, `3fc281c` frontend, `483dda2` docs); the board
+domain's data model, intake/quarantine, gates/interventions, coordinator
+planning, claim/lease bookkeeping + recovery, the read-only Board/Graph
+UI, the automatic specialist claim→turn→accept dispatch loop (T034), a
+real per-workflow git worktree with `coder` actually able to edit files
+(T041), verifier-finding routing into remediation/escalation cards
+(T051), gate/escalation/child_work/delivery projection (T067 partial),
+enforced-or-optional task decomposition (T068), automatic delivery on a
+clean verification (T069), and bounded CI-failure repair via the
+board's first periodic external-provider poll loop (T052) are all solid
+and tested.
 
-**1 task remains open.** Its note has the exact finding:
+**T067 is the one task left, and it is effectively closed as
+intentionally deferred rather than actively in-progress** — investigated
+2026-09-27 (see its own note): `kind="approved_artifact"`'s real trigger
+(resolving a `prd_gate`/`refinement_gate`) is blocked on a genuine
+missing prerequisite — nothing in spec 026 as built ever creates either
+gate kind at all. Closing that gap means first deciding whether/how a
+role proposes a PRD or refinement document needing its own approval
+distinct from `understanding_gate` — a new user story, not a wiring
+task. **Recommend treating spec 026 as complete with this gap
+documented**, and scoping PRD/refinement-gate creation as its own
+follow-up spec if still wanted, rather than reopening T067's original
+"identify the call site" framing.
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T067** | 9 (US7) | Partial — only `kind="approved_artifact"` remains; no card kind or call site for it has been identified yet. |
-
-See T067's own note below for specifics before starting.
+| **T067** | 9 (US7) | Partial by design, not by oversight — see its own note for the missing prerequisite and the recommended path forward. |
 
 ## Phase 1: Setup
 
@@ -573,11 +577,32 @@ public cleanup only sees recorded Kestrel-owned resources.
   verification's `delivery` card projects `"Delivered: {location}"`
   (a change-request URL, or a local-branch note) once pushed.
 
-  **Still not done**: `kind="approved_artifact"` — no card kind or call
-  site for it has been identified yet (unlike the other four, which each
-  had an obvious upstream event to hang off). `lifecycle.py` stays
-  deleted with no replacement; `notifications.py` still produces
-  nothing.
+  **Still not done, and investigated 2026-09-27 — blocked on a missing
+  prerequisite, not an unidentified design question**: `kind=
+  "approved_artifact"`. FR-033 never defines the term itself, but
+  `HumanGateRecord.target_artifact_id`'s own docstring ("e.g. the PRD
+  revision a `prd_gate` approves") and the old deleted driver's PRD-
+  approval flow (`git show 33628b4^:backend/app/services/workflows/
+  driver/__init__.py`'s `_publish_refined`, which pushed the *content*
+  of an approved PRD to the task source, not just a status comment) both
+  point at the same trigger: resolving a `prd_gate` (or `refinement_gate`)
+  card. The blocker: **nothing in the new board architecture ever
+  creates a `PRD_GATE` or `REFINEMENT_GATE` card** — both kinds exist in
+  `CardKind`/`GATE_CARD_KINDS` and `quickstart.md` still describes
+  driving work to them, but no coordinator prompt, specialist, or
+  dispatch path in spec 026 as built ever proposes one; only
+  `understanding_gate` and `decomposition_gate` are ever created. `trust=
+  "operator_approved"` is likewise a documented `HandoffArtifact` value
+  (`models_board_records.py`) that no code path ever sets. Building
+  `kind="approved_artifact"` for real would mean first deciding whether/
+  how a `pm`-or-similar role proposes a PRD or refinement document that
+  needs its own human approval distinct from `understanding_gate` — a
+  new user story, not a wiring task, and out of scope for what's left of
+  spec 026. Recommend treating spec 026 as complete with this gap
+  explicitly documented, and scoping PRD/refinement-gate creation (if
+  still wanted) as its own follow-up spec rather than folding it into
+  T067. `lifecycle.py` stays deleted with no replacement;
+  `notifications.py` still produces nothing.
 - [x] T068 [US7] **Done 2026-09-27**, after a design conversation with the
   user (not a solo engineering guess — see the git history around this
   commit for the discussion). Deliberately simplified from the old
