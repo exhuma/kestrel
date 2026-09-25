@@ -29,6 +29,7 @@ vi.mock('../../src/composables/useBoard', () => ({
     select: mockSelect,
     stop: mockStop,
     applyIntervention: vi.fn(),
+    resolveQuarantine: vi.fn(),
   }),
 }))
 
@@ -47,6 +48,7 @@ function card(overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
     dependency_count: 0,
     latest_artifact: null,
     allowed_actions: [],
+    security_review_id: null,
     ...overrides,
   }
 }
@@ -138,7 +140,13 @@ describe('WorkBoard state grouping', () => {
 describe('WorkBoard selection', () => {
   it('selecting a workflow calls select with its id', async () => {
     state.workflows.value = [
-      { id: 'wf-1', task_label: 'o/r#1', status: 'active', state_counts: {}, action_required_count: 0 },
+      {
+        id: 'wf-1',
+        task_label: 'o/r#1',
+        status: 'active',
+        state_counts: {},
+        action_required_count: 0,
+      },
     ]
     const wrapper = mountBoard()
     await wrapper.findComponent({ name: 'VListItem' }).trigger('click')
@@ -146,12 +154,16 @@ describe('WorkBoard selection', () => {
   })
 
   it('selecting a card opens its detail panel', async () => {
-    state.current.value = snapshot({ cards: [card({ title: 'Investigate the bug' })] })
+    state.current.value = snapshot({
+      cards: [card({ title: 'Investigate the bug' })],
+    })
     const wrapper = mountBoard()
     const cardItem = wrapper
       .findAllComponents({ name: 'VListItem' })
       .find((item) => item.text().includes('Investigate the bug'))
     await cardItem!.trigger('click')
-    expect(wrapper.findComponent({ name: 'WorkCardDetail' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'WorkCardDetail' }).exists()).toBe(
+      true,
+    )
   })
 })

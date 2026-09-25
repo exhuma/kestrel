@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { withVuetify } from '../support/vuetify'
 import WorkflowGraph from '../../src/components/WorkflowGraph.vue'
-import type { WorkCardRelation, WorkCardSummary } from '../../src/types/workflows'
+import type {
+  WorkCardRelation,
+  WorkCardSummary,
+} from '../../src/types/workflows'
 
 // Vue Flow needs real DOM dimensions to render its node/edge elements
 // (it culls anything outside the measured viewport), which jsdom/happy-dom
@@ -11,7 +14,10 @@ import type { WorkCardRelation, WorkCardSummary } from '../../src/types/workflow
 // DOM. The projection itself (which nodes/edges exist, their layout) is
 // covered by boardGraph.test.ts.
 
-function card(id: string, overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
+function card(
+  id: string,
+  overrides: Partial<WorkCardSummary> = {},
+): WorkCardSummary {
   return {
     id,
     title: id,
@@ -24,19 +30,24 @@ function card(id: string, overrides: Partial<WorkCardSummary> = {}): WorkCardSum
     dependency_count: 0,
     latest_artifact: null,
     allowed_actions: [],
+    security_review_id: null,
     ...overrides,
   }
 }
 
 function dependency(cardId: string, dependsOnCardId: string): WorkCardRelation {
-  return { card_id: cardId, depends_on_card_id: dependsOnCardId, kind: 'dependency' }
+  return {
+    card_id: cardId,
+    depends_on_card_id: dependsOnCardId,
+    kind: 'dependency',
+  }
 }
 
-function mountGraph(cards: WorkCardSummary[], relationships: WorkCardRelation[] = []) {
-  return mount(
-    WorkflowGraph,
-    withVuetify({ props: { cards, relationships } }),
-  )
+function mountGraph(
+  cards: WorkCardSummary[],
+  relationships: WorkCardRelation[] = [],
+) {
+  return mount(WorkflowGraph, withVuetify({ props: { cards, relationships } }))
 }
 
 describe('WorkflowGraph projection wiring', () => {
@@ -51,7 +62,9 @@ describe('WorkflowGraph projection wiring', () => {
     const wrapper = mountGraph([card('a'), card('b')], [dependency('b', 'a')])
     const flow = wrapper.findComponent({ name: 'VueFlow' })
     const edges = flow.props('edges') as { source: string; target: string }[]
-    expect(edges).toEqual([expect.objectContaining({ source: 'a', target: 'b' })])
+    expect(edges).toEqual([
+      expect.objectContaining({ source: 'a', target: 'b' }),
+    ])
   })
 
   it('marks itself read-only via an application role', () => {

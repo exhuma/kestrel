@@ -5,6 +5,9 @@ import type {
   BoardSnapshot,
   BoardWorkflowSummary,
   CardAction,
+  QuarantineAction,
+  QuarantineResolutionRequest,
+  SecurityReviewOut,
   WorkCardSummary,
 } from '../types/workflows'
 
@@ -134,6 +137,28 @@ async function applyIntervention(
   }
 }
 
+// Release/discard live on the dedicated security-review endpoint, not the
+// generic interventions route (see routers/board.py) — the server ticks
+// the workflow's SSE stream itself, so this just posts and lets the
+// already-open detail stream (see openDetailStream) refresh `current`.
+async function resolveQuarantine(
+  reviewId: string,
+  action: QuarantineAction,
+): Promise<boolean> {
+  error.value = null
+  try {
+    const body: QuarantineResolutionRequest = { action }
+    await api.post<SecurityReviewOut>(
+      `/api/board/security-reviews/${reviewId}/resolve`,
+      body,
+    )
+    return true
+  } catch (e) {
+    error.value = describe(e)
+    return false
+  }
+}
+
 export function useBoard() {
   return {
     workflows,
@@ -147,5 +172,6 @@ export function useBoard() {
     select,
     stop,
     applyIntervention,
+    resolveQuarantine,
   }
 }

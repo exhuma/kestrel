@@ -9,6 +9,7 @@ export interface SecurityReviewOut {
   card_id: string
   workflow_id: string
   classification_category: string
+  reason: string | null
   review_state: 'pending' | 'released' | 'discarded'
   resolution: string | null
 }
@@ -16,6 +17,12 @@ export interface SecurityReviewOut {
 /** Action names match the board-api.md `CardAction` vocabulary. Mirrors
  *  `app.schemas.QuarantineInterventionIn`. */
 export type QuarantineAction = 'release_quarantine' | 'discard_quarantine'
+
+/** Request body for `POST /api/board/security-reviews/{id}/resolve`.
+ *  Mirrors `app.schemas.QuarantineInterventionIn`. */
+export interface QuarantineResolutionRequest {
+  action: QuarantineAction
+}
 
 /** The universal card states (board-api.md `CardState`). */
 export const CARD_STATES = [
@@ -85,6 +92,10 @@ export interface WorkCardSummary {
   dependency_count: number
   latest_artifact: BoardArtifactRef | null
   allowed_actions: CardAction[]
+  /** The pending review this `security_review` card gates, when it has
+   *  one — release/discard address `/api/board/security-reviews/{id}/
+   *  resolve` directly, not the generic interventions route. */
+  security_review_id: string | null
 }
 
 /** One directed edge in a workflow's card graph. Mirrors

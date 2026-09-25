@@ -5,7 +5,7 @@ import type { CardAction, WorkCardSummary } from '../types/workflows'
 
 const props = defineProps<{ card: WorkCardSummary }>()
 
-const { applyIntervention } = useBoard()
+const { applyIntervention, resolveQuarantine } = useBoard()
 
 const STATE_LABELS: Record<string, string> = {
   ready: 'Ready',
@@ -38,6 +38,21 @@ async function runAction(action: CardAction, decision?: string): Promise<void> {
   const message = CONFIRM_MESSAGES[action]
   if (message && !confirm(message)) return
   await applyIntervention(props.card.id, action, decision)
+}
+
+const canResolveQuarantine = computed(
+  () =>
+    props.card.state === 'quarantined' &&
+    props.card.security_review_id !== null,
+)
+
+async function runQuarantineAction(
+  action: 'release_quarantine' | 'discard_quarantine',
+  message: string,
+): Promise<void> {
+  const reviewId = props.card.security_review_id
+  if (!reviewId || !confirm(message)) return
+  await resolveQuarantine(reviewId, action)
 }
 
 const ACTION_LABELS: Record<CardAction, string> = {
@@ -104,7 +119,9 @@ const canResolveGate = computed(() =>
       </div>
     </v-card-text>
 
-    <v-card-actions v-if="card.allowed_actions.length > 0">
+    <v-card-actions
+      v-if="card.allowed_actions.length > 0 || canResolveQuarantine"
+    >
       <v-btn
         v-for="action in nonGateActions"
         :key="action"
@@ -130,6 +147,34 @@ const canResolveGate = computed(() =>
           @click="runAction('resolve_gate', 'rejected')"
         >
           Reject
+        </v-btn>
+      </template>
+      <template v-if="canResolveQuarantine">
+        <v-btn
+          size="small"
+          color="success"
+          variant="tonal"
+          @click="
+            runQuarantineAction(
+              'release_quarantine',
+              'Release this content from quarantine? It will be treated as trusted.',
+            )
+          "
+        >
+          Release
+        </v-btn>
+        <v-btn
+          size="small"
+          color="error"
+          variant="tonal"
+          @click="
+            runQuarantineAction(
+              'discard_quarantine',
+              'Discard this quarantined content? This cannot be undone.',
+            )
+          "
+        >
+          Discard
         </v-btn>
       </template>
     </v-card-actions>

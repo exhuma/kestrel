@@ -206,6 +206,12 @@ class QuarantineService:
                 reason="classification failed",
             )
 
+    def review_for_card(self, card_id: str) -> SecurityReviewRecord | None:
+        """Return the review gating *card_id*, if any (board-view lookup —
+        lets the frontend address ``/security-reviews/{id}/resolve``
+        without the card DTO carrying anything unsafe)."""
+        return self._store.find_review_for_card(card_id)
+
     def release(self, review_id: str) -> SecurityReviewRecord | None:
         """Release a pending review: its content may now be trusted."""
         return self._store.resolve_review(review_id, "released")

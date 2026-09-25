@@ -126,6 +126,21 @@ class BoardQuarantineStore:
             card = db.get(BoardCardRow, row.card_id)
             return _row_to_review(row, card.workflow_id)
 
+    def find_review_for_card(
+        self, card_id: str
+    ) -> SecurityReviewRecord | None:
+        """Return the review gating *card_id*, if any (board-view lookup)."""
+        with self._factory() as db:
+            row = db.scalar(
+                select(BoardSecurityReviewRow).where(
+                    BoardSecurityReviewRow.card_id == card_id
+                )
+            )
+            if row is None:
+                return None
+            card = db.get(BoardCardRow, row.card_id)
+            return _row_to_review(row, card.workflow_id)
+
     def quarantine(
         self, request: QuarantineRequest, *, now: datetime | None = None
     ) -> SecurityReviewRecord:

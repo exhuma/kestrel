@@ -42,6 +42,8 @@ class BoardLookups:
     roster: SpecialistRoster
     leases: dict[str, ClaimLease]
     latest_artifacts: dict[str, HandoffArtifact]
+    #: card_id -> review id, populated only for ``security_review`` cards.
+    security_review_ids: dict[str, str]
 
 
 def state_counts(cards: list[WorkCard]) -> dict[str, int]:
@@ -118,6 +120,7 @@ def card_summary(
         dependency_count=dependency_count,
         latest_artifact=_artifact_ref(lookups.latest_artifacts.get(card.id)),
         allowed_actions=[a.value for a in allowed_actions_for(card)],
+        security_review_id=lookups.security_review_ids.get(card.id),
     )
 
 

@@ -70,7 +70,12 @@ def _card(card_id: str = "card-1", **overrides: object) -> WorkCard:
 
 
 def _empty_lookups() -> BoardLookups:
-    return BoardLookups(roster=_ROSTER, leases={}, latest_artifacts={})
+    return BoardLookups(
+        roster=_ROSTER,
+        leases={},
+        latest_artifacts={},
+        security_review_ids={},
+    )
 
 
 class TestStateCounts:
@@ -132,12 +137,33 @@ class TestCardSummary:
             expires_at=datetime.now(timezone.utc),
         )
         lookups = BoardLookups(
-            roster=_ROSTER, leases={"card-1": lease}, latest_artifacts={}
+            roster=_ROSTER,
+            leases={"card-1": lease},
+            latest_artifacts={},
+            security_review_ids={},
         )
         summary = card_summary(_card(state="claimed"), [], lookups)
         assert summary.owner.specialist_id == "developer"
         assert summary.owner.label == "Developer"
         assert summary.lease.attempt == 1
+
+    def test_security_review_id_is_surfaced_for_a_quarantine_card(
+        self,
+    ) -> None:
+        lookups = BoardLookups(
+            roster=_ROSTER,
+            leases={},
+            latest_artifacts={},
+            security_review_ids={"card-1": "review-1"},
+        )
+        summary = card_summary(
+            _card(kind="security_review", state="quarantined"), [], lookups
+        )
+        assert summary.security_review_id == "review-1"
+
+    def test_security_review_id_is_absent_for_an_ordinary_card(self) -> None:
+        summary = card_summary(_card(), [], _empty_lookups())
+        assert summary.security_review_id is None
 
     def test_dependency_count_only_counts_dependency_kind_relations(
         self,
@@ -160,7 +186,10 @@ class TestCardSummary:
             trust="agent_output",
         )
         lookups = BoardLookups(
-            roster=_ROSTER, leases={}, latest_artifacts={"card-1": artifact}
+            roster=_ROSTER,
+            leases={},
+            latest_artifacts={"card-1": artifact},
+            security_review_ids={},
         )
         summary = card_summary(_card(), [], lookups)
         assert summary.latest_artifact.id == "artifact-1"

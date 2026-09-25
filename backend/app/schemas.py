@@ -103,6 +103,11 @@ class WorkCardSummaryOut(BaseModel):
         relationship list.
     :param allowed_actions: This card's currently valid interventions
         (``app.services.board.interventions.allowed_actions_for``).
+    :param security_review_id: The pending review this ``security_review``
+        card gates, when it has one — lets the frontend address
+        ``POST /security-reviews/{id}/resolve`` (release/discard-quarantine
+        stay off ``allowed_actions``/``interventions``, see
+        ``app.services.board.interventions``).
     """
 
     id: str
@@ -116,6 +121,7 @@ class WorkCardSummaryOut(BaseModel):
     dependency_count: int
     latest_artifact: BoardArtifactRefOut | None = None
     allowed_actions: list[str]
+    security_review_id: str | None = None
 
 
 class WorkCardRelationOut(BaseModel):

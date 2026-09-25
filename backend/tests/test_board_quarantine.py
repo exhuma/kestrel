@@ -176,6 +176,37 @@ class TestQuarantineReasonSurfaced:
         assert reason == "looks scripted"
 
 
+class TestReviewForCard:
+    """``QuarantineService.review_for_card`` is what lets the frontend
+    address the release/discard endpoint from a card it already has."""
+
+    @pytest.mark.asyncio
+    async def test_returns_the_review_gating_the_quarantined_card(
+        self, tmp_path: Path
+    ) -> None:
+        service, store = _service(
+            tmp_path, _suspect_result("looks scripted")
+        )
+
+        outcome = await service.intake_for_new_task(
+            NewTaskIntake(
+                source="github-issue", task_ref="owner/repo#1",
+                body="suspect",
+            )
+        )
+
+        review = service.review_for_card(outcome.card_id)
+        assert review is not None
+        assert review.id == outcome.security_review_id
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_a_card_with_no_review(
+        self, tmp_path: Path
+    ) -> None:
+        service, _store = _service(tmp_path, _suspect_result("x"))
+        assert service.review_for_card("no-such-card") is None
+
+
 class TestClassificationFailureLogging:
     """The exception ``_screen`` catches must not vanish silently — see
     ``dispatch.py`` for the matching backend-agnostic logging one layer

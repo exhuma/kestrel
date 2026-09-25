@@ -69,6 +69,7 @@ async def resolve_security_review(
     review_id: str,
     body: QuarantineInterventionIn,
     quarantine: QuarantineService = Depends(get_quarantine_service),
+    bus: WorkflowBus = Depends(get_workflow_bus),
 ) -> SecurityReviewOut:
     """Release or discard a pending quarantine review.
 
@@ -87,6 +88,11 @@ async def resolve_security_review(
         raise HTTPException(
             status_code=404, detail="unknown security review"
         )
+    # Unlike ordinary interventions, resolve/discard bypasses BoardService
+    # (quarantine may not have a hosting workflow's cards to route through)
+    # and so never ticks the bus on its own — without this, the board and
+    # card detail SSE streams would never reflect the resolved state.
+    bus.publish(review.workflow_id)
     return SecurityReviewOut(
         id=review.id,
         card_id=review.card_id,
@@ -106,6 +112,7 @@ class _BoardReadDeps:
     roster: SpecialistRoster
     claims_store: BoardClaimsStore
     artifact_store: BoardArtifactStore
+    quarantine: QuarantineService
 
 
 def _board_read_deps(
@@ -113,13 +120,17 @@ def _board_read_deps(
     roster: SpecialistRoster = Depends(get_specialist_roster),
     claims_store: BoardClaimsStore = Depends(get_board_claims_store),
     artifact_store: BoardArtifactStore = Depends(get_board_artifact_store),
+    quarantine: QuarantineService = Depends(get_quarantine_service),
 ) -> _BoardReadDeps:
-    return _BoardReadDeps(board, roster, claims_store, artifact_store)
+    return _BoardReadDeps(
+        board, roster, claims_store, artifact_store, quarantine
+    )
 
 
 def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
     leases: dict[str, ClaimLease] = {}
     latest: dict[str, HandoffArtifact] = {}
+    security_review_ids: dict[str, str] = {}
     for card in cards:
         lease = deps.claims_store.get_active_lease(card.id)
         if lease is not None:
@@ -127,8 +138,15 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
         artifacts = deps.artifact_store.list_for_card(card.id)
         if artifacts:
             latest[card.id] = max(artifacts, key=lambda a: a.revision)
+        if card.kind == CardKind.SECURITY_REVIEW.value:
+            review = deps.quarantine.review_for_card(card.id)
+            if review is not None:
+                security_review_ids[card.id] = review.id
     return BoardLookups(
-        roster=deps.roster, leases=leases, latest_artifacts=latest
+        roster=deps.roster,
+        leases=leases,
+        latest_artifacts=latest,
+        security_review_ids=security_review_ids,
     )
 
 

@@ -28,7 +28,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function snapshot(id: string, overrides: Partial<BoardSnapshot> = {}): BoardSnapshot {
+function snapshot(
+  id: string,
+  overrides: Partial<BoardSnapshot> = {},
+): BoardSnapshot {
   return {
     id,
     revision: 1,
@@ -54,6 +57,7 @@ function card(overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
     dependency_count: 0,
     latest_artifact: null,
     allowed_actions: [],
+    security_review_id: null,
     ...overrides,
   }
 }
@@ -101,7 +105,8 @@ describe('useBoard select', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () => new Response(JSON.stringify(snapshot('wf-1')), { status: 200 }),
+        async () =>
+          new Response(JSON.stringify(snapshot('wf-1')), { status: 200 }),
       ),
     )
     const { select, current } = useBoard()
@@ -132,7 +137,8 @@ describe('useBoard select', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () => new Response(JSON.stringify(snapshot('wf-1')), { status: 200 }),
+        async () =>
+          new Response(JSON.stringify(snapshot('wf-1')), { status: 200 }),
       ),
     )
     const { select, stop } = useBoard()
@@ -196,5 +202,50 @@ describe('useBoard applyIntervention', () => {
     const { applyIntervention } = useBoard()
     const result = await applyIntervention('card-1', 'cancel')
     expect(result).toBeNull()
+  })
+})
+
+describe('useBoard resolveQuarantine', () => {
+  it('posts the action to the review-specific endpoint', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        expect(url).toContain('/api/board/security-reviews/review-1/resolve')
+        return new Response(
+          JSON.stringify({
+            id: 'review-1',
+            card_id: 'card-1',
+            workflow_id: 'wf-1',
+            classification_category: 'prompt_injection',
+            reason: 'looks scripted',
+            review_state: 'released',
+            resolution: 'released',
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+    const { resolveQuarantine } = useBoard()
+
+    const ok = await resolveQuarantine('review-1', 'release_quarantine')
+
+    expect(ok).toBe(true)
+    const fetchMock = vi.mocked(fetch)
+    const lastCall = fetchMock.mock.calls.at(-1)
+    const body = JSON.parse((lastCall?.[1]?.body as string) ?? '{}')
+    expect(body).toEqual({ action: 'release_quarantine' })
+  })
+
+  it('surfaces a request failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404 })),
+    )
+    const { resolveQuarantine, error } = useBoard()
+
+    const ok = await resolveQuarantine('missing', 'discard_quarantine')
+
+    expect(ok).toBe(false)
+    expect(error.value).toBe('Request failed (404)')
   })
 })

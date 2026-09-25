@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { projectBoardGraph } from '../../src/lib/boardGraph'
-import type { WorkCardRelation, WorkCardSummary } from '../../src/types/workflows'
+import type {
+  WorkCardRelation,
+  WorkCardSummary,
+} from '../../src/types/workflows'
 
-function card(id: string, overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
+function card(
+  id: string,
+  overrides: Partial<WorkCardSummary> = {},
+): WorkCardSummary {
   return {
     id,
     title: id,
@@ -15,12 +21,17 @@ function card(id: string, overrides: Partial<WorkCardSummary> = {}): WorkCardSum
     dependency_count: 0,
     latest_artifact: null,
     allowed_actions: [],
+    security_review_id: null,
     ...overrides,
   }
 }
 
 function dependency(cardId: string, dependsOnCardId: string): WorkCardRelation {
-  return { card_id: cardId, depends_on_card_id: dependsOnCardId, kind: 'dependency' }
+  return {
+    card_id: cardId,
+    depends_on_card_id: dependsOnCardId,
+    kind: 'dependency',
+  }
 }
 
 describe('projectBoardGraph nodes', () => {

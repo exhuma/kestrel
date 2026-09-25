@@ -19,14 +19,16 @@ before beginning story phases.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
 ## Status (2026-09-27, after Phase 10 clean break + T034 + T041 + T051 +
-T068 + T069 + T052 + T067 + T078 + T079 — spec 026 is complete)
+T068 + T069 + T052 + T067 + T078 + T079 + T080 — spec 026 is complete)
 
-79/79 tasks fully verified `[x]` complete against actual code — not just
+80/80 tasks fully verified `[x]` complete against actual code — not just
 checked off, every one confirmed by reading/grepping the current source
-or, for T034/T041/T051/T068/T069/T052/T078/T079, by writing and passing
-new tests (T078 and T079 were both added mid-session, on top of the
-original 77 — T079 from the user's own local POC feedback). The old
-fixed six-step driver is fully removed (commits
+or, for T034/T041/T051/T068/T069/T052/T078/T079/T080, by writing and
+passing new tests (T078, T079, and T080 were all added mid-session, on
+top of the original 77 — T079 and T080 both from the user's own local
+POC feedback, T080 a direct follow-on to T079: fixing "why was I
+quarantined" surfaced that "release me from quarantine" had no button
+either). The old fixed six-step driver is fully removed (commits
 `33628b4` backend, `3fc281c` frontend, `483dda2` docs); the board
 domain's data model, intake/quarantine, gates/interventions, coordinator
 planning, claim/lease bookkeeping + recovery, the read-only Board/Graph
@@ -36,10 +38,12 @@ real per-workflow git worktree with `coder` actually able to edit files
 (T051), all five FR-033 milestone kinds projecting to the task source
 (T067), enforced-or-optional task decomposition (T068), automatic
 delivery on a clean verification (T069), bounded CI-failure repair via
-the board's first periodic external-provider poll loop (T052), and a
+the board's first periodic external-provider poll loop (T052), a
 refinement-interview + PRD-approval gate — the last of the originally
 envisioned human gates, closing T067's final projection kind as a side
-effect (T078) — are all solid and tested.
+effect (T078) — and operator release/discard-from-quarantine buttons
+that call an endpoint that had existed since T021 but was never wired
+into the UI (T080) — are all solid and tested.
 
 T067's `kind="approved_artifact"` gap (previously the one open item,
 tracked as "blocked on a missing prerequisite — nothing creates a
@@ -763,7 +767,7 @@ public cleanup only sees recorded Kestrel-owned resources.
   `test_migrations.py`.
 - [x] T079 [US1] **Done 2026-09-27**, reported directly by the user
   running their own local POC: a quarantined task gave no indication of
-  *why*, even though release/discard was already available. Root cause:
+  *why*. Root cause:
   `ClassificationResult.reason` (the classifier's own short, safe
   explanation) was computed at `quarantine.py::_screen` but silently
   dropped in `_intake` — never passed into `QuarantineRequest`, no
@@ -780,6 +784,36 @@ public cleanup only sees recorded Kestrel-owned resources.
   backend tests: LLM-classified and deterministic oversized rejections,
   both intake paths) and a new frontend test in
   `WorkCardDetail.test.ts`.
+- [x] T080 [US1] **Done 2026-09-27**. While explaining T079, the user
+  asked where the "release from quarantine" button was — it turned out
+  there wasn't one: `POST /security-reviews/{id}/resolve` existed
+  (T021) and worked, but nothing in the frontend ever called it, and
+  the card DTO the UI receives didn't even carry a `security_review_id`
+  to call it with. Fixed by threading the review id through: new
+  `BoardQuarantineStore.find_review_for_card`/
+  `QuarantineService.review_for_card`, a new `security_review_ids`
+  lookup in `BoardLookups`/`routers/board.py::_lookups` (populated only
+  for `security_review`-kind cards, one query each — cheap, since most
+  cards in a snapshot aren't that kind), and a new
+  `WorkCardSummaryOut.security_review_id` field. `resolve_security_review`
+  now also ticks the `WorkflowBus` on success — it bypasses
+  `BoardService` (a quarantine review may not even have a hosting
+  workflow's cards to route a mutation through) and so never did this
+  itself, meaning the board/card-detail SSE streams would never have
+  reflected a resolved review without it. Frontend: `useBoard.ts` gained
+  `resolveQuarantine(reviewId, action)` against the dedicated endpoint
+  (not the generic `interventions` route — release/discard stay off
+  `CardAction`/`allowed_actions` by design, see
+  `interventions.py`'s own docstring); `WorkCardDetail.vue` renders
+  Release/Discard buttons, mirroring the existing Approve/Reject
+  pattern for `resolve_gate`, gated on
+  `card.state === 'quarantined' && card.security_review_id`. Also fixed
+  a small pre-existing drift found while touching this: the frontend's
+  `SecurityReviewOut` TS type was missing the `reason` field T079 added
+  to the backend schema. Covered by new tests in
+  `test_board_views.py`, `test_board_quarantine.py`
+  (`review_for_card`), `WorkCardDetail.test.ts`, and
+  `useBoard.test.ts`.
 
 **Checkpoint**: Task sources carry approvals, material blockers, artifacts,
 child work, and delivery outcomes without becoming a noisy board mirror.
