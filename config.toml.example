@@ -80,6 +80,12 @@ board_artifacts_root = "./.kestrel-board-artifacts"
 # Off by default (trust the coordinator's own judgment); a task Kestrel
 # itself published as a decomposition child is always exempt.
 board_decomposition_required = false
+# Enable the temporary /api/board/workflows/{id}/dev/{cleanup,rerun}
+# routes, for repeating a local-task-source dry run without restarting
+# kestrel. Off by default; restricted to private-visibility workflows
+# regardless. Meant to be deleted, not hardened, once the board is
+# production-ready — see app/services/board/dev_reset.py.
+board_dev_actions_enabled = false
 
 # Optional, stateless OpenAI-compatible feedback translation. It is not a
 # workflow backend. Keep its credential in the named environment variable.

@@ -141,7 +141,7 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: no task-source write-back or delivery yet
+### Current gap: no CI-repair loop or approved-artifact write-back yet
 
 Everything above through gate/intervention resolution is live, and so is
 the automatic specialist dispatch loop (spec 026 T034):
@@ -243,38 +243,72 @@ setting. See `tests/test_board_decomposition.py`,
 `tests/test_board_gates.py::TestDecompositionEnforcement`, and
 `tests/test_board_coordinator.py::TestDecompositionEnforcement`.
 
+**As of 2026-09-27, a clean verification delivers itself** (spec 026
+T069): `route_verifier_result`'s result now also reports whether the
+verifier's turn found nothing at all (`VerificationRouting.clean`) —
+not even a remediation-worthy nonconformance. When it did, the
+coordinator creates a `delivery` card the same way T051's remediation/
+escalation cards are created (system-computed, not LLM-proposed, but
+still routed through `CoordinatorService.apply_actions`). Every dispatch
+pass then attempts any `ready` `delivery` card
+(`dispatch_ready.py::_dispatch_pending_delivery`): it pushes the
+workflow's worktree branch (`WorkspaceService.push`, new) and opens a
+*draft* change request (`CodeHost.open_change_request` — unused since
+the driver's deletion, needed no changes), then projects
+`kind="delivery"` (T067's last real gap). Unlike `decomposition_gate`,
+this is deliberately **not** human-gated: publishing kestrel's own
+worktree branch as a draft PR is low-risk and reversible, so the
+verification's own pass/fail is trusted as the gate.
+
+A **temporary, dev-only** pair of actions also now exists for repeating
+a local dry run without restarting kestrel or hand-editing the database
+(`app/services/board/dev_reset.py`, `app/routers/board_dev.py`): cleanup
+cancels a workflow's open cards, revokes active claims, and tears down
+its workspace; rerun layers cleanup with a fresh `understanding_gate` on
+the same workflow row. Gated behind `board_dev_actions_enabled` (off by
+default — the routes don't exist unless it's on) and, regardless of the
+flag, restricted to a `private`-visibility workflow, the same safety
+property the old deleted `workflows/reset.py`'s own `rerun` enforced.
+Meant to be deleted outright once the board is production-ready, not
+hardened — see the module's own docstring before extending it. Abandon
+only blocks *new* dispatch, not an already-running specialist turn:
+nothing in the dispatch loop retains a cancellable handle for one (see
+below), so an in-flight turn simply finishes and its result is discarded
+against the now-cancelled card.
+
 What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
 operator should not expect today:
 
-- **Delivery: pushing a coder's verified work, or opening a change
-  request.** A coder's commits stay local to its worktree even after a
-  clean verification. Also not built: CI-pipeline-specific evidence/repair
-  cards (tasks.md T052) — distinct from T051's verifier-finding routing,
-  which covers a verifier's own findings (code review/local test run
-  style) regardless of any CI system.
-- **Write-back for approved-artifact or delivery.** Gate, escalation, and
-  child-work project (above); these two FR-033 milestone kinds are not yet
-  wired to `post_projection`. In practice this still means: no status
-  labels or Jira transitions are applied as a workflow progresses
+- **CI-pipeline-specific evidence/repair cards** (tasks.md T052) —
+  distinct from T051's verifier-finding routing, which covers a
+  verifier's own findings (code review/local test run style) regardless
+  of any CI system. No longer blocked on a missing prerequisite (a
+  change request exists once delivery runs) but still unbuilt: nothing
+  tracks a workflow's change-request number yet, and no card kind or
+  dispatch step polls CI status or creates a repair card on failure.
+- **Write-back for approved-artifact.** Gate, escalation, child-work, and
+  delivery all project now (above); this last FR-033 milestone kind is
+  not yet wired to `post_projection`, and no card kind or call site for
+  it has been identified. In practice this still means: no status labels
+  or Jira transitions are applied as a workflow progresses
   (`app/notifications.py`'s own docstring: "nothing currently produces a
   Notification row"); no `hooks_dir` executable is ever invoked (only the
   startup audit-log pass runs); no comment-based feedback steering (the
   old `@kestrel` marker mechanism was deleted with the driver and has no
   board-domain replacement); the optional translation backing service has
-  no caller; and there is no **rerun** action (the endpoint that
-  implemented it was deleted along with the fixed driver's router — see
-  the constitution's access-model third constraint) and no **cleanup**
-  action.
+  no caller.
 - Practically, this means a configured GitHub/Jira/local source today
   creates a board **Workflow** and its initial cards on a qualifying task
   (after quarantine screening); specialist cards then progress
-  automatically, including a `coder` role committing real file edits to its
-  own local worktree branch, and human gates/interventions still happen
-  only in the Kestrel web UI. None of it is ever reported back to the
-  ticket itself, and no coder's commits ever leave their local worktree —
-  the operator has to look at Kestrel, not the source or a PR, to see
-  progress.
+  automatically, including a `coder` role committing real file edits to
+  its own local worktree branch, and human gates/interventions still
+  happen only in the Kestrel web UI. Gate decisions, escalations,
+  published child tickets, and a clean verification's delivery all now
+  get reported back to the ticket itself (T067/T068/T069); what an
+  operator still can't see from the source or a PR alone is anything
+  short of those milestones — day-to-day card-by-card progress is still
+  Kestrel-UI-only.
 
 ## Design trade-offs
 

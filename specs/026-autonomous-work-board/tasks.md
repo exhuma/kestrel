@@ -19,38 +19,36 @@ before beginning story phases.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
 ## Status (2026-09-27, after Phase 10 clean break + T034 + T041 + T051 +
-T068 + partial T067 [gate + escalation + child_work])
+T068 + T069 + partial T067 [gate + escalation + child_work + delivery])
 
-74/77 tasks fully verified `[x]` complete against actual code (not just
+75/77 tasks fully verified `[x]` complete against actual code (not just
 checked off — every one confirmed by reading/grepping the current source
-or, for T034/T041/T051/T068, by writing and passing new tests); **T067
-remains partially done** (still `[ ]`, see its own note — gate,
-escalation, and child_work decisions project to the task source;
-approved-artifact and delivery don't yet). The old fixed six-step driver
-is fully removed (commits `33628b4` backend, `3fc281c` frontend,
+or, for T034/T041/T051/T068/T069, by writing and passing new tests);
+**T067 remains partially done** (still `[ ]`, see its own note — gate,
+escalation, child_work, and delivery decisions all project to the task
+source now; only approved-artifact doesn't yet). The old fixed six-step
+driver is fully removed (commits `33628b4` backend, `3fc281c` frontend,
 `483dda2` docs); the board domain's data model, intake/quarantine,
 gates/interventions, coordinator planning, claim/lease bookkeeping +
 recovery, the read-only Board/Graph UI, the automatic specialist
 claim→turn→accept dispatch loop (T034), a real per-workflow git worktree
 with `coder` actually able to edit files (T041), verifier-finding
-routing into remediation/escalation cards (T051), gate/escalation
-projection (T067 partial), **and now enforced-or-optional task
-decomposition — a `pm` proposal, human-gated, published as real child
-tickets with a task-vs-subtask loop-breaker (T068)** are all solid and
-tested.
+routing into remediation/escalation cards (T051), gate/escalation/
+child_work/delivery projection (T067 partial), enforced-or-optional task
+decomposition (T068), **and now automatic delivery — a clean
+verification pushes its branch and opens a draft change request, plus a
+temporary, config-gated dev-only cleanup/rerun pair for repeatable local
+dry runs (T069)** are all solid and tested.
 
-**3 tasks remain open.** Each has a `**NOT DONE**`/`**PARTIAL**` note in
+**2 tasks remain open.** Each has a `**NOT DONE**`/`**PARTIAL**` note in
 place with exact findings:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T069** | 9 (US7) | Scope investigated 2026-09-26 — see its own note. More tractable than T068 was, but still real design work: the board's claim/lease/workspace model doesn't map 1:1 onto the deleted `reset.py`'s single-driver-task-per-run assumption. Also where `kind="delivery"` projection belongs (T067's other remaining kind, alongside `approved_artifact`). |
-| **T052** | 7 (US5) | **Blocked on T069**, not just lower priority: CI status is inherently a property of an open change request, and nothing opens one until T069's delivery step exists. |
-| **T067** | 9 (US7) | Partial — `approved_artifact`/`delivery` remain; `delivery` is T069's, `approved_artifact` still needs its own call site (probably where a `prd_gate`/`refinement_gate` approves a revision). |
+| **T052** | 7 (US5) | No longer blocked on a missing prerequisite (T069 now opens a change request on delivery) but still not implemented: nothing tracks a workflow's change-request number yet, and no card kind or dispatch step polls CI status or creates a repair card on failure. |
+| **T067** | 9 (US7) | Partial — only `kind="approved_artifact"` remains; no card kind or call site for it has been identified yet. |
 
-Suggested resume order: **T069** (unblocks T052 and T067's last two
-kinds) **→ T052**. See each task's note below for specifics before
-starting.
+See each task's note below for specifics before starting either.
 
 ## Phase 1: Setup
 
@@ -390,23 +388,23 @@ remediation tests in `backend/tests/test_board_verifier_routing.py`.
   loop) to stay under the 500-line module ceiling.
 
   **Deliberately still out of scope**: pushing/opening a change request
-  once a `coder`'s remediation is verified clean. Nothing currently
-  decides "verification passed, therefore deliver" — a clean verification
-  result (empty findings) creates no follow-up card at all today, so the
-  loop has no explicit "done, ship it" signal yet. That decision point is
-  the natural place to finally add T041's deferred push/PR-open step.
-- [ ] T052 [US5] **Still NOT DONE. Actually blocked on T069, not just
-  lower priority** (confirmed 2026-09-26 reading the deleted
-  `workflows/ci.py`, 55 lines): the old `inspect_required_ci` read
-  `run.pr_number` and called `CodeHost.required_ci_statuses(repo,
-  pr_number, names)` — CI status is inherently a property of an *open
-  change request*, and nothing opens one yet (T041/T069's deferred
-  delivery step). T052 cannot be meaningfully built before that exists.
-  T051 already covers a verifier's own findings (code review/local test
-  run style) independent of any CI system, so a repo without CI (or
-  before delivery is built) already gets real, verified local
-  remediation today; the old driver's `max_ci_repair_iterations` setting
-  still exists in config with no reader.
+  once a `coder`'s remediation is verified clean. **Resolved by T069**
+  (below): a clean verification (empty findings) now creates a
+  `delivery` card that pushes and opens a change request automatically.
+- [ ] T052 [US5] **Still NOT DONE, but no longer blocked on a missing
+  prerequisite** (T069 now opens a change request on delivery, so
+  `CodeHost.required_ci_statuses(repo, pr_number, names)` — read by the
+  old, deleted `workflows/ci.py`'s `inspect_required_ci` — has something
+  to query). Still needs its own work: nothing on the board domain
+  tracks a workflow's change-request number yet (the old driver kept
+  `run.pr_number`; the board's `Workflow`/`delivery` card carry no
+  equivalent field today), and no card kind or dispatch step polls CI
+  status or creates a repair card on failure. T051 already covers a
+  verifier's own findings (code review/local test run style)
+  independent of any CI system, so a repo without CI already gets real,
+  verified local remediation today; the old driver's
+  `max_ci_repair_iterations` setting still exists in config with no
+  reader.
 
 **Checkpoint**: Verification preserves autonomous implementation repair without
 allowing the verifier to extend approved scope.
@@ -487,8 +485,8 @@ public cleanup only sees recorded Kestrel-owned resources.
 - [x] T066 [US7] Implement projection planning, durable idempotency records,
   Kestrel-owned external artifact ledger, and retry handling in
   `backend/app/services/board/projections.py`.
-- [ ] T067 [US7] **PARTIAL (2026-09-26): gate + escalation projection
-  done, two of five FR-033 kinds remain.** New
+- [ ] T067 [US7] **PARTIAL (2026-09-27): gate, escalation, child_work,
+  and delivery projection done; one of five FR-033 kinds remains.** New
   `app/services/board/write_back.py::post_projection`: plans (via
   `projections.py`, T066), posts via `TaskSource.post_comment()`, and
   resolves (`complete`/`fail`) exactly one projection — idempotent by
@@ -529,10 +527,15 @@ public cleanup only sees recorded Kestrel-owned resources.
   `decomposition.py`'s publish step projects one comment per published
   child back to the parent.
 
-  **Still not done**: `kind="approved_artifact"`; `kind="delivery"`
-  (belongs with T069/the push-a-verified-coder's-work gap noted under
-  T041/T051). `lifecycle.py` stays deleted with no replacement;
-  `notifications.py` still produces nothing.
+  **`kind="delivery"`**: done alongside T069 (below) — a clean
+  verification's `delivery` card projects `"Delivered: {location}"`
+  (a change-request URL, or a local-branch note) once pushed.
+
+  **Still not done**: `kind="approved_artifact"` — no card kind or call
+  site for it has been identified yet (unlike the other four, which each
+  had an obvious upstream event to hang off). `lifecycle.py` stays
+  deleted with no replacement; `notifications.py` still produces
+  nothing.
 - [x] T068 [US7] **Done 2026-09-27**, after a design conversation with the
   user (not a solo engineering guess — see the git history around this
   commit for the discussion). Deliberately simplified from the old
@@ -579,25 +582,57 @@ public cleanup only sees recorded Kestrel-owned resources.
   `test_board_decomposition.py`/`test_board_gates.py`/
   `test_board_coordinator.py`/`test_board_service.py`/
   `test_board_input_intake.py`/`test_migrations.py`.
-- [ ] T069 [US7] **NOT DONE — scope investigated 2026-09-26, more
-  tractable than T068 but still real design work.**
-  `workflows/reset.py` (`git show 33628b4^:backend/app/services/
-  workflows/reset.py`, 208 lines) was deleted outright with no
-  replacement — confirmed via the constitution's amendment 1.5.0→1.5.1
-  ("rerun action... removed"). Its `abandon_common` (cancel the driver
-  task, terminate/remove every session attributed to the run's
-  workspace, drop the registry record, tear down the workspace) is the
-  shared core `delete`/`cleanup`/`rerun` each layer on. The board's
-  equivalent state shape differs enough that this isn't a port: there is
-  no single "driver task" per workflow to cancel (work happens via
-  discrete claim/dispatch cycles, not one long-running task), and
-  cleanup now needs to reason about `WorkspaceService`'s worktree/mirror
-  (T041) and the content-addressed artifact store (T039) instead of a
-  single `run.workspace` directory. Also where `kind="delivery"`
-  projection (push/open a change request once verification passes —
-  T041/T051's deferred step) naturally belongs, since delivery and
-  cleanup/rerun both need the projection ownership ledger (T066) as
-  their shared foundation for "what does Kestrel actually own here."
+- [x] T069 [US7] **Done 2026-09-27**, after a short design conversation
+  with the user (delivery: automatic, no human gate; cleanup/rerun:
+  explicitly a *temporary dev helper*, scoped to whatever needed the
+  least code and could be cleanly disabled/deleted later).
+
+  **Delivery** (`app/services/board/delivery.py`, permanent): a clean
+  verification (`route_verifier_result` returns
+  `VerificationRouting(clean=True)` — no findings at all, not even a
+  remediation one) creates a new `CardKind.DELIVERY` card via the
+  coordinator, the same "system-computed, not LLM-proposed" pattern
+  T051 already established for remediation/escalation cards.
+  `dispatch_ready_work` picks up any `ready` `delivery` card at the end
+  of every dispatch pass (`_dispatch_pending_delivery`), moves it
+  `claimed → review → done` (or `→ failed`, retry-able like any other
+  card) while pushing `WorkspaceService`'s new `push()` method's branch
+  and opening a draft change request (`CodeHost.open_change_request`,
+  unused since the driver was deleted — the port itself needed no
+  changes). Projects `kind="delivery"` (T067's last real gap) via the
+  same `post_projection` used for gates/escalations. Deliberately not
+  gated behind a human approval, unlike `decomposition_gate` — pushing
+  kestrel's own worktree branch as a draft PR is low-risk and
+  reversible; nothing merges on its own.
+
+  **Cleanup/rerun** (`app/services/board/dev_reset.py` +
+  `app/routers/board_dev.py`, **explicitly temporary** — see their
+  module docstrings): gated behind a new `board_dev_actions_enabled`
+  config flag (off by default) so the routes don't exist at all unless
+  turned on, and restricted at call time to a `private`-visibility
+  workflow (the same safety property the old deleted
+  `workflows/reset.py`'s `rerun` enforced). `cleanup_workflow` cancels
+  every non-terminal card, revokes any active claim, and tears down the
+  `WorkspaceService` worktree+branch (new `teardown()` method);
+  `rerun_workflow` layers a fresh `understanding_gate` card onto the
+  *same* workflow row afterward — reusing the existing id rather than
+  creating a new `Workflow` or deleting rows was the actual
+  "least-change" call: no re-ingestion, no dismissal bookkeeping, no new
+  store methods for deleting a workflow's rows. Abandon only blocks
+  *new* dispatch (nothing tracks a cancellable handle for an in-flight
+  specialist turn — see `dispatch_ready.py`'s own module docstring); an
+  already-running turn just finishes and its result is discarded since
+  the card it targets is already `cancelled`. Deliberately does not
+  cascade into a decomposed workflow's already-published children
+  (`ChildTaskLinks` untouched) — a throwaway reset of one workflow's own
+  state, not a cascading operation, matching the task-vs-subtask
+  ownership split from T068.
+
+  Commits: see git log for exact hashes. 21 new tests across
+  `test_board_delivery.py` (workspace push/teardown, `deliver()`, a full
+  end-to-end dispatch-to-delivered-PR run), `test_board_verification.py`
+  (the new `VerificationRouting.clean` signal), `test_board_dev_reset.py`,
+  and `test_board_dev_router.py`.
 
 **Checkpoint**: Task sources carry approvals, material blockers, artifacts,
 child work, and delivery outcomes without becoming a noisy board mirror.
