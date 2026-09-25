@@ -17,7 +17,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{ select: [cardId: string] }>()
 
-const graph = computed(() => projectBoardGraph(props.cards, props.relationships))
+const graph = computed(() =>
+  projectBoardGraph(props.cards, props.relationships),
+)
 
 // fit-view-on-init only fires once, on mount — it does not refit when the
 // canvas itself is resized afterward (e.g. the card-detail pane opening
@@ -81,7 +83,10 @@ function colorFor(state: string): string | undefined {
           tabindex="0"
           @keyup.enter="emit('select', data.card.id)"
         >
-          <div class="text-caption font-weight-bold text-truncate">
+          <div
+            class="text-caption font-weight-bold text-truncate"
+            :title="data.card.title"
+          >
             {{ data.card.title }}
           </div>
           <div class="text-caption">{{ data.card.state }}</div>
@@ -97,6 +102,23 @@ function colorFor(state: string): string | undefined {
   width: 100%;
 }
 .graph-node {
-  min-width: 160px;
+  width: 100%;
+}
+
+/* Vue Flow's built-in default-node wrapper ships its own fixed-size
+   card look (150px, padding, border, white background) from
+   theme-default.css — since our v-card supplies the full visual on top
+   of it, a second, differently sized card was showing through behind
+   ours. :deep() is required since .vue-flow__node-default belongs to
+   the library's own template, not this component's. Width is set to
+   match .graph-node above so text-truncate has a stable box to
+   truncate against; the .selected/:focus border rules in
+   theme-default.css have higher specificity, so the focus outline
+   Vue Flow already provides on click still shows through unchanged. */
+:deep(.vue-flow__node-default) {
+  width: 200px;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 </style>
