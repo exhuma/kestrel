@@ -174,3 +174,31 @@ class TestQuarantineReasonSurfaced:
 
         reason = _review_reason(tmp_path, outcome.security_review_id)
         assert reason == "looks scripted"
+
+
+class TestClassificationFailureLogging:
+    """The exception ``_screen`` catches must not vanish silently — see
+    ``dispatch.py`` for the matching backend-agnostic logging one layer
+    down (timeout, backend error, malformed result)."""
+
+    @pytest.mark.asyncio
+    async def test_a_malformed_result_is_logged_with_the_source_identity(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        service, _store = _service(tmp_path, "not a classification block")
+
+        with caplog.at_level("WARNING", logger="kestrel.board.quarantine"):
+            outcome = await service.intake_for_new_task(
+                NewTaskIntake(
+                    source="github-issue", task_ref="owner/repo#1",
+                    body="some content",
+                )
+            )
+
+        assert outcome.released is False
+        messages = [r.message for r in caplog.records]
+        assert any(
+            "github-issue:owner/repo#1" in m
+            and "classification failed" in m
+            for m in messages
+        )

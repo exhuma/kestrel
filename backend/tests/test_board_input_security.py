@@ -10,13 +10,13 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+
+from app.backends.base import TurnRequest, TurnResult
 from app.services.board.dispatch import (
     ClassificationError,
     build_classification_envelope,
     classify_input,
 )
-
-from app.backends.base import TurnRequest, TurnResult
 
 
 class _FakeBackend:
@@ -91,25 +91,57 @@ class TestClassifyInput:
         assert backend.last_request.permission_mode == "plan"
 
     @pytest.mark.asyncio
-    async def test_malformed_result_fails_closed(self) -> None:
+    async def test_malformed_result_fails_closed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         backend = _FakeBackend("not a classification block at all")
-        with pytest.raises(ClassificationError):
+        with (
+            caplog.at_level("WARNING", logger="kestrel.board.classify"),
+            pytest.raises(ClassificationError),
+        ):
             await classify_input(backend, "envelope", timeout_seconds=5)
+        assert any(
+            "CLASSIFICATION" in r.message for r in caplog.records
+        )
 
     @pytest.mark.asyncio
-    async def test_invalid_json_fails_closed(self) -> None:
+    async def test_invalid_json_fails_closed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         backend = _FakeBackend("<CLASSIFICATION>{not json}</CLASSIFICATION>")
-        with pytest.raises(ClassificationError):
+        with (
+            caplog.at_level("WARNING", logger="kestrel.board.classify"),
+            pytest.raises(ClassificationError),
+        ):
             await classify_input(backend, "envelope", timeout_seconds=5)
+        assert any(
+            "malformed" in r.message for r in caplog.records
+        )
 
     @pytest.mark.asyncio
-    async def test_timeout_fails_closed(self) -> None:
+    async def test_timeout_fails_closed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         backend = _FakeBackend(_safe_result(), delay=0.05)
-        with pytest.raises(ClassificationError):
+        with (
+            caplog.at_level("WARNING", logger="kestrel.board.classify"),
+            pytest.raises(ClassificationError),
+        ):
             await classify_input(backend, "envelope", timeout_seconds=0.01)
+        assert any(
+            "timed out" in r.message for r in caplog.records
+        )
 
     @pytest.mark.asyncio
-    async def test_backend_error_fails_closed(self) -> None:
+    async def test_backend_error_fails_closed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         backend = _FakeBackend(raises=True)
-        with pytest.raises(ClassificationError):
+        with (
+            caplog.at_level("ERROR", logger="kestrel.board.classify"),
+            pytest.raises(ClassificationError),
+        ):
             await classify_input(backend, "envelope", timeout_seconds=5)
+        assert any(
+            "backend error" in r.message for r in caplog.records
+        )

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -31,6 +32,13 @@ from app.services.board.coordinator import (
 )
 from app.services.board.specialists import SpecialistRoster
 from app.text_extract import extract_tag
+
+#: Backend-agnostic — every ``_TurnBackend`` implementation's failure
+#: (opencode, claude_cli, or any future adapter) flows through
+#: ``classify_input``/``_parse_classification`` below, the one
+#: chokepoint every classification turn passes through regardless of
+#: which backend raised it.
+_logger = logging.getLogger("kestrel.board.classify")
 
 
 class ClassificationError(Exception):
@@ -103,8 +111,22 @@ async def classify_input(
             backend.run_turn(request), timeout=timeout_seconds
         )
     except TimeoutError as exc:
+        # No exc_info: a timeout has no interesting traceback of its own —
+        # the duration is the useful fact (confirms/refutes "the backend
+        # is just slow").
+        _logger.warning(
+            "input-security classification timed out after %ss",
+            timeout_seconds,
+        )
         raise ClassificationError("input-security turn timed out") from exc
     except Exception as exc:
+        # .exception() attaches the full traceback — for a backend-side
+        # failure this shows exactly where inside whichever adapter is
+        # configured (opencode, claude_cli, ...) it blew up, without
+        # kestrel needing any backend-specific logging of its own.
+        _logger.exception(
+            "input-security classification backend error: %s", exc
+        )
         raise ClassificationError(
             f"input-security backend error: {exc}"
         ) from exc
@@ -115,6 +137,14 @@ def _parse_classification(text: str) -> ClassificationResult:
     """Parse the specialist's ``<CLASSIFICATION>`` block, or fail closed."""
     raw = extract_tag(text, "CLASSIFICATION")
     if raw is None:
+        # Bounded snippet, not the full text: enough to see e.g. "the
+        # specialist answered in prose instead of the expected tag"
+        # without logging an unbounded blob.
+        _logger.warning(
+            "input-security classification result missing "
+            "<CLASSIFICATION> tag (%d chars, starts: %r)",
+            len(text), text[:200],
+        )
         raise ClassificationError("malformed result: no CLASSIFICATION block")
     try:
         data = json.loads(raw)
@@ -124,6 +154,9 @@ def _parse_classification(text: str) -> ClassificationResult:
             reason=str(data.get("reason", "")),
         )
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        _logger.warning(
+            "input-security classification result malformed: %s", exc
+        )
         raise ClassificationError(f"malformed result: {exc}") from exc
 
 

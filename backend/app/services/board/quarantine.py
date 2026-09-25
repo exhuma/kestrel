@@ -11,6 +11,7 @@ ever treats an unclear result as safe.
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 
 from app.models_board import Workflow
@@ -30,6 +31,8 @@ from app.services.board.specialists import SpecialistRoster
 
 #: Bumped when the deterministic screening/classification policy changes.
 POLICY_VERSION = "v1"
+
+_logger = logging.getLogger("kestrel.board.quarantine")
 
 _INPUT_SECURITY_ROLE = "input-security"
 
@@ -128,7 +131,7 @@ class QuarantineService:
         )
         if existing is not None:
             return existing
-        classification = await self._screen(content)
+        classification = await self._screen(content, source_identity)
         if classification.safe:
             return IntakeOutcome(released=True, safe_content=content)
         review = self._store.quarantine(
@@ -163,7 +166,9 @@ class QuarantineService:
             return IntakeOutcome(released=True, safe_content=content)
         return _outcome_for(review, safe_content=None)
 
-    async def _screen(self, content: str) -> ClassificationResult:
+    async def _screen(
+        self, content: str, source_identity: str
+    ) -> ClassificationResult:
         """Deterministic bounds check, then the input-security specialist."""
         if len(content.encode("utf-8", "replace")) > self._max_bytes:
             return ClassificationResult(
@@ -189,7 +194,12 @@ class QuarantineService:
                 envelope,
                 timeout_seconds=self._classify_timeout_seconds,
             )
-        except ClassificationError:
+        except ClassificationError as exc:
+            _logger.warning(
+                "input-security classification failed for %s: %s",
+                source_identity,
+                exc,
+            )
             return ClassificationResult(
                 safe=False,
                 category="malformed_result",
