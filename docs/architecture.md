@@ -141,7 +141,7 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Current gap: no CI-repair loop or approved-artifact write-back yet
+### Current gap: no approved-artifact write-back yet
 
 Everything above through gate/intervention resolution is live, and so is
 the automatic specialist dispatch loop (spec 026 T034):
@@ -276,17 +276,33 @@ nothing in the dispatch loop retains a cancellable handle for one (see
 below), so an in-flight turn simply finishes and its result is discarded
 against the now-cancelled card.
 
+**As of 2026-09-27, a failing required CI check repairs itself too**
+(spec 026 T052): three new `Workflow` fields (`change_request_number`,
+`ci_repair_round`, `ci_status`) let `app/services/board/ci_poll.py::
+CiPollService` — the board's **first periodic external-provider poll
+loop** (`recovery.py`'s own sweep only watches the board's own claim-
+lease store, nothing external) — check each delivered workflow's
+`Settings.required_ci_statuses_for` checks via `CodeHost.
+required_ci_statuses` (unused since the old driver's deletion until
+now). A failure within `max_ci_repair_iterations` creates a `coder`-
+eligible repair card, deliberately reusing `CardKind.IMPLEMENTATION` —
+the same kind T051's verifier-triggered remediation already uses,
+rather than a new card kind — and past that budget, one
+`coordinator_review` escalation instead (fail closed, T051/T068's own
+pattern), after which that workflow is never polled again. A repaired
+workflow redelivers onto its *existing* change request rather than
+opening a second one — `delivery.py::deliver` now checks `workflow.
+change_request_number` first — since a plain `git push` fast-forwards
+the same worktree branch and GitHub/GitLab already update an open PR/MR
+on push. `ci_repair_round`/`ci_status` reset on every fresh delivery, so
+an operator's own manual fix (a new delivery, same as an automated
+repair) earns a fresh repair budget rather than staying permanently
+excluded once escalated.
+
 What is **still not** wired up — tracked as follow-on work (spec 026
 `tasks.md`'s Status section has the authoritative, per-task detail) — an
 operator should not expect today:
 
-- **CI-pipeline-specific evidence/repair cards** (tasks.md T052) —
-  distinct from T051's verifier-finding routing, which covers a
-  verifier's own findings (code review/local test run style) regardless
-  of any CI system. No longer blocked on a missing prerequisite (a
-  change request exists once delivery runs) but still unbuilt: nothing
-  tracks a workflow's change-request number yet, and no card kind or
-  dispatch step polls CI status or creates a repair card on failure.
 - **Write-back for approved-artifact.** Gate, escalation, child-work, and
   delivery all project now (above); this last FR-033 milestone kind is
   not yet wired to `post_projection`, and no card kind or call site for

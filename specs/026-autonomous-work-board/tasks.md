@@ -19,36 +19,37 @@ before beginning story phases.
 - **[Story]**: Maps a task to a user story in `spec.md`.
 
 ## Status (2026-09-27, after Phase 10 clean break + T034 + T041 + T051 +
-T068 + T069 + partial T067 [gate + escalation + child_work + delivery])
+T068 + T069 + T052 + partial T067 [gate + escalation + child_work +
+delivery])
 
-75/77 tasks fully verified `[x]` complete against actual code (not just
+76/77 tasks fully verified `[x]` complete against actual code (not just
 checked off — every one confirmed by reading/grepping the current source
-or, for T034/T041/T051/T068/T069, by writing and passing new tests);
-**T067 remains partially done** (still `[ ]`, see its own note — gate,
-escalation, child_work, and delivery decisions all project to the task
-source now; only approved-artifact doesn't yet). The old fixed six-step
-driver is fully removed (commits `33628b4` backend, `3fc281c` frontend,
-`483dda2` docs); the board domain's data model, intake/quarantine,
-gates/interventions, coordinator planning, claim/lease bookkeeping +
-recovery, the read-only Board/Graph UI, the automatic specialist
-claim→turn→accept dispatch loop (T034), a real per-workflow git worktree
-with `coder` actually able to edit files (T041), verifier-finding
-routing into remediation/escalation cards (T051), gate/escalation/
-child_work/delivery projection (T067 partial), enforced-or-optional task
-decomposition (T068), **and now automatic delivery — a clean
-verification pushes its branch and opens a draft change request, plus a
-temporary, config-gated dev-only cleanup/rerun pair for repeatable local
-dry runs (T069)** are all solid and tested.
+or, for T034/T041/T051/T068/T069/T052, by writing and passing new
+tests); **T067 remains partially done** (still `[ ]`, see its own note —
+gate, escalation, child_work, and delivery decisions all project to the
+task source now; only approved-artifact doesn't yet). The old fixed
+six-step driver is fully removed (commits `33628b4` backend, `3fc281c`
+frontend, `483dda2` docs); the board domain's data model, intake/
+quarantine, gates/interventions, coordinator planning, claim/lease
+bookkeeping + recovery, the read-only Board/Graph UI, the automatic
+specialist claim→turn→accept dispatch loop (T034), a real per-workflow
+git worktree with `coder` actually able to edit files (T041), verifier-
+finding routing into remediation/escalation cards (T051), gate/
+escalation/child_work/delivery projection (T067 partial), enforced-or-
+optional task decomposition (T068), automatic delivery on a clean
+verification (T069), **and now bounded CI-failure repair — the board's
+first periodic external-provider poll loop, reusing the plain
+`implementation`/`coordinator_review` card kinds T051 already
+established rather than needing any new card-state or card-kind
+vocabulary (T052)** are all solid and tested.
 
-**2 tasks remain open.** Each has a `**NOT DONE**`/`**PARTIAL**` note in
-place with exact findings:
+**1 task remains open.** Its note has the exact finding:
 
 | Task | Phase | Gap |
 | --- | --- | --- |
-| **T052** | 7 (US5) | No longer blocked on a missing prerequisite (T069 now opens a change request on delivery) but still not implemented: nothing tracks a workflow's change-request number yet, and no card kind or dispatch step polls CI status or creates a repair card on failure. |
 | **T067** | 9 (US7) | Partial — only `kind="approved_artifact"` remains; no card kind or call site for it has been identified yet. |
 
-See each task's note below for specifics before starting either.
+See T067's own note below for specifics before starting.
 
 ## Phase 1: Setup
 
@@ -391,20 +392,61 @@ remediation tests in `backend/tests/test_board_verifier_routing.py`.
   once a `coder`'s remediation is verified clean. **Resolved by T069**
   (below): a clean verification (empty findings) now creates a
   `delivery` card that pushes and opens a change request automatically.
-- [ ] T052 [US5] **Still NOT DONE, but no longer blocked on a missing
-  prerequisite** (T069 now opens a change request on delivery, so
-  `CodeHost.required_ci_statuses(repo, pr_number, names)` — read by the
-  old, deleted `workflows/ci.py`'s `inspect_required_ci` — has something
-  to query). Still needs its own work: nothing on the board domain
-  tracks a workflow's change-request number yet (the old driver kept
-  `run.pr_number`; the board's `Workflow`/`delivery` card carry no
-  equivalent field today), and no card kind or dispatch step polls CI
-  status or creates a repair card on failure. T051 already covers a
-  verifier's own findings (code review/local test run style)
-  independent of any CI system, so a repo without CI already gets real,
-  verified local remediation today; the old driver's
-  `max_ci_repair_iterations` setting still exists in config with no
-  reader.
+- [x] T052 [US5] **Done 2026-09-27**, after a research pass (not a full
+  design conversation — the trickiest question, "how does the
+  event-driven board learn CI time has passed," had only one honest
+  answer, confirmed by investigating the deleted old driver first) to
+  confirm two things before coding: how `inspect_required_ci` was
+  triggered in the old driver (`app/services/ci_poll.py`, a dedicated
+  periodic poll loop — no webhook/callback involvement, GitHub ships no
+  check-run/status event handling in this repo either old or new), and
+  that nothing in the current board domain (`Workflow`, `WorkCard`) has
+  anywhere to store a change-request number.
+
+  Three new `Workflow` fields (migration `0030`): `change_request_number`
+  (set by `dispatch_ready.py::_deliver_one` after every successful
+  delivery, via the still-intact, already-tested
+  `app/services/github.py::change_request_number` URL parser — GitHub
+  `/pull/` and GitLab `/merge_requests/` both match), `ci_repair_round`,
+  and `ci_status`; the latter two reset to `0`/`None` on every fresh
+  delivery, so a human's own manual fix (a new delivery, exactly like an
+  automated repair's) earns a fresh repair budget rather than staying
+  permanently excluded once escalated.
+
+  New `app/services/board/ci_poll.py::CiPollService` — the board
+  domain's **first "poll an external provider on a timer" loop**;
+  `recovery.py`'s sweep only watches the board's own claim-lease store,
+  nothing external. Registered in `app/main.py`'s lifespan exactly like
+  `RecoveryService`, a new `board_ci_poll_interval_seconds` setting.
+  Every sweep: skip a workflow with no change request, no configured
+  `required_ci_statuses` for its source/repo (`Settings.
+  required_ci_statuses_for`, already existed, previously orphaned), or
+  an already-`"passed"` verdict; otherwise query
+  `CodeHost.required_ci_statuses` (unused since the old driver's
+  deletion, needed no changes) and record `pending`/`passed`/`failed`.
+  A failure within `max_ci_repair_iterations` (already existed,
+  previously orphaned) creates a `coder`-eligible repair card — reusing
+  `CardKind.IMPLEMENTATION`, the same kind T051's verifier-triggered
+  remediation already uses, deliberately **not** a new card kind (no
+  card-state or card-kind-vocabulary change was needed anywhere in this
+  task); past the budget, one `coordinator_review` escalation instead
+  (fail closed, matching T051/T068's own pattern) and no further polling
+  for that workflow.
+
+  A repaired-and-reverified workflow redelivers onto the *same* branch
+  and change request: `delivery.py::deliver` now checks
+  `workflow.change_request_number` and, when already set, skips
+  `open_change_request` entirely (a plain `git push` fast-forwards the
+  existing worktree branch; GitHub/GitLab update an open PR/MR on push
+  automatically) — the one change needed in T069's own delivery path to
+  make redelivery safe, since it previously always tried to open a new
+  request unconditionally.
+
+  Commits: see git log for exact hashes. 14 new tests across
+  `test_board_ci_poll.py` (12: eligibility, all three CI verdicts,
+  repair vs. escalation, provider-error resilience), `test_board_delivery.py`
+  (1: the skip-reopen path, plus the existing end-to-end test extended to
+  assert the captured CR number), and `test_migrations.py` (1).
 
 **Checkpoint**: Verification preserves autonomous implementation repair without
 allowing the verifier to extend approved scope.
