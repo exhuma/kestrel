@@ -55,6 +55,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_max_parallel_read_cards",
         "board_recovery_interval_seconds",
         "board_decomposition_required",
+        "board_dev_actions_enabled",
     }
 )
 
@@ -301,6 +302,16 @@ class Settings(BaseSettings):
     #: prior decomposition output) is exempt either way — decomposition
     #: never recurses into a child's children.
     board_decomposition_required: bool = False
+    #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
+    #: endpoints (feature 026, T069,
+    #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —
+    #: **temporary, dev-only**: lets a local-task-source dry run be
+    #: repeated without restarting kestrel or hand-editing the database.
+    #: Restricted at call time to a workflow whose source is ``private``
+    #: regardless of this flag. Meant to be deleted, not hardened, once
+    #: the board is production-ready — see
+    #: ``app/services/board/dev_reset.py``'s module docstring.
+    board_dev_actions_enabled: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

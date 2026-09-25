@@ -6,17 +6,18 @@ on demand, so a ``read_only``/``write`` card's specialist turn gets a
 real, git-backed ``cwd`` instead of ``""`` (see
 ``dispatch.py::dispatch_ready_work``).
 
-Deliberately out of scope here: push, opening a change request, and any
-other "delivery" concern. Kestrel never pushes a coder's work
-automatically — that waits for verification (tasks.md T051/T052) to
-exist, so nothing unverified reaches a remote. The coder's own prompt
-instructs it to commit locally; a later phase decides when (and whether)
-to push what it committed.
+Pushing a workflow's branch (:meth:`WorkspaceService.push`) is still a
+separate, later step from provisioning: kestrel never pushes a coder's
+work automatically as it's produced — only once verification passes
+cleanly (``app/services/board/delivery.py``, T069), so nothing unverified
+reaches a remote. The coder's own prompt instructs it to commit locally;
+delivery decides when (and whether) to push what it committed.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import os
 from dataclasses import dataclass
@@ -62,6 +63,10 @@ class WorkspaceService:
     def workspace_dir(self, workflow_id: str) -> str:
         """Path of one workflow's worktree."""
         return os.path.join(self._root, "board", workflow_id)
+
+    def branch_name(self, workflow_id: str) -> str:
+        """The dedicated branch one workflow's worktree is cut from."""
+        return f"kestrel/board/{workflow_id}"
 
     def _lock_for(self, key: str) -> asyncio.Lock:
         return self._locks.setdefault(key, asyncio.Lock())
@@ -133,7 +138,7 @@ class WorkspaceService:
             return dest
         mirror = self.mirror_dir(request.repo)
         await self.ensure_mirror(request.remote_url, mirror, request.cred)
-        branch = f"kestrel/board/{request.workflow_id}"
+        branch = self.branch_name(request.workflow_id)
         worktree_dest = os.path.abspath(dest)
         async with self._lock_for(mirror):
             await self._git(
@@ -147,3 +152,40 @@ class WorkspaceService:
             "config", "user.name", "kestrel", cwd=worktree_dest
         )
         return dest
+
+    async def push(
+        self, workflow_id: str, cred: tuple[str, str] | None
+    ) -> str:
+        """Push a workflow's already-provisioned branch to its remote.
+
+        :returns: The pushed branch's name, for the caller's change-
+            request/comment.
+        :raises GitError: If the underlying git push fails.
+        """
+        branch = self.branch_name(workflow_id)
+        await self._git(
+            *self._auth(cred), "-C", self.workspace_dir(workflow_id),
+            "push", "origin", branch,
+        )
+        return branch
+
+    async def teardown(self, workflow_id: str, repo: str) -> None:
+        """Remove a workflow's worktree and its branch from the shared
+        mirror (dev-only reset helper, T069).
+
+        Best-effort and idempotent: a workflow whose workspace was never
+        provisioned (no ``read_only``/``write`` card ever ran) is a
+        silent no-op, not an error.
+        """
+        dest = self.workspace_dir(workflow_id)
+        mirror = self.mirror_dir(repo)
+        if os.path.exists(os.path.join(dest, ".git")):
+            async with self._lock_for(mirror):
+                await self._git(
+                    "-C", mirror, "worktree", "remove", "--force", dest
+                )
+        if os.path.isdir(mirror):
+            with contextlib.suppress(GitError):
+                await self._git(
+                    "-C", mirror, "branch", "-D", self.branch_name(workflow_id)
+                )

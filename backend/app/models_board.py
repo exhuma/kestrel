@@ -62,6 +62,12 @@ class CardKind(StrEnum):
     #: the coordinator's own wake-up turn like any other card, never
     #: claimed by a specialist.
     COORDINATOR_REVIEW = "coordinator_review"
+    #: Pushes a clean verification's branch and opens a change request
+    #: (T069). System-executed, not human-gated (unlike decomposition) —
+    #: created and resolved automatically, never claimed by a specialist
+    #: (``eligible_roles=()``), still moved through the ordinary claimed/
+    #: review lifecycle so it stays retry-able like any other card.
+    DELIVERY = "delivery"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves

@@ -141,6 +141,47 @@ class TestMixedAndEmptyResults:
         assert [c.id for c in store.list_cards("wf-1")] == [card.id]
 
 
+class TestVerificationRoutingClean:
+    """T069: whether a routed result signals "clean" (trigger delivery)."""
+
+    def test_no_findings_is_clean(self, tmp_path: Path) -> None:
+        coordinator, _store, card = _setup(tmp_path)
+
+        routing = route_verifier_result(_findings_block(), card, coordinator)
+
+        assert routing.clean is True
+        assert routing.escalations == []
+
+    def test_a_remediation_finding_is_not_clean(self, tmp_path: Path) -> None:
+        coordinator, _store, card = _setup(tmp_path)
+        text = _findings_block(
+            '{"category": "nonconformance", "summary": "bug"}'
+        )
+
+        routing = route_verifier_result(text, card, coordinator)
+
+        assert routing.clean is False
+
+    def test_an_escalation_finding_is_not_clean(self, tmp_path: Path) -> None:
+        coordinator, _store, card = _setup(tmp_path)
+        text = _findings_block(
+            '{"category": "ambiguity", "summary": "unclear"}'
+        )
+
+        routing = route_verifier_result(text, card, coordinator)
+
+        assert routing.clean is False
+
+    def test_an_unparseable_result_is_not_clean(self, tmp_path: Path) -> None:
+        coordinator, _store, card = _setup(tmp_path)
+
+        routing = route_verifier_result(
+            "no structured block here", card, coordinator
+        )
+
+        assert routing.clean is False
+
+
 class TestIdempotency:
     def test_routing_the_same_attempt_twice_does_not_duplicate_cards(
         self, tmp_path: Path

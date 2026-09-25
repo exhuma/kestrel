@@ -223,6 +223,11 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(identity.router)
     app.include_router(github_webhook.router)
+    if get_settings().board_dev_actions_enabled:
+        # Temporary, dev-only (T069) — see board_dev.py's module docstring.
+        from app.routers import board_dev
+
+        app.include_router(board_dev.router)
 
     # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op
     # unless KESTREL_OTEL_ENABLED: instruments the app + logging so spans and
