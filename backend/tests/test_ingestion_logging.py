@@ -68,12 +68,17 @@ class _Board:
         return self.workflows
 
 
+class _Gates:
+    def create_gate(self, workflow_id, **_kwargs):
+        pass
+
+
 def _svc(dismissed=()) -> IngestionService:
     return IngestionService(
         Settings(jira_project="RFC"),
         _FakeTaskSources(),
         _Dismissals(dismissed),
-        BoardIntake(_Quarantine(), _Board()),
+        BoardIntake(_Quarantine(), _Board(), _Gates()),
     )
 
 

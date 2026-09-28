@@ -71,13 +71,18 @@ class _FakeBoard:
         return self.workflows
 
 
+class _FakeGates:
+    def create_gate(self, workflow_id, **_kwargs):
+        pass
+
+
 def _poll(jira, dismissals, board=None) -> JiraPollService:
     board = board or _FakeBoard()
     ingestion = IngestionService(
         Settings(_env_file=None),
         _FakeTaskSources(),
         dismissals,
-        BoardIntake(_FakeQuarantine(), board),
+        BoardIntake(_FakeQuarantine(), board, _FakeGates()),
     )
     cfg = TaskSourceConfig(
         type="jira", base_url="https://jira.example",

@@ -12,7 +12,6 @@ import uuid
 from typing import Callable
 
 from app.models_board import (
-    CardKind,
     CardRelation,
     CardState,
     WorkCard,
@@ -75,8 +74,14 @@ class BoardService:
     def create_workflow_from_intake(
         self, intake: AcceptedTaskIntake
     ) -> Workflow:
-        """Create a workflow and its initial understanding-gate card (FR-001,
-        FR-016) for a safety-cleared task.
+        """Create a workflow for a safety-cleared task (FR-001).
+
+        Does *not* create the initial understanding-gate card — that
+        needs a ``HumanGateRecord`` alongside it, which only
+        ``GatesService`` can write, and ``GatesService`` already holds a
+        ``BoardService`` (importing it back here would cycle). The
+        caller creates the gate immediately after this returns (see
+        ``IngestionService._start_via_board``).
 
         :raises WorkflowAlreadyExistsError: If this (source, task_ref)
             already has a workflow — the durable de-dup guard for a
@@ -94,14 +99,6 @@ class BoardService:
             task_body=intake.body,
         )
         self._store.create_workflow(workflow)
-        card = WorkCard(
-            id=f"card-{uuid.uuid4().hex[:8]}",
-            workflow_id=workflow.id,
-            kind=CardKind.UNDERSTANDING_GATE,
-            title="Confirm understanding",
-            state=CardState.AWAITING_HUMAN,
-        )
-        self._store.create_card(card)
         self._store.append_event(
             BoardEventRecord(
                 workflow_id=workflow.id, event_type="workflow.created"

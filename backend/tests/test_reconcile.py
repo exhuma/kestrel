@@ -95,8 +95,13 @@ class _FakeBoard:
         return self.workflows
 
 
+class _FakeGates:
+    def create_gate(self, workflow_id, **_kwargs):
+        pass
+
+
 def _board_intake() -> BoardIntake:
-    return BoardIntake(_FakeQuarantine(), _FakeBoard())
+    return BoardIntake(_FakeQuarantine(), _FakeBoard(), _FakeGates())
 
 
 class _FakeDismissals:

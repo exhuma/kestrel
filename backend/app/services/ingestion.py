@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from app.config import Settings, get_settings
-from app.models_board import Workflow
+from app.models_board import CardKind, Workflow
 from app.models_board_records import AcceptedTaskIntake
 from app.persistence.board_store import WorkflowAlreadyExistsError
 from app.persistence.child_task_store import (
@@ -22,8 +22,10 @@ from app.persistence.child_task_store import (
 from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.services.board.bootstrap import (
     get_board_service,
+    get_gates_service,
     get_quarantine_service,
 )
+from app.services.board.gates import GatesService
 from app.services.board.quarantine import NewTaskIntake, QuarantineService
 from app.services.board.service import BoardService
 from app.services.task_scheduler import ScheduledTask, integration_branch
@@ -46,10 +48,15 @@ class BoardIntake:
     :param quarantine: The fail-closed untrusted-input boundary.
     :param board: Creates the accepted-task workflow once content clears
         quarantine.
+    :param gates: Creates the initial understanding-gate card (with its
+        ``HumanGateRecord``) once ``board`` has a workflow to hang it
+        off — ``BoardService`` cannot create it directly without
+        importing ``GatesService`` back, which would cycle.
     """
 
     quarantine: QuarantineService
     board: BoardService
+    gates: GatesService
 
 
 class IngestionService:
@@ -177,6 +184,12 @@ class IngestionService:
         except WorkflowAlreadyExistsError:
             _log.info("ingest outcome=skipped-duplicate-board %s", task_ref)
             return None
+        self.board_intake.gates.create_gate(
+            workflow.id,
+            kind=CardKind.UNDERSTANDING_GATE.value,
+            title="Confirm understanding",
+            requested_decision="confirm_understanding",
+        )
         if self.child_tasks is not None:
             self.child_tasks.record_run(task_ref, workflow.id)
         _log.info("ingest outcome=started %s -> %s", task_ref, workflow.id)
@@ -317,6 +330,8 @@ def get_ingestion_service() -> IngestionService:
         get_settings(),
         get_task_source_registry(),
         get_dismissal_store(),
-        BoardIntake(get_quarantine_service(), get_board_service()),
+        BoardIntake(
+            get_quarantine_service(), get_board_service(), get_gates_service()
+        ),
         get_child_task_store(),
     )

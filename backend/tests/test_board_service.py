@@ -94,11 +94,17 @@ class TestPolicyMediatedTransitions:
 
 
 class TestCreateWorkflowFromIntake:
-    """A safety-cleared task becomes a workflow with an understanding gate."""
+    """A safety-cleared task becomes a workflow, with no cards yet.
 
-    def test_creates_workflow_and_understanding_gate_card(
-        self, tmp_path: Path
-    ) -> None:
+    The initial understanding-gate card is *not* created here — it
+    needs a ``HumanGateRecord`` alongside it, which only
+    ``GatesService`` can write (``GatesService`` already holds a
+    ``BoardService``, so the reverse import would cycle). See
+    ``test_board_intake_gate.py`` for the caller (``IngestionService``)
+    creating that gate and resolving it end to end (GitHub #42).
+    """
+
+    def test_creates_workflow_with_no_cards(self, tmp_path: Path) -> None:
         store = BoardStore(board_session_factory(tmp_path))
         service = BoardService(store)
 
@@ -113,10 +119,7 @@ class TestCreateWorkflowFromIntake:
             )
         )
 
-        cards = service.list_cards(workflow.id)
-        assert len(cards) == 1
-        assert cards[0].kind == "understanding_gate"
-        assert cards[0].state == "awaiting_human"
+        assert service.list_cards(workflow.id) == []
 
     def test_skip_decomposition_round_trips_through_creation_and_reads(
         self, tmp_path: Path

@@ -157,8 +157,18 @@ class _FakeBoard:
         return self.workflows
 
 
+class _FakeGates:
+    """Records each initial understanding-gate creation."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def create_gate(self, workflow_id: str, **_kwargs: object) -> None:
+        self.calls.append(workflow_id)
+
+
 def _board_intake(*, fail: bool = False) -> BoardIntake:
-    return BoardIntake(_FakeQuarantine(), _FakeBoard(fail=fail))
+    return BoardIntake(_FakeQuarantine(), _FakeBoard(fail=fail), _FakeGates())
 
 
 def _service(

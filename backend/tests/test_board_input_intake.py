@@ -92,6 +92,11 @@ class _FakeBoard:
         return self.workflows
 
 
+class _FakeGates:
+    def create_gate(self, workflow_id: str, **_kwargs: object) -> None:
+        pass
+
+
 def _settings(**overrides: object) -> Settings:
     return Settings(
         workspace_root="/tmp/ws",
@@ -144,7 +149,8 @@ def _service(
     quarantine = _FakeQuarantine(outcome)
     board = _FakeBoard(raise_duplicate=case.board_raises_duplicate)
     service = IngestionService(
-        settings, task_sources, dismissals, BoardIntake(quarantine, board)
+        settings, task_sources, dismissals,
+        BoardIntake(quarantine, board, _FakeGates()),
     )
     return service, quarantine, board
 
