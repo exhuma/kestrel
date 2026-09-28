@@ -68,26 +68,7 @@ export default [
     rules: { complexity: 'off', 'sonarjs/cognitive-complexity': 'off' },
   },
   {
-    files: ['src/components/WorkflowPanel.vue'],
-    rules: { 'max-lines': 'off' },
-  },
-  {
-    files: [
-      'src/composables/useSessions.ts',
-      'src/composables/useWorkflows.ts',
-    ],
-    rules: { 'max-lines-per-function': 'off' },
-  },
-  {
-    files: ['src/lib/eventView.ts', 'src/lib/questionnaire.ts'],
-    rules: { complexity: 'off' },
-  },
-  {
-    files: [
-      'tests/components/QuestionnaireForm.test.ts',
-      'tests/composables/useWorkflows.test.ts',
-      'tests/lib/eventView.test.ts',
-    ],
+    files: ['src/composables/useSessions.ts'],
     rules: { 'max-lines-per-function': 'off' },
   },
 ]

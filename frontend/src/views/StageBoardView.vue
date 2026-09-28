@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // The default surface (FR-009): every ingested request as one card,
-// grouped into the six derived stage columns (FR-001). Replaces the old
-// nav-list + selected-workflow layout in `WorkBoard.vue`.
+// grouped into the six derived stage columns (FR-001).
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useBoard } from '../composables/useBoard'
 import { groupByStage } from '../lib/stages'
