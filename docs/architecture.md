@@ -331,6 +331,32 @@ concept with no board-domain implementation behind it. Fixed via two new
 both now included in every card's envelope
 (`dispatch.py::build_card_envelope`/`build_coordinator_envelope`).
 
+**As of 2026-09-28, a persona's interview can span more than one round,
+and a `prd_gate` rejection is triaged instead of auto-redrafted**
+(feature 028, GitHub #48/#49). Both are capped via new settings,
+`board_refinement_round_cap`/`board_prd_redraft_cap` (both default `1`,
+preserving the single-round/single-redraft behavior above exactly).
+A persona's round number is derived by counting its own
+`refinement`/`refinement_gate` cards, not stored — a round created by
+the coordinator (below) is counted identically to one `gates.py` creates
+directly. A specialist can also declare its interview done before the
+cap via a `"satisfied": true` field on the existing
+`<REFINEMENT_QUESTIONS>` tag; when paired with no further questions,
+`GatesService.mark_refinement_satisfied` completes that persona's
+`refinement` card directly, with no gate. A `prd_gate` rejection no
+longer deterministically creates a fresh `prd` card
+(`gates.py::_maybe_redraft_prd`, now in `prd_redraft.py`); instead, up to
+the redraft cap, it asks the coordinator to judge — reusing the exact
+bounded-retry-then-escalate shape `ci_poll.py`'s CI-repair loop already
+used — via a `coordinator_review` card the coordinator's next (already
+automatic) wake-up turn resolves into either a `prd` redraft or a fresh
+interview round. Past the cap, that same escalation path creates a
+final, never-auto-resolved `coordinator_review` card instead, so an
+unconvergeable PRD fails visibly rather than looping. The coordinator's
+own envelope (`build_coordinator_envelope`) now also carries this
+rejection feedback, reusing `refinement.gather_refinement_context`
+rather than a new mechanism.
+
 Practically, this means a configured GitHub/Jira/local source today
 creates a board **Workflow** and its initial cards on a qualifying task
 (after quarantine screening); specialist cards then progress

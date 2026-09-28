@@ -153,6 +153,9 @@ class TestPrdDraftTrigger:
             service.create_gate(
                 "wf-1", kind="refinement_gate", title=f"{c.eligible_roles[0]}",
                 requested_decision="answer",
+                target_artifact_id=service._artifacts.store_reference_artifact(
+                    _questions_artifact(c.id)
+                ).id,
             )
             for c in interviews
         ]
@@ -280,4 +283,16 @@ def _draft_artifact(card_id: str, content: str) -> ArtifactDraft:
     return ArtifactDraft(
         producer_card_id=card_id, logical_name="draft", revision=1,
         content=content, trust="agent_output",
+    )
+
+
+def _questions_artifact(card_id: str) -> ArtifactDraft:
+    """A minimal ``refinement`` card's output artifact — feature 028's
+    round machinery recovers a ``refinement_gate``'s persona via this
+    linkage (``ArtifactsService.producer_card_id``), so a gate created
+    without one (unlike the real ``route_refinement_result`` flow) is
+    invisible to it."""
+    return ArtifactDraft(
+        producer_card_id=card_id, logical_name="questions", revision=1,
+        content='{"questions": ["q?"]}', trust="agent_output",
     )

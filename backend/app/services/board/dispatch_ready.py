@@ -45,6 +45,7 @@ from app.services.board.refinement import (
     route_refinement_result,
     route_strategic_interview_result,
 )
+from app.services.board.refinement_rounds import round_context
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
@@ -162,6 +163,25 @@ def _claim_for(
     return backend, card
 
 
+def _extra_context_for(
+    workflow_id: str, card: WorkCard, services: DispatchServices
+) -> str:
+    """Per-card-kind envelope extras (feature 026's ``prd`` interview
+    context, feature 028's round-N-of-M text for a ``refinement`` card).
+    """
+    if card.kind == CardKind.PRD.value:
+        return gather_refinement_context(
+            workflow_id, services.claims.store, services.artifacts
+        )
+    if card.kind == CardKind.REFINEMENT.value and services.gates:
+        cards = services.claims.store.list_cards(workflow_id)
+        return round_context(
+            card, cards, services.gates.get_gate, services.artifacts,
+            services.gates.refinement_round_cap,
+        )
+    return ""
+
+
 async def _dispatch_one(
     workflow_id: str,
     services: DispatchServices,
@@ -180,13 +200,7 @@ async def _dispatch_one(
         return
     cwd, permission_mode = workspace
     workflow = services.claims.store.get_workflow(workflow_id)
-    extra_context = (
-        gather_refinement_context(
-            workflow_id, services.claims.store, services.artifacts
-        )
-        if card.kind == CardKind.PRD.value
-        else ""
-    )
+    extra_context = _extra_context_for(workflow_id, card, services)
     envelope = build_card_envelope(
         specialist, workflow, card, extra_context=extra_context
     )

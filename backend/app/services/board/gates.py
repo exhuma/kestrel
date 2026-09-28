@@ -18,7 +18,14 @@ from app.models_board_records import HumanGateRecord
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.coordinator import CoordinatorService
 from app.services.board.dependents import advance_ready_dependents
+from app.services.board.prd_redraft import maybe_redraft_prd
+from app.services.board.refinement_rounds import (
+    has_any_round,
+    maybe_advance_round,
+    still_pending,
+)
 from app.services.board.service import BoardService
 
 _DECISION_TARGET_STATE = {
@@ -55,6 +62,22 @@ class GateRequirements:
     #: its own ``GatesService`` constructor argument to stay within the
     #: repo's argument-count limit.
     cab1_interview_max_questions: int = 3
+    #: Max refinement-interview rounds per persona (feature 028). ``1``
+    #: preserves today's exact one-round behavior.
+    refinement_round_cap: int = 1
+    #: Max PRD redraft attempts per workflow after a rejection (feature
+    #: 028). ``1`` allows exactly one redraft before escalating.
+    prd_redraft_cap: int = 1
+    #: Routes a ``prd_gate`` rejection's fix-vs-reinterview triage
+    #: (feature 028) through the coordinator's own judgment rather than
+    #: a deterministic redraft. Carried here, not as its own
+    #: ``GatesService`` constructor argument, for the same
+    #: argument-count reason as the rest of this dataclass. ``None``
+    #: falls back to the pre-028 behavior (unconditional, uncapped
+    #: redraft) — mirrors how ``DispatchServices.coordinator`` is
+    #: optional elsewhere in this codebase, so callers that don't need
+    #: PRD-redraft enforcement (most existing tests) don't need one.
+    coordinator: CoordinatorService | None = None
 
 
 class UnknownGateError(Exception):
@@ -93,6 +116,11 @@ class GatesService:
         """The CAB-1 strategic interview's configured question cap."""
         return self._required.cab1_interview_max_questions
 
+    @property
+    def refinement_round_cap(self) -> int:
+        """The configured max interview rounds per persona."""
+        return self._required.refinement_round_cap
+
     def create_gate(
         self,
         workflow_id: str,
@@ -124,6 +152,21 @@ class GatesService:
     def get_gate(self, card_id: str) -> HumanGateRecord | None:
         """Return *card_id*'s gate record, or ``None`` if it has none."""
         return self._gate_store.get_for_card(card_id)
+
+    def mark_refinement_satisfied(self, card: WorkCard) -> None:
+        """Complete one persona's interview directly, with no gate
+        (feature 028) — the persona signaled it needs no further round.
+
+        Unlike a resolved gate, this is never triggered by an operator
+        action, so it re-runs the same "maybe every persona is now
+        done" check :meth:`resolve` runs after every gate decision —
+        otherwise a workflow whose *last* persona finishes this way
+        would never see its PRD card get created.
+        """
+        done = self._board_service.transition_card(
+            card.id, CardState.DONE.value, event_type="refinement.satisfied"
+        )
+        self._maybe_start_prd(done)
 
     def resolve(
         self, card_id: str, decision: str, *, answer: str | None = None
@@ -161,6 +204,7 @@ class GatesService:
             self._maybe_require_cab1_interview(card)
             self._maybe_require_cab1_decision(card)
             self._maybe_require_refinement(card)
+            self._maybe_advance_refinement_round(card)
             self._maybe_require_decomposition(card)
             self._maybe_approve_prd(card)
             advance_ready_dependents(
@@ -297,25 +341,31 @@ class GatesService:
                 )
             )
 
+    #: Card kinds whose resolution may be the *last* thing a workflow's
+    #: refinement phase was waiting on (feature 028: a persona can now
+    #: finish via either an answered ``refinement_gate`` or a directly
+    #: satisfied ``refinement`` card — see
+    #: :meth:`mark_refinement_satisfied`).
+    _REFINEMENT_COMPLETION_TRIGGERS = frozenset(
+        {CardKind.REFINEMENT_GATE.value, CardKind.REFINEMENT.value}
+    )
+
     def _maybe_start_prd(self, resolved_gate: WorkCard) -> None:
         """Create `pm`'s PRD-drafting card once every persona interview
         has reached a terminal state.
 
-        A no-op for any other gate kind, if any interview is still
+        A no-op for any other card kind, if any interview is still
         outstanding, or if a ``prd``/``prd_gate`` already exists (belt
         and suspenders — this should only ever become true once, at the
         moment the last interview resolves). A rejected interview counts
         as terminal too: the workflow must not deadlock on one persona
         never answering.
         """
-        if resolved_gate.kind != CardKind.REFINEMENT_GATE.value:
+        if resolved_gate.kind not in self._REFINEMENT_COMPLETION_TRIGGERS:
             return
         cards = self._store.list_cards(resolved_gate.workflow_id)
-        interviews = [
-            c for c in cards if c.kind == CardKind.REFINEMENT_GATE.value
-        ]
-        if not interviews or not all(
-            self._is_terminal(c.state) for c in interviews
+        if not has_any_round(cards) or still_pending(
+            cards, self._gate_store.get_for_card, self._artifacts
         ):
             return
         if any(
@@ -332,6 +382,17 @@ class GatesService:
                 state=CardState.READY,
                 eligible_roles=("pm",),
             )
+        )
+
+    def _maybe_advance_refinement_round(self, resolved_gate: WorkCard) -> None:
+        """Create the next interview round for one persona once their
+        ``refinement_gate`` is answered, unless they're at the round cap
+        (feature 028). Delegates to ``refinement_rounds.py`` (split out
+        to stay within the repo's module-length limit).
+        """
+        maybe_advance_round(
+            resolved_gate, self._store, self._gate_store.get_for_card,
+            self._artifacts, self._required.refinement_round_cap,
         )
 
     def _maybe_approve_prd(self, prd_gate: WorkCard) -> None:
@@ -352,25 +413,17 @@ class GatesService:
             self._store.record_approved_prd(prd_gate.workflow_id, content)
 
     def _maybe_redraft_prd(self, prd_gate: WorkCard) -> None:
-        """Deterministically create a fresh ``prd`` card after a
-        ``prd_gate`` rejection, so the workflow never deadlocks on one.
+        """Route a ``prd_gate`` rejection to the coordinator for
+        fix-vs-reinterview triage, capped so an unconvergeable PRD fails
+        visibly instead of looping forever (feature 028).
 
-        Unconditional on rejection (not gated behind ``required.prd``):
-        once a ``prd_gate`` exists at all, redrafting is the sensible
-        default regardless of how enforcement is configured now. A
-        no-op for any other gate kind.
+        Delegates to ``prd_redraft.py`` (split out to stay within the
+        repo's module-length limit) — a no-op there for any other gate
+        kind.
         """
-        if prd_gate.kind != CardKind.PRD_GATE.value:
-            return
-        self._store.create_card(
-            WorkCard(
-                id=f"card-{uuid.uuid4().hex[:8]}",
-                workflow_id=prd_gate.workflow_id,
-                kind=CardKind.PRD.value,
-                title="Redraft PRD",
-                state=CardState.READY,
-                eligible_roles=("pm",),
-            )
+        maybe_redraft_prd(
+            prd_gate, self._store, self._required.coordinator,
+            self._required.prd_redraft_cap,
         )
 
     def _invalidate_dependents(self, workflow_id: str, gate_id: str) -> None:

@@ -22,6 +22,7 @@ from app.models_board import (
     Workflow,
 )
 from app.persistence.board_store import BoardStore
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import (
     ClaimsService,
     NoEligibleCardError,
@@ -30,6 +31,7 @@ from app.services.board.coordinator import (
     CoordinatorService,
     parse_coordinator_actions,
 )
+from app.services.board.refinement import gather_refinement_context
 from app.services.board.specialists import SpecialistRoster
 from app.text_extract import extract_tag
 
@@ -278,24 +280,38 @@ def build_coordinator_envelope(
     specialist: SpecialistDefinition,
     workflow: Workflow,
     cards: list[WorkCard],
+    *,
+    extra_context: str = "",
 ) -> str:
     """Build the coordinator's wake-up prompt: its role, the task body
     (T078 — quarantine-screened at intake, see ``Workflow.task_body``),
     and a safe summary of the workflow's current cards (system-authored,
-    never raw external content beyond that one screened field)."""
+    never raw external content beyond that one screened field).
+
+    :param extra_context: A caller-supplied block for anything a card
+        title alone can't carry — e.g. a pending PRD-rejection review's
+        actual feedback text (feature 028; see
+        ``refinement.gather_refinement_context``, reused rather than
+        re-derived).
+    """
     lines = "\n".join(
         f"- {c.id} [{c.kind}] {c.state}: {c.title}" for c in cards
     )
-    return (
-        f"{specialist.prompt}\n\n"
-        f"Workflow: {workflow.title}\n"
-        f"Task: {workflow.task_body or '(no task body recorded)'}\n\n"
-        "Current cards:\n"
-        f"{lines}\n\n"
-        "Propose any next actions in a single "
+    sections = [
+        specialist.prompt, "",
+        f"Workflow: {workflow.title}",
+        f"Task: {workflow.task_body or '(no task body recorded)'}", "",
+        "Current cards:",
+        lines,
+    ]
+    if extra_context:
+        sections += ["", extra_context]
+    sections.append(
+        "\nPropose any next actions in a single "
         '<COORDINATOR_ACTIONS>{"actions": [...]}</COORDINATOR_ACTIONS> '
         "block, or omit the block if nothing should change."
     )
+    return "\n".join(sections)
 
 
 class SchedulingService:
@@ -314,12 +330,17 @@ class SchedulingService:
         store: BoardStore,
         roster: SpecialistRoster,
         coordinator: CoordinatorService,
+        artifacts: ArtifactsService,
         *,
         default_timeout_seconds: float,
     ) -> None:
         self._store = store
         self._roster = roster
         self._coordinator = coordinator
+        #: Feeds a pending PRD-rejection review's feedback into the
+        #: coordinator's envelope (feature 028) — see
+        #: ``refinement.gather_refinement_context``.
+        self._artifacts = artifacts
         self._default_timeout_seconds = default_timeout_seconds
 
     async def wake(self, workflow_id: str, backend: _TurnBackend) -> None:
@@ -332,7 +353,12 @@ class SchedulingService:
         specialist = self._roster.get("coordinator")
         workflow = self._store.get_workflow(workflow_id)
         cards = self._store.list_cards(workflow_id)
-        envelope = build_coordinator_envelope(specialist, workflow, cards)
+        extra_context = gather_refinement_context(
+            workflow_id, self._store, self._artifacts
+        )
+        envelope = build_coordinator_envelope(
+            specialist, workflow, cards, extra_context=extra_context
+        )
         result = await run_card_turn(
             backend,
             envelope,

@@ -25,7 +25,7 @@ from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.policy import SpecialistCapabilityError
-from app.services.board.artifacts import ArtifactsService
+from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.claims import ClaimsService, NoEligibleCardError
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
@@ -112,9 +112,13 @@ def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
         {"developer": _specialist(), "coordinator": _coordinator_specialist()}
     )
     coordinator = CoordinatorService(store, coordinator_store, board_service)
+    artifacts = ArtifactsService(
+        store, BoardArtifactStore(factory), board_service,
+        BoardArtifactContentStore(tmp_path / "artifacts"),
+    )
     store.create_workflow(_WORKFLOW)
     scheduling = SchedulingService(
-        store, roster, coordinator, default_timeout_seconds=5
+        store, roster, coordinator, artifacts, default_timeout_seconds=5
     )
     return scheduling, store
 
@@ -249,6 +253,33 @@ class TestSchedulingServiceWake:
         await service.wake("wf-1", backend)
 
         assert store.list_cards("wf-1") == []
+
+    @pytest.mark.asyncio
+    async def test_wake_includes_pending_prd_rejection_feedback(
+        self, tmp_path: Path
+    ) -> None:
+        """Feature 028: the coordinator's envelope must carry a pending
+        PRD rejection's feedback, not just the review card's title —
+        that's what lets it judge fix-vs-reinterview."""
+        service, store = _scheduling_service(tmp_path)
+        gate = WorkCard(
+            id="gate-1", workflow_id="wf-1", kind="prd_gate",
+            title="Approve PRD", state="cancelled",
+        )
+        store.create_card(gate)
+        service._artifacts.store_reference_artifact(
+            ArtifactDraft(
+                producer_card_id="gate-1", logical_name="response",
+                revision=1, content="Too vague on scope.",
+                trust="operator_approved",
+            )
+        )
+        backend = _FakeBackend("no structured block here")
+
+        await service.wake("wf-1", backend)
+
+        assert backend.last_request is not None
+        assert "Too vague on scope." in backend.last_request.prompt
 
     @pytest.mark.asyncio
     async def test_wake_does_not_reprocess_an_unchanged_revision(

@@ -12,6 +12,7 @@ the same convention ``decomposition.py``/``verification.py`` use.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
@@ -30,12 +31,32 @@ class RefinementResultError(Exception):
     """Raised when a refinement or PRD proposal cannot be trusted."""
 
 
-def parse_refinement_questions(text: str) -> list[str]:
+@dataclass(frozen=True)
+class RefinementRound:
+    """One persona interview round's parsed proposal (feature 028).
+
+    :param questions: This round's question set — empty only when
+        ``satisfied`` is ``true``.
+    :param satisfied: Whether the persona is declaring its interview
+        complete, needing no further round.
+    """
+
+    questions: list[str]
+    satisfied: bool
+
+
+def parse_refinement_round(text: str) -> RefinementRound:
     """Parse the ``<REFINEMENT_QUESTIONS>`` block.
 
+    An empty ``questions`` list is only valid alongside
+    ``"satisfied": true`` (feature 028) — the persona declaring it has
+    no further questions; a missing ``"satisfied"`` key defaults to
+    ``false``, so text produced before this field existed parses
+    identically to before.
+
     :raises RefinementResultError: If the tag is absent, the block isn't
-        valid JSON of the right shape, or it is empty — always fail
-        closed rather than guess.
+        valid JSON of the right shape, or ``questions`` is empty while
+        not ``satisfied`` — always fail closed rather than guess.
     """
     raw = extract_tag(text, "REFINEMENT_QUESTIONS")
     if raw is None:
@@ -43,13 +64,28 @@ def parse_refinement_questions(text: str) -> list[str]:
     try:
         data = json.loads(raw)
         questions = data["questions"]
-        if not isinstance(questions, list) or not questions:
+        satisfied = bool(data.get("satisfied", False))
+        if not isinstance(questions, list):
+            raise RefinementResultError("questions must be a list")
+        if not questions and not satisfied:
             raise RefinementResultError("questions must be a nonempty list")
         if not all(isinstance(q, str) for q in questions):
             raise RefinementResultError("every question must be a string")
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise RefinementResultError(f"malformed result: {exc}") from exc
-    return questions
+    return RefinementRound(questions=questions, satisfied=satisfied)
+
+
+def parse_refinement_questions(text: str) -> list[str]:
+    """Parse the ``<REFINEMENT_QUESTIONS>`` block's question list.
+
+    Thin wrapper over :func:`parse_refinement_round` for callers (the
+    CAB-1 strategic interview) that only need the questions, not the
+    feature-028 satisfaction signal.
+
+    :raises RefinementResultError: See :func:`parse_refinement_round`.
+    """
+    return parse_refinement_round(text).questions
 
 
 def route_refinement_result(
@@ -67,10 +103,14 @@ def route_refinement_result(
     persona = card.eligible_roles[0] if card.eligible_roles else "unknown"
     try:
         raw = extract_tag(text, "REFINEMENT_QUESTIONS") or ""
-        questions = parse_refinement_questions(text)
+        round_result = parse_refinement_round(text)
     except RefinementResultError:
         _escalate_unparseable(coordinator, card, "refinement", persona)
         return
+    if round_result.satisfied and not round_result.questions:
+        gates.mark_refinement_satisfied(card)
+        return
+    questions = round_result.questions
     artifact = artifacts.store_reference_artifact(
         ArtifactDraft(
             producer_card_id=card.id,

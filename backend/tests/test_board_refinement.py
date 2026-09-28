@@ -24,6 +24,7 @@ from app.services.board.refinement import (
     gather_refinement_context,
     parse_prd_draft,
     parse_refinement_questions,
+    parse_refinement_round,
     route_prd_result,
     route_refinement_result,
     route_strategic_interview_result,
@@ -74,6 +75,51 @@ class TestParseRefinementQuestions:
         )
         with pytest.raises(RefinementResultError):
             parse_refinement_questions(text)
+
+
+class TestParseRefinementRound:
+    """Feature 028: an empty ``questions`` list is only valid alongside
+    ``"satisfied": true``."""
+
+    def test_satisfied_with_no_questions_parses(self) -> None:
+        text = (
+            '<REFINEMENT_QUESTIONS>{"questions": [], "satisfied": true}'
+            "</REFINEMENT_QUESTIONS>"
+        )
+        result = parse_refinement_round(text)
+        assert result.questions == []
+        assert result.satisfied is True
+
+    def test_satisfied_with_questions_still_parses(self) -> None:
+        text = (
+            '<REFINEMENT_QUESTIONS>{"questions": ["One more thing?"], '
+            '"satisfied": true}</REFINEMENT_QUESTIONS>'
+        )
+        result = parse_refinement_round(text)
+        assert result.questions == ["One more thing?"]
+        assert result.satisfied is True
+
+    def test_no_satisfied_key_defaults_to_false_and_requires_questions(
+        self,
+    ) -> None:
+        text = _refinement_block()
+        with pytest.raises(RefinementResultError):
+            parse_refinement_round(text)
+
+    def test_unsatisfied_empty_questions_still_raises(self) -> None:
+        text = (
+            '<REFINEMENT_QUESTIONS>{"questions": [], "satisfied": false}'
+            "</REFINEMENT_QUESTIONS>"
+        )
+        with pytest.raises(RefinementResultError):
+            parse_refinement_round(text)
+
+    def test_ordinary_questions_are_unaffected(self) -> None:
+        result = parse_refinement_round(
+            _refinement_block("What is the deadline?")
+        )
+        assert result.questions == ["What is the deadline?"]
+        assert result.satisfied is False
 
 
 class TestParsePrdDraft:
@@ -147,6 +193,37 @@ class TestRouteRefinementResult:
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
         assert len(new_cards) == 1
         assert new_cards[0].kind == "coordinator_review"
+
+    def test_satisfied_with_no_questions_completes_with_no_gate(
+        self, tmp_path: Path
+    ) -> None:
+        """Feature 028: a persona declaring itself satisfied is done
+        directly — no gate, nothing left for the operator to answer."""
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="refinement",
+            title="uiux interview questions", state="review",
+            eligible_roles=("uiux",),
+        )
+        store.create_card(card)
+        satisfied_block = (
+            '<REFINEMENT_QUESTIONS>{"questions": [], "satisfied": true}'
+            "</REFINEMENT_QUESTIONS>"
+        )
+
+        route_refinement_result(
+            satisfied_block, card, coordinator, gates, artifacts,
+        )
+
+        assert store.get_card("card-1").state == "done"
+        assert not any(
+            c.kind == "refinement_gate" for c in store.list_cards("wf-1")
+        )
+        # This is the only persona in the test, so satisfying it directly
+        # (no gate) still triggers the same "every persona done -> start
+        # PRD" check an answered gate would (see GatesService.
+        # mark_refinement_satisfied).
+        assert any(c.kind == "prd" for c in store.list_cards("wf-1"))
 
 
 class TestRouteStrategicInterviewResult:

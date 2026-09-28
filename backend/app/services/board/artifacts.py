@@ -107,6 +107,14 @@ class ArtifactsService:
             return None
         return self._content_store.read(artifact.content_ref)
 
+    def producer_card_id(self, artifact_id: str) -> str | None:
+        """Return the card that produced *artifact_id*, or ``None`` if
+        unknown (feature 028 — recovering a ``refinement_gate``'s
+        persona from its target artifact's origin card, with no need
+        for the gate card itself to carry that information)."""
+        artifact = self._artifact_store.get(artifact_id)
+        return artifact.producer_card_id if artifact is not None else None
+
     def latest_content_for_card(
         self, card_id: str, logical_name: str
     ) -> str | None:

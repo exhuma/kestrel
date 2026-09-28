@@ -332,6 +332,18 @@ class Settings(BaseSettings):
     #: pre-CAB-1 interview light, unlike the deeper post-approval
     #: refinement interviews it precedes.
     board_cab1_interview_max_questions: int = Field(default=3, gt=0)
+    #: Max refinement-interview rounds per persona per workflow (feature
+    #: 028, ``KESTREL_BOARD_REFINEMENT_ROUND_CAP``). ``1`` (the default)
+    #: is today's exact behavior — one round per persona, no follow-up.
+    #: Above ``1``, a persona whose answers leave genuine ambiguity gets
+    #: a further round, up to this cap, before PRD drafting starts.
+    board_refinement_round_cap: int = Field(default=1, ge=1)
+    #: Max PRD redraft attempts per workflow after a ``prd_gate``
+    #: rejection (feature 028, ``KESTREL_BOARD_PRD_REDRAFT_CAP``). ``1``
+    #: (the default) allows exactly one redraft per rejection, matching
+    #: today's single-redraft behavior; a further rejection past the cap
+    #: escalates to the operator instead of redrafting again.
+    board_prd_redraft_cap: int = Field(default=1, ge=1)
     #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
     #: endpoints (feature 026, T069,
     #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —

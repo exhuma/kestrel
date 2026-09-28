@@ -148,3 +148,22 @@ class TestCoordinatorEnvelope:
         envelope = build_coordinator_envelope(specialist, workflow, [])
 
         assert "Users need to export their data as CSV." in envelope
+
+    def test_envelope_includes_extra_context_when_given(self) -> None:
+        specialist = _coordinator_specialist()
+
+        envelope = build_coordinator_envelope(
+            specialist, _WORKFLOW, [],
+            extra_context="### Prior rejection feedback\nToo vague.",
+        )
+
+        assert "Too vague." in envelope
+
+    def test_envelope_omits_extra_context_section_when_empty(self) -> None:
+        specialist = _coordinator_specialist()
+
+        envelope = build_coordinator_envelope(
+            specialist, _WORKFLOW, [], extra_context="",
+        )
+
+        assert "Prior rejection feedback" not in envelope

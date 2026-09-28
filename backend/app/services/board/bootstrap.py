@@ -129,6 +129,9 @@ def get_gates_service() -> GatesService:
             cab1_interview_max_questions=(
                 settings.board_cab1_interview_max_questions
             ),
+            refinement_round_cap=settings.board_refinement_round_cap,
+            prd_redraft_cap=settings.board_prd_redraft_cap,
+            coordinator=get_coordinator_service(),
         ),
     )
 
@@ -182,6 +185,7 @@ def get_scheduling_service() -> SchedulingService:
         get_board_store(),
         get_specialist_roster(),
         get_coordinator_service(),
+        get_artifacts_service(),
         default_timeout_seconds=settings.board_input_security_timeout_seconds,
     )
 
