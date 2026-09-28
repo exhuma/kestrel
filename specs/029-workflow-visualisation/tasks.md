@@ -267,8 +267,30 @@ passes.
   carry, and `Executive summary` has no card kind at all until GitHub #50–#52
   land. Both render as `Not yet produced` rather than being hidden, which is
   what an *expected* set is for. **Surfacing the original request would need a
-  fifth DTO addition**, so it was not made: FR-039 reserves that for the
-  developer. Raised rather than decided.
+  fifth DTO addition**, so it was not made here: FR-039 reserves that for the
+  developer.
+
+  **Raised and now decided (2026-09-28).** The developer wants the request body
+  readable in the cockpit, and ruled the four-field count a guardrail against
+  scope creep rather than a fixed number. **The work is deferred to task 707
+  (GitHub #50–#52)**, which already opens the backend for the rail's *other*
+  empty slot — so both gaps close together, and **this feature's own four-field
+  boundary still holds**: the fifth field lands in 707's scope, not in 029's
+  diff, so T095 stands unamended. Decisions for 707 to implement:
+
+  - `task_body` goes on `BoardSnapshotOut` **only**, never on
+    `WorkflowSummaryOut` — full issue bodies on every board row would bloat the
+    listing for nothing.
+  - **No trust chip on this one entry.** The chip exists to stop `agent_output`
+    being mistaken for `operator_approved` (FR-015); the request body is
+    neither, and a third trust vocabulary would blunt that distinction rather
+    than sharpen it.
+  - **Show a freshness note instead**: `task_body` is screened once at intake
+    and frozen, so a later edit to the source ticket is never reflected. Say so
+    where it is read.
+  - `ArtifactDialog` opens artifacts *by id* via the content endpoint. The
+    request body has no artifact id, so it needs a direct-content path — either
+    a second mode on that dialog or a sibling component.
 - Eight icon aliases were added to `frontend/src/plugins/icons.ts` for the rail.
   Its test's hard-coded alias list was hoisted to a module constant — adding
   icons had pushed the `describe` block past the 60-line function limit, and
