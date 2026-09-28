@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-28
 
-**Status**: Draft
+**Status**: Implemented (2026-09-28)
 
 **Input**: GitHub #50 (resource-cost estimation), #51 (coding vs non-coding
 classification), #52 (CAB-2 executive summary), Vikunja task 707. Also the

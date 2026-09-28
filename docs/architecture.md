@@ -64,7 +64,7 @@ entity reference; this is the operator-relevant shape:
 - **Work Card.** A single policy-governed unit of work with a closed `kind`
   vocabulary (`understanding_gate`, `refinement_gate`, `prd_gate`,
   `decomposition_gate`, `security_review`, `analysis`, `design`,
-  `implementation`, `verification`, `reconciliation`, `coordinator_review`)
+  `estimation`, `implementation`, `verification`, `reconciliation`, `coordinator_review`)
   and a universal state lifecycle: `ready → claimed →
   {waiting_dependency|awaiting_human|review|quarantined} →
   {done|failed|cancelled}`. A **Card Relation** is a directed
@@ -225,6 +225,37 @@ loop-breaker, `has_subtask_sentinel`/`SUBTASK_SENTINEL`). This is now
 every child it creates with that same marker so it carries the exemption
 forward.
 
+**As of 2026-09-28, CAB-2 has something to decide on** (spec 030,
+GitHub #50–#52). The `pm`'s `<DECOMPOSITION>` block now also classifies
+every task as `coding` or `manual` and carries 1–2 paragraphs of summary
+prose. It is validated strictly (`app/services/board/candidate.py`): an
+unclassified task is rejected, never assumed agent-eligible. A valid
+candidate no longer opens the gate directly. Instead
+`route_decomposition_result` creates an `estimation` card for `developer`
+(read-only workspace), with a dependency edge on the decomposition card
+through which it reads the candidate. The coordinator cannot create
+that card kind.
+
+`developer` answers with `<ESTIMATES>`, giving per task: size S/M/L/XL,
+confidence, man-hours by hand, agent tokens, review hours, risk flags and
+a rationale. `app/services/board/estimation.py` validates the result
+against the candidate: it must cover every task exactly once, and manual
+tasks must cost no agent tokens or review time. On success it stores the
+merged `cab2_proposal` (the gate target, and the structured record a
+later estimate-vs-actual feature will read). It then opens the
+`decomposition_gate` titled with the coding/manual split and stores an
+executive summary on the gate card itself, so the summary is the gate's
+`latest_artifact`. The summary's totals are computed by
+`exec_summary.py`, not written by an agent, and it makes no go/no-go
+recommendation. Invalid estimates fail closed to `coordinator_review`.
+
+After approval, `publish_decomposition` appends each task's estimate to
+its published body. It tags manual tasks with an extra
+`ManualTaskSentinel`, and ingestion never starts a workflow for a body
+carrying that marker, so no specialist can claim a manual task. A gate
+opened before spec 030 still publishes as before, reading the
+unclassified candidate as all-coding.
+
 Decomposition can also be **enforced**, not just offered: the
 `board_decomposition_required` setting (off by default, `config.toml`)
 reflects that Kestrel is sometimes only one part of a larger system where
@@ -317,7 +348,7 @@ projects `kind="approved_artifact"` — the last of the five FR-033
 milestone kinds, closing that gap as a side effect of building this
 rather than as its own task (see tasks.md's T067/T078 notes). Technical-
 altitude personas (infosec/architect/dba/ops/qa) and cost-estimation
-were explicitly scoped out for this pass — decomposition still stands in
+(since added by spec 030, above) were explicitly scoped out for this pass — decomposition still stands in
 for that "technical analysis" step, per T068 — and may become their own
 later iteration.
 
