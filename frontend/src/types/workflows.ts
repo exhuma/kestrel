@@ -79,6 +79,35 @@ export interface BoardArtifactRef {
   revision: number
 }
 
+/** One artifact's full content and trust level. Mirrors
+ *  `app.schemas.BoardArtifactContentOut`. Render `content` as text, never
+ *  HTML — it is agent output crossing into the browser — and show `trust`
+ *  visibly so `agent_output` is never mistaken for `operator_approved`. */
+export interface BoardArtifactContent {
+  content: string
+  trust: string
+}
+
+/** One board-history entry, safe for the narrative feed. Mirrors
+ *  `app.schemas.BoardEventOut`. `specialist` is derived from the card's
+ *  eligible role, not a recorded actor — `null` for a workflow-level
+ *  event or an operator-resolved gate. */
+export interface BoardEvent {
+  event_type: string
+  card_id: string | null
+  payload: string
+  created_at: string | null
+  specialist: BoardRoleRef | null
+}
+
+/** A gate card's decision detail. Mirrors `app.schemas.WorkCardGateOut`.
+ *  `requested_decision` tells an "approve/reject" gate apart from an
+ *  "answer these questions" gate; `decision` is `null` until resolved. */
+export interface WorkCardGate {
+  requested_decision: string
+  decision: 'approved' | 'rejected' | null
+}
+
 /** One card's board-visible state. Mirrors `app.schemas.WorkCardSummaryOut`. */
 export interface WorkCardSummary {
   id: string
@@ -96,6 +125,9 @@ export interface WorkCardSummary {
    *  one — release/discard address `/api/board/security-reviews/{id}/
    *  resolve` directly, not the generic interventions route. */
   security_review_id: string | null
+  /** This card's gate decision detail, for a gate-kind card that has one
+   *  recorded. */
+  gate: WorkCardGate | null
 }
 
 /** One directed edge in a workflow's card graph. Mirrors
@@ -108,7 +140,9 @@ export interface WorkCardRelation {
 
 /** One workflow's full board. Mirrors `app.schemas.BoardSnapshotOut`.
  *  `revision` is the optimistic-concurrency token every intervention
- *  against a card in this snapshot must echo back as `expected_revision`. */
+ *  against a card in this snapshot must echo back as `expected_revision`.
+ *  `phase`/`stage` are a pure, derived, display-only projection — never a
+ *  driver — see `app.services.board.phases`. */
 export interface BoardSnapshot {
   id: string
   revision: number
@@ -117,16 +151,21 @@ export interface BoardSnapshot {
   cards: WorkCardSummary[]
   relationships: WorkCardRelation[]
   state_counts: Partial<Record<CardState, number>>
+  phase: string
+  stage: string
 }
 
 /** One workflow's row in the board collection listing. Mirrors
- *  `app.schemas.WorkflowSummaryOut`. */
+ *  `app.schemas.WorkflowSummaryOut`. `phase`/`stage` are the same
+ *  derived, display-only projection as `BoardSnapshot`'s. */
 export interface BoardWorkflowSummary {
   id: string
   task_label: string
   status: string
   state_counts: Partial<Record<CardState, number>>
   action_required_count: number
+  phase: string
+  stage: string
 }
 
 /** Request body for one card intervention (board-api.md "Intervention").
@@ -135,4 +174,7 @@ export interface BoardInterventionRequest {
   action: CardAction
   expected_revision: number
   decision?: string | null
+  /** Free-text response for a `resolve_gate` action — a `refinement_gate`'s
+   *  answer, or a `prd_gate` rejection's feedback. Ignored otherwise. */
+  answer?: string | null
 }

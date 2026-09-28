@@ -49,6 +49,7 @@ function card(overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
     latest_artifact: null,
     allowed_actions: [],
     security_review_id: null,
+    gate: null,
     ...overrides,
   }
 }
@@ -62,6 +63,8 @@ function snapshot(overrides: Partial<BoardSnapshot> = {}): BoardSnapshot {
     cards: [],
     relationships: [],
     state_counts: {},
+    phase: 'done',
+    stage: 'Done',
     ...overrides,
   }
 }
@@ -146,6 +149,8 @@ describe('WorkBoard selection', () => {
         status: 'active',
         state_counts: {},
         action_required_count: 0,
+        phase: 'done',
+        stage: 'Done',
       },
     ]
     const wrapper = mountBoard()

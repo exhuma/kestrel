@@ -8,6 +8,7 @@ on persistence, routers, or adapters.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,9 @@ class BoardEventRecord:
         suspect content (FR-025).
     :param causation_id: The id of the event/action that caused this one.
     :param correlation_id: Groups events belonging to one causal chain.
+    :param created_at: When this event was recorded — ``None`` on a
+        not-yet-appended record; ``BoardStore.list_events`` always fills
+        it in from the row, since the server assigns it on append.
     """
 
     workflow_id: str
@@ -29,6 +33,7 @@ class BoardEventRecord:
     payload: str = "{}"
     causation_id: str | None = None
     correlation_id: str | None = None
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

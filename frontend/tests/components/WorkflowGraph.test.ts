@@ -31,6 +31,7 @@ function card(
     latest_artifact: null,
     allowed_actions: [],
     security_review_id: null,
+    gate: null,
     ...overrides,
   }
 }

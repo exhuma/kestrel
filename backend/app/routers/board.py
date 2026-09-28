@@ -1,8 +1,9 @@
 """HTTP routes for the board domain (feature 026, T027/T057/T058), under
 the ``/api/board`` prefix. Route shapes mirror board-api.md as closely
 as practical; card detail returns the same summary shape as the listing
-for this pass (the richer detail — attempt/event history, gate/security-
-review summary — is a follow-up, not yet built).
+(gate/security-review detail now included). Event history and artifact
+content each get their own dedicated route rather than growing the
+snapshot payload.
 """
 from __future__ import annotations
 
@@ -13,8 +14,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app import sse
-from app.models_board import CardAction, CardKind, ClaimLease, WorkCard
-from app.models_board_records import HandoffArtifact
+from app.models_board import (
+    GATE_CARD_KINDS,
+    CardAction,
+    CardKind,
+    ClaimLease,
+    WorkCard,
+)
+from app.models_board_records import HandoffArtifact, HumanGateRecord
+from app.persistence.board_artifact_content_store import ContentNotFoundError
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,
@@ -25,11 +33,14 @@ from app.persistence.board_claims_store import (
 )
 from app.routers.board_views import (
     BoardLookups,
+    board_events,
     board_snapshot,
     card_summary,
     workflow_summary,
 )
 from app.schemas import (
+    BoardArtifactContentOut,
+    BoardEventOut,
     BoardInterventionIn,
     BoardSnapshotOut,
     QuarantineInterventionIn,
@@ -37,8 +48,11 @@ from app.schemas import (
     WorkCardSummaryOut,
     WorkflowSummaryOut,
 )
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.bootstrap import (
+    get_artifacts_service,
     get_board_service,
+    get_gates_service,
     get_interventions_service,
     get_quarantine_service,
     get_specialist_roster,
@@ -47,6 +61,7 @@ from app.services.board.bootstrap import (
     schedule_gate_projection,
     schedule_prd_approval_projection,
 )
+from app.services.board.gates import GatesService
 from app.services.board.interventions import (
     GateResolution,
     InterventionsService,
@@ -104,6 +119,35 @@ async def resolve_security_review(
     )
 
 
+@router.get(
+    "/artifacts/{artifact_id}/content",
+    response_model=BoardArtifactContentOut,
+)
+async def get_artifact_content(
+    artifact_id: str,
+    artifact_store: BoardArtifactStore = Depends(get_board_artifact_store),
+    artifacts: ArtifactsService = Depends(get_artifacts_service),
+) -> BoardArtifactContentOut:
+    """Return one artifact's full content and trust level.
+
+    The frontend must render this as text, never HTML — it is agent
+    output crossing into the browser.
+
+    :raises HTTPException: 404 if the artifact, or its stored content, is
+        unknown.
+    """
+    artifact = artifact_store.get(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="unknown artifact")
+    try:
+        content = artifacts.read_content(artifact_id)
+    except ContentNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="artifact content missing"
+        ) from exc
+    return BoardArtifactContentOut(content=content or "", trust=artifact.trust)
+
+
 @dataclass(frozen=True)
 class _BoardReadDeps:
     """The read-side collaborators every board view route needs."""
@@ -113,17 +157,40 @@ class _BoardReadDeps:
     claims_store: BoardClaimsStore
     artifact_store: BoardArtifactStore
     quarantine: QuarantineService
+    gates: GatesService
 
 
-def _board_read_deps(
+@dataclass(frozen=True)
+class _BoardCoreDeps:
+    """The first half of ``_BoardReadDeps`` — split out so neither
+    composer function crosses the argument-count limit."""
+
+    board: BoardService
+    roster: SpecialistRoster
+    claims_store: BoardClaimsStore
+
+
+def _board_core_deps(
     board: BoardService = Depends(get_board_service),
     roster: SpecialistRoster = Depends(get_specialist_roster),
     claims_store: BoardClaimsStore = Depends(get_board_claims_store),
+) -> _BoardCoreDeps:
+    return _BoardCoreDeps(board, roster, claims_store)
+
+
+def _board_read_deps(
+    core: _BoardCoreDeps = Depends(_board_core_deps),
     artifact_store: BoardArtifactStore = Depends(get_board_artifact_store),
     quarantine: QuarantineService = Depends(get_quarantine_service),
+    gates: GatesService = Depends(get_gates_service),
 ) -> _BoardReadDeps:
     return _BoardReadDeps(
-        board, roster, claims_store, artifact_store, quarantine
+        core.board,
+        core.roster,
+        core.claims_store,
+        artifact_store,
+        quarantine,
+        gates,
     )
 
 
@@ -131,6 +198,7 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
     leases: dict[str, ClaimLease] = {}
     latest: dict[str, HandoffArtifact] = {}
     security_review_ids: dict[str, str] = {}
+    gates: dict[str, HumanGateRecord] = {}
     for card in cards:
         lease = deps.claims_store.get_active_lease(card.id)
         if lease is not None:
@@ -142,11 +210,16 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
             review = deps.quarantine.review_for_card(card.id)
             if review is not None:
                 security_review_ids[card.id] = review.id
+        if CardKind(card.kind) in GATE_CARD_KINDS:
+            gate = deps.gates.get_gate(card.id)
+            if gate is not None:
+                gates[card.id] = gate
     return BoardLookups(
         roster=deps.roster,
         leases=leases,
         latest_artifacts=latest,
         security_review_ids=security_review_ids,
+        gates=gates,
     )
 
 
@@ -203,6 +276,30 @@ def _snapshot_for(workflow_id: str, deps: _BoardReadDeps) -> BoardSnapshotOut:
     cards = deps.board.list_cards(workflow_id)
     relations = deps.board.list_relations(workflow_id)
     return board_snapshot(workflow, cards, relations, _lookups(cards, deps))
+
+
+@router.get(
+    "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
+)
+async def list_board_events(
+    workflow_id: str, deps: _BoardReadDeps = Depends(_board_read_deps)
+) -> list[BoardEventOut]:
+    """Return one workflow's board event history, oldest first — the
+    narrative feed's data source.
+
+    Not streamed: board SSE is full-snapshot replacement (never
+    incremental patches), and a growing append-only log does not fit
+    that shape. The client re-fetches this after the snapshot stream
+    ticks instead.
+
+    :raises HTTPException: 404 if ``workflow_id`` is unknown.
+    """
+    workflow = deps.board.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="unknown workflow")
+    events = deps.board.list_events(workflow_id)
+    cards = deps.board.list_cards(workflow_id)
+    return board_events(events, cards, deps.roster)
 
 
 @router.get(

@@ -1,11 +1,40 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { api } from '../api'
 import { useBoard } from '../composables/useBoard'
-import type { CardAction, WorkCardSummary } from '../types/workflows'
+import type {
+  BoardArtifactContent,
+  CardAction,
+  WorkCardSummary,
+} from '../types/workflows'
 
 const props = defineProps<{ card: WorkCardSummary }>()
 
 const { applyIntervention, resolveQuarantine } = useBoard()
+
+const artifactContent = ref<BoardArtifactContent | null>(null)
+const artifactError = ref<string | null>(null)
+
+async function loadArtifactContent(artifactId: string): Promise<void> {
+  artifactContent.value = null
+  artifactError.value = null
+  try {
+    artifactContent.value = await api.get<BoardArtifactContent>(
+      `/api/board/artifacts/${artifactId}/content`,
+    )
+  } catch {
+    artifactError.value = 'Could not load artifact content.'
+  }
+}
+
+watch(
+  () => props.card.latest_artifact?.id,
+  (artifactId) => {
+    if (artifactId) void loadArtifactContent(artifactId)
+    else artifactContent.value = null
+  },
+  { immediate: true },
+)
 
 const STATE_LABELS: Record<string, string> = {
   ready: 'Ready',
@@ -34,11 +63,35 @@ const CONFIRM_MESSAGES: Partial<Record<CardAction, string>> = {
   request_coordinator_review: 'Ask the coordinator to review this card?',
 }
 
-async function runAction(action: CardAction, decision?: string): Promise<void> {
+async function runAction(
+  action: CardAction,
+  decision?: string,
+  answer?: string,
+): Promise<void> {
   const message = CONFIRM_MESSAGES[action]
   if (message && !confirm(message)) return
-  await applyIntervention(props.card.id, action, decision)
+  await applyIntervention(props.card.id, action, decision, answer)
 }
+
+// A `refinement_gate` (`requested_decision: 'answer'`) asks for a
+// free-text answer on approval; a `prd_gate` (`approve_prd`) asks for
+// rejection feedback. Every other gate kind is a plain approve/reject.
+const answerText = ref('')
+const requestsAnswer = computed(
+  () => props.card.gate?.requested_decision === 'answer',
+)
+const requestsPrdFeedback = computed(
+  () => props.card.gate?.requested_decision === 'approve_prd',
+)
+const showAnswerField = computed(
+  () => requestsAnswer.value || requestsPrdFeedback.value,
+)
+const canApproveGate = computed(
+  () => !requestsAnswer.value || answerText.value.trim().length > 0,
+)
+const canRejectGate = computed(
+  () => !requestsPrdFeedback.value || answerText.value.trim().length > 0,
+)
 
 const canResolveQuarantine = computed(
   () =>
@@ -117,6 +170,26 @@ const canResolveGate = computed(() =>
         Latest artifact: {{ card.latest_artifact.label }} (rev
         {{ card.latest_artifact.revision }})
       </div>
+      <div v-if="artifactContent" class="mb-2">
+        <v-chip size="x-small" class="mb-1" data-testid="artifact-trust">
+          {{ artifactContent.trust }}
+        </v-chip>
+        <div class="artifact-content text-body-2">
+          {{ artifactContent.content }}
+        </div>
+      </div>
+      <div v-else-if="artifactError" class="mb-2 text-body-2 text-error">
+        {{ artifactError }}
+      </div>
+
+      <v-textarea
+        v-if="canResolveGate && showAnswerField"
+        v-model="answerText"
+        :label="requestsAnswer ? 'Your answer' : 'Rejection feedback'"
+        density="compact"
+        rows="3"
+        auto-grow
+      />
     </v-card-text>
 
     <v-card-actions
@@ -136,7 +209,10 @@ const canResolveGate = computed(() =>
           size="small"
           color="success"
           variant="tonal"
-          @click="runAction('resolve_gate', 'approved')"
+          :disabled="!canApproveGate"
+          @click="
+            runAction('resolve_gate', 'approved', answerText || undefined)
+          "
         >
           Approve
         </v-btn>
@@ -144,7 +220,10 @@ const canResolveGate = computed(() =>
           size="small"
           color="error"
           variant="tonal"
-          @click="runAction('resolve_gate', 'rejected')"
+          :disabled="!canRejectGate"
+          @click="
+            runAction('resolve_gate', 'rejected', answerText || undefined)
+          "
         >
           Reject
         </v-btn>
@@ -180,3 +259,9 @@ const canResolveGate = computed(() =>
     </v-card-actions>
   </v-card>
 </template>
+
+<style scoped>
+.artifact-content {
+  white-space: pre-wrap;
+}
+</style>

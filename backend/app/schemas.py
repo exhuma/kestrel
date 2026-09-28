@@ -95,6 +95,25 @@ class BoardArtifactRefOut(BaseModel):
     revision: int
 
 
+class WorkCardGateOut(BaseModel):
+    """A gate card's decision detail (board-api.md ``CardSummary``).
+
+    Lets the frontend tell an "approve/reject" gate
+    (``requested_decision`` of ``confirm_understanding``,
+    ``approve_prd``, or ``approve_decomposition``) apart from an
+    "answer these questions" gate (``answer``), and shows a decision
+    already recorded rather than only the pending ask.
+
+    :param requested_decision: Safe, closed description of what's asked
+        (``HumanGateRecord.requested_decision``).
+    :param decision: ``None`` until the operator decides; then
+        ``"approved"`` or ``"rejected"``.
+    """
+
+    requested_decision: str
+    decision: str | None = None
+
+
 class WorkCardSummaryOut(BaseModel):
     """One card's board-visible state (board-api.md ``CardSummary``).
 
@@ -108,6 +127,8 @@ class WorkCardSummaryOut(BaseModel):
         ``POST /security-reviews/{id}/resolve`` (release/discard-quarantine
         stay off ``allowed_actions``/``interventions``, see
         ``app.services.board.interventions``).
+    :param gate: This card's gate decision detail, for a gate-kind card
+        that has one recorded (``app.models_board.GATE_CARD_KINDS``).
     """
 
     id: str
@@ -122,6 +143,24 @@ class WorkCardSummaryOut(BaseModel):
     latest_artifact: BoardArtifactRefOut | None = None
     allowed_actions: list[str]
     security_review_id: str | None = None
+    gate: WorkCardGateOut | None = None
+
+
+class BoardArtifactContentOut(BaseModel):
+    """One artifact's full content and trust level.
+
+    The frontend must render ``content`` as text, never as HTML — it is
+    agent output crossing into the browser — and must visibly
+    distinguish ``agent_output`` from ``operator_approved`` via
+    ``trust``.
+
+    :param content: The artifact's raw stored content.
+    :param trust: At least ``untrusted``, ``released``, ``agent_output``,
+        or ``operator_approved`` (mirrors ``HandoffArtifact.trust``).
+    """
+
+    content: str
+    trust: str
 
 
 class WorkCardRelationOut(BaseModel):
@@ -137,7 +176,9 @@ class BoardSnapshotOut(BaseModel):
 
     ``revision`` is the client's optimistic-concurrency token: every
     intervention against a card in this snapshot must echo it back as
-    ``expected_revision``.
+    ``expected_revision``. ``phase``/``stage`` are a pure, derived,
+    display-only projection (``app.services.board.phases``) — never a
+    driver: they never decide what happens next.
     """
 
     id: str
@@ -147,16 +188,24 @@ class BoardSnapshotOut(BaseModel):
     cards: list[WorkCardSummaryOut]
     relationships: list[WorkCardRelationOut]
     state_counts: dict[str, int]
+    phase: str
+    stage: str
 
 
 class WorkflowSummaryOut(BaseModel):
-    """One workflow's row in the board collection listing."""
+    """One workflow's row in the board collection listing.
+
+    ``phase``/``stage`` are a pure, derived, display-only projection
+    (``app.services.board.phases``) — never a driver.
+    """
 
     id: str
     task_label: str
     status: str
     state_counts: dict[str, int]
     action_required_count: int
+    phase: str
+    stage: str
 
 
 class BoardInterventionIn(BaseModel):
@@ -181,6 +230,24 @@ class BoardInterventionIn(BaseModel):
     #: ``refinement_gate``'s answer, or a ``prd_gate`` rejection's
     #: feedback for `pm`'s redraft. Ignored for every other action.
     answer: str | None = None
+
+
+class BoardEventOut(BaseModel):
+    """One board-history entry (data-model.md "Board Event"), safe for
+    the narrative feed.
+
+    :param specialist: The role eligible to own this event's card, when
+        it has one — derived from the card's eligible roles at read
+        time, not a recorded actor (feature 026 never records who
+        actually acted on an event). A workflow-level event (no card) or
+        an operator-resolved gate (no eligible role) carries ``None``.
+    """
+
+    event_type: str
+    card_id: str | None
+    payload: str
+    created_at: datetime | None
+    specialist: BoardRoleRefOut | None = None
 
 
 class NotificationOut(BaseModel):

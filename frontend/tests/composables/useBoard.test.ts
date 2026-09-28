@@ -40,6 +40,8 @@ function snapshot(
     cards: [],
     relationships: [],
     state_counts: {},
+    phase: 'done',
+    stage: 'Done',
     ...overrides,
   }
 }
@@ -58,6 +60,7 @@ function card(overrides: Partial<WorkCardSummary> = {}): WorkCardSummary {
     latest_artifact: null,
     allowed_actions: [],
     security_review_id: null,
+    gate: null,
     ...overrides,
   }
 }
@@ -76,6 +79,8 @@ describe('useBoard refresh', () => {
                 status: 'active',
                 state_counts: {},
                 action_required_count: 0,
+                phase: 'done',
+                stage: 'Done',
               },
             ]),
             { status: 200 },
@@ -148,34 +153,59 @@ describe('useBoard select', () => {
   })
 })
 
+function stubInterventionFetch(responseCard: WorkCardSummary): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify(responseCard), { status: 200 })
+      }
+      return new Response(JSON.stringify(snapshot('wf-1', { revision: 7 })), {
+        status: 200,
+      })
+    }),
+  )
+}
+
+function lastPostBody(): unknown {
+  const lastCall = vi.mocked(fetch).mock.calls.at(-1)
+  return JSON.parse((lastCall?.[1]?.body as string) ?? '{}')
+}
+
 describe('useBoard applyIntervention', () => {
   it('posts with the current revision', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string, init?: RequestInit) => {
-        if (init?.method === 'POST') {
-          return new Response(JSON.stringify(card({ state: 'cancelled' })), {
-            status: 200,
-          })
-        }
-        return new Response(JSON.stringify(snapshot('wf-1', { revision: 7 })), {
-          status: 200,
-        })
-      }),
-    )
+    stubInterventionFetch(card({ state: 'cancelled' }))
     const { select, applyIntervention } = useBoard()
     await select('wf-1')
 
     const result = await applyIntervention('card-1', 'cancel')
 
     expect(result?.state).toBe('cancelled')
-    const fetchMock = vi.mocked(fetch)
-    const lastCall = fetchMock.mock.calls.at(-1)
-    const body = JSON.parse((lastCall?.[1]?.body as string) ?? '{}')
-    expect(body).toEqual({
+    expect(lastPostBody()).toEqual({
       action: 'cancel',
       expected_revision: 7,
       decision: null,
+      answer: null,
+    })
+  })
+
+  it('includes the answer when resolving a gate with free text', async () => {
+    stubInterventionFetch(card({ state: 'done' }))
+    const { select, applyIntervention } = useBoard()
+    await select('wf-1')
+
+    await applyIntervention(
+      'card-1',
+      'resolve_gate',
+      'approved',
+      'Ship by Friday.',
+    )
+
+    expect(lastPostBody()).toEqual({
+      action: 'resolve_gate',
+      expected_revision: 7,
+      decision: 'approved',
+      answer: 'Ship by Friday.',
     })
   })
 

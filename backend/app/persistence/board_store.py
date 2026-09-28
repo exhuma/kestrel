@@ -292,6 +292,7 @@ class BoardStore:
                     payload=row.payload,
                     causation_id=row.causation_id,
                     correlation_id=row.correlation_id,
+                    created_at=row.created_at,
                 )
                 for row in rows
             ]

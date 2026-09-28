@@ -17,10 +17,15 @@ from app.models_board import (
     WorkCard,
     Workflow,
 )
-from app.models_board_records import HandoffArtifact
+from app.models_board_records import (
+    BoardEventRecord,
+    HandoffArtifact,
+    HumanGateRecord,
+)
 from app.routers.board_views import (
     BoardLookups,
     action_required_count,
+    board_events,
     board_snapshot,
     card_summary,
     state_counts,
@@ -75,6 +80,7 @@ def _empty_lookups() -> BoardLookups:
         leases={},
         latest_artifacts={},
         security_review_ids={},
+        gates={},
     )
 
 
@@ -141,6 +147,7 @@ class TestCardSummary:
             leases={"card-1": lease},
             latest_artifacts={},
             security_review_ids={},
+            gates={},
         )
         summary = card_summary(_card(state="claimed"), [], lookups)
         assert summary.owner.specialist_id == "developer"
@@ -155,6 +162,7 @@ class TestCardSummary:
             leases={},
             latest_artifacts={},
             security_review_ids={"card-1": "review-1"},
+            gates={},
         )
         summary = card_summary(
             _card(kind="security_review", state="quarantined"), [], lookups
@@ -190,11 +198,53 @@ class TestCardSummary:
             leases={},
             latest_artifacts={"card-1": artifact},
             security_review_ids={},
+            gates={},
         )
         summary = card_summary(_card(), [], lookups)
         assert summary.latest_artifact.id == "artifact-1"
         expected_revision = 2
         assert summary.latest_artifact.revision == expected_revision
+
+    def test_gate_detail_is_surfaced_for_a_gate_card(self) -> None:
+        gate = HumanGateRecord(
+            id="gate-1",
+            card_id="card-1",
+            requested_decision="confirm_understanding",
+        )
+        lookups = BoardLookups(
+            roster=_ROSTER,
+            leases={},
+            latest_artifacts={},
+            security_review_ids={},
+            gates={"card-1": gate},
+        )
+        summary = card_summary(
+            _card(kind="understanding_gate"), [], lookups
+        )
+        assert summary.gate is not None
+        assert summary.gate.requested_decision == "confirm_understanding"
+        assert summary.gate.decision is None
+
+    def test_gate_detail_carries_a_recorded_decision(self) -> None:
+        gate = HumanGateRecord(
+            id="gate-1",
+            card_id="card-1",
+            requested_decision="approve_prd",
+            decision="approved",
+        )
+        lookups = BoardLookups(
+            roster=_ROSTER,
+            leases={},
+            latest_artifacts={},
+            security_review_ids={},
+            gates={"card-1": gate},
+        )
+        summary = card_summary(_card(kind="prd_gate"), [], lookups)
+        assert summary.gate.decision == "approved"
+
+    def test_gate_detail_is_absent_for_a_non_gate_card(self) -> None:
+        summary = card_summary(_card(), [], _empty_lookups())
+        assert summary.gate is None
 
     def test_allowed_actions_reflect_card_state(self) -> None:
         summary = card_summary(_card(state="failed"), [], _empty_lookups())
@@ -220,3 +270,68 @@ class TestBoardSnapshot:
         )
         assert len(snapshot.relationships) == 1
         assert snapshot.relationships[0].depends_on_card_id == "card-0"
+
+
+class TestBoardEvents:
+    """Board history maps to the narrative feed's safe shape."""
+
+    def test_event_fields_are_carried_through(self) -> None:
+        when = datetime.now(timezone.utc)
+        events = [
+            BoardEventRecord(
+                workflow_id="wf-1",
+                event_type="card.result_accepted",
+                card_id="card-1",
+                payload='{"x": 1}',
+                created_at=when,
+            )
+        ]
+        out = board_events(events, [_card()], _ROSTER)
+        assert len(out) == 1
+        assert out[0].event_type == "card.result_accepted"
+        assert out[0].card_id == "card-1"
+        assert out[0].payload == '{"x": 1}'
+        assert out[0].created_at == when
+
+    def test_specialist_is_derived_from_the_cards_eligible_role(
+        self,
+    ) -> None:
+        events = [
+            BoardEventRecord(
+                workflow_id="wf-1", event_type="card.done", card_id="card-1"
+            )
+        ]
+        out = board_events(events, [_card()], _ROSTER)
+        assert out[0].specialist is not None
+        assert out[0].specialist.id == "developer"
+
+    def test_workflow_level_event_has_no_specialist(self) -> None:
+        events = [
+            BoardEventRecord(workflow_id="wf-1", event_type="workflow.created")
+        ]
+        out = board_events(events, [], _ROSTER)
+        assert out[0].card_id is None
+        assert out[0].specialist is None
+
+    def test_a_gate_card_with_no_eligible_role_has_no_specialist(
+        self,
+    ) -> None:
+        events = [
+            BoardEventRecord(
+                workflow_id="wf-1", event_type="card.awaiting_human",
+                card_id="gate-1",
+            )
+        ]
+        gate_card = _card(
+            "gate-1", kind="understanding_gate", eligible_roles=()
+        )
+        out = board_events(events, [gate_card], _ROSTER)
+        assert out[0].specialist is None
+
+    def test_events_preserve_their_given_order(self) -> None:
+        events = [
+            BoardEventRecord(workflow_id="wf-1", event_type="first"),
+            BoardEventRecord(workflow_id="wf-1", event_type="second"),
+        ]
+        out = board_events(events, [], _ROSTER)
+        assert [e.event_type for e in out] == ["first", "second"]

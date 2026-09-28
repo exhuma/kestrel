@@ -116,6 +116,7 @@ async function applyIntervention(
   cardId: string,
   action: CardAction,
   decision?: string,
+  answer?: string,
 ): Promise<WorkCardSummary | null> {
   const workflowId = current.value?.id
   const revision = current.value?.revision
@@ -126,6 +127,7 @@ async function applyIntervention(
       action,
       expected_revision: revision,
       decision: decision ?? null,
+      answer: answer ?? null,
     }
     return await api.post<WorkCardSummary>(
       `/api/board/workflows/${workflowId}/cards/${cardId}/interventions`,
