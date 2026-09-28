@@ -49,18 +49,18 @@ interface RailSlot {
 
 /** FR-014's durable set, in pipeline order.
  *
- * Two entries have no card kind behind them today, and that is recorded
- * rather than papered over:
+ * One entry still has no card kind behind it, and that is recorded rather
+ * than papered over:
  *
  * - **Original request** lives on `Workflow.task_body` and is not carried
  *   by the board snapshot, so there is nothing to open. Exposing it would
  *   need a fifth DTO addition, which FR-039 puts off-limits without the
  *   developer's word.
- * - **Executive summary** has no producer in the backend at all yet; it
- *   arrives with the estimates/exec-summary work (GitHub #50–#52).
  *
- * Both still appear, as unavailable — that is exactly what an expected
- * set is for.
+ * The **Executive summary** (feature 030) is the CAB-2 gate's own
+ * artifact: kestrel renders it from the estimates and stores it on the
+ * `decomposition_gate` card, so it is that card's `latest_artifact`. The
+ * gate therefore belongs to this slot, not to "Technical analysis".
  */
 const RAIL: readonly RailSlot[] = [
   {
@@ -97,13 +97,13 @@ const RAIL: readonly RailSlot[] = [
     kind: 'analysis',
     label: 'Technical analysis',
     icon: '$sitemapOutline',
-    cardKinds: ['analysis', 'design', 'decomposition', 'decomposition_gate'],
+    cardKinds: ['analysis', 'design', 'decomposition', 'estimation'],
   },
   {
     kind: 'exec_summary',
     label: 'Executive summary',
     icon: '$textBoxCheckOutline',
-    cardKinds: [],
+    cardKinds: ['decomposition_gate'],
   },
   {
     kind: 'pull_request',

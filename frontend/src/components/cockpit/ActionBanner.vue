@@ -10,6 +10,7 @@ import { computed, ref } from 'vue'
 import { pendingAsk, pendingAsks, type PendingAsk } from '../../lib/asks'
 import { useBoard } from '../../composables/useBoard'
 import type { WorkCardSummary } from '../../types/workflows'
+import ArtifactDialog from './ArtifactDialog.vue'
 
 const props = defineProps<{
   cards: WorkCardSummary[]
@@ -27,6 +28,17 @@ const otherAskCount = computed(() =>
 const tone = computed(() =>
   ask.value?.kind === 'quarantine' ? 'error' : 'warning',
 )
+
+/** CAB-2's executive summary is the gate card's own artifact (feature
+ *  030), so the operator can read what they are deciding on before
+ *  approving. `null` for any other ask, and for a CAB-2 gate opened
+ *  before summaries existed. */
+const summaryId = computed(() =>
+  ask.value?.card.gate?.requested_decision === 'approve_decomposition'
+    ? (ask.value.card.latest_artifact?.id ?? null)
+    : null,
+)
+const summaryOpen = ref(false)
 
 /** The confirmation in flight, or `null` when no dialog is open. */
 type Confirmation = {
@@ -141,6 +153,15 @@ const staleMessage = computed(() =>
             Answer the interview
           </v-btn>
 
+          <v-btn
+            v-if="summaryId"
+            variant="outlined"
+            prepend-icon="$textBoxCheckOutline"
+            @click="summaryOpen = true"
+          >
+            Read executive summary
+          </v-btn>
+
           <template v-if="ask.kind === 'approval'">
             <v-btn color="success" variant="tonal" @click="approve(ask)">
               Approve
@@ -170,6 +191,12 @@ const staleMessage = computed(() =>
     >
       {{ staleMessage }}
     </v-alert>
+
+    <ArtifactDialog
+      :artifact-id="summaryOpen ? summaryId : null"
+      label="Executive summary"
+      @close="summaryOpen = false"
+    />
 
     <v-dialog :model-value="confirming !== null" max-width="600" persistent>
       <v-card>

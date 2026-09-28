@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { railItems } from '../../src/lib/artifacts'
 import { workCardSummary } from '../support/board'
+import type { WorkCardSummary } from '../../src/types/workflows'
 
 const PIPELINE_ORDER = [
   'Original request',
@@ -165,19 +166,55 @@ describe('railItems card matching', () => {
   })
 })
 
-describe('railItems entries with no backend producer', () => {
-  // Recorded deliberately: neither has a card kind today. The original
-  // request lives on `Workflow.task_body` (not on the snapshot), and the
-  // executive summary has no producer until GitHub #50-#52 land.
-  it('still lists the original request and executive summary as expected work', () => {
+describe('railItems original request', () => {
+  // Recorded deliberately: the original request lives on
+  // `Workflow.task_body`, which the snapshot does not carry.
+  it('still lists the original request as expected work', () => {
     const items = railItems([
       workCardSummary({ card_type: 'delivery', state: 'done' }),
     ])
     expect(items.find((i) => i.kind === 'request')?.state).toBe(
       'Not yet produced',
     )
+  })
+})
+
+describe('railItems executive summary (feature 030)', () => {
+  const gate = (overrides: Partial<WorkCardSummary> = {}) =>
+    workCardSummary({
+      card_type: 'decomposition_gate',
+      state: 'awaiting_human',
+      latest_artifact: {
+        id: 'art-sum',
+        label: 'executive_summary',
+        revision: 1,
+      },
+      ...overrides,
+    })
+
+  it('is not produced before CAB-2 opens', () => {
+    const items = railItems([
+      workCardSummary({ card_type: 'estimation', state: 'claimed' }),
+    ])
     expect(items.find((i) => i.kind === 'exec_summary')?.state).toBe(
       'Not yet produced',
     )
+  })
+
+  it('opens the CAB-2 gate card artifact', () => {
+    const item = railItems([gate()]).find((i) => i.kind === 'exec_summary')
+    expect(item?.available).toBe(true)
+    expect(item?.artifactId).toBe('art-sum')
+    expect(item?.state).toBe('Awaiting your decision')
+  })
+
+  it('leaves the gate out of technical analysis, which shows estimation', () => {
+    const items = railItems([
+      gate(),
+      workCardSummary({ card_type: 'estimation', state: 'done' }),
+    ])
+    const analysis = items.find((i) => i.kind === 'analysis')
+    expect(analysis?.state).toBe('Produced')
+    expect(analysis?.artifactId).not.toBe('art-sum')
   })
 })

@@ -235,3 +235,46 @@ describe('ActionBanner keyboard operability', () => {
     expect(tags.every((t) => t === 'BUTTON' || t === 'A')).toBe(true)
   })
 })
+
+describe('ActionBanner CAB-2 executive summary (feature 030)', () => {
+  const summary = { id: 'art-sum', label: 'executive_summary', revision: 1 }
+
+  function dialogId(wrapper: VueWrapper): unknown {
+    return wrapper.findComponent({ name: 'ArtifactDialog' }).props('artifactId')
+  }
+
+  it('offers the summary on a CAB-2 ask and opens it on the gate artifact', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ content: 'x', trust: 'agent_output' }),
+            { status: 200 },
+          ),
+      ),
+    )
+    const wrapper = mountBanner([
+      gateCard('approve_decomposition', { latest_artifact: summary }),
+    ])
+    expect(dialogId(wrapper)).toBeNull()
+
+    await button(wrapper, 'Read executive summary')?.trigger('click')
+    await flushPromises()
+
+    expect(dialogId(wrapper)).toBe('art-sum')
+    vi.unstubAllGlobals()
+  })
+
+  it('offers no summary on a CAB-2 gate opened before summaries existed', () => {
+    const wrapper = mountBanner([gateCard('approve_decomposition')])
+    expect(button(wrapper, 'Read executive summary')).toBeUndefined()
+  })
+
+  it('offers no summary on any other decision', () => {
+    const wrapper = mountBanner([
+      gateCard('approve_prd', { latest_artifact: summary }),
+    ])
+    expect(button(wrapper, 'Read executive summary')).toBeUndefined()
+  })
+})
