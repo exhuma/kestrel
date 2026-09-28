@@ -56,7 +56,12 @@ _PHASES: tuple[_PhaseDef, ...] = (
         "Technical analysis",
         "Planning",
         frozenset(
-            {CardKind.ANALYSIS, CardKind.DESIGN, CardKind.DECOMPOSITION}
+            {
+                CardKind.ANALYSIS,
+                CardKind.DESIGN,
+                CardKind.DECOMPOSITION,
+                CardKind.ESTIMATION,
+            }
         ),
     ),
     _PhaseDef(

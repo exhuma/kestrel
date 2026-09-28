@@ -29,7 +29,10 @@ from app.services.board.gates import GatesService
 from app.services.board.quarantine import NewTaskIntake, QuarantineService
 from app.services.board.service import BoardService
 from app.services.task_scheduler import ScheduledTask, integration_branch
-from app.services.task_source_utils import has_subtask_sentinel
+from app.services.task_source_utils import (
+    has_manual_sentinel,
+    has_subtask_sentinel,
+)
 from app.services.task_sources import (
     TaskSourceRegistry,
     get_task_source_registry,
@@ -162,6 +165,9 @@ class IngestionService:
             _log.warning("ingest outcome=no-task-source %s", task_ref)
             return None
         task = await task_source.get_task(task_ref)
+        if has_manual_sentinel(task.body):
+            _log.info("ingest outcome=skipped-manual %s", task_ref)
+            return None
         outcome = await self.board_intake.quarantine.intake_for_new_task(
             NewTaskIntake(source=source, task_ref=task_ref, body=task.body)
         )

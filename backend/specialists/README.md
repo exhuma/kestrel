@@ -28,7 +28,10 @@ One subdirectory per named role, loaded from `specialists_root`
 human gates: no specialist claims them, the operator resolves them directly.
 `security_review` is claimed only by `input-security` (structured
 classification, no tools, no workspace — see its manifest). `analysis` and
-`design` are read-only specialist work. `implementation` is write-capable
+`design` are read-only specialist work. `estimation` is `developer`'s
+read-only sizing of a decomposition, created only by decomposition routing
+(never by the coordinator); its valid result opens the
+`decomposition_gate` (CAB-2). `implementation` is write-capable
 coder work. `verification` is the verifier's work. `reconciliation` is
 created only by the coordinator when specialist outputs conflict.
 

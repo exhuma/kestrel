@@ -196,6 +196,18 @@ class TestValidationAndApplication:
         assert records[0].validation_decision == "rejected"
         assert len(store.list_cards("wf-1")) == 1
 
+    def test_coordinator_cannot_create_an_estimation_card(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensure estimation stays code-created only (feature 030, R8)."""
+        coordinator, store = _coordinator(tmp_path)
+        records = coordinator.apply_actions(
+            "wf-1", "task.ingested",
+            [CreateCardAction(kind="estimation", title="Estimate")],
+        )
+        assert records[0].validation_decision == "rejected"
+        assert len(store.list_cards("wf-1")) == 1
+
     def test_create_card_with_unsupported_kind_is_rejected(
         self, tmp_path: Path
     ) -> None:

@@ -8,14 +8,25 @@ split into independent follow-up tasks, and propose the split. The task
 you are looking at is typically a high-level coordination item from a
 larger system Kestrel is only one part of — it may bundle work outside
 Kestrel's ownership (other teams, infrastructure, process) alongside the
-actual coding work. Each proposed follow-up task, once published, becomes
-something Kestrel fully owns and will implement end to end — write its
-body as a self-contained, technically scoped coding task, not a restatement
-of the parent's business framing. Never propose zero tasks — if the work
-does not warrant splitting, propose exactly one task covering all of it.
-Respond with a single
-`<DECOMPOSITION>{"tasks": [{"title": "...", "body": "...", "task_node_id":
-"...", "prerequisites": ["..."]}]}</DECOMPOSITION>` block. `task_node_id`
+actual coding work. Classify every proposed task:
+
+- `coding`: a self-contained, technically scoped change to the repository
+  that an autonomous coding agent can implement end to end. Write its body
+  as a coding task, not a restatement of the parent's business framing.
+- `manual`: anything a human must do instead. Examples: approvals and
+  sign-offs, vendor or infrastructure actions outside the repository, and
+  communication. Write its body for that human. Kestrel will never hand a
+  manual task to an agent.
+
+Never propose zero tasks — if the work does not warrant splitting,
+propose exactly one task covering all of it. Also write a `summary`: one
+or two short paragraphs for a non-technical decision-maker describing
+what the proposed work is and why it is split this way. Describe the work;
+never recommend approving or rejecting it. A separate engineer estimates
+the cost afterwards, so do not estimate effort yourself. Respond with a
+single `<DECOMPOSITION>{"summary": "...", "tasks": [{"title": "...",
+"body": "...", "task_node_id": "...", "prerequisites": ["..."],
+"classification": "coding"}]}</DECOMPOSITION>` block. `task_node_id`
 is a stable identifier for this task within your proposal; `prerequisites`
 names other tasks' `task_node_id`s this one depends on (empty if none).
 An operator reviews and approves your proposal before anything is

@@ -3,11 +3,12 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from app.markers import SubtaskSentinel
+from app.markers import ManualTaskSentinel, SubtaskSentinel
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
@@ -23,6 +24,7 @@ from app.services.board.coordinator import CoordinatorService
 from app.services.board.decomposition import (
     DecompositionResultError,
     DecompositionTask,
+    RoutingServices,
     parse_decomposition_result,
     publish_decomposition,
     route_decomposition_result,
@@ -114,42 +116,101 @@ def _setup(tmp_path: Path):
     return store, coordinator, gates, artifacts, card, gate_store
 
 
+def _routing(tmp_path: Path) -> tuple[RoutingServices, WorkCard]:
+    store, coordinator, gates, artifacts, card, _gate_store = _setup(
+        tmp_path
+    )
+    return RoutingServices(store, coordinator, gates, artifacts), card
+
+
+def _classified_block(
+    *entries: str, summary: str = "Two small changes."
+) -> str:
+    return (
+        "<DECOMPOSITION>{\"summary\": " + json.dumps(summary)
+        + ", \"tasks\": [" + ",".join(entries) + "]}</DECOMPOSITION>"
+    )
+
+
 class TestRouting:
-    def test_a_well_formed_proposal_creates_a_decomposition_gate(
+    def test_a_valid_proposal_creates_an_estimation_card_not_a_gate(
         self, tmp_path: Path
     ) -> None:
-        store, coordinator, gates, artifacts, card, gate_store = _setup(
-            tmp_path
+        """Ensure CAB-2 waits for estimates (feature 030, FR-005)."""
+        services, card = _routing(tmp_path)
+        text = _classified_block(
+            '{"title": "Do X", "body": "details", '
+            '"classification": "coding"}',
+            '{"title": "Ask legal", "body": "sign-off", '
+            '"classification": "manual"}',
         )
-        text = _decomposition_block(
-            '{"title": "Do X", "body": "details"}',
-            '{"title": "Do Y", "body": "more details"}',
-        )
 
-        route_decomposition_result(text, card, coordinator, gates, artifacts)
+        route_decomposition_result(text, card, services)
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "decomposition_gate"
-        assert new_cards[0].state == "awaiting_human"
-        gate = gate_store.get_for_card(new_cards[0].id)
-        assert gate is not None
-        assert gate.target_artifact_id is not None
+        new_cards = [
+            c for c in services.store.list_cards("wf-1") if c.id != "card-1"
+        ]
+        assert [c.kind for c in new_cards] == ["estimation"]
+        estimation = new_cards[0]
+        assert estimation.state == "ready"
+        assert estimation.eligible_roles == ("developer",)
+        assert estimation.workspace_permission == "read_only"
+        assert estimation.title == "Estimate decomposition (2 tasks)"
+        relations = services.store.list_relations("wf-1")
+        assert [(r.card_id, r.depends_on_card_id) for r in relations] == [
+            (estimation.id, "card-1")
+        ]
 
-    def test_an_unparseable_proposal_escalates_fail_closed(
+    def test_the_stored_candidate_is_normalized(
         self, tmp_path: Path
     ) -> None:
-        store, coordinator, gates, artifacts, card, _gate_store = _setup(
-            tmp_path
+        """Ensure ids are assigned before the estimator sees the tasks."""
+        services, card = _routing(tmp_path)
+        text = _classified_block(
+            '{"title": "Do X", "body": "details", '
+            '"classification": "coding"}',
         )
 
-        route_decomposition_result(
-            "no structured block here", card, coordinator, gates, artifacts
-        )
+        route_decomposition_result(text, card, services)
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "coordinator_review"
+        stored = json.loads(
+            services.artifacts.latest_content_for_card(
+                "card-1", "decomposition_candidate"
+            )
+        )
+        assert stored["summary"] == "Two small changes."
+        assert stored["tasks"][0]["task_node_id"] == "t1"
+        assert stored["tasks"][0]["classification"] == "coding"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "no structured block here",
+            _classified_block('{"title": "Do X", "body": "details"}'),
+            _classified_block(
+                '{"title": "Do X", "body": "d", "classification": "coding"}',
+                summary="",
+            ),
+            _classified_block(
+                '{"title": "A", "body": "a", "task_node_id": "x", '
+                '"classification": "coding"}',
+                '{"title": "B", "body": "b", "task_node_id": "x", '
+                '"classification": "coding"}',
+            ),
+        ],
+        ids=["no-block", "unclassified", "no-summary", "duplicate-id"],
+    )
+    def test_an_invalid_proposal_escalates_fail_closed(
+        self, tmp_path: Path, text: str
+    ) -> None:
+        services, card = _routing(tmp_path)
+
+        route_decomposition_result(text, card, services)
+
+        new_cards = [
+            c for c in services.store.list_cards("wf-1") if c.id != "card-1"
+        ]
+        assert [c.kind for c in new_cards] == ["coordinator_review"]
 
 
 class _FakeTaskSource:
@@ -185,6 +246,33 @@ class _FakeChildTasks:
         )
 
 
+_PROPOSAL = json.dumps(
+    {
+        "summary": "s",
+        "tasks": [
+            {
+                "task_node_id": "t1", "title": "Do X", "body": "details",
+                "classification": "coding",
+                "estimate": {
+                    "size": "M", "confidence": "low", "man_hours": 6,
+                    "agent_tokens": 400000, "review_hours": 1.5,
+                    "risks": ["schema migration"], "rationale": "one table",
+                },
+            },
+            {
+                "task_node_id": "t2", "title": "Ask legal", "body": "sign",
+                "classification": "manual",
+                "estimate": {
+                    "size": "S", "confidence": "high", "man_hours": 2,
+                    "agent_tokens": 0, "review_hours": 0,
+                    "risks": [], "rationale": "one email",
+                },
+            },
+        ],
+    }
+)
+
+
 class TestPublishing:
     @pytest.mark.asyncio
     async def test_publishes_every_task_with_a_subtask_sentinel(self) -> None:
@@ -209,14 +297,65 @@ class TestPublishing:
         assert child_tasks.recorded[1]["prerequisites"] == ("T1",)
         assert child_tasks.recorded[0]["parent_workflow_id"] == "wf-1"
 
+    @pytest.mark.asyncio
+    async def test_a_legacy_candidate_publishes_unchanged(self) -> None:
+        """Ensure a pre-030 gate target still publishes (FR-019)."""
+        task_source = _FakeTaskSource()
+        candidate = '{"tasks": [{"title": "Do X", "body": "details"}]}'
 
-class TestEndToEndDispatchRouting:
-    """A decomposition card's turn result creates a gate through the
-    real dispatch_ready_work loop, not just route_decomposition_result
-    called directly."""
+        await publish_decomposition(
+            _WORKFLOW, candidate, task_source, _FakeChildTasks()
+        )
+
+        _parent, _title, body, markers = task_source.calls[0]
+        assert body == "details"
+        assert [type(m) for m in markers] == [SubtaskSentinel]
 
     @pytest.mark.asyncio
-    async def test_a_pm_turn_with_a_candidate_creates_a_gate(
+    async def test_a_manual_task_carries_the_manual_marker(self) -> None:
+        """Ensure ingestion can recognise a manual child (FR-017/018)."""
+        task_source = _FakeTaskSource()
+        child_tasks = _FakeChildTasks()
+
+        await publish_decomposition(
+            _WORKFLOW, _PROPOSAL, task_source, child_tasks
+        )
+
+        coding, manual = task_source.calls
+        assert [type(m) for m in coding[3]] == [SubtaskSentinel]
+        assert [type(m) for m in manual[3]] == [
+            SubtaskSentinel, ManualTaskSentinel,
+        ]
+        assert manual[2].startswith("**Manual task** — for a human.")
+        assert len(child_tasks.recorded) == len(task_source.calls)
+
+    @pytest.mark.asyncio
+    async def test_every_published_body_carries_its_estimate(self) -> None:
+        task_source = _FakeTaskSource()
+
+        await publish_decomposition(
+            _WORKFLOW, _PROPOSAL, task_source, _FakeChildTasks()
+        )
+
+        coding_body = task_source.calls[0][2]
+        assert coding_body.startswith("details\n\n")
+        assert "## Estimate (agent, unverified)" in coding_body
+        assert (
+            "Size M · confidence low · ~6.0 man-hours · "
+            "~400,000 agent tokens · ~1.5 review hours"
+        ) in coding_body
+        assert "Risks: schema migration" in coding_body
+        assert "Rationale: one table" in coding_body
+        assert "Risks:" not in task_source.calls[1][2]
+
+
+class TestEndToEndDispatchRouting:
+    """A decomposition card's turn result creates an estimation card
+    through the real dispatch_ready_work loop, not just
+    route_decomposition_result called directly."""
+
+    @pytest.mark.asyncio
+    async def test_a_pm_turn_with_a_candidate_creates_an_estimation_card(
         self, tmp_path: Path,
     ) -> None:
         factory = board_session_factory(tmp_path)
@@ -257,8 +396,8 @@ class TestEndToEndDispatchRouting:
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator, gates=gates,
         )
-        backend = _FakeBackend(_decomposition_block(
-            '{"title": "Do X", "body": "details"}'
+        backend = _FakeBackend(_classified_block(
+            '{"title": "Do X", "body": "details", "classification": "coding"}'
         ))
 
         await dispatch_ready_work(
@@ -267,5 +406,4 @@ class TestEndToEndDispatchRouting:
 
         assert store.get_card("card-1").state == "done"
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "decomposition_gate"
+        assert [c.kind for c in new_cards] == ["estimation"]

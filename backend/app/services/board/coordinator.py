@@ -28,7 +28,14 @@ from app.services.board.policy import is_valid_transition
 from app.services.board.service import BoardService
 from app.text_extract import extract_tag
 
-_VALID_CARD_KINDS = frozenset(k.value for k in CardKind)
+#: Kinds only code may create, never a coordinator proposal: an
+#: ``estimation`` card is meaningless without the dependency edge on the
+#: decomposition candidate it estimates, which only decomposition routing
+#: sets up (feature 030, research R8).
+_CODE_ONLY_CARD_KINDS = frozenset({CardKind.ESTIMATION.value})
+_VALID_CARD_KINDS = (
+    frozenset(k.value for k in CardKind) - _CODE_ONLY_CARD_KINDS
+)
 _VALID_WORKSPACE_PERMISSIONS = frozenset(p.value for p in WorkspacePermission)
 _MIN_RECONCILIATION_CARDS = 2
 

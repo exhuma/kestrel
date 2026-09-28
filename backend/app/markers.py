@@ -21,6 +21,9 @@ SENTINEL = "<!-- kestrel:refined -->"
 #: is already self-contained and technically scoped, so a run against it
 #: skips describe/refine/technical_analysis entirely and starts at design.
 SUBTASK_SENTINEL = "<!-- kestrel:subtask -->"
+#: Marks a published decomposition child as a *manual* task (feature 030):
+#: it is for a human, and ingestion must never turn it into agent work.
+MANUAL_SENTINEL = "<!-- kestrel:manual -->"
 
 
 class Marker(ABC):
@@ -63,6 +66,23 @@ class SubtaskSentinel(Marker):
 
     def present_in(self, body: str) -> bool:
         """Return whether the subtask sentinel already appears in ``body``."""
+        return self.render() in body
+
+
+class ManualTaskSentinel(Marker):
+    """Marks a published decomposition child as a manual task (feature 030).
+
+    Applied alongside :class:`SubtaskSentinel`. Ingestion never starts a
+    workflow for a body carrying it, so no specialist can ever claim the
+    task (FR-018). Content-free: detection is by presence, not payload.
+    """
+
+    def render(self) -> str:
+        """Return the manual-task sentinel comment."""
+        return MANUAL_SENTINEL
+
+    def present_in(self, body: str) -> bool:
+        """Return whether the manual sentinel already appears in ``body``."""
         return self.render() in body
 
 

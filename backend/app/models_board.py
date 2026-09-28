@@ -54,6 +54,11 @@ class CardKind(StrEnum):
     #: distinct from ``ANALYSIS`` so dispatch can route its result without
     #: guessing from an ordinary analysis card's free-form text).
     DECOMPOSITION = "decomposition"
+    #: `developer`'s per-task estimates of an accepted decomposition
+    #: candidate (feature 030) — created only by decomposition routing,
+    #: with a dependency edge on the decomposition card it estimates;
+    #: its valid result is what opens the ``decomposition_gate`` (CAB-2).
+    ESTIMATION = "estimation"
     #: One persona's own scoped question set for a ``refinement_gate`` to
     #: hold (T078) — created deterministically, one per persona
     #: (`requester`/`pm`/`uiux`), never by a specialist's own initiative.

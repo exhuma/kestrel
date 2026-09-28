@@ -26,7 +26,10 @@ from app.services.board.claims import (
     ReadCapacityExceededError,
 )
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.decomposition import route_decomposition_result
+from app.services.board.decomposition import (
+    RoutingServices,
+    route_decomposition_result,
+)
 from app.services.board.dispatch import (
     CardTurnError,
     _TurnBackend,
@@ -36,6 +39,10 @@ from app.services.board.dispatch import (
 from app.services.board.dispatch_delivery import (
     _dispatch_pending_delivery,
     _request_delivery,
+)
+from app.services.board.estimation import (
+    estimation_context,
+    route_estimation_result,
 )
 from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
@@ -173,6 +180,12 @@ def _extra_context_for(
         return gather_refinement_context(
             workflow_id, services.claims.store, services.artifacts
         )
+    if (
+        card.kind == CardKind.ESTIMATION.value
+        and services.coordinator
+        and services.gates
+    ):
+        return estimation_context(card, _routing(services))
     if card.kind == CardKind.REFINEMENT.value and services.gates:
         cards = services.claims.store.list_cards(workflow_id)
         return round_context(
@@ -238,6 +251,52 @@ async def _dispatch_one(
     await _route_result(workflow_id, card, result.final_text, services)
 
 
+_Route = Callable[[str, WorkCard, "DispatchServices"], None]
+
+
+def _routing(services: DispatchServices) -> RoutingServices:
+    """Adapt :class:`DispatchServices` to the decomposition/estimation
+    routes' bundle.
+
+    :raises ValueError: If the coordinator or gates are not configured —
+        callers check both first, so this never fires in practice.
+    """
+    if services.coordinator is None or services.gates is None:
+        raise ValueError("routing needs a coordinator and gates")
+    return RoutingServices(
+        store=services.claims.store,
+        coordinator=services.coordinator,
+        gates=services.gates,
+        artifacts=services.artifacts,
+    )
+
+
+def _legacy_route(route: Callable[..., None]) -> _Route:
+    """Adapt a ``(text, card, coordinator, gates, artifacts)`` route."""
+    return lambda text, card, services: route(
+        text, card, services.coordinator, services.gates, services.artifacts
+    )
+
+
+#: Card kind -> the follow-up router for its accepted result (research
+#: R9). Every entry needs both the coordinator (to escalate) and gates
+#: (to open the next human decision); a deployment without them leaves
+#: these results generically accepted with no follow-up.
+_ROUTES: dict[str, _Route] = {
+    CardKind.DECOMPOSITION.value: lambda text, card, services: (
+        route_decomposition_result(text, card, _routing(services))
+    ),
+    CardKind.ESTIMATION.value: lambda text, card, services: (
+        route_estimation_result(text, card, _routing(services))
+    ),
+    CardKind.REFINEMENT.value: _legacy_route(route_refinement_result),
+    CardKind.PRD.value: _legacy_route(route_prd_result),
+    CardKind.STRATEGIC_INTERVIEW.value: _legacy_route(
+        route_strategic_interview_result
+    ),
+}
+
+
 async def _route_result(
     workflow_id: str,
     card: WorkCard,
@@ -249,42 +308,10 @@ async def _route_result(
     repo's branch-count limit."""
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
         await _route_verification(workflow_id, card, final_text, services)
-    elif (
-        card.kind == CardKind.DECOMPOSITION.value
-        and services.coordinator
-        and services.gates
-    ):
-        route_decomposition_result(
-            final_text, card, services.coordinator, services.gates,
-            services.artifacts,
-        )
-    elif (
-        card.kind == CardKind.REFINEMENT.value
-        and services.coordinator
-        and services.gates
-    ):
-        route_refinement_result(
-            final_text, card, services.coordinator, services.gates,
-            services.artifacts,
-        )
-    elif (
-        card.kind == CardKind.PRD.value
-        and services.coordinator
-        and services.gates
-    ):
-        route_prd_result(
-            final_text, card, services.coordinator, services.gates,
-            services.artifacts,
-        )
-    elif (
-        card.kind == CardKind.STRATEGIC_INTERVIEW.value
-        and services.coordinator
-        and services.gates
-    ):
-        route_strategic_interview_result(
-            final_text, card, services.coordinator, services.gates,
-            services.artifacts,
-        )
+        return
+    route = _ROUTES.get(card.kind)
+    if route is not None and services.coordinator and services.gates:
+        route(final_text, card, services)
 
 
 async def _route_verification(
