@@ -24,6 +24,7 @@ from app.services.board.prd_redraft import maybe_redraft_prd
 from app.services.board.refinement_rounds import (
     has_any_round,
     maybe_advance_round,
+    round_of_gate,
     still_pending,
 )
 from app.services.board.service import BoardService
@@ -152,6 +153,11 @@ class GatesService:
     def get_gate(self, card_id: str) -> HumanGateRecord | None:
         """Return *card_id*'s gate record, or ``None`` if it has none."""
         return self._gate_store.get_for_card(card_id)
+
+    def gate_round(self, card: WorkCard, cards: list[WorkCard]) -> int | None:
+        """The 1-based interview round *card* belongs to (board API A3),
+        or ``None`` if it is not a round-capped ``refinement_gate``."""
+        return round_of_gate(card, cards, self.get_gate, self._artifacts)
 
     def mark_refinement_satisfied(self, card: WorkCard) -> None:
         """Complete one persona's interview directly, with no gate

@@ -5,8 +5,8 @@ import { aliases as vuetifyAliases, mdi } from 'vuetify/iconsets/mdi-svg'
 import { aliases as appAliases } from './plugins/icons'
 import './styles/theme.css'
 import App from './App.vue'
+import { router } from './router'
 import { applyDeepLink } from './lib/deeplink'
-import { useBoard } from './composables/useBoard'
 
 // Vuetify's built-in `light` and `dark` themes carry the whole palette — the
 // app no longer ships a bespoke colour system. Components auto-import on demand
@@ -46,8 +46,17 @@ const vuetify = createVuetify({
   },
 })
 
-// Deep-link: if the URL carries `?run=<id>` (from a gate-notification
-// comment), open that run before mount so the panel shows its gate form.
-applyDeepLink(window.location.search, (id) => void useBoard().select(id))
+// Legacy deep-link (FR-031): `?run=<id>` (from a gate-notification
+// comment) resolves to the request's cockpit, but only when no hash
+// route is already present — a bookmarked `#/requests/:id` must not be
+// overridden by a stale `?run=` query string still hanging on the URL.
+const hasHashRoute =
+  window.location.hash !== '' && window.location.hash !== '#/'
+if (!hasHashRoute) {
+  applyDeepLink(
+    window.location.search,
+    (id) => void router.replace({ name: 'cockpit', params: { id } }),
+  )
+}
 
-createApp(App).use(vuetify).mount('#app')
+createApp(App).use(vuetify).use(router).mount('#app')

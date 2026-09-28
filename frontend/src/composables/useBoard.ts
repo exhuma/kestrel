@@ -29,12 +29,15 @@ function describe(e: unknown): string {
   return 'Unexpected error'
 }
 
+// Requests terminal workflows too (`include_completed`) — the listing
+// hides them by default, but the stage board's Done column needs them
+// (feature 029 FR-044).
 async function refresh(): Promise<void> {
   loading.value = true
   error.value = null
   try {
     workflows.value = await api.get<BoardWorkflowSummary[]>(
-      '/api/board/workflows',
+      '/api/board/workflows?include_completed=true',
     )
   } catch (e) {
     error.value = describe(e)
@@ -45,7 +48,9 @@ async function refresh(): Promise<void> {
 
 function startList(): void {
   if (listSource) return
-  listSource = new EventSource(`${API_BASE}/api/board/workflows/events`)
+  listSource = new EventSource(
+    `${API_BASE}/api/board/workflows/events?include_completed=true`,
+  )
   listSource.onmessage = (e) => {
     workflows.value = JSON.parse(e.data) as BoardWorkflowSummary[]
   }

@@ -66,10 +66,10 @@ component.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `vue-router@^4.6.4` to `frontend/package.json` dependencies (the v4 line deliberately, not v5 — research R1) and run `npm install` in `frontend/`
-- [ ] T002 [P] Create the new source directories `frontend/src/router/`, `frontend/src/views/`, `frontend/src/components/board/`, `frontend/src/components/cockpit/`, `frontend/src/components/interview/`, `frontend/src/components/common/`
-- [ ] T003 [P] Create the mirroring test directories `frontend/tests/router/`, `frontend/tests/views/`, `frontend/tests/components/board/`, `frontend/tests/components/cockpit/`, `frontend/tests/components/interview/`
-- [ ] T004 [P] `git add docs/mockups/*.png` — the `.gitignore` negation exempting them from the blanket `*.png` rule is already in place, so they are untracked-but-visible and need only be added
+- [X] T001 Add `vue-router@^4.6.4` to `frontend/package.json` dependencies (the v4 line deliberately, not v5 — research R1) and run `npm install` in `frontend/`
+- [X] T002 [P] Create the new source directories `frontend/src/router/`, `frontend/src/views/`, `frontend/src/components/board/`, `frontend/src/components/cockpit/`, `frontend/src/components/interview/`, `frontend/src/components/common/`
+- [X] T003 [P] Create the mirroring test directories `frontend/tests/router/`, `frontend/tests/views/`, `frontend/tests/components/board/`, `frontend/tests/components/cockpit/`, `frontend/tests/components/interview/`
+- [X] T004 [P] `git add docs/mockups/*.png` — the `.gitignore` negation exempting them from the blanket `*.png` rule is already in place, so they are untracked-but-visible and need only be added
 
 ---
 
@@ -85,14 +85,14 @@ and the interview cannot show a round cap.
 **⚠️ Boundary**: these expose facts the backend already knows. If one appears to
 need a new state, transition, or write path, **stop and raise it** (FR-039).
 
-- [ ] T005 Write `backend/tests/test_board_api_additions.py` covering all four additions before implementing them: parent link `null` for a normal request and set for a decomposed child; `title` present on both DTOs and falling back to `task_label` when unrecorded; `{round, cap}` `null` for a non-capped gate and populated for a capped one; cap-exhausted `false` normally and `true` once exhausted
-- [ ] T006 Add the nullable decomposition parent field to `WorkflowSummaryOut` in `backend/app/schemas.py` and populate it in `backend/app/routers/board_views.py` from `ChildTaskLinkRow.parent_workflow_id` (FR-040 — persisted today, exposed nowhere, which is *why* children read as siblings)
-- [ ] T007 Add `title` to `WorkflowSummaryOut` and `BoardSnapshotOut` in `backend/app/schemas.py`, populated from `Workflow.title` in `board_views.py:117,137` alongside the existing `task_label=workflow.task_ref`; fall back to `task_label` when no title is recorded (FR-041)
-- [ ] T008 Add the nullable `{round, cap}` to the gate detail on `WorkCardSummaryOut`, sourcing the round from `backend/app/services/board/refinement_rounds.py` and the cap from `board_refinement_round_cap` (`backend/app/config.py:340`) (FR-042)
-- [ ] T009 Add the cap-exhausted marker to `WorkflowSummaryOut`, derived server-side (FR-043) — a fact the backend judges, **not** something the client infers by comparing counts (Principle II)
-- [ ] T010 Mirror all four additions in `frontend/src/types/workflows.ts` in the same commit as their backend counterparts, and extend `frontend/tests/types/workflows.test.ts` (Principle I)
-- [ ] T011 Amend `specs/026-autonomous-work-board/contracts/board-api.md` to record the four additions in its Workflow Collection, Board Snapshot and Card Summary sections, noting each is additive and read-only
-- [ ] T012 Run `cd backend && uv run pytest` and confirm no existing board test broke — every addition is additive, so any breakage means something was renamed rather than added
+- [X] T005 Write `backend/tests/test_board_api_additions.py` covering all four additions before implementing them: parent link `null` for a normal request and set for a decomposed child; `title` present on both DTOs and falling back to `task_label` when unrecorded; `{round, cap}` `null` for a non-capped gate and populated for a capped one; cap-exhausted `false` normally and `true` once exhausted
+- [X] T006 Add the nullable decomposition parent field to `WorkflowSummaryOut` in `backend/app/schemas.py` and populate it in `backend/app/routers/board_views.py` from `ChildTaskLinkRow.parent_workflow_id` (FR-040 — persisted today, exposed nowhere, which is *why* children read as siblings)
+- [X] T007 Add `title` to `WorkflowSummaryOut` and `BoardSnapshotOut` in `backend/app/schemas.py`, populated from `Workflow.title` in `board_views.py:117,137` alongside the existing `task_label=workflow.task_ref`; fall back to `task_label` when no title is recorded (FR-041)
+- [X] T008 Add the nullable `{round, cap}` to the gate detail on `WorkCardSummaryOut`, sourcing the round from `backend/app/services/board/refinement_rounds.py` and the cap from `board_refinement_round_cap` (`backend/app/config.py:340`) (FR-042)
+- [X] T009 Add the cap-exhausted marker to `WorkflowSummaryOut`, derived server-side (FR-043) — a fact the backend judges, **not** something the client infers by comparing counts (Principle II)
+- [X] T010 Mirror all four additions in `frontend/src/types/workflows.ts` in the same commit as their backend counterparts, and extend `frontend/tests/types/workflows.test.ts` (Principle I)
+- [X] T011 Amend `specs/026-autonomous-work-board/contracts/board-api.md` to record the four additions in its Workflow Collection, Board Snapshot and Card Summary sections, noting each is additive and read-only
+- [X] T012 Run `cd backend && uv run pytest` and confirm no existing board test broke — every addition is additive, so any breakage means something was renamed rather than added
 
 **Checkpoint**: `uv run pytest` and `npm run build` both pass. No visual change.
 
@@ -110,17 +110,25 @@ here is the scaffolding US1–US3 all need.
 **Why this is foundational despite US4 being P4**: retrofitting routing after three
 surfaces exist would mean rewriting every navigation call site twice.
 
-- [ ] T013 Write `frontend/tests/router/index.test.ts` asserting every named route from `contracts/routes.md` §1 resolves from a cold router: `board` → `/`, `cockpit` → `/requests/:id`, `interview` → `/requests/:id/interview`, `sessions` → `/sessions`, `not-found` catch-all
-- [ ] T014 Create `frontend/src/router/index.ts` with `createRouter({ history: createWebHashHistory() })` and the five named routes; lazy-load `cockpit`, `interview` and `sessions` via dynamic import, keep `board` eager (research R2 for the hash-history rationale)
-- [ ] T015 Register the router on the app in `frontend/src/main.ts`, replacing the one-shot `applyDeepLink` call at `frontend/src/main.ts:51` with the bootstrap sequence in `contracts/routes.md` §2
-- [ ] T016 Rework `frontend/src/App.vue` to a shell: replace the `view` ref (`App.vue:48`) and the `v-btn-toggle` (`App.vue:88-105`) with `<RouterView>`; keep the app bar, connectivity banner, `NotificationCenter`, `SourceHealthIndicator`, theme toggle, `IdentityBadge` and `GithubLink` untouched
-- [ ] T017 [P] Create `frontend/src/views/SessionsView.vue` wrapping the existing `SessionPanel.vue`, preserving its lazy load with `PanelLoading` / `PanelError` — the debug panel loses its toggle in T016 and would otherwise be unreachable (FR-047)
-- [ ] T018 [P] Create `frontend/src/views/NotFoundView.vue` — an explanatory message and a route back to the board; used by both the catch-all route and the unknown-request-id path (FR-030)
-- [ ] T019 Repoint `NotificationCenter`'s `@navigate` handler (`App.vue:122`) at `router.push({ name: 'cockpit', params: { id } })` so following a notification lands on the request itself rather than the board. Notification *generation* is out of scope
-- [ ] T020 Write `frontend/tests/views/AppShell.test.ts` covering the shell's routed rendering — **new coverage**: `App.vue` has no component test today, so view switching is currently untested
+- [X] T013 Write `frontend/tests/router/index.test.ts` asserting every named route from `contracts/routes.md` §1 resolves from a cold router: `board` → `/`, `cockpit` → `/requests/:id`, `interview` → `/requests/:id/interview`, `sessions` → `/sessions`, `not-found` catch-all
+- [X] T014 Create `frontend/src/router/index.ts` with `createRouter({ history: createWebHashHistory() })` and the five named routes; lazy-load `cockpit`, `interview` and `sessions` via dynamic import, keep `board` eager (research R2 for the hash-history rationale)
+- [X] T015 Register the router on the app in `frontend/src/main.ts`, replacing the one-shot `applyDeepLink` call at `frontend/src/main.ts:51` with the bootstrap sequence in `contracts/routes.md` §2
+- [X] T016 Rework `frontend/src/App.vue` to a shell: replace the `view` ref (`App.vue:48`) and the `v-btn-toggle` (`App.vue:88-105`) with `<RouterView>`; keep the app bar, connectivity banner, `NotificationCenter`, `SourceHealthIndicator`, theme toggle, `IdentityBadge` and `GithubLink` untouched
+- [X] T017 [P] Create `frontend/src/views/SessionsView.vue` wrapping the existing `SessionPanel.vue`, preserving its lazy load with `PanelLoading` / `PanelError` — the debug panel loses its toggle in T016 and would otherwise be unreachable (FR-047)
+- [X] T018 [P] Create `frontend/src/views/NotFoundView.vue` — an explanatory message and a route back to the board; used by both the catch-all route and the unknown-request-id path (FR-030)
+- [X] T019 Repoint `NotificationCenter`'s `@navigate` handler (`App.vue:122`) at `router.push({ name: 'cockpit', params: { id } })` so following a notification lands on the request itself rather than the board. Notification *generation* is out of scope
+- [X] T020 Write `frontend/tests/views/AppShell.test.ts` covering the shell's routed rendering — **new coverage**: `App.vue` has no component test today, so view switching is currently untested
 
 **Checkpoint**: `npm run test` and `npm run build` pass. The app renders the
 existing board and sessions surfaces through routes, with no visual change yet.
+
+**Implementation note (2026-09-28, task 702/#42)**: `RequestCockpitView.vue`
+and `InterviewView.vue` did not exist yet when T014 needed real modules behind
+the `cockpit`/`interview` routes (a dynamic `import()` to a nonexistent file
+fails the build regardless of whether the route is ever visited). Both were
+created here as minimal placeholders — a plain message plus a route back —
+for tasks 703 (#58) and 704 (#59) to replace outright. Not a partial
+implementation of either surface.
 
 ---
 
@@ -137,29 +145,50 @@ distinguishable attention treatments.
 
 ### Pure logic first (this is where the rules are tested)
 
-- [ ] T021 [P] [US1] Write `frontend/tests/lib/stages.test.ts` covering: the six stage names in order; the ten phase names in order; `phasePosition()` returning `ordinal: null` for an unrecognised phase and `isTerminal` for `done`; `attentionOf()` precedence `quarantined > cap-reached > your-move > done > none` over cards qualifying for several states; `groupByStage()` placing an **unrecognised stage** in a trailing column rather than dropping the request (FR-002 guarantees every request appears exactly once)
-- [ ] T022 [US1] Create `frontend/src/lib/stages.ts` implementing the above as pure functions — stage order (the six stages in FR-001's order), phase order, `phasePosition()`, `attentionOf()`, `groupByStage()`. Derive a request's column from the server's `stage` field; **never** re-derive stage from phase locally (data-model.md §2, Principle II). Derive `quarantined` from `state_counts` and `cap-reached` from the FR-043 marker
-- [ ] T023 [US1] Extend `frontend/src/composables/useBoard.ts` to request `include_completed=true` on both `refresh()` (`useBoard.ts:32-42`) and the SSE list stream — the listing drops terminal workflows by default (`backend/app/routers/board.py:228-237`), so without this the Done column is permanently empty (FR-044)
-- [ ] T024 [P] [US1] Extend `frontend/tests/composables/useBoard.test.ts` to assert the flag is sent and terminal workflows arrive
+- [X] T021 [P] [US1] Write `frontend/tests/lib/stages.test.ts` covering: the six stage names in order; the ten phase names in order; `phasePosition()` returning `ordinal: null` for an unrecognised phase and `isTerminal` for `done`; `attentionOf()` precedence `quarantined > cap-reached > your-move > done > none` over cards qualifying for several states; `groupByStage()` placing an **unrecognised stage** in a trailing column rather than dropping the request (FR-002 guarantees every request appears exactly once)
+- [X] T022 [US1] Create `frontend/src/lib/stages.ts` implementing the above as pure functions — stage order (the six stages in FR-001's order), phase order, `phasePosition()`, `attentionOf()`, `groupByStage()`. Derive a request's column from the server's `stage` field; **never** re-derive stage from phase locally (data-model.md §2, Principle II). Derive `quarantined` from `state_counts` and `cap-reached` from the FR-043 marker
+- [X] T023 [US1] Extend `frontend/src/composables/useBoard.ts` to request `include_completed=true` on both `refresh()` (`useBoard.ts:32-42`) and the SSE list stream — the listing drops terminal workflows by default (`backend/app/routers/board.py:228-237`), so without this the Done column is permanently empty (FR-044)
+- [X] T024 [P] [US1] Extend `frontend/tests/composables/useBoard.test.ts` to assert the flag is sent and terminal workflows arrive
 
 ### Components (each paired with its consumer, per knip)
 
-- [ ] T025 [P] [US1] Create `frontend/src/components/common/PhaseProgress.vue` using `v-progress-linear` with `chunk-count` + `variant="split"` (verified present — research R4), props for count and position, theme colour only
-- [ ] T026 [P] [US1] Write `frontend/tests/components/common/PhaseProgress.test.ts` asserting segment count and that a `null` ordinal renders no position bar
-- [ ] T027 [US1] Create `frontend/src/components/board/RequestSubItems.vue` rendering a request's nested work as a `v-list` — **both** the request's own cards (interview personas, implementation items) and its decomposition children, which are separate workflows identified via the FR-040 parent link (FR-002)
-- [ ] T028 [US1] Create `frontend/src/components/board/RequestCard.vue` — `v-card` / `v-card-item` showing source ref **and** human title from FR-041 (never a bare workflow id, FR-003), the exact phase in words plus its position in the ten-phase sequence (FR-004), action `v-chip`s, and the attention treatment from `attentionOf()` (FR-005); composes `RequestSubItems`
-- [ ] T029 [US1] Write `frontend/tests/components/board/RequestCard.test.ts` covering all five attention treatments rendering distinguishably, ref-and-title display with the title falling back to the ref when absent, the phase line text, and children rendering nested
-- [ ] T030 [US1] Write `frontend/tests/components/board/RequestSubItems.test.ts` asserting a decomposition child nests under its parent, and that a child whose parent is **absent from the listing** falls back to top-level rather than vanishing (FR-002 guarantees exactly once, not at most once)
-- [ ] T031 [US1] Create `frontend/src/components/board/StageColumn.vue` — `v-sheet` + `v-list` with a sticky header and a count; composes `RequestCard`. **Named custom-CSS gap**: sticky header, plus the column's bounded scroll region
-- [ ] T032 [US1] Create `frontend/src/views/StageBoardView.vue` — the column track, `v-empty-state` for an empty board (FR-008), the error `v-alert`, and the `refresh()` / `startList()` / `stop()` lifecycle currently in `WorkBoard.vue:26-33`. **Named custom-CSS gap**: horizontal scroll and flex sizing of the column track
-- [ ] T033 [US1] Point the `board` route at `StageBoardView.vue` in `frontend/src/router/index.ts`, replacing `WorkBoard.vue` as the default surface (FR-009). The nav list is retired at this point
-- [ ] T034 [US1] Make each card open its request's cockpit route on click and on `Enter`
-- [ ] T035 [US1] Write `frontend/tests/views/StageBoardView.test.ts` covering the six known columns in FR-001's order, the empty state, one-card-per-request across the quarantine and decomposition fixtures, and terminal requests landing in Done rather than being dropped
-- [ ] T036 [US1] Write `frontend/tests/views/StageBoardView.a11y.test.ts` asserting every card is keyboard-reachable and openable, that every pointer-available intervention has a keyboard equivalent (FR-007, spec 026 FR-031), and that **no drag affordance exists anywhere** on the board (FR-006, spec 026 **FR-032**)
+- [X] T025 [P] [US1] Create `frontend/src/components/common/PhaseProgress.vue` using `v-progress-linear` with `chunk-count` + `variant="split"` (verified present — research R4), props for count and position, theme colour only
+- [X] T026 [P] [US1] Write `frontend/tests/components/common/PhaseProgress.test.ts` asserting segment count and that a `null` ordinal renders no position bar
+- [X] T027 [US1] Create `frontend/src/components/board/RequestSubItems.vue` rendering a request's nested work as a `v-list` — **both** the request's own cards (interview personas, implementation items) and its decomposition children, which are separate workflows identified via the FR-040 parent link (FR-002)
+- [X] T028 [US1] Create `frontend/src/components/board/RequestCard.vue` — `v-card` / `v-card-item` showing source ref **and** human title from FR-041 (never a bare workflow id, FR-003), the exact phase in words plus its position in the ten-phase sequence (FR-004), action `v-chip`s, and the attention treatment from `attentionOf()` (FR-005); composes `RequestSubItems`
+- [X] T029 [US1] Write `frontend/tests/components/board/RequestCard.test.ts` covering all five attention treatments rendering distinguishably, ref-and-title display with the title falling back to the ref when absent, the phase line text, and children rendering nested
+- [X] T030 [US1] Write `frontend/tests/components/board/RequestSubItems.test.ts` asserting a decomposition child nests under its parent, and that a child whose parent is **absent from the listing** falls back to top-level rather than vanishing (FR-002 guarantees exactly once, not at most once)
+- [X] T031 [US1] Create `frontend/src/components/board/StageColumn.vue` — `v-sheet` + `v-list` with a sticky header and a count; composes `RequestCard`. **Named custom-CSS gap**: sticky header, plus the column's bounded scroll region
+- [X] T032 [US1] Create `frontend/src/views/StageBoardView.vue` — the column track, `v-empty-state` for an empty board (FR-008), the error `v-alert`, and the `refresh()` / `startList()` / `stop()` lifecycle currently in `WorkBoard.vue:26-33`. **Named custom-CSS gap**: horizontal scroll and flex sizing of the column track
+- [X] T033 [US1] Point the `board` route at `StageBoardView.vue` in `frontend/src/router/index.ts`, replacing `WorkBoard.vue` as the default surface (FR-009). The nav list is retired at this point
+- [X] T034 [US1] Make each card open its request's cockpit route on click and on `Enter`
+- [X] T035 [US1] Write `frontend/tests/views/StageBoardView.test.ts` covering the six known columns in FR-001's order, the empty state, one-card-per-request across the quarantine and decomposition fixtures, and terminal requests landing in Done rather than being dropped
+- [X] T036 [US1] Write `frontend/tests/views/StageBoardView.a11y.test.ts` asserting every card is keyboard-reachable and openable, that every pointer-available intervention has a keyboard equivalent (FR-007, spec 026 FR-031), and that **no drag affordance exists anywhere** on the board (FR-006, spec 026 **FR-032**)
 
 **Checkpoint**: the board is the default surface and independently demonstrable.
 `task quality` passes. The graph and `WorkCardDetail` still exist — removal is
 Phase 8.
+
+**Implementation notes (2026-09-28, task 702/#42)**:
+
+- `WorkBoard.vue`, `WorkflowGraph.vue`, `lib/boardGraph.ts` and
+  `WorkCardDetail.vue` were **not** deleted or repointed — the `board` route
+  now points at `StageBoardView.vue` and nothing else references them, but
+  `knip.json`'s `entry` includes `tests/**/*.test.ts`, and each still has its
+  own passing test, so they stay knip-reachable (and `task quality` green)
+  without being wired into the live app. This matches task 705 (#60,
+  "Only after tasks 06 and 07 have landed — this removes the only structural
+  view that currently exists") expecting the graph to still exist after this
+  task lands. Do not delete them before 705.
+- T027's "request's own cards" half of `RequestSubItems.vue` renders a
+  per-`CardState` count (`state_counts`), not individually named/titled
+  cards — the board **listing** (`WorkflowSummaryOut`) never carried
+  individual card rows, only aggregates; fetching every workflow's full
+  snapshot just to nest named cards on the board would be an N+1 fetch this
+  task list never asked for. Decomposition children (the other half) *are*
+  individually named, since each is its own row in the same listing.
+  Individually named own-cards are the cockpit's job (task 703), backed by
+  the snapshot it already loads for one request.
 
 ---
 

@@ -31,6 +31,10 @@ from app.persistence.board_claims_store import (
     BoardClaimsStore,
     get_board_claims_store,
 )
+from app.persistence.child_task_store import (
+    ChildTaskStore,
+    get_child_task_store,
+)
 from app.routers.board_views import (
     BoardLookups,
     board_events,
@@ -201,6 +205,7 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
     latest: dict[str, HandoffArtifact] = {}
     security_review_ids: dict[str, str] = {}
     gates: dict[str, HumanGateRecord] = {}
+    gate_rounds: dict[str, tuple[int, int]] = {}
     for card in cards:
         lease = deps.claims_store.get_active_lease(card.id)
         if lease is not None:
@@ -216,31 +221,60 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
             gate = deps.gates.get_gate(card.id)
             if gate is not None:
                 gates[card.id] = gate
+                round_number = deps.gates.gate_round(card, cards)
+                if round_number is not None:
+                    gate_rounds[card.id] = (
+                        round_number,
+                        deps.gates.refinement_round_cap,
+                    )
     return BoardLookups(
         roster=deps.roster,
         leases=leases,
         latest_artifacts=latest,
         security_review_ids=security_review_ids,
         gates=gates,
+        gate_rounds=gate_rounds,
     )
 
 
 def _all_workflow_summaries(
-    board: BoardService, *, include_completed: bool = False
+    deps: _BoardListDeps, *, include_completed: bool = False
 ) -> list[WorkflowSummaryOut]:
-    workflows = visible_workflows(board.list_workflows(newest_first=True))
+    workflows = visible_workflows(deps.board.list_workflows(newest_first=True))
     summaries = [
-        workflow_summary(w, board.list_cards(w.id)) for w in workflows
+        workflow_summary(
+            w, deps.board.list_cards(w.id), deps.gates, deps.child_task_store
+        )
+        for w in workflows
     ]
     if include_completed:
         return summaries
     return [s for s in summaries if s.phase != DONE_PHASE]
 
 
+@dataclass(frozen=True)
+class _BoardListDeps:
+    """Collaborators the board collection listing needs (feature 029
+    A1/A4) — bundled to keep the route handlers within the argument-count
+    limit."""
+
+    board: BoardService
+    gates: GatesService
+    child_task_store: ChildTaskStore
+
+
+def _board_list_deps(
+    board: BoardService = Depends(get_board_service),
+    gates: GatesService = Depends(get_gates_service),
+    child_task_store: ChildTaskStore = Depends(get_child_task_store),
+) -> _BoardListDeps:
+    return _BoardListDeps(board, gates, child_task_store)
+
+
 @router.get("/workflows", response_model=list[WorkflowSummaryOut])
 async def list_board_workflows(
     include_completed: bool = False,
-    board: BoardService = Depends(get_board_service),
+    deps: _BoardListDeps = Depends(_board_list_deps),
 ) -> list[WorkflowSummaryOut]:
     """List every workflow's board summary row, newest first.
 
@@ -248,13 +282,13 @@ async def list_board_workflows(
     exists (GitHub #45), and a workflow whose cards are all terminal is
     hidden unless ``include_completed`` is set.
     """
-    return _all_workflow_summaries(board, include_completed=include_completed)
+    return _all_workflow_summaries(deps, include_completed=include_completed)
 
 
 @router.get("/workflows/events")
 async def stream_board_workflows(
     include_completed: bool = False,
-    board: BoardService = Depends(get_board_service),
+    deps: _BoardListDeps = Depends(_board_list_deps),
     bus: WorkflowBus = Depends(get_workflow_bus),
 ) -> StreamingResponse:
     """Stream the board collection listing as Server-Sent Events.
@@ -269,7 +303,7 @@ async def stream_board_workflows(
             [
                 s.model_dump(mode="json")
                 for s in _all_workflow_summaries(
-                    board, include_completed=include_completed
+                    deps, include_completed=include_completed
                 )
             ]
         )
@@ -389,7 +423,8 @@ async def get_board_card(
     if card is None or card.workflow_id != workflow_id:
         raise HTTPException(status_code=404, detail="unknown card")
     relations = deps.board.list_relations(workflow_id)
-    return card_summary(card, relations, _lookups([card], deps))
+    cards = deps.board.list_cards(workflow_id)
+    return card_summary(card, relations, _lookups(cards, deps))
 
 
 @router.post(
@@ -431,7 +466,8 @@ async def apply_board_intervention(
     elif body.action == CardAction.REQUEST_COORDINATOR_REVIEW.value:
         schedule_escalation_projection(workflow_id, updated)
     relations = deps.board.list_relations(workflow_id)
-    return card_summary(updated, relations, _lookups([updated], deps))
+    cards = deps.board.list_cards(workflow_id)
+    return card_summary(updated, relations, _lookups(cards, deps))
 
 
 def _schedule_gate_followup(

@@ -3,6 +3,21 @@
 This contract replaces the fixed-step workflow DTO. Backend schemas and
 `frontend/src/types/workflows.ts` must mirror this shape exactly.
 
+**Amendment (feature 029, board-api-additions.md)**: four fields are added,
+each additive and read-only — no endpoint added, nothing renamed, nothing
+writable:
+
+- **Workflow Collection** (`WorkflowSummaryOut`): `title` (falls back to
+  `task_label` when unrecorded), `parent_workflow_id` (nullable — the
+  workflow this request was decomposed from), `cap_exhausted` (whether an
+  interview round cap was hit without a usable answer).
+- **Board Snapshot** (`BoardSnapshotOut`): `title`, same semantics.
+- **Card Summary** (`WorkCardSummaryOut.gate`): `round`/`cap` (nullable —
+  populated only for a round-capped `refinement_gate`).
+
+See `specs/029-workflow-visualisation/contracts/board-api-additions.md` for
+full rationale and semantics.
+
 ## Shared Enumerations
 
 ```text

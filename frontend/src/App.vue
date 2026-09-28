@@ -1,28 +1,16 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import WorkBoard from './components/WorkBoard.vue'
+import { useRouter } from 'vue-router'
 import NotificationCenter from './components/NotificationCenter.vue'
 import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
 import GithubLink from './components/GithubLink.vue'
 import IdentityBadge from './components/IdentityBadge.vue'
-import PanelLoading from './components/PanelLoading.vue'
-import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
 import { useBoard } from './composables/useBoard'
 import { useConnectivity } from './composables/useConnectivity'
 
-// Workflows is the default view; the raw sessions view is a secondary
-// debugging affordance, so its code is fetched on demand (a separate chunk).
-// The default initial load therefore excludes SessionPanel's code (SC-006),
-// with a loading spinner while it fetches and a clear error if that fails
-// (FR-009).
-const SessionPanel = defineAsyncComponent({
-  loader: () => import('./components/SessionPanel.vue'),
-  loadingComponent: PanelLoading,
-  errorComponent: PanelError,
-  delay: 200,
-})
+const router = useRouter()
 
 // Shared composable state: the header reflects fleet-wide status.
 const { sessions, loading: sessionsLoading } = useSessions()
@@ -42,10 +30,12 @@ const running = computed(() =>
 // loading-feedback rule).
 const loading = computed(() => sessionsLoading.value || boardLoading.value)
 
-// Board (the autonomous work board, feature 026) is the default view; the
-// raw sessions view is kept only as a debugging affordance (the muted
-// toggle in the header).
-const view = ref<'sessions' | 'board'>('board')
+// A notification's request opens directly on that request's cockpit
+// (FR-028), not just the board (feature 029, replacing the old
+// `view = 'board'` toggle-flip).
+function onNotificationNavigate(workflowId: string): void {
+  void router.push({ name: 'cockpit', params: { id: workflowId } })
+}
 
 // Light/dark toggle over Vuetify's two built-in themes.
 const theme = useTheme()
@@ -81,28 +71,19 @@ function toggleTheme() {
           class="ms-2"
         />
       </template>
-      <v-app-bar-title>
-        kestrel
-      </v-app-bar-title>
+      <v-app-bar-title> kestrel </v-app-bar-title>
 
-      <v-btn-toggle
-        v-model="view"
-        mandatory
-        variant="outlined"
-        divided
-        density="comfortable"
-        class="me-4"
+      <v-btn :to="{ name: 'board' }" size="small" class="text-none me-1">
+        Board
+      </v-btn>
+      <v-btn
+        :to="{ name: 'sessions' }"
+        size="small"
+        class="text-none me-4"
+        title="Raw agent sessions (debugging)"
       >
-        <v-btn value="board" size="small" class="text-none">Board</v-btn>
-        <v-btn
-          value="sessions"
-          size="small"
-          class="text-none"
-          title="Raw agent sessions (debugging)"
-        >
-          <span aria-hidden="true">‹/›</span>&nbsp;sessions
-        </v-btn>
-      </v-btn-toggle>
+        <span aria-hidden="true">‹/›</span>&nbsp;sessions
+      </v-btn>
 
       <v-chip
         :color="running ? 'success' : undefined"
@@ -119,7 +100,7 @@ function toggleTheme() {
       </v-chip>
 
       <SourceHealthIndicator />
-      <NotificationCenter @navigate="view = 'board'" />
+      <NotificationCenter @navigate="onNotificationNavigate" />
       <v-btn
         :icon="isDark ? '$weatherNight' : '$weatherSunny'"
         variant="text"
@@ -139,8 +120,7 @@ function toggleTheme() {
     </v-app-bar>
 
     <v-main class="stageroot">
-      <SessionPanel v-if="view === 'sessions'" />
-      <WorkBoard v-else />
+      <RouterView />
     </v-main>
   </v-app>
 </template>

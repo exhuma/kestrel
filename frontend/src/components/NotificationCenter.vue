@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { useNotifications } from '../composables/useNotifications'
-import { useBoard } from '../composables/useBoard'
 
-const emit = defineEmits<{ navigate: [] }>()
+const emit = defineEmits<{ navigate: [workflowId: string] }>()
 const {
   items,
   actionRequired,
@@ -14,7 +13,6 @@ const {
   start,
   stop,
 } = useNotifications()
-const { select } = useBoard()
 
 onMounted(() => {
   // Reliable baseline via plain fetch, independent of the SSE stream
@@ -26,8 +24,7 @@ onUnmounted(stop)
 
 async function onClick(id: number, workflowId: string): Promise<void> {
   await markRead(id)
-  await select(workflowId)
-  emit('navigate')
+  emit('navigate', workflowId)
 }
 </script>
 

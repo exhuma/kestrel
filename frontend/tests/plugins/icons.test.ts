@@ -34,7 +34,7 @@ describe('icon alias registry', () => {
     }
   })
 
-  it('registers the 18 glyphs the UI references', () => {
+  it('registers the 19 glyphs the UI references', () => {
     expect(Object.keys(appAliases).sort()).toEqual(
       [
         'account',
@@ -52,6 +52,7 @@ describe('icon alias registry', () => {
         'refresh',
         'restart',
         'rocketLaunchOutline',
+        'shieldAlert',
         'subdirectoryArrowRight',
         'weatherNight',
         'weatherSunny',

@@ -142,7 +142,12 @@ describe('WorkCardDetail gate answer field visibility', () => {
     const wrapper = mountCard(
       card({
         allowed_actions: ['resolve_gate'],
-        gate: { requested_decision: 'confirm_understanding', decision: null },
+        gate: {
+          requested_decision: 'confirm_understanding',
+          decision: null,
+          round: null,
+          cap: null,
+        },
       }),
     )
     expect(wrapper.findComponent({ name: 'VTextarea' }).exists()).toBe(false)
@@ -152,7 +157,12 @@ describe('WorkCardDetail gate answer field visibility', () => {
     const wrapper = mountCard(
       card({
         allowed_actions: ['resolve_gate'],
-        gate: { requested_decision: 'answer', decision: null },
+        gate: {
+          requested_decision: 'answer',
+          decision: null,
+          round: null,
+          cap: null,
+        },
       }),
     )
     expect(wrapper.findComponent({ name: 'VTextarea' }).exists()).toBe(true)
@@ -162,7 +172,12 @@ describe('WorkCardDetail gate answer field visibility', () => {
     const wrapper = mountCard(
       card({
         allowed_actions: ['resolve_gate'],
-        gate: { requested_decision: 'approve_prd', decision: null },
+        gate: {
+          requested_decision: 'approve_prd',
+          decision: null,
+          round: null,
+          cap: null,
+        },
       }),
     )
     expect(wrapper.findComponent({ name: 'VTextarea' }).exists()).toBe(true)
@@ -174,7 +189,12 @@ describe('WorkCardDetail gate answer field submission', () => {
     const wrapper = mountCard(
       card({
         allowed_actions: ['resolve_gate'],
-        gate: { requested_decision: 'answer', decision: null },
+        gate: {
+          requested_decision: 'answer',
+          decision: null,
+          round: null,
+          cap: null,
+        },
       }),
     )
     const approveBtn = wrapper.findAllComponents({ name: 'VBtn' })[0]!
@@ -187,7 +207,12 @@ describe('WorkCardDetail gate answer field submission', () => {
     const wrapper = mountCard(
       card({
         allowed_actions: ['resolve_gate'],
-        gate: { requested_decision: 'approve_prd', decision: null },
+        gate: {
+          requested_decision: 'approve_prd',
+          decision: null,
+          round: null,
+          cap: null,
+        },
       }),
     )
     const rejectBtn = wrapper.findAllComponents({ name: 'VBtn' })[1]!
@@ -200,7 +225,12 @@ describe('WorkCardDetail gate answer field submission', () => {
     const wrapper = mountCard(
       card({
         allowed_actions: ['resolve_gate'],
-        gate: { requested_decision: 'answer', decision: null },
+        gate: {
+          requested_decision: 'answer',
+          decision: null,
+          round: null,
+          cap: null,
+        },
       }),
     )
     await wrapper.find('textarea').setValue('Ship by Friday.')

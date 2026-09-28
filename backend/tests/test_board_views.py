@@ -62,6 +62,34 @@ def _specialist(role_id: str) -> SpecialistDefinition:
 _ROSTER = SpecialistRoster({"developer": _specialist("developer")})
 
 
+class _StubGates:
+    """Minimal stand-in for ``GatesService``'s two read-only facts this
+    pure-mapping layer depends on (feature 029 A3/A4)."""
+
+    def __init__(
+        self, cap: int = 1, rounds: dict[str, int] | None = None
+    ) -> None:
+        self.refinement_round_cap = cap
+        self._rounds = rounds or {}
+
+    def gate_round(
+        self, card: WorkCard, cards: list[WorkCard]
+    ) -> int | None:
+        del cards
+        return self._rounds.get(card.id)
+
+
+class _StubChildTasks:
+    """Minimal stand-in for ``ChildTaskStore.parent_workflow_id`` (feature
+    029 A1)."""
+
+    def __init__(self, parents: dict[str, str] | None = None) -> None:
+        self._parents = parents or {}
+
+    def parent_workflow_id(self, task_ref: str) -> str | None:
+        return self._parents.get(task_ref)
+
+
 def _card(card_id: str = "card-1", **overrides: object) -> WorkCard:
     fields: dict[str, object] = {
         "id": card_id,
@@ -82,6 +110,7 @@ def _empty_lookups() -> BoardLookups:
         latest_artifacts={},
         security_review_ids={},
         gates={},
+        gate_rounds={},
     )
 
 
@@ -115,12 +144,59 @@ class TestWorkflowSummary:
 
     def test_summary_fields(self) -> None:
         cards = [_card(state="ready")]
-        summary = workflow_summary(_WORKFLOW, cards)
+        summary = workflow_summary(
+            _WORKFLOW, cards, _StubGates(), _StubChildTasks()
+        )
         assert summary.id == "wf-1"
         assert summary.task_label == "owner/repo#1"
+        assert summary.title == "Add a thing"
+        assert summary.parent_workflow_id is None
         assert summary.status == "active"
         assert summary.state_counts == {"ready": 1}
         assert summary.action_required_count == 0
+        assert summary.cap_exhausted is False
+
+    def test_title_falls_back_to_task_label_when_unrecorded(self) -> None:
+        workflow = Workflow(**{**_WORKFLOW.__dict__, "title": ""})
+        summary = workflow_summary(
+            workflow, [], _StubGates(), _StubChildTasks()
+        )
+        assert summary.title == "owner/repo#1"
+
+    def test_parent_workflow_id_is_set_for_a_decomposed_child(self) -> None:
+        summary = workflow_summary(
+            _WORKFLOW,
+            [],
+            _StubGates(),
+            _StubChildTasks({"owner/repo#1": "wf-parent"}),
+        )
+        assert summary.parent_workflow_id == "wf-parent"
+
+    def test_cap_exhausted_when_the_final_round_gate_still_awaits(
+        self,
+    ) -> None:
+        cards = [
+            _card(
+                "gate-1", kind="refinement_gate", state="awaiting_human"
+            )
+        ]
+        gates = _StubGates(cap=2, rounds={"gate-1": 2})
+        summary = workflow_summary(
+            _WORKFLOW, cards, gates, _StubChildTasks()
+        )
+        assert summary.cap_exhausted is True
+
+    def test_not_cap_exhausted_below_the_cap(self) -> None:
+        cards = [
+            _card(
+                "gate-1", kind="refinement_gate", state="awaiting_human"
+            )
+        ]
+        gates = _StubGates(cap=2, rounds={"gate-1": 1})
+        summary = workflow_summary(
+            _WORKFLOW, cards, gates, _StubChildTasks()
+        )
+        assert summary.cap_exhausted is False
 
 
 class TestCardSummary:
@@ -149,6 +225,7 @@ class TestCardSummary:
             latest_artifacts={},
             security_review_ids={},
             gates={},
+            gate_rounds={},
         )
         summary = card_summary(_card(state="claimed"), [], lookups)
         assert summary.owner.specialist_id == "developer"
@@ -164,6 +241,7 @@ class TestCardSummary:
             latest_artifacts={},
             security_review_ids={"card-1": "review-1"},
             gates={},
+            gate_rounds={},
         )
         summary = card_summary(
             _card(kind="security_review", state="quarantined"), [], lookups
@@ -200,6 +278,7 @@ class TestCardSummary:
             latest_artifacts={"card-1": artifact},
             security_review_ids={},
             gates={},
+            gate_rounds={},
         )
         summary = card_summary(_card(), [], lookups)
         assert summary.latest_artifact.id == "artifact-1"
@@ -218,6 +297,7 @@ class TestCardSummary:
             latest_artifacts={},
             security_review_ids={},
             gates={"card-1": gate},
+            gate_rounds={},
         )
         summary = card_summary(
             _card(kind="understanding_gate"), [], lookups
@@ -239,6 +319,7 @@ class TestCardSummary:
             latest_artifacts={},
             security_review_ids={},
             gates={"card-1": gate},
+            gate_rounds={},
         )
         summary = card_summary(_card(kind="prd_gate"), [], lookups)
         assert summary.gate.decision == "approved"

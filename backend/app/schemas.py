@@ -108,10 +108,15 @@ class WorkCardGateOut(BaseModel):
         (``HumanGateRecord.requested_decision``).
     :param decision: ``None`` until the operator decides; then
         ``"approved"`` or ``"rejected"``.
+    :param round: This gate's 1-based interview round (feature 029 A3),
+        or ``None`` if it is not a round-capped ``refinement_gate``.
+    :param cap: The configured round cap in force when ``round`` is set.
     """
 
     requested_decision: str
     decision: str | None = None
+    round: int | None = None
+    cap: int | None = None
 
 
 class WorkCardSummaryOut(BaseModel):
@@ -178,12 +183,14 @@ class BoardSnapshotOut(BaseModel):
     intervention against a card in this snapshot must echo it back as
     ``expected_revision``. ``phase``/``stage`` are a pure, derived,
     display-only projection (``app.services.board.phases``) — never a
-    driver: they never decide what happens next.
+    driver: they never decide what happens next. ``title`` (feature 029
+    A2) falls back to ``task_label`` when unrecorded.
     """
 
     id: str
     revision: int
     task_label: str
+    title: str
     status: str
     cards: list[WorkCardSummaryOut]
     relationships: list[WorkCardRelationOut]
@@ -196,16 +203,26 @@ class WorkflowSummaryOut(BaseModel):
     """One workflow's row in the board collection listing.
 
     ``phase``/``stage`` are a pure, derived, display-only projection
-    (``app.services.board.phases``) — never a driver.
+    (``app.services.board.phases``) — never a driver. ``title`` (feature
+    029 A2) falls back to ``task_label`` when unrecorded.
+
+    :param parent_workflow_id: The workflow this request was decomposed
+        from, if any (feature 029 A1) — ``None`` for an ordinary request.
+    :param cap_exhausted: Whether an interview round cap has been hit
+        without a usable answer (feature 029 A4) — the board's
+        ``cap-reached`` treatment.
     """
 
     id: str
     task_label: str
+    title: str
+    parent_workflow_id: str | None = None
     status: str
     state_counts: dict[str, int]
     action_required_count: int
     phase: str
     stage: str
+    cap_exhausted: bool = False
 
 
 class BoardInterventionIn(BaseModel):

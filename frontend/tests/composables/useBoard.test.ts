@@ -36,6 +36,7 @@ function snapshot(
     id,
     revision: 1,
     task_label: 'o/r#1',
+    title: 'A request',
     status: 'active',
     cards: [],
     relationships: [],
@@ -76,11 +77,14 @@ describe('useBoard refresh', () => {
               {
                 id: 'wf-1',
                 task_label: 'o/r#1',
+                title: 'A request',
+                parent_workflow_id: null,
                 status: 'active',
                 state_counts: {},
                 action_required_count: 0,
                 phase: 'done',
                 stage: 'Done',
+                cap_exhausted: false,
               },
             ]),
             { status: 200 },
@@ -90,6 +94,17 @@ describe('useBoard refresh', () => {
     const { workflows, refresh } = useBoard()
     await refresh()
     expect(workflows.value.map((w) => w.id)).toContain('wf-1')
+  })
+
+  it('requests terminal workflows too, so the Done column is not empty', async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify([]), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { refresh } = useBoard()
+    await refresh()
+    const url = fetchMock.mock.calls[0]?.[0] as string
+    expect(url).toContain('include_completed=true')
   })
 
   it('surfaces a request failure', async () => {

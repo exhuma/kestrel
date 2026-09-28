@@ -149,6 +149,28 @@ def round_context(
     return "\n".join(lines)
 
 
+def round_of_gate(
+    gate: WorkCard, cards: list[WorkCard], get_gate: GetGate,
+    artifacts: ArtifactsService,
+) -> int | None:
+    """The 1-based round number *gate* belongs to (board API A3/FR-042),
+    or ``None`` if *gate* is not a ``refinement_gate`` or its persona
+    cannot be recovered (see :func:`_persona_for_gate`).
+
+    Counts the persona's own ``refinement`` cards the same way
+    :func:`maybe_advance_round` does, so the two can never disagree.
+    """
+    if gate.kind != CardKind.REFINEMENT_GATE.value:
+        return None
+    persona = _persona_for_gate(gate, cards, get_gate, artifacts)
+    if persona is None:
+        return None
+    return sum(
+        1 for c in cards
+        if c.kind == CardKind.REFINEMENT.value and persona in c.eligible_roles
+    )
+
+
 def _producer_id_for_gate(
     gate: WorkCard, get_gate: GetGate, artifacts: ArtifactsService
 ) -> str | None:

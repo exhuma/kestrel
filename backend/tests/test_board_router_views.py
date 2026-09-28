@@ -33,6 +33,10 @@ from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
+from app.persistence.child_task_store import (
+    ChildTaskStore,
+    get_child_task_store,
+)
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.bootstrap import (
     get_artifacts_service,
@@ -90,6 +94,7 @@ def _client(tmp_path: Path) -> _Client:
         BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates_service = GatesService(store, gate_store, board_service, artifacts)
+    child_task_store = ChildTaskStore(factory)
     interventions_service = InterventionsService(
         store, claims_store, board_service, gates_service
     )
@@ -106,6 +111,7 @@ def _client(tmp_path: Path) -> _Client:
     )
     app.dependency_overrides[get_gates_service] = lambda: gates_service
     app.dependency_overrides[get_artifacts_service] = lambda: artifacts
+    app.dependency_overrides[get_child_task_store] = lambda: child_task_store
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
@@ -138,11 +144,14 @@ async def test_list_workflows_returns_the_summary_row(
         {
             "id": "wf-1",
             "task_label": "owner/repo#1",
+            "title": "Add a thing",
+            "parent_workflow_id": None,
             "status": "active",
             "state_counts": {"ready": 1},
             "action_required_count": 0,
             "phase": "Technical analysis",
             "stage": "Planning",
+            "cap_exhausted": False,
         }
     ]
 

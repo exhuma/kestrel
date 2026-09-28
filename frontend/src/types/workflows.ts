@@ -102,10 +102,14 @@ export interface BoardEvent {
 
 /** A gate card's decision detail. Mirrors `app.schemas.WorkCardGateOut`.
  *  `requested_decision` tells an "approve/reject" gate apart from an
- *  "answer these questions" gate; `decision` is `null` until resolved. */
+ *  "answer these questions" gate; `decision` is `null` until resolved.
+ *  `round`/`cap` (feature 029 A3) are `null` for a gate that is not
+ *  round-capped, and populated (1-based `round`) otherwise. */
 export interface WorkCardGate {
   requested_decision: string
   decision: 'approved' | 'rejected' | null
+  round: number | null
+  cap: number | null
 }
 
 /** One card's board-visible state. Mirrors `app.schemas.WorkCardSummaryOut`. */
@@ -147,6 +151,9 @@ export interface BoardSnapshot {
   id: string
   revision: number
   task_label: string
+  /** Human title (feature 029 A2), falling back to `task_label` when
+   *  unrecorded. */
+  title: string
   status: string
   cards: WorkCardSummary[]
   relationships: WorkCardRelation[]
@@ -161,11 +168,20 @@ export interface BoardSnapshot {
 export interface BoardWorkflowSummary {
   id: string
   task_label: string
+  /** Human title (feature 029 A2), falling back to `task_label` when
+   *  unrecorded. */
+  title: string
+  /** The workflow this request was decomposed from, if any (feature 029
+   *  A1) — `null` for an ordinary request. */
+  parent_workflow_id: string | null
   status: string
   state_counts: Partial<Record<CardState, number>>
   action_required_count: number
   phase: string
   stage: string
+  /** Whether an interview round cap was hit without a usable answer
+   *  (feature 029 A4) — the board's `cap-reached` treatment. */
+  cap_exhausted: boolean
 }
 
 /** Request body for one card intervention (board-api.md "Intervention").

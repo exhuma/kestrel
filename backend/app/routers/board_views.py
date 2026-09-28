@@ -10,7 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.models_board import (
+    CardKind,
     CardRelation,
+    CardState,
     ClaimLease,
     WorkCard,
     Workflow,
@@ -20,6 +22,7 @@ from app.models_board_records import (
     HandoffArtifact,
     HumanGateRecord,
 )
+from app.persistence.child_task_store import ChildTaskStore
 from app.schemas import (
     BoardArtifactRefOut,
     BoardEventOut,
@@ -32,6 +35,7 @@ from app.schemas import (
     WorkCardSummaryOut,
     WorkflowSummaryOut,
 )
+from app.services.board.gates import GatesService
 from app.services.board.interventions import allowed_actions_for
 from app.services.board.phases import current_phase, stage_of
 from app.services.board.specialists import SpecialistRoster
@@ -54,6 +58,9 @@ class BoardLookups:
     #: card_id -> gate record, populated only for gate-kind cards
     #: (``app.models_board.GATE_CARD_KINDS``) that have one recorded.
     gates: dict[str, HumanGateRecord]
+    #: card_id -> (round, cap), populated only for a ``refinement_gate``
+    #: whose persona is recoverable (feature 029 A3).
+    gate_rounds: dict[str, tuple[int, int]]
 
 
 #: ``BoardWorkflowRow.state`` for a synthetic quarantine-hosting workflow
@@ -108,19 +115,44 @@ def action_required_count(cards: list[WorkCard]) -> int:
 
 
 def workflow_summary(
-    workflow: Workflow, cards: list[WorkCard]
+    workflow: Workflow,
+    cards: list[WorkCard],
+    gates: GatesService,
+    child_task_store: ChildTaskStore,
 ) -> WorkflowSummaryOut:
     """One workflow's row in the board collection listing."""
     phase = current_phase(cards)
     return WorkflowSummaryOut(
         id=workflow.id,
         task_label=workflow.task_ref,
+        title=workflow.title or workflow.task_ref,
+        parent_workflow_id=child_task_store.parent_workflow_id(
+            workflow.task_ref
+        ),
         status=workflow.state,
         state_counts=state_counts(cards),
         action_required_count=action_required_count(cards),
         phase=phase,
         stage=stage_of(phase),
+        cap_exhausted=_cap_exhausted(cards, gates),
     )
+
+
+def _cap_exhausted(cards: list[WorkCard], gates: GatesService) -> bool:
+    """Whether an interview round has hit its cap while still awaiting
+    the operator's answer (feature 029 A4) — the board's ``cap-reached``
+    treatment, a judgement made here rather than left to client-side
+    arithmetic (FR-043)."""
+    cap = gates.refinement_round_cap
+    for card in cards:
+        if card.kind != CardKind.REFINEMENT_GATE.value:
+            continue
+        if card.state != CardState.AWAITING_HUMAN.value:
+            continue
+        round_number = gates.gate_round(card, cards)
+        if round_number is not None and round_number >= cap:
+            return True
+    return False
 
 
 def board_snapshot(
@@ -135,6 +167,7 @@ def board_snapshot(
         id=workflow.id,
         revision=workflow.revision,
         task_label=workflow.task_ref,
+        title=workflow.title or workflow.task_ref,
         status=workflow.state,
         cards=[card_summary(card, relations, lookups) for card in cards],
         relationships=[
@@ -175,7 +208,7 @@ def card_summary(
         latest_artifact=_artifact_ref(lookups.latest_artifacts.get(card.id)),
         allowed_actions=[a.value for a in allowed_actions_for(card)],
         security_review_id=lookups.security_review_ids.get(card.id),
-        gate=_gate_detail(lookups.gates.get(card.id)),
+        gate=_gate_detail(card.id, lookups),
     )
 
 
@@ -214,12 +247,18 @@ def _artifact_ref(
     )
 
 
-def _gate_detail(gate: HumanGateRecord | None) -> WorkCardGateOut | None:
+def _gate_detail(
+    card_id: str, lookups: BoardLookups
+) -> WorkCardGateOut | None:
+    gate = lookups.gates.get(card_id)
     if gate is None:
         return None
+    round_state = lookups.gate_rounds.get(card_id)
     return WorkCardGateOut(
         requested_decision=gate.requested_decision,
         decision=gate.decision,
+        round=round_state[0] if round_state else None,
+        cap=round_state[1] if round_state else None,
     )
 
 
