@@ -182,11 +182,20 @@ class BoardStore:
             row = db.get(BoardWorkflowRow, workflow_id)
             return _row_to_workflow(row) if row is not None else None
 
-    def list_workflows(self) -> list[Workflow]:
-        """Return every workflow (board collection listing)."""
+    def list_workflows(self, *, newest_first: bool = False) -> list[Workflow]:
+        """Return every workflow.
+
+        :param newest_first: Order by creation time, most recent first —
+            what the board collection listing needs (GitHub #45).
+            Internal callers that only need membership or don't care
+            about order (dedup checks, CI polling) leave this off rather
+            than pay for an ``ORDER BY`` they don't use.
+        """
         with self._factory() as db:
-            rows = db.query(BoardWorkflowRow).all()
-            return [_row_to_workflow(row) for row in rows]
+            query = db.query(BoardWorkflowRow)
+            if newest_first:
+                query = query.order_by(BoardWorkflowRow.created_at.desc())
+            return [_row_to_workflow(row) for row in query.all()]
 
     def bump_workflow_revision(self, workflow_id: str) -> int:
         """Increment and return a workflow's snapshot revision."""

@@ -36,6 +36,7 @@ from app.routers.board_views import (
     board_events,
     board_snapshot,
     card_summary,
+    visible_workflows,
     workflow_summary,
 )
 from app.schemas import (
@@ -68,6 +69,7 @@ from app.services.board.interventions import (
     InvalidInterventionError,
     StaleInterventionError,
 )
+from app.services.board.phases import DONE_PHASE
 from app.services.board.quarantine import QuarantineService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
@@ -223,23 +225,35 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
     )
 
 
-def _all_workflow_summaries(board: BoardService) -> list[WorkflowSummaryOut]:
-    return [
-        workflow_summary(w, board.list_cards(w.id))
-        for w in board.list_workflows()
+def _all_workflow_summaries(
+    board: BoardService, *, include_completed: bool = False
+) -> list[WorkflowSummaryOut]:
+    workflows = visible_workflows(board.list_workflows(newest_first=True))
+    summaries = [
+        workflow_summary(w, board.list_cards(w.id)) for w in workflows
     ]
+    if include_completed:
+        return summaries
+    return [s for s in summaries if s.phase != DONE_PHASE]
 
 
 @router.get("/workflows", response_model=list[WorkflowSummaryOut])
 async def list_board_workflows(
+    include_completed: bool = False,
     board: BoardService = Depends(get_board_service),
 ) -> list[WorkflowSummaryOut]:
-    """List every workflow's board summary row."""
-    return _all_workflow_summaries(board)
+    """List every workflow's board summary row, newest first.
+
+    A quarantine placeholder collapses into its real workflow once one
+    exists (GitHub #45), and a workflow whose cards are all terminal is
+    hidden unless ``include_completed`` is set.
+    """
+    return _all_workflow_summaries(board, include_completed=include_completed)
 
 
 @router.get("/workflows/events")
 async def stream_board_workflows(
+    include_completed: bool = False,
     board: BoardService = Depends(get_board_service),
     bus: WorkflowBus = Depends(get_workflow_bus),
 ) -> StreamingResponse:
@@ -252,7 +266,12 @@ async def stream_board_workflows(
 
     def _snapshot() -> bytes:
         return sse.encode(
-            [s.model_dump(mode="json") for s in _all_workflow_summaries(board)]
+            [
+                s.model_dump(mode="json")
+                for s in _all_workflow_summaries(
+                    board, include_completed=include_completed
+                )
+            ]
         )
 
     async def _frames() -> AsyncIterator[bytes]:

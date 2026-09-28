@@ -56,6 +56,44 @@ class BoardLookups:
     gates: dict[str, HumanGateRecord]
 
 
+#: ``BoardWorkflowRow.state`` for a synthetic quarantine-hosting workflow
+#: (``BoardQuarantineStore._create_hosting_workflow``); never used for a
+#: workflow accepted through ordinary intake, and never changed after
+#: creation, so it reliably marks a placeholder row.
+_QUARANTINE_WORKFLOW_STATE = "quarantined"
+
+
+def visible_workflows(workflows: list[Workflow]) -> list[Workflow]:
+    """Collapse a quarantine placeholder into its real workflow, once one
+    exists for the same ticket (GitHub #45).
+
+    A quarantine review that later clears leaves its synthetic hosting
+    workflow behind forever (nothing ever deletes or repurposes it), and
+    a subsequent ingest of the same ticket creates a second, real
+    workflow next to it — one ticket, two board entries. A still-pending
+    quarantine (no real workflow yet) is left alone: its one row *is*
+    the request, shown in its quarantined state.
+    """
+    real_refs = {
+        (w.source, w.task_ref)
+        for w in workflows
+        if w.state != _QUARANTINE_WORKFLOW_STATE
+    }
+    return [
+        w
+        for w in workflows
+        if w.state != _QUARANTINE_WORKFLOW_STATE
+        or (w.source, _quarantine_ticket_ref(w)) not in real_refs
+    ]
+
+
+def _quarantine_ticket_ref(workflow: Workflow) -> str:
+    """Recover the real ticket ref from a quarantine placeholder's
+    ``task_ref``, which is stored as ``"{source}:{ticket}"``
+    (``QuarantineService.intake_for_new_task``)."""
+    return workflow.task_ref.removeprefix(f"{workflow.source}:")
+
+
 def state_counts(cards: list[WorkCard]) -> dict[str, int]:
     """Count *cards* by state (board-api.md ``state_counts``)."""
     counts: dict[str, int] = {}

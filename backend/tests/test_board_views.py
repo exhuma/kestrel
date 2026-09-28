@@ -29,6 +29,7 @@ from app.routers.board_views import (
     board_snapshot,
     card_summary,
     state_counts,
+    visible_workflows,
     workflow_summary,
 )
 from app.services.board.specialists import SpecialistRoster
@@ -270,6 +271,69 @@ class TestBoardSnapshot:
         )
         assert len(snapshot.relationships) == 1
         assert snapshot.relationships[0].depends_on_card_id == "card-0"
+
+
+def _quarantine_placeholder(
+    workflow_id: str, *, source: str, ticket: str
+) -> Workflow:
+    return Workflow(
+        id=workflow_id,
+        source=source,
+        task_ref=f"{source}:{ticket}",
+        repo="",
+        base_branch="",
+        source_visibility="private",
+        title="Security review",
+        state="quarantined",
+    )
+
+
+def _real_workflow(
+    workflow_id: str, *, source: str, ticket: str
+) -> Workflow:
+    return Workflow(
+        id=workflow_id,
+        source=source,
+        task_ref=ticket,
+        repo="owner/repo",
+        base_branch="main",
+        source_visibility="public",
+        title="Add a thing",
+    )
+
+
+class TestVisibleWorkflows:
+    """A quarantine placeholder must not linger as a duplicate board
+    entry once the ticket it hosted also has a real workflow (#45)."""
+
+    def test_a_still_pending_quarantine_stays_visible(self) -> None:
+        placeholder = _quarantine_placeholder(
+            "wf-quarantine-1", source="github-issue", ticket="owner/repo#7"
+        )
+        assert visible_workflows([placeholder]) == [placeholder]
+
+    def test_a_resolved_quarantine_collapses_into_its_real_workflow(
+        self,
+    ) -> None:
+        placeholder = _quarantine_placeholder(
+            "wf-quarantine-1", source="github-issue", ticket="owner/repo#7"
+        )
+        real = _real_workflow(
+            "wf-1", source="github-issue", ticket="owner/repo#7"
+        )
+        assert visible_workflows([placeholder, real]) == [real]
+
+    def test_unrelated_workflows_are_unaffected(self) -> None:
+        placeholder = _quarantine_placeholder(
+            "wf-quarantine-1", source="github-issue", ticket="owner/repo#7"
+        )
+        other = _real_workflow(
+            "wf-2", source="github-issue", ticket="owner/repo#9"
+        )
+        assert visible_workflows([placeholder, other]) == [
+            placeholder,
+            other,
+        ]
 
 
 class TestBoardEvents:

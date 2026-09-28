@@ -51,9 +51,9 @@ class BoardService:
         """Return one workflow by id, or ``None`` if it does not exist."""
         return self._store.get_workflow(workflow_id)
 
-    def list_workflows(self) -> list[Workflow]:
+    def list_workflows(self, *, newest_first: bool = False) -> list[Workflow]:
         """Return every workflow (board collection listing)."""
-        return self._store.list_workflows()
+        return self._store.list_workflows(newest_first=newest_first)
 
     def get_card(self, card_id: str) -> WorkCard | None:
         """Return one card by id, or ``None`` if it does not exist."""

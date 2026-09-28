@@ -8,6 +8,7 @@ what's worth covering here.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -144,6 +145,64 @@ async def test_list_workflows_returns_the_summary_row(
             "stage": "Planning",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_orders_newest_first(tmp_path: Path) -> None:
+    client, store, _claims = _client(tmp_path)
+    older = Workflow(
+        id="wf-0", source="github-issue", task_ref="owner/repo#0",
+        repo="owner/repo", base_branch="main", source_visibility="public",
+        title="Older",
+    )
+    store.create_workflow(
+        older, now=datetime(2020, 1, 1, tzinfo=timezone.utc)
+    )
+    store.create_card(_ready_card("card-0", workflow_id="wf-0"))
+    store.create_card(_ready_card("card-1", workflow_id="wf-1"))
+    async with client as c:
+        resp = await c.get("/api/board/workflows")
+    assert [w["id"] for w in resp.json()] == ["wf-1", "wf-0"]
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_excludes_terminal_by_default(
+    tmp_path: Path,
+) -> None:
+    client, store, _claims = _client(tmp_path)
+    store.create_card(_ready_card(state="done"))
+    async with client as c:
+        default_resp = await c.get("/api/board/workflows")
+        included_resp = await c.get(
+            "/api/board/workflows", params={"include_completed": "true"}
+        )
+    assert default_resp.json() == []
+    assert [w["id"] for w in included_resp.json()] == ["wf-1"]
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_collapses_a_resolved_quarantine_placeholder(
+    tmp_path: Path,
+) -> None:
+    """A quarantine placeholder that hosted a since-released ticket must
+    not linger as a second board entry once the ticket's real workflow
+    also exists (#45)."""
+    client, store, _claims = _client(tmp_path)
+    store.create_card(_ready_card())
+    placeholder = Workflow(
+        id="wf-quarantine-1",
+        source="github-issue",
+        task_ref="github-issue:owner/repo#1",
+        repo="",
+        base_branch="",
+        source_visibility="private",
+        title="Security review",
+        state="quarantined",
+    )
+    store.create_workflow(placeholder)
+    async with client as c:
+        resp = await c.get("/api/board/workflows")
+    assert [w["id"] for w in resp.json()] == ["wf-1"]
 
 
 @pytest.mark.asyncio
