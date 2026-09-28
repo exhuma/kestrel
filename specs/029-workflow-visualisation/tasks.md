@@ -204,35 +204,78 @@ pending decision is stated exactly once, prominently.
 
 ### ⚠️ T037 is a gate, not a task — do it first
 
-- [ ] T037 [US2] **Legibility gate (research R3)**: render ten `v-timeline direction="horizontal"` items with the real phase labels (including "CAB-1 - strategic fit" and "Technical analysis") at 1280 px width and judge legibility. Try `density="compact"`, `align="start"`, then abbreviating gate labels with a tooltip carrying the full name. **If it still does not read cleanly, switch the spine to a vertical labelled list** for T041. Do **not** hand-write horizontal stepper CSS — both #58 and FR-036 forbid it. Record the outcome as an addendum in `research.md`
+- [X] T037 [US2] **Legibility gate (research R3)**: render ten `v-timeline direction="horizontal"` items with the real phase labels (including "CAB-1 - strategic fit" and "Technical analysis") at 1280 px width and judge legibility. Try `density="compact"`, `align="start"`, then abbreviating gate labels with a tooltip carrying the full name. **If it still does not read cleanly, switch the spine to a vertical labelled list** for T041. Do **not** hand-write horizontal stepper CSS — both #58 and FR-036 forbid it. Record the outcome as an addendum in `research.md`
 
 ### Pure logic and data access
 
-- [ ] T038 [P] [US2] Write `frontend/tests/lib/personas.test.ts` covering `BoardEvent` → `PersonaLabel` for all three cases, **especially `specialist: null` resolving to the neutral `{ kind: 'system' }`** and never to a guessed or blank name (FR-013); plus tone and summary mapping
-- [ ] T039 [US2] Create `frontend/src/lib/personas.ts` as pure functions returning the tagged union from data-model.md §2. Reuse the tone-map idiom from `SessionPanel.vue:325-368` rather than inventing a second one. Add a comment recording that `specialist` is a **read-time derivation from the card's eligible role, not a recorded actor** (`backend/app/schemas.py:239-244`)
-- [ ] T040 [US2] Create `frontend/src/composables/useBoardEvents.ts` — fetch `GET /api/board/workflows/{id}/events` and **re-fetch on each snapshot tick from the existing board SSE**. There is no event stream to subscribe to: the per-workflow SSE carries the whole snapshot (`backend/app/routers/board.py:337-371`). Module-level singleton keyed per workflow, no Pinia. `BoardEvent` already exists at `frontend/src/types/workflows.ts:95-101` and this is its first consumer
-- [ ] T041 [P] [US2] Write `frontend/tests/composables/useBoardEvents.test.ts` with all HTTP mocked, covering initial fetch, re-fetch on snapshot tick, deduplication of already-seen events, and teardown
+- [X] T038 [P] [US2] Write `frontend/tests/lib/personas.test.ts` covering `BoardEvent` → `PersonaLabel` for all three cases, **especially `specialist: null` resolving to the neutral `{ kind: 'system' }`** and never to a guessed or blank name (FR-013); plus tone and summary mapping
+- [X] T039 [US2] Create `frontend/src/lib/personas.ts` as pure functions returning the tagged union from data-model.md §2. Reuse the tone-map idiom from `SessionPanel.vue:325-368` rather than inventing a second one. Add a comment recording that `specialist` is a **read-time derivation from the card's eligible role, not a recorded actor** (`backend/app/schemas.py:239-244`)
+- [X] T040 [US2] Create `frontend/src/composables/useBoardEvents.ts` — fetch `GET /api/board/workflows/{id}/events` and **re-fetch on each snapshot tick from the existing board SSE**. There is no event stream to subscribe to: the per-workflow SSE carries the whole snapshot (`backend/app/routers/board.py:337-371`). Module-level singleton keyed per workflow, no Pinia. `BoardEvent` already exists at `frontend/src/types/workflows.ts:95-101` and this is its first consumer
+- [X] T041 [P] [US2] Write `frontend/tests/composables/useBoardEvents.test.ts` with all HTTP mocked, covering initial fetch, re-fetch on snapshot tick, deduplication of already-seen events, and teardown
 
 ### Components
 
-- [ ] T042 [US2] Create `frontend/src/components/cockpit/PhaseSpine.vue`, the structural view of a request in place of the dependency graph (FR-019), per the T037 outcome — ten labelled phases, gate phases with a distinct `v-timeline-item` icon, current phase with a theme `dot-color` (FR-011)
-- [ ] T043 [P] [US2] Write `frontend/tests/components/cockpit/PhaseSpine.test.ts` covering current-phase highlighting (for "PRD sign-off": **five** phases passed, **four** not yet reached), gate-vs-work distinction, and an unrecognised phase rendering its label verbatim with no position marker
-- [ ] T044 [US2] Create `frontend/src/components/cockpit/FeedEntry.vue` — one row with `v-avatar` per persona, attribution, tone and summary; renders the neutral case without an empty name
-- [ ] T045 [US2] Create `frontend/src/components/cockpit/NarrativeFeed.vue` — `v-timeline density="compact" side="end"`, chronological and persona-attributed, oldest-first (FR-012), composing `FeedEntry`. Auto-scroll on new events **but suppressed while the operator has scrolled back** (FR-018). **Named custom-CSS gap**: bounded independent scroll region
-- [ ] T046 [US2] Write `frontend/tests/components/cockpit/NarrativeFeed.test.ts` covering chronological order, live append without manual refresh, that a scrolled-back operator is not yanked to the bottom, and that a large event history does not degrade rendering
-- [ ] T047 [P] [US2] Create `frontend/src/components/cockpit/ArtifactDialog.vue` — `v-dialog` rendering artifact content as **text, never markup**, and surfacing `trust` so `agent_output` cannot be mistaken for `operator_approved` (FR-015). Reuse the fetch at `WorkCardDetail.vue:22`
-- [ ] T048 [P] [US2] Write `frontend/tests/components/cockpit/ArtifactDialog.test.ts` asserting markup in content renders as literal text, and that trust is displayed
-- [ ] T049 [US2] Create `frontend/src/components/cockpit/ArtifactRail.vue` — `v-list` of the full durable set in pipeline order (original request, understanding check, CAB-1 decision, interview rounds, PRD, technical analysis, executive summary, pull request), each with `prepend-icon`, an append `v-chip` state, and `available: false` for those not yet produced (FR-014, data-model.md §2); opens `ArtifactDialog`
-- [ ] T050 [US2] Write `frontend/tests/components/cockpit/ArtifactRail.test.ts` asserting the full durable set renders in pipeline order, each with its state, and that unproduced artifacts appear as unavailable rather than being omitted (FR-014)
-- [ ] T051 [US2] Create `frontend/src/components/cockpit/ActionBanner.vue` — a `v-alert` with buttons in the `append` slot stating the single pending ask, rendering **nothing at all** when nothing is pending (FR-016). Port the gate-decision branching from `WorkCardDetail.vue:76-93`, including `requested_decision === 'answer'` and `'approve_prd'`
-- [ ] T052 [US2] Replace any `window.confirm()` in the ported paths with `v-dialog` (FR-038 — there is no `v-dialog` anywhere in the app today)
-- [ ] T053 [US2] Write `frontend/tests/components/cockpit/ActionBanner.test.ts` covering: exactly one banner when a gate is pending, no element at all when nothing is pending, and a 409 stale `expected_revision` surfacing as a human "this moved on" message rather than a generic failure (`useBoard.ts:112-131`)
-- [ ] T054 [US2] Create `frontend/src/views/RequestCockpitView.vue` composing banner, spine, feed and rail; loads the snapshot via `useBoard().select(id)`; routes an unknown id to `NotFoundView` with a way back to the board (FR-030). **Named custom-CSS gap**: independent per-pane scroll regions
-- [ ] T055 [US2] Route every answer-shaped interaction from the cockpit to the interview route rather than handling it inline — the feed stays read-only (FR-017)
-- [ ] T056 [US2] Write `frontend/tests/views/RequestCockpitView.test.ts` covering the four regions rendering, scoping to exactly one request (FR-010), a load failure stating itself plainly with a route back, the unknown-id guard, and keyboard operability of the banner's actions (SC-010)
+- [X] T042 [US2] Create `frontend/src/components/cockpit/PhaseSpine.vue`, the structural view of a request in place of the dependency graph (FR-019), per the T037 outcome — ten labelled phases, gate phases with a distinct `v-timeline-item` icon, current phase with a theme `dot-color` (FR-011)
+- [X] T043 [P] [US2] Write `frontend/tests/components/cockpit/PhaseSpine.test.ts` covering current-phase highlighting (for "PRD sign-off": **five** phases passed, **four** not yet reached), gate-vs-work distinction, and an unrecognised phase rendering its label verbatim with no position marker
+- [X] T044 [US2] Create `frontend/src/components/cockpit/FeedEntry.vue` — one row with `v-avatar` per persona, attribution, tone and summary; renders the neutral case without an empty name
+- [X] T045 [US2] Create `frontend/src/components/cockpit/NarrativeFeed.vue` — `v-timeline density="compact" side="end"`, chronological and persona-attributed, oldest-first (FR-012), composing `FeedEntry`. Auto-scroll on new events **but suppressed while the operator has scrolled back** (FR-018). **Named custom-CSS gap**: bounded independent scroll region
+- [X] T046 [US2] Write `frontend/tests/components/cockpit/NarrativeFeed.test.ts` covering chronological order, live append without manual refresh, that a scrolled-back operator is not yanked to the bottom, and that a large event history does not degrade rendering
+- [X] T047 [P] [US2] Create `frontend/src/components/cockpit/ArtifactDialog.vue` — `v-dialog` rendering artifact content as **text, never markup**, and surfacing `trust` so `agent_output` cannot be mistaken for `operator_approved` (FR-015). Reuse the fetch at `WorkCardDetail.vue:22`
+- [X] T048 [P] [US2] Write `frontend/tests/components/cockpit/ArtifactDialog.test.ts` asserting markup in content renders as literal text, and that trust is displayed
+- [X] T049 [US2] Create `frontend/src/components/cockpit/ArtifactRail.vue` — `v-list` of the full durable set in pipeline order (original request, understanding check, CAB-1 decision, interview rounds, PRD, technical analysis, executive summary, pull request), each with `prepend-icon`, an append `v-chip` state, and `available: false` for those not yet produced (FR-014, data-model.md §2); opens `ArtifactDialog`
+- [X] T050 [US2] Write `frontend/tests/components/cockpit/ArtifactRail.test.ts` asserting the full durable set renders in pipeline order, each with its state, and that unproduced artifacts appear as unavailable rather than being omitted (FR-014)
+- [X] T051 [US2] Create `frontend/src/components/cockpit/ActionBanner.vue` — a `v-alert` with buttons in the `append` slot stating the single pending ask, rendering **nothing at all** when nothing is pending (FR-016). Port the gate-decision branching from `WorkCardDetail.vue:76-93`, including `requested_decision === 'answer'` and `'approve_prd'`
+- [X] T052 [US2] Replace any `window.confirm()` in the ported paths with `v-dialog` (FR-038 — there is no `v-dialog` anywhere in the app today)
+- [X] T053 [US2] Write `frontend/tests/components/cockpit/ActionBanner.test.ts` covering: exactly one banner when a gate is pending, no element at all when nothing is pending, and a 409 stale `expected_revision` surfacing as a human "this moved on" message rather than a generic failure (`useBoard.ts:112-131`)
+- [X] T054 [US2] Create `frontend/src/views/RequestCockpitView.vue` composing banner, spine, feed and rail; loads the snapshot via `useBoard().select(id)`; routes an unknown id to `NotFoundView` with a way back to the board (FR-030). **Named custom-CSS gap**: independent per-pane scroll regions
+- [X] T055 [US2] Route every answer-shaped interaction from the cockpit to the interview route rather than handling it inline — the feed stays read-only (FR-017)
+- [X] T056 [US2] Write `frontend/tests/views/RequestCockpitView.test.ts` covering the four regions rendering, scoping to exactly one request (FR-010), a load failure stating itself plainly with a route back, the unknown-id guard, and keyboard operability of the banner's actions (SC-010)
 
 **Checkpoint**: a request's cockpit is independently demonstrable. `task quality`
 passes.
+
+**Implementation notes (2026-09-28, task 703/#58)**:
+
+- **T037 cleared the gate: the horizontal spine stands.** Measured against a
+  throwaway probe rendering all ten real labels at fixed widths; the outcome
+  and the numbers are recorded as an addendum under research R3. The settings
+  are `density="compact"` + `align="start"`, which is what makes ten labels fit
+  on one line at 1248 px; below ~1100 px they wrap rather than truncate. Neither
+  pre-agreed mitigation (abbreviated gate labels, vertical `v-list` fallback)
+  was needed — both were rendered and rejected on the evidence.
+- **Two pure modules were extracted beyond the task list**, because the banner
+  and the rail would otherwise have carried their derivation inline and blown
+  the complexity and function-length limits: `frontend/src/lib/artifacts.ts`
+  (the durable set and its per-entry state) and `frontend/src/lib/asks.ts`
+  (what the request wants from the operator). Both are unit-tested directly,
+  which is also where the interesting rules now live.
+- **Rejection feedback is taken in a `v-dialog`, not on the interview route.**
+  US2 scenario 7 calls both interview answers and rejection feedback
+  "answer-shaped", but only interview answers have a dedicated surface; T052
+  independently mandates a `v-dialog` for the ported confirm paths. So an
+  `answer` gate routes away to `interview` (T055/T075) and a `prd_gate`
+  rejection opens a dialog that refuses to submit without feedback. Nothing is
+  typed into the feed either way, which is what FR-017 protects.
+- **Quarantine resolution was absorbed into `ActionBanner` too**, though no task
+  asked for it. T087 only names the gate-decision logic and the artifact fetch
+  as things to absorb before deleting `WorkCardDetail.vue`, but release/discard
+  lives there as well — without this, Phase 8 would have quietly dropped an
+  operator capability, against its own checkpoint. Quarantine outranks every
+  gate in `pendingAsk`.
+- **FR-039 finding — two rail entries have no backend producer.** `Original
+  request` lives on `Workflow.task_body`, which the board snapshot does not
+  carry, and `Executive summary` has no card kind at all until GitHub #50–#52
+  land. Both render as `Not yet produced` rather than being hidden, which is
+  what an *expected* set is for. **Surfacing the original request would need a
+  fifth DTO addition**, so it was not made: FR-039 reserves that for the
+  developer. Raised rather than decided.
+- Eight icon aliases were added to `frontend/src/plugins/icons.ts` for the rail.
+  Its test's hard-coded alias list was hoisted to a module constant — adding
+  icons had pushed the `describe` block past the 60-line function limit, and
+  splitting was the sanctioned fix rather than an exemption.
+- `frontend/tests/support/board.ts` gained `workCardSummary`, `boardSnapshot`
+  and `boardEvent` builders, and its `testRouter` gained the `interview` and
+  `not-found` routes the cockpit links to.
 
 ---
 

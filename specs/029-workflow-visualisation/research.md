@@ -116,6 +116,49 @@ Useful mitigations to try before falling back, in order: `density="compact"`,
 `align="start"`, abbreviating the two gate labels in the spine while keeping the
 full name in a tooltip.
 
+### Addendum (2026-09-28, T037): gate cleared — horizontal spine confirmed
+
+The check was run against a throwaway probe page rendering all ten real phase
+labels through Vuetify's own components at fixed widths, screenshotted at a
+1280 px viewport. Four treatments were compared.
+
+**Outcome: the horizontal spine stands. No fallback, no abbreviation.**
+
+The settings are `direction="horizontal"` **plus `density="compact"` and
+`align="start"`**, with `size="x-small"` dots:
+
+| Available width | Result |
+| --- | --- |
+| 1248 px (a 1280 px viewport less page padding) | all ten labels on **one line**, no wrap, no truncation |
+| 1150 px | all ten still on one line |
+| 1024 px | the three longest labels wrap to two lines; all text still fully visible |
+| 900 px | more wrapping, up to three lines; still fully legible, still nothing truncated |
+
+Two findings decided it:
+
+1. **`align="start"` is what makes it work**, not `density` alone. The default
+   alternates labels above and below the line, which both wraps the long labels
+   at the target width ("PRD sign-/off") and makes the sequence scan badly — the
+   eye has to zig-zag to read ten phases in order. `align="start"` puts every
+   label on one baseline beneath its dot, and the reading order becomes plainly
+   left-to-right.
+2. **The failure mode is wrapping, never truncation.** Below ~1100 px the long
+   labels wrap onto a second line and the row grows taller; no label is ever
+   clipped or ellipsised. So the surface degrades legibly on a narrower window
+   instead of hiding information, which is the property that made the fallback
+   unnecessary.
+
+**The two pre-agreed mitigations were therefore not taken.** Abbreviating the
+gate labels ("CAB-1", "CAB-2", "Tech analysis") was rendered and does read fine
+— but it buys nothing at the target width and costs the operator the phrase that
+carries the meaning ("strategic fit", "go/no-go"). Reserve it only if the spine
+is ever put in a genuinely narrow column. The vertical `v-list` fallback was
+also rendered and is a perfectly usable surface, but it is not needed and it
+spends vertical space the narrative feed wants.
+
+Gate labels are distinguished by a `$shieldAlert` icon and the current phase by
+a theme `dot-color`, both verified legible at `x-small`.
+
 ---
 
 ## R4. Segmented indicators: `v-progress-linear` chunks

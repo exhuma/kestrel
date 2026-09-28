@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  onMounted,
+  onUnmounted,
+  ref,
+} from 'vue'
 import { useBoard } from '../composables/useBoard'
 import WorkCardDetail from './WorkCardDetail.vue'
 import PanelLoading from './PanelLoading.vue'
@@ -17,8 +23,16 @@ const WorkflowGraph = defineAsyncComponent({
   delay: 200,
 })
 
-const { workflows, current, error, refresh, startList, stopList, select, stop } =
-  useBoard()
+const {
+  workflows,
+  current,
+  error,
+  refresh,
+  startList,
+  stopList,
+  select,
+  stop,
+} = useBoard()
 
 const layout = ref<'list' | 'graph'>('list')
 const selectedCardId = ref<string | null>(null)
@@ -124,7 +138,9 @@ function selectWorkflow(id: string): void {
                 :key="card.id"
                 :active="card.id === selectedCardId"
                 :title="card.title"
-                :subtitle="card.owner?.label ?? card.waiting_reason ?? undefined"
+                :subtitle="
+                  card.owner?.label ?? card.waiting_reason ?? undefined
+                "
                 @click="selectedCardId = card.id"
               />
             </v-list>

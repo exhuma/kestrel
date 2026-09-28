@@ -26,6 +26,39 @@ const sources = walk(srcDir).map((path) => ({
 // `$alias` must resolve here or the UI shows a missing-glyph placeholder.
 const resolvable = { ...vuetifyAliases, ...appAliases }
 
+// The glyphs the UI is expected to carry. Kept at module level rather than
+// inline so adding an icon does not push the describe block past the
+// function-length limit.
+const EXPECTED_ALIASES = [
+  'account',
+  'alertCircle',
+  'arrowRight',
+  'bell',
+  'broom',
+  'checkCircle',
+  'circle',
+  'circleOutline',
+  'close',
+  'codeJson',
+  'cogOutline',
+  'fileDocumentOutline',
+  'forumOutline',
+  'gavel',
+  'helpCircleOutline',
+  'inboxArrowDown',
+  'radar',
+  'refresh',
+  'restart',
+  'rocketLaunchOutline',
+  'shieldAlert',
+  'sitemapOutline',
+  'sourcePull',
+  'subdirectoryArrowRight',
+  'textBoxCheckOutline',
+  'weatherNight',
+  'weatherSunny',
+]
+
 describe('icon alias registry', () => {
   it('maps every app alias to a non-empty SVG path', () => {
     for (const [name, path] of Object.entries(appAliases)) {
@@ -34,32 +67,12 @@ describe('icon alias registry', () => {
     }
   })
 
-  it('registers the 19 glyphs the UI references', () => {
-    expect(Object.keys(appAliases).sort()).toEqual(
-      [
-        'account',
-        'alertCircle',
-        'arrowRight',
-        'bell',
-        'broom',
-        'checkCircle',
-        'circle',
-        'circleOutline',
-        'close',
-        'codeJson',
-        'cogOutline',
-        'radar',
-        'refresh',
-        'restart',
-        'rocketLaunchOutline',
-        'shieldAlert',
-        'subdirectoryArrowRight',
-        'weatherNight',
-        'weatherSunny',
-      ].sort(),
-    )
+  it('registers exactly the glyphs the UI references', () => {
+    expect(Object.keys(appAliases).sort()).toEqual(EXPECTED_ALIASES.sort())
   })
+})
 
+describe('icon references in src/', () => {
   it('has no leftover mdi-* webfont icon names in src/', () => {
     const offenders = sources
       .filter(({ text }) => /["']mdi-[a-z-]+["']/.test(text))
