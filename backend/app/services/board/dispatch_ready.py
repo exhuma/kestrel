@@ -14,10 +14,8 @@ from dataclasses import dataclass
 
 from app.models_board import (
     CardKind,
-    CardState,
     SpecialistDefinition,
     WorkCard,
-    Workflow,
     WorkspacePermission,
 )
 from app.policy import SpecialistCapabilityError
@@ -27,18 +25,17 @@ from app.services.board.claims import (
     NoEligibleCardError,
     ReadCapacityExceededError,
 )
-from app.services.board.coordinator import (
-    CoordinatorService,
-    CreateCardAction,
-    TransitionCardAction,
-)
+from app.services.board.coordinator import CoordinatorService
 from app.services.board.decomposition import route_decomposition_result
-from app.services.board.delivery import deliver
 from app.services.board.dispatch import (
     CardTurnError,
     _TurnBackend,
     build_card_envelope,
     run_card_turn,
+)
+from app.services.board.dispatch_delivery import (
+    _dispatch_pending_delivery,
+    _request_delivery,
 )
 from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
@@ -46,13 +43,13 @@ from app.services.board.refinement import (
     gather_refinement_context,
     route_prd_result,
     route_refinement_result,
+    route_strategic_interview_result,
 )
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
 from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.exceptions import GitError
-from app.services.github import change_request_number
 from app.services.task_sources import TaskSourceRegistry
 
 _dispatch_log = logging.getLogger("kestrel.board.dispatch")
@@ -265,6 +262,15 @@ async def _route_result(
             final_text, card, services.coordinator, services.gates,
             services.artifacts,
         )
+    elif (
+        card.kind == CardKind.STRATEGIC_INTERVIEW.value
+        and services.coordinator
+        and services.gates
+    ):
+        route_strategic_interview_result(
+            final_text, card, services.coordinator, services.gates,
+            services.artifacts,
+        )
 
 
 async def _route_verification(
@@ -287,21 +293,6 @@ async def _route_verification(
         await _project_escalation(workflow_id, card, index, summary, services)
     if routing.clean:
         _request_delivery(workflow_id, card, services)
-
-
-def _request_delivery(
-    workflow_id: str, card: WorkCard, services: DispatchServices
-) -> None:
-    """Create the ``delivery`` card for a cleanly verified workflow
-    (T069). Never claimed by a specialist — ``_dispatch_pending_delivery``
-    below actually performs it, in this same dispatch pass or the next
-    one a retry re-triggers.
-    """
-    trigger = f"delivery:{card.id}:{card.attempt_count}"
-    services.coordinator.apply_actions(
-        workflow_id, trigger,
-        [CreateCardAction(kind=CardKind.DELIVERY.value, title="Deliver")],
-    )
 
 
 async def _project_escalation(
@@ -336,110 +327,6 @@ async def _project_escalation(
         _dispatch_log.exception(
             "workflow %s: escalation projection failed for card %s",
             workflow_id, card.id,
-        )
-
-
-async def _dispatch_pending_delivery(
-    workflow_id: str, services: DispatchServices
-) -> None:
-    """Attempt every ``ready`` ``delivery`` card in this workflow (T069).
-
-    Runs on the same pass a clean verification created one (right after
-    the per-role loop above, in the same ``dispatch_ready_work`` call),
-    and on any later pass an operator's ``retry`` intervention re-opens
-    one on — a card transition is a board mutation like any other, so it
-    re-triggers dispatch the normal way.
-    """
-    if services.workspace is None or services.task_sources is None:
-        return
-    for card in services.claims.store.list_cards(workflow_id):
-        if (
-            card.kind == CardKind.DELIVERY.value
-            and card.state == CardState.READY.value
-        ):
-            await _deliver_one(workflow_id, card, services)
-
-
-async def _deliver_one(
-    workflow_id: str, card: WorkCard, services: DispatchServices
-) -> None:
-    """Push and open a change request for one ``delivery`` card.
-
-    Moves through ``claimed``/``review``/``done`` like a specialist-
-    worked card, for a consistent state machine and so a failure leaves
-    it ``failed`` (retry-able via the ordinary ``retry`` intervention) —
-    but this is not a real claim/lease (no specialist backend, nothing
-    for ``recovery.py``'s lease-expiry sweep to see), so a process crash
-    between the claim transition and delivery completing leaves the card
-    stuck ``claimed``; an operator must cancel it and retry the
-    verification card that requested it. Accepted as a narrow, rare
-    window rather than building lease-based recovery for a system action.
-    """
-    workflow = services.claims.store.get_workflow(workflow_id)
-    code_host = services.task_sources.code_hosts.get(workflow.source)
-    if code_host is None:
-        _dispatch_log.warning(
-            "workflow %s: no code host for source %r; delivery not "
-            "attempted", workflow_id, workflow.source,
-        )
-        return
-    services.coordinator.apply_actions(
-        workflow_id, f"delivery:{card.id}:claim",
-        [TransitionCardAction(card.id, CardState.CLAIMED.value)],
-    )
-    try:
-        location = await deliver(workflow, code_host, services.workspace)
-    except Exception:  # noqa: BLE001 — record failure, never crash dispatch
-        _dispatch_log.exception(
-            "workflow %s: delivery failed for card %s", workflow_id, card.id,
-        )
-        services.coordinator.apply_actions(
-            workflow_id, f"delivery:{card.id}:fail",
-            [TransitionCardAction(card.id, CardState.FAILED.value)],
-        )
-        return
-    services.claims.store.record_delivery(
-        workflow_id, change_request_number(location)
-    )
-    services.coordinator.apply_actions(
-        workflow_id, f"delivery:{card.id}:review",
-        [TransitionCardAction(card.id, CardState.REVIEW.value)],
-    )
-    services.coordinator.apply_actions(
-        workflow_id, f"delivery:{card.id}:done",
-        [TransitionCardAction(card.id, CardState.DONE.value)],
-    )
-    await _project_delivery(workflow, card, location, services)
-
-
-async def _project_delivery(
-    workflow: Workflow,
-    card: WorkCard,
-    location: str,
-    services: DispatchServices,
-) -> None:
-    """Best-effort projection of a workflow's delivery location (T067)."""
-    if services.projections is None or services.task_sources is None:
-        return
-    task_source = services.task_sources.sources.get(workflow.source)
-    if task_source is None:
-        return
-    try:
-        await post_projection(
-            ProjectionRequest(
-                workflow_id=workflow.id,
-                task_ref=workflow.task_ref,
-                kind="delivery",
-                idempotency_key=f"delivery:{card.id}",
-                payload=f"Delivered: {location}",
-            ),
-            task_source,
-            services.projections,
-        )
-    except Exception:  # noqa: BLE001 — never let projection crash dispatch
-        _dispatch_log.exception(
-            "workflow %s: delivery projection failed for card %s",
-            workflow.id, card.id,
         )
 
 

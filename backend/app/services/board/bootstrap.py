@@ -125,6 +125,10 @@ def get_gates_service() -> GatesService:
         required=GateRequirements(
             decomposition=settings.board_decomposition_required,
             prd=settings.board_prd_gate_required,
+            cab1=settings.board_cab1_gate_required,
+            cab1_interview_max_questions=(
+                settings.board_cab1_interview_max_questions
+            ),
         ),
     )
 

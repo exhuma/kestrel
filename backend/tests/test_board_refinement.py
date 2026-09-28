@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -25,9 +26,12 @@ from app.services.board.refinement import (
     parse_refinement_questions,
     route_prd_result,
     route_refinement_result,
+    route_strategic_interview_result,
 )
 from app.services.board.service import BoardService
 from tests.board_test_support import board_session_factory
+
+_DEFAULT_CAB1_QUESTION_CAP = 3
 
 _WORKFLOW = Workflow(
     id="wf-1", source="github-issue", task_ref="owner/repo#1",
@@ -137,6 +141,71 @@ class TestRouteRefinementResult:
         store.create_card(card)
 
         route_refinement_result(
+            "no structured block", card, coordinator, gates, artifacts,
+        )
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "coordinator_review"
+
+
+class TestRouteStrategicInterviewResult:
+    def test_creates_a_strategic_interview_gate(self, tmp_path: Path) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="strategic_interview",
+            title="Strategic fit interview", state="review",
+            eligible_roles=("requester",),
+        )
+        store.create_card(card)
+
+        route_strategic_interview_result(
+            _refinement_block("Why does this matter?"), card, coordinator,
+            gates, artifacts,
+        )
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert len(new_cards) == 1
+        assert new_cards[0].kind == "strategic_interview_gate"
+        assert new_cards[0].state == "awaiting_human"
+
+    def test_truncates_to_the_configured_question_cap(
+        self, tmp_path: Path
+    ) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="strategic_interview",
+            title="Strategic fit interview", state="review",
+            eligible_roles=("requester",),
+        )
+        store.create_card(card)
+        assert gates.cab1_interview_max_questions == _DEFAULT_CAB1_QUESTION_CAP
+
+        route_strategic_interview_result(
+            _refinement_block("Q1?", "Q2?", "Q3?", "Q4?", "Q5?"), card,
+            coordinator, gates, artifacts,
+        )
+
+        gate_card = next(
+            c for c in store.list_cards("wf-1") if c.id != "card-1"
+        )
+        assert f"{_DEFAULT_CAB1_QUESTION_CAP} question" in gate_card.title
+        record = gates.get_gate(gate_card.id)
+        content = json.loads(artifacts.read_content(record.target_artifact_id))
+        assert content["questions"] == ["Q1?", "Q2?", "Q3?"]
+
+    def test_unparseable_result_escalates_fail_closed(
+        self, tmp_path: Path
+    ) -> None:
+        store, coordinator, gates, artifacts = _setup(tmp_path)
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="strategic_interview",
+            title="Strategic fit interview", state="review",
+            eligible_roles=("requester",),
+        )
+        store.create_card(card)
+
+        route_strategic_interview_result(
             "no structured block", card, coordinator, gates, artifacts,
         )
 

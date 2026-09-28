@@ -76,6 +76,22 @@ class CardKind(StrEnum):
     #: (``eligible_roles=()``), still moved through the ordinary claimed/
     #: review lifecycle so it stays retry-able like any other card.
     DELIVERY = "delivery"
+    #: A pure strategic-fit approve/reject decision, gating entry into
+    #: ``refinement`` the same way ``understanding_gate`` does today when
+    #: enforced (feature 027, ``board_cab1_gate_required``). Precedes
+    #: ``refinement``, not ``understanding_gate`` — see
+    #: ``STRATEGIC_INTERVIEW_GATE``.
+    CAB1_GATE = "cab1_gate"
+    #: The `requester` persona's own bounded, non-technical question set
+    #: for a ``STRATEGIC_INTERVIEW_GATE`` to hold (feature 027) — created
+    #: deterministically right after ``understanding_gate`` approval when
+    #: CAB-1 is enabled. Distinct from ``REFINEMENT``: this interview asks
+    #: only why the work matters, not deep requirements.
+    STRATEGIC_INTERVIEW = "strategic_interview"
+    #: Holds the requester's free-text answer to a ``STRATEGIC_INTERVIEW``
+    #: (feature 027); resolving it deterministically creates the
+    #: ``CAB1_GATE`` decision.
+    STRATEGIC_INTERVIEW_GATE = "strategic_interview_gate"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves
@@ -86,6 +102,8 @@ GATE_CARD_KINDS = frozenset(
         CardKind.REFINEMENT_GATE,
         CardKind.PRD_GATE,
         CardKind.DECOMPOSITION_GATE,
+        CardKind.CAB1_GATE,
+        CardKind.STRATEGIC_INTERVIEW_GATE,
     }
 )
 

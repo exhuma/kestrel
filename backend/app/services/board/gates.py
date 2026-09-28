@@ -49,6 +49,12 @@ class GateRequirements:
 
     decomposition: bool = False
     prd: bool = False
+    cab1: bool = False
+    #: The CAB-1 strategic interview's hard question cap (feature 027).
+    #: Only meaningful when ``cab1`` is set; carried here rather than as
+    #: its own ``GatesService`` constructor argument to stay within the
+    #: repo's argument-count limit.
+    cab1_interview_max_questions: int = 3
 
 
 class UnknownGateError(Exception):
@@ -81,6 +87,11 @@ class GatesService:
         #: ``coordinator.py``'s ``_validate`` for the other enforcement
         #: half (blocking other work until decomposition resolves).
         self._required = required or GateRequirements()
+
+    @property
+    def cab1_interview_max_questions(self) -> int:
+        """The CAB-1 strategic interview's configured question cap."""
+        return self._required.cab1_interview_max_questions
 
     def create_gate(
         self,
@@ -147,6 +158,8 @@ class GatesService:
             card_id, target.value, event_type=f"gate.{decision}"
         )
         if decision == "approved":
+            self._maybe_require_cab1_interview(card)
+            self._maybe_require_cab1_decision(card)
             self._maybe_require_refinement(card)
             self._maybe_require_decomposition(card)
             self._maybe_approve_prd(card)
@@ -167,6 +180,16 @@ class GatesService:
         """
         if self._required.prd:
             return CardKind.PRD_GATE.value
+        return CardKind.UNDERSTANDING_GATE.value
+
+    def _refinement_trigger_kind(self) -> str:
+        """The gate kind whose approval starts refinement.
+
+        ``cab1_gate`` when CAB-1 is required (refinement must wait for a
+        strategic go), else ``understanding_gate`` as before feature 027.
+        """
+        if self._required.cab1:
+            return CardKind.CAB1_GATE.value
         return CardKind.UNDERSTANDING_GATE.value
 
     def _maybe_require_decomposition(self, resolved_gate: WorkCard) -> None:
@@ -197,21 +220,69 @@ class GatesService:
             )
         )
 
-    def _maybe_require_refinement(self, understanding_gate: WorkCard) -> None:
-        """Deterministically create the three persona interview cards
-        right after ``understanding_gate`` is approved, when enforced.
+    def _maybe_require_cab1_interview(self, resolved_gate: WorkCard) -> None:
+        """Deterministically create the strategic-interview card right
+        after ``understanding_gate`` is approved, when CAB-1 is enforced.
 
-        A no-op for any other gate kind, when enforcement is off, or for
-        a workflow whose source task is itself already a published
-        decomposition child — a subtask Kestrel itself scoped out has
-        already had its own refinement pass at the parent's level.
+        A no-op for any other gate kind, when CAB-1 enforcement is off, or
+        for a workflow whose source task is itself already a published
+        decomposition child (same subtask exemption as
+        :meth:`_maybe_require_refinement`).
+        """
+        if (
+            not self._required.cab1
+            or resolved_gate.kind != CardKind.UNDERSTANDING_GATE.value
+        ):
+            return
+        workflow = self._store.get_workflow(resolved_gate.workflow_id)
+        if workflow is None or workflow.skip_decomposition:
+            return
+        self._store.create_card(
+            WorkCard(
+                id=f"card-{uuid.uuid4().hex[:8]}",
+                workflow_id=workflow.id,
+                kind=CardKind.STRATEGIC_INTERVIEW.value,
+                title="Strategic fit interview",
+                state=CardState.READY,
+                eligible_roles=("requester",),
+            )
+        )
+
+    def _maybe_require_cab1_decision(self, resolved_gate: WorkCard) -> None:
+        """Deterministically create the ``cab1_gate`` decision right after
+        the requester's ``strategic_interview_gate`` answer is recorded.
+
+        A no-op for any other gate kind — unconditional otherwise (once a
+        ``strategic_interview_gate`` exists at all, CAB-1 is by
+        construction already enabled; nothing else creates that kind).
+        """
+        if resolved_gate.kind != CardKind.STRATEGIC_INTERVIEW_GATE.value:
+            return
+        self.create_gate(
+            resolved_gate.workflow_id,
+            kind=CardKind.CAB1_GATE.value,
+            title="Approve strategic fit",
+            requested_decision="approve_strategic_fit",
+        )
+
+    def _maybe_require_refinement(self, resolved_gate: WorkCard) -> None:
+        """Deterministically create the three persona interview cards
+        right after refinement's trigger gate is approved, when enforced.
+
+        The trigger is ``cab1_gate`` when CAB-1 is also required (feature
+        027 — refinement must wait for a strategic go), else
+        ``understanding_gate`` as before. A no-op for any other gate kind,
+        when enforcement is off, or for a workflow whose source task is
+        itself already a published decomposition child — a subtask
+        Kestrel itself scoped out has already had its own refinement pass
+        at the parent's level.
         """
         if (
             not self._required.prd
-            or understanding_gate.kind != CardKind.UNDERSTANDING_GATE.value
+            or resolved_gate.kind != self._refinement_trigger_kind()
         ):
             return
-        workflow = self._store.get_workflow(understanding_gate.workflow_id)
+        workflow = self._store.get_workflow(resolved_gate.workflow_id)
         if workflow is None or workflow.skip_decomposition:
             return
         for persona in _REFINEMENT_PERSONAS:

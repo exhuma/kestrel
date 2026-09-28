@@ -90,6 +90,49 @@ def route_refinement_result(
     )
 
 
+def route_strategic_interview_result(
+    text: str,
+    card: WorkCard,
+    coordinator: CoordinatorService,
+    gates: GatesService,
+    artifacts: ArtifactsService,
+) -> None:
+    """Parse the requester's strategic-fit question set and hold it,
+    capped, behind a gate for the requester to answer (feature 027).
+
+    Reuses the ``<REFINEMENT_QUESTIONS>`` tag ``refinement`` cards already
+    produce — same shape, lighter intent — and truncates to
+    :attr:`GatesService.cab1_interview_max_questions` rather than failing
+    closed on an over-long proposal; fail-closed parsing already guards
+    the question *content*, not its count.
+    """
+    try:
+        questions = parse_refinement_questions(text)
+    except RefinementResultError:
+        _escalate_unparseable(
+            coordinator, card, "strategic interview", "requester"
+        )
+        return
+    questions = questions[: gates.cab1_interview_max_questions]
+    artifact = artifacts.store_reference_artifact(
+        ArtifactDraft(
+            producer_card_id=card.id,
+            logical_name="questions",
+            revision=card.attempt_count,
+            content=json.dumps({"questions": questions}),
+            trust="agent_output",
+        )
+    )
+    gates.create_gate(
+        card.workflow_id,
+        kind=CardKind.STRATEGIC_INTERVIEW_GATE.value,
+        title=f"Strategic fit ({len(questions)} question"
+        f"{'s' if len(questions) != 1 else ''})",
+        requested_decision="answer",
+        target_artifact_id=artifact.id,
+    )
+
+
 def parse_prd_draft(text: str) -> str:
     """Parse the ``<PRD>`` block.
 

@@ -38,6 +38,44 @@ class TestPrdDecompositionOrdering:
         assert "refinement" in kinds
 
 
+class TestCab1RefinementOrdering:
+    """Feature 027: when CAB-1 is also required, refinement must wait for
+    cab1_gate rather than firing off understanding_gate directly."""
+
+    def test_refinement_waits_for_cab1_gate_when_required(
+        self, tmp_path: Path
+    ) -> None:
+        service, store = _service(
+            tmp_path, prd_gate_required=True, cab1_required=True,
+        )
+        understanding = service.create_gate(
+            "wf-1", kind="understanding_gate", title="Confirm understanding",
+            requested_decision="Approve?",
+        )
+
+        service.resolve(understanding.id, "approved")
+
+        kinds = {c.kind for c in store.list_cards("wf-1")}
+        assert "refinement" not in kinds
+
+    def test_approving_cab1_gate_creates_three_interview_cards(
+        self, tmp_path: Path
+    ) -> None:
+        service, store = _service(
+            tmp_path, prd_gate_required=True, cab1_required=True,
+        )
+        cab1 = service.create_gate(
+            "wf-1", kind="cab1_gate", title="Approve strategic fit",
+            requested_decision="approve_strategic_fit",
+        )
+
+        service.resolve(cab1.id, "approved")
+
+        new_cards = [c for c in store.list_cards("wf-1") if c.id != cab1.id]
+        assert len(new_cards) == _INTERVIEW_PERSONA_COUNT
+        assert {c.kind for c in new_cards} == {"refinement"}
+
+
 class TestRefinementEnforcement:
     """T078: approving understanding_gate can deterministically create the
     three persona interview cards, independent of the coordinator's own

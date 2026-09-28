@@ -319,6 +319,19 @@ class Settings(BaseSettings):
     #: workflow whose source task already carries the subtask sentinel
     #: is exempt from both either way.
     board_prd_gate_required: bool = False
+    #: Require an early, pure human strategic-fit decision ("CAB-1")
+    #: between ``understanding_gate`` and ``refinement``, preceded by a
+    #: light, capped interview with the original requester (feature 027,
+    #: ``KESTREL_BOARD_CAB1_GATE_REQUIRED``). Off by default, same
+    #: reasoning as ``board_decomposition_required``. CAB-1 evaluates only
+    #: strategic fit, never scope/feasibility/cost (that is the separate,
+    #: already-shipped post-decomposition CAB review).
+    board_cab1_gate_required: bool = False
+    #: The strategic-fit interview's hard question cap (feature 027,
+    #: ``KESTREL_BOARD_CAB1_INTERVIEW_MAX_QUESTIONS``) — keeps the
+    #: pre-CAB-1 interview light, unlike the deeper post-approval
+    #: refinement interviews it precedes.
+    board_cab1_interview_max_questions: int = Field(default=3, gt=0)
     #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
     #: endpoints (feature 026, T069,
     #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —

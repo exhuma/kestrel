@@ -89,6 +89,16 @@ board_decomposition_required = false
 # Off by default, same reasoning as board_decomposition_required. When
 # both this and decomposition are required, the PRD gate resolves first.
 board_prd_gate_required = false
+# Require an early, pure human strategic-fit decision ("CAB-1") between
+# understanding_gate and refinement, preceded by a light, capped interview
+# with the original requester. Off by default, same reasoning as
+# board_decomposition_required. CAB-1 evaluates only strategic fit, never
+# scope/feasibility/cost.
+board_cab1_gate_required = false
+# The strategic-fit interview's hard question cap — keeps the pre-CAB-1
+# interview light, unlike the deeper post-approval refinement interviews
+# it precedes.
+board_cab1_interview_max_questions = 3
 # Enable the temporary /api/board/workflows/{id}/dev/{cleanup,rerun}
 # routes, for repeating a local-task-source dry run without restarting
 # kestrel. Off by default; restricted to private-visibility workflows

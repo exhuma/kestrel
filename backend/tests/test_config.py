@@ -448,3 +448,16 @@ def test_config_file_takes_precedence_over_backends_file(
     assert s.default_session_backend == "cfg"
 
 
+def test_cab1_interview_max_questions_defaults_to_three() -> None:
+    """Ensure the CAB-1 strategic interview's question cap defaults low."""
+    assert Settings(_env_file=None).board_cab1_interview_max_questions == 3
+
+
+def test_cab1_interview_max_questions_rejects_non_positive() -> None:
+    """Ensure a non-positive question cap fails validation loudly."""
+    with pytest.raises(
+        ValueError, match="board_cab1_interview_max_questions"
+    ):
+        Settings(_env_file=None, board_cab1_interview_max_questions=0)
+
+

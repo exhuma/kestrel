@@ -44,7 +44,8 @@ _WORKFLOW = Workflow(
 
 def _service(
     tmp_path: Path, *, decomposition_required: bool = False,
-    prd_gate_required: bool = False, workflow: Workflow = _WORKFLOW,
+    prd_gate_required: bool = False, cab1_required: bool = False,
+    workflow: Workflow = _WORKFLOW,
 ) -> tuple[GatesService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
@@ -58,7 +59,8 @@ def _service(
     service = GatesService(
         store, gate_store, board_service, artifacts,
         required=GateRequirements(
-            decomposition=decomposition_required, prd=prd_gate_required
+            decomposition=decomposition_required, prd=prd_gate_required,
+            cab1=cab1_required,
         ),
     )
     return service, store
