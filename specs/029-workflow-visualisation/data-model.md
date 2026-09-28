@@ -249,6 +249,38 @@ must be serialised into it in a form the PRD step can tell apart — an "I don't
 know" and a "not relevant" must not both arrive as empty text. The serialisation
 format is a decision the implementing task must record, not improvise.
 
+**Recorded format** (T070, `lib/interviewAnswers.ts::serializeAnswers`): one
+`Q:`/`A:` block per question, blocks separated by a blank line —
+
+```
+Q: <question prompt>
+A: <trimmed answer text>
+
+Q: <question prompt>
+A: (I don't know — let the PRD state an assumption.)
+```
+
+`unknown` and `not-relevant` each get their own fixed, human-readable `A:`
+line (never blank), so the three non-empty outcomes stay distinguishable to
+both a human reading the artifact later and the `pm` agent drafting the next
+round or the PRD — plain text, not JSON, since the consumer on the other end
+is always an LLM prompt (`refinement_rounds.py::_prior_round_answers`
+threads the previous response artifact's content in verbatim), never a
+machine parser.
+
+**Persona derivation gap, found while implementing** (parallel to FR-039):
+`WorkCardSummaryOut` carries no persona for a `refinement_gate` card — the
+card itself has no `eligible_roles` (see `refinement_rounds.py`'s module
+docstring). The only signal available client-side is the card's `title`,
+which `refinement.py::route_refinement_result` constructs as
+`f"{persona} interview (...)"`. `lib/interview.ts::personaOf` parses that
+prefix (falling back to `'requester'` for the un-prefixed CAB-1
+strategic-fit title and for anything else unrecognised), which is
+sufficient for FR-021 today but couples the frontend to a string built for
+display, not parsing. A dedicated `persona` field on `WorkCardGateOut`
+would be the clean fix; raised here rather than decided unilaterally, same
+as FR-039.
+
 ---
 
 ## 3. Existing types extended (additive, read-only)
