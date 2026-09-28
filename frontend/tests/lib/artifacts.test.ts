@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { railItems } from '../../src/lib/artifacts'
+import { railItems, REQUEST_FRESHNESS_NOTE } from '../../src/lib/artifacts'
 import { workCardSummary } from '../support/board'
 import type { WorkCardSummary } from '../../src/types/workflows'
 
@@ -166,16 +166,28 @@ describe('railItems card matching', () => {
   })
 })
 
-describe('railItems original request', () => {
-  // Recorded deliberately: the original request lives on
-  // `Workflow.task_body`, which the snapshot does not carry.
-  it('still lists the original request as expected work', () => {
-    const items = railItems([
-      workCardSummary({ card_type: 'delivery', state: 'done' }),
-    ])
-    expect(items.find((i) => i.kind === 'request')?.state).toBe(
-      'Not yet produced',
-    )
+describe('railItems original request (feature 030)', () => {
+  const request = (body?: string) =>
+    railItems([], body).find((i) => i.kind === 'request')
+
+  it('is not produced when the snapshot carries no body', () => {
+    expect(request()?.state).toBe('Not yet produced')
+    expect(request('   ')?.available).toBe(false)
+  })
+
+  it('opens the body directly, with the freshness note', () => {
+    const item = request('Please add CSV export.')
+    expect(item?.available).toBe(true)
+    expect(item?.state).toBe('Produced')
+    expect(item?.artifactId).toBeNull()
+    expect(item?.directContent).toBe('Please add CSV export.')
+    expect(item?.note).toBe(REQUEST_FRESHNESS_NOTE)
+  })
+
+  it('never carries direct content on an ordinary artifact entry', () => {
+    const items = railItems([], 'body')
+    const others = items.filter((i) => i.kind !== 'request')
+    expect(others.every((i) => i.directContent === null)).toBe(true)
   })
 })
 

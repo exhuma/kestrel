@@ -181,6 +181,7 @@ def board_snapshot(
         state_counts=state_counts(cards),
         phase=phase,
         stage=stage_of(phase),
+        task_body=workflow.task_body,
     )
 
 

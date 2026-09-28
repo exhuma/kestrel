@@ -89,7 +89,10 @@ onUnmounted(() => {
           <NarrativeFeed :events="events" />
         </v-sheet>
         <div class="cockpit__rail">
-          <ArtifactRail :cards="snapshot.cards" />
+          <ArtifactRail
+            :cards="snapshot.cards"
+            :task-body="snapshot.task_body"
+          />
         </div>
       </div>
     </template>

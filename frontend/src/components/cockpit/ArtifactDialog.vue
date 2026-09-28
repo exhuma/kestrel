@@ -5,7 +5,12 @@
 // into the browser, so it is rendered as *text* via interpolation and
 // never as markup; and `trust` is always shown, so `agent_output` can
 // never be mistaken for `operator_approved`.
-import { ref, watch } from 'vue'
+//
+// A second mode (feature 030) shows `directContent` handed in by the
+// caller — the original request, which is no artifact and has no trust
+// level. It fetches nothing and shows `note` where the chip would be,
+// still rendered as text.
+import { computed, ref, watch } from 'vue'
 import { api } from '../../api'
 import type { BoardArtifactContent } from '../../types/workflows'
 
@@ -14,7 +19,14 @@ const props = defineProps<{
   artifactId: string | null
   /** The rail's label for it — the dialog's own title. */
   label: string
+  /** Content to show as-is instead of fetching `artifactId`. */
+  directContent?: string | null
+  /** Shown with `directContent`, in place of the trust chip. */
+  note?: string | null
 }>()
+
+const isDirect = computed(() => props.directContent != null)
+const isOpen = computed(() => props.artifactId !== null || isDirect.value)
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -56,7 +68,7 @@ watch(
 
 <template>
   <v-dialog
-    :model-value="artifactId !== null"
+    :model-value="isOpen"
     max-width="900"
     scrollable
     @update:model-value="emit('close')"
@@ -66,7 +78,7 @@ watch(
         <v-card-title>{{ label }}</v-card-title>
         <template #append>
           <v-chip
-            v-if="content"
+            v-if="content && !isDirect"
             :color="trustColor(content.trust)"
             variant="tonal"
             data-testid="artifact-trust"
@@ -79,7 +91,20 @@ watch(
       <v-divider />
 
       <v-card-text>
-        <v-progress-linear v-if="loading" indeterminate />
+        <template v-if="isDirect">
+          <v-alert
+            v-if="note"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+            data-testid="artifact-note"
+          >
+            {{ note }}
+          </v-alert>
+          <pre class="artifact-content text-body-2">{{ directContent }}</pre>
+        </template>
+        <v-progress-linear v-else-if="loading" indeterminate />
         <v-alert v-else-if="error" type="error">{{ error }}</v-alert>
         <pre v-else-if="content" class="artifact-content text-body-2">{{
           content.content

@@ -37,7 +37,17 @@ export interface ArtifactRailItem {
   /** Whether there is content behind it to open. */
   available: boolean
   artifactId: string | null
+  /** Content read straight off the snapshot rather than fetched by
+   *  artifact id — only the original request, which is no artifact. */
+  directContent: string | null
+  /** Shown alongside direct content in place of a trust chip. */
+  note: string | null
 }
+
+/** The original request is screened once at intake and never again, so
+ *  it must never be mistaken for the live ticket (feature 030, FR-022). */
+export const REQUEST_FRESHNESS_NOTE =
+  'Screened once at intake. Later edits to the source ticket are not reflected here.'
 
 interface RailSlot {
   kind: string
@@ -45,22 +55,20 @@ interface RailSlot {
   icon: string
   /** The card kinds that produce this artifact, most significant first. */
   cardKinds: readonly string[]
+  /** Read from the snapshot's `task_body` instead of from a card. */
+  direct?: true
 }
 
 /** FR-014's durable set, in pipeline order.
  *
- * One entry still has no card kind behind it, and that is recorded rather
- * than papered over:
+ * Two entries are not ordinary card artifacts (feature 030):
  *
- * - **Original request** lives on `Workflow.task_body` and is not carried
- *   by the board snapshot, so there is nothing to open. Exposing it would
- *   need a fifth DTO addition, which FR-039 puts off-limits without the
- *   developer's word.
- *
- * The **Executive summary** (feature 030) is the CAB-2 gate's own
- * artifact: kestrel renders it from the estimates and stores it on the
- * `decomposition_gate` card, so it is that card's `latest_artifact`. The
- * gate therefore belongs to this slot, not to "Technical analysis".
+ * - **Original request** is `Workflow.task_body`, carried on the snapshot.
+ *   It is no artifact — intake writes none — so it is read directly.
+ * - **Executive summary** is the CAB-2 gate's own artifact: kestrel
+ *   renders it from the estimates and stores it on the
+ *   `decomposition_gate` card, so it is that card's `latest_artifact`. The
+ *   gate therefore belongs to this slot, not to "Technical analysis".
  */
 const RAIL: readonly RailSlot[] = [
   {
@@ -68,6 +76,7 @@ const RAIL: readonly RailSlot[] = [
     label: 'Original request',
     icon: '$inboxArrowDown',
     cardKinds: [],
+    direct: true,
   },
   {
     kind: 'understanding',
@@ -164,6 +173,22 @@ function toItem(
     state: card ? stateOf(card) : 'Not yet produced',
     available: card?.latest_artifact != null,
     artifactId: card?.latest_artifact?.id ?? null,
+    directContent: null,
+    note: null,
+  }
+}
+
+function directItem(slot: RailSlot, taskBody: string): ArtifactRailItem {
+  const available = taskBody.trim() !== ''
+  return {
+    kind: slot.kind,
+    label: slot.label,
+    icon: slot.icon,
+    state: available ? 'Produced' : 'Not yet produced',
+    available,
+    artifactId: null,
+    directContent: available ? taskBody : null,
+    note: available ? REQUEST_FRESHNESS_NOTE : null,
   }
 }
 
@@ -180,7 +205,12 @@ function groupByKind(cards: WorkCardSummary[]): Map<string, WorkCardSummary[]> {
 /** The full durable set for one request, in pipeline order. Always the
  *  same length — a request that has produced nothing still shows what is
  *  coming. */
-export function railItems(cards: WorkCardSummary[]): ArtifactRailItem[] {
+export function railItems(
+  cards: WorkCardSummary[],
+  taskBody = '',
+): ArtifactRailItem[] {
   const byKind = groupByKind(cards)
-  return RAIL.map((slot) => toItem(slot, byKind))
+  return RAIL.map((slot) =>
+    slot.direct ? directItem(slot, taskBody) : toItem(slot, byKind),
+  )
 }

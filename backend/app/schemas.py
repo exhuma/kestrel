@@ -184,7 +184,11 @@ class BoardSnapshotOut(BaseModel):
     ``expected_revision``. ``phase``/``stage`` are a pure, derived,
     display-only projection (``app.services.board.phases``) — never a
     driver: they never decide what happens next. ``title`` (feature 029
-    A2) falls back to ``task_label`` when unrecorded.
+    A2) falls back to ``task_label`` when unrecorded. ``task_body``
+    (feature 030) is the request as screened once at intake and frozen
+    since — a later edit to the source ticket is not reflected. It is on
+    the snapshot only, never on :class:`WorkflowSummaryOut`: every board
+    row carrying a full issue body would bloat the listing for nothing.
     """
 
     id: str
@@ -197,6 +201,7 @@ class BoardSnapshotOut(BaseModel):
     state_counts: dict[str, int]
     phase: str
     stage: str
+    task_body: str = ""
 
 
 class WorkflowSummaryOut(BaseModel):

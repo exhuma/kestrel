@@ -111,3 +111,38 @@ describe('ArtifactDialog states', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 })
+
+describe('ArtifactDialog direct content (feature 030)', () => {
+  function mountDirect(): VueWrapper {
+    const wrapper = mount(
+      ArtifactDialog,
+      withVuetify({
+        props: {
+          artifactId: null,
+          label: 'Original request',
+          directContent: '<b>Please</b> add CSV export.',
+          note: 'Screened once at intake.',
+        },
+      }),
+    )
+    wrappers.push(wrapper)
+    return wrapper
+  }
+
+  it('shows the content as text without fetching anything', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    mountDirect()
+    await flushPromises()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(shownText()).toContain('<b>Please</b> add CSV export.')
+    expect(shownHtml()).not.toContain('<b>Please</b>')
+  })
+
+  it('shows the freshness note and no trust chip', async () => {
+    const wrapper = mountDirect()
+    await flushPromises()
+    expect(shownText()).toContain('Screened once at intake.')
+    expect(wrapper.findComponent({ name: 'VChip' }).exists()).toBe(false)
+  })
+})

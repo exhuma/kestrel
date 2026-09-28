@@ -160,6 +160,10 @@ export interface BoardSnapshot {
   state_counts: Partial<Record<CardState, number>>
   phase: string
   stage: string
+  /** The request as screened once at intake (feature 030) — frozen since,
+   *  so a later edit to the source ticket is not reflected. Snapshot only;
+   *  never on the collection listing. */
+  task_body: string
 }
 
 /** One workflow's row in the board collection listing. Mirrors

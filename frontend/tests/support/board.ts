@@ -76,6 +76,7 @@ export function boardSnapshot(
     state_counts: {},
     phase: 'Build',
     stage: 'Build & deliver',
+    task_body: '',
     ...overrides,
   }
 }

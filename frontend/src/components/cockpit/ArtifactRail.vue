@@ -7,9 +7,13 @@ import { railItems, type ArtifactRailItem } from '../../lib/artifacts'
 import type { WorkCardSummary } from '../../types/workflows'
 import ArtifactDialog from './ArtifactDialog.vue'
 
-const props = defineProps<{ cards: WorkCardSummary[] }>()
+const props = defineProps<{
+  cards: WorkCardSummary[]
+  /** The snapshot's `task_body`, behind the "Original request" entry. */
+  taskBody?: string
+}>()
 
-const items = computed(() => railItems(props.cards))
+const items = computed(() => railItems(props.cards, props.taskBody))
 
 const openItem = ref<ArtifactRailItem | null>(null)
 
@@ -61,6 +65,8 @@ function open(item: ArtifactRailItem): void {
 
     <ArtifactDialog
       :artifact-id="openItem?.artifactId ?? null"
+      :direct-content="openItem?.directContent ?? null"
+      :note="openItem?.note ?? null"
       :label="openItem?.label ?? ''"
       @close="openItem = null"
     />

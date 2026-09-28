@@ -353,6 +353,20 @@ class TestBoardSnapshot:
         assert len(snapshot.relationships) == 1
         assert snapshot.relationships[0].depends_on_card_id == "card-0"
 
+    def test_snapshot_carries_the_request_body_but_the_listing_does_not(
+        self,
+    ) -> None:
+        """Ensure the body stays off the listing (feature 030, FR-020)."""
+        workflow = Workflow(
+            **{**_WORKFLOW.__dict__, "task_body": "Please add CSV export."}
+        )
+        snapshot = board_snapshot(workflow, [], [], _empty_lookups())
+        summary = workflow_summary(
+            workflow, [], _StubGates(), _StubChildTasks()
+        )
+        assert snapshot.task_body == "Please add CSV export."
+        assert "task_body" not in summary.model_dump()
+
 
 def _quarantine_placeholder(
     workflow_id: str, *, source: str, ticket: str

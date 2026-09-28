@@ -18,6 +18,19 @@ writable:
 See `specs/029-workflow-visualisation/contracts/board-api-additions.md` for
 full rationale and semantics.
 
+**Amendment (feature 030, board-api-delta.md)**: one more additive,
+read-only field, and one card kind:
+
+- **Board Snapshot** (`BoardSnapshotOut`): `task_body` — the request body as
+  screened once at intake and frozen since; a later edit to the source
+  ticket is **not** reflected. Snapshot only — **not** on the Workflow
+  Collection.
+- **Card kind** `estimation` — `developer`'s per-task estimates of a
+  decomposition, whose valid result opens the `decomposition_gate` (CAB-2).
+  That gate's `latest_artifact` is the executive summary.
+
+See `specs/030-cab2-estimates-summary/contracts/board-api-delta.md`.
+
 ## Shared Enumerations
 
 ```text
