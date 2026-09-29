@@ -10,15 +10,14 @@ it.
 ## Phase 1: Foundational
 
 - [x] T001 Add `CardKind.UNDERSTANDING` (models_board.py); map it to the "Understanding" phase (phases.py); make it code-only (coordinator.py); allow it for pm (specialists/pm/manifest.toml)
-- [x] T002 Add `board_understanding_redraft_cap` (config.py, default 2, ≥ 0) and `GateRequirements.understanding_redraft_cap`, wired in bootstrap.py; document it in config.toml.example
+- [x] T002 Add `board_understanding_redraft_cap` (config.py, default 2, ≥ 0) and `GateRequirements.understanding_redraft_cap`, wired in bootstrap.py (environment-only, like the other caps: `KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP`)
 
 ## Phase 2: User Story 2 — Confirm an understanding that is actually there (P1)
 
 - [x] T003 [US2] Create backend/app/services/board/understanding.py:
-  - `create_understanding_card(store, workflow_id)`;
+  - `understanding_card(workflow_id)` and `maybe_redraft_understanding(gate, store, cap)` live in `understanding_redraft.py`, split out to avoid an import cycle with gates.py;
   - `route_understanding_result(text, card, services)`, which stores the `restatement` artifact and opens the understanding gate targeting it, or escalates on an unreadable result;
   - `understanding_context(card, …)`, the previous restatement plus the operator's correction for a redraft;
-  - `maybe_redraft_understanding(gate, store, coordinator, cap)`.
 - [x] T004 [US2] Wire it in: `_ROUTES` and `_extra_context_for` (dispatch_ready.py), and the rejection branch of `GatesService.resolve` (gates.py)
 - [x] T005 [US2] pm prompt: an "On an understanding card…" section (specialists/pm/prompt.md); README card kinds
 - [x] T006 [US2] dev_reset rerun creates a fresh understanding card instead of a record-less gate (dev_reset.py)
@@ -33,7 +32,7 @@ it.
 
 ## Phase 3: User Story 1 — See a new request the moment it is picked up (P1)
 
-- [x] T009 [US1] `BoardStore.record_intake`, `BoardService.create_screening_workflow` (bus only, no `on_mutation`) and `settle_screening` (one commit)
+- [x] T009 [US1] `BoardStore.record_intake`, `BoardService.open_screening` (silent creation, then one bus tick), `pass_screening` and `settle_screening` (one commit each)
 - [x] T010 [US1] Create backend/app/services/board/intake.py with the screening-card helpers (create, find, finish on pass, cancel on quarantine)
 - [x] T011 [US1] Rework `IngestionService._start_via_board`:
   - create first, then screen with `intake_for_existing_workflow`;
@@ -41,7 +40,7 @@ it.
   - suspect → cancel the screening card and announce;
   - re-screen an interrupted request on the next poll;
   - add `continue_intake(workflow_id)`.
-- [x] T012 [US1] Router: after a release, schedule `continue_intake` in the background (routers/board.py + bootstrap helper)
+- [x] T012 [US1] Router: after a release, schedule `continue_intake` in the background (routers/board.py; `schedule_intake_continuation` lives in ingestion.py, because bootstrap cannot import ingestion)
 - [x] T013 [US1] Backend tests:
   - listed before classification finishes;
   - no coordinator wake while screening;
