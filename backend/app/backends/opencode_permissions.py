@@ -19,12 +19,16 @@ import httpx
 
 _logger = logging.getLogger(__name__)
 
+#: Told each ``message.part.updated`` part of the turn's session
+#: (feature 036: the tool-loop guard).
+PartWatcher = Callable[[object], Awaitable[None]]
+
 #: File-mutating opencode tools. On a read-only step (refine, plan) these
 #: are both disabled per message AND their permission requests are
 #: rejected here, so the agent cannot modify the workspace
 #: (defense-in-depth).
 DENY_WRITE_TOOLS = frozenset({"edit", "write", "patch"})
-_READ_ONLY_DENY_TOOLS = DENY_WRITE_TOOLS | {"question", "task"}
+READ_ONLY_DENY_TOOLS = DENY_WRITE_TOOLS | {"question", "task"}
 
 
 @dataclass
@@ -43,10 +47,12 @@ async def permission_handler(
     session_id: str,
     directory: str | None,
     read_only: bool,
+    watch: PartWatcher | None = None,
 ) -> AsyncIterator[None]:
-    """Answer this session's permission prompts for the wrapped turn."""
+    """Answer this session's permission prompts for the wrapped turn, and
+    show *watch* its message parts."""
     task = asyncio.create_task(
-        run_permission_loop(conn, session_id, directory, read_only)
+        run_permission_loop(conn, session_id, directory, read_only, watch)
     )
     try:
         yield
@@ -61,8 +67,11 @@ async def run_permission_loop(
     session_id: str,
     directory: str | None,
     read_only: bool,
+    watch: PartWatcher | None = None,
 ) -> None:
-    """Stream ``/event`` and answer this session's permission prompts."""
+    """Stream ``/event``, answer this session's permission prompts, and
+    show *watch* its message parts."""
+    turn = _Turn(conn, session_id, directory, read_only, watch)
     client = conn.client or httpx.AsyncClient(timeout=None)
     params = {"directory": os.path.abspath(directory)} if directory else None
     try:
@@ -73,20 +82,9 @@ async def run_permission_loop(
             auth=conn.auth,
         ) as resp:
             async for line in resp.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                try:
-                    event = json.loads(line[len("data:") :].strip())
-                except json.JSONDecodeError:
-                    continue
-                if event.get("type") != "permission.asked":
-                    continue
-                props = event.get("properties") or {}
-                if props.get("sessionID") != session_id:
-                    continue
-                await _answer_permission(
-                    conn, session_id, props, directory, read_only
-                )
+                event = _parse(line)
+                if event is not None:
+                    await turn.handle(event)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -97,6 +95,41 @@ async def run_permission_loop(
     finally:
         if conn.client is None:
             await client.aclose()
+
+
+def _parse(line: str) -> dict | None:
+    """One ``data:`` line of the event stream, or ``None``."""
+    if not line.startswith("data:"):
+        return None
+    try:
+        event = json.loads(line[len("data:") :].strip())
+    except json.JSONDecodeError:
+        return None
+    return event if isinstance(event, dict) else None
+
+
+@dataclass
+class _Turn:
+    """What one turn's event loop answers and watches."""
+
+    conn: OpenCodeConnection
+    session_id: str
+    directory: str | None
+    read_only: bool
+    watch: PartWatcher | None
+
+    async def handle(self, event: dict) -> None:
+        props = event.get("properties") or {}
+        if props.get("sessionID") != self.session_id:
+            return
+        kind = event.get("type")
+        if kind == "permission.asked":
+            await _answer_permission(
+                self.conn, self.session_id, props, self.directory,
+                self.read_only,
+            )
+        elif kind == "message.part.updated" and self.watch is not None:
+            await self.watch(props.get("part"))
 
 
 async def _answer_permission(
@@ -117,7 +150,7 @@ async def _answer_permission(
     tool = request.get("permission")
     if not isinstance(request_id, str):
         return
-    reject = read_only and tool in _READ_ONLY_DENY_TOOLS
+    reject = read_only and tool in READ_ONLY_DENY_TOOLS
     await conn.request(
         "POST",
         f"/session/{session_id}/permissions/{request_id}",

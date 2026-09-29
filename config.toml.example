@@ -229,3 +229,13 @@ model = "anthropic/claude-sonnet-4"
 # max_concurrency = 1          # shared by all workflows/sessions using "oc"
 # rate_limit_retries = 3       # retry HTTP 429 this many times
 # rate_limit_backoff_seconds = 2.0  # exponential base when no Retry-After
+# Tools (feature 036). Every opencode tool is available by default —
+# including any MCP server in your opencode config (GitLab, Jira, …), which
+# no kestrel specialist needs: the ticket is already in its prompt. List the
+# tools turns may use; everything else is hidden from the model. opencode
+# tool names, wildcards allowed. Read-only turns still cannot write.
+# allowed_tools = ["read", "grep", "glob", "list", "bash", "edit", "todowrite"]
+# A turn is aborted, and the request says why, once it calls one tool with
+# the same input this many times, or makes this many tool calls in total.
+# max_repeated_tool_calls = 5
+# max_tool_calls = 150

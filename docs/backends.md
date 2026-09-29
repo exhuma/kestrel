@@ -185,9 +185,28 @@ password = "changeme"                      # inline (gitignored file), or:
 > permission prompts itself — it streams the server's `/event` bus and replies
 > to each request — so a headless `opencode serve` never blocks waiting for a
 > human to click "allow"; you do **not** need to pre-configure opencode's
-> permissions. Live activity indicators (thinking / reading / writing, from the
-> same `/event` stream) and an auto-started `serve` supervisor are still in
-> progress.
+> permissions. An auto-started `serve` supervisor is still in progress.
+>
+> **Tools and runaway turns (feature 036).** Every tool your opencode server
+> offers is available to kestrel's turns by default, including the MCP servers
+> in your opencode config (GitLab, Jira, …). No kestrel specialist needs those:
+> the ticket is already in its prompt. List the tools a backend may use and
+> everything else is hidden from the model:
+>
+> ```toml
+> allowed_tools = ["read", "grep", "glob", "list", "bash", "edit", "todowrite"]
+> max_repeated_tool_calls = 5   # same tool, same input: abort the turn
+> max_tool_calls = 150          # total tool calls per turn: abort the turn
+> ```
+>
+> Names are opencode's own, and wildcards work (`"gitlab_*"`). opencode checks
+> `write` and `apply_patch` under `edit`, so list `edit` to allow any file
+> change. Read-only turns stay read-only whatever the list says.
+> `allowed_tools` is rejected on other backend types. Both limits apply with
+> or without an allowlist. A stopped turn fails like any other: the request
+> says why, naming the tool, and recovery retries it. While a turn runs, the
+> request's activity line shows the tool being called and how many calls the
+> turn has made.
 >
 > **Security (alpha).** To run unattended, kestrel auto-approves opencode's
 > tool use — including `bash` inside the workspace. A prompt-injected

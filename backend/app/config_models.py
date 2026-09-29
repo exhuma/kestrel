@@ -64,6 +64,25 @@ class BackendConfig(BaseModel):
     #: Base delay for OpenCode rate-limit exponential backoff, in seconds.
     rate_limit_backoff_seconds: float = Field(default=2.0, gt=0)
     caps: list[str] | None = None
+    #: The only tools this backend's turns may use, by the backend's own
+    #: tool names (wildcards allowed, e.g. ``"gitlab_*"``). Unset keeps
+    #: every tool the backend offers. ``opencode`` only (feature 036).
+    allowed_tools: list[str] | None = None
+    #: Abort a turn after this many tool calls (opencode; feature 036).
+    max_tool_calls: int = Field(default=150, ge=1)
+    #: Abort a turn once one tool is called this many times with the
+    #: same input — a model stuck in a loop (opencode; feature 036).
+    max_repeated_tool_calls: int = Field(default=5, ge=2)
+
+    @model_validator(mode="after")
+    def _tools_only_where_honoured(self) -> BackendConfig:
+        """Reject an allowlist a backend would silently ignore."""
+        if self.allowed_tools is not None and self.type != "opencode":
+            raise ValueError(
+                f"backend {self.id!r}: allowed_tools is supported only by "
+                f"opencode backends, not {self.type!r}"
+            )
+        return self
 
     def secret(self) -> str | None:
         """The resolved secret: an inline value, else the named env var."""

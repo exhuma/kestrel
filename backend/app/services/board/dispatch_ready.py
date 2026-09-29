@@ -39,6 +39,7 @@ from app.services.board.dispatch import (
     CardTurnError,
     _TurnBackend,
     build_card_envelope,
+    card_request,
     run_card_turn,
 )
 from app.services.board.dispatch_delivery import (
@@ -52,6 +53,7 @@ from app.services.board.estimation import (
 from app.services.board.gates import GatesService
 from app.services.board.live_activity import (
     LiveActivity,
+    announcer,
     tracking,
     turn_failure,
 )
@@ -263,10 +265,16 @@ async def _dispatch_one(
         specialist, workflow, card, extra_context=extra_context
     )
     try:
-        with tracking(services.live, workflow_id, specialist.label, card.title):
+        with tracking(
+            services.live, workflow_id, specialist.label, card.title,
+            on_change=announcer(services.board, workflow_id),
+        ) as note_tool:
+            request = card_request(
+                envelope, cwd=cwd, permission_mode=permission_mode,
+                on_tool=note_tool,
+            )
             result = await run_card_turn(
-                backend, envelope, cwd=cwd, timeout_seconds=timeout_seconds,
-                permission_mode=permission_mode,
+                backend, request, timeout_seconds=timeout_seconds
             )
     except CardTurnError as exc:
         _dispatch_log.warning(

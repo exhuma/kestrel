@@ -21,6 +21,19 @@ class BackendTurnError(Exception):
     """
 
 
+class TurnStopped(BackendTurnError):
+    """Raised when kestrel stopped a turn itself (feature 036): the agent
+    looped on a tool or ran past its tool-call budget.
+
+    :param reason: A short, safe account naming the tool and the limit —
+        built by kestrel, never the backend's own text.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"turn stopped: {reason}")
+        self.reason = reason
+
+
 class Capability(str, Enum):
     """What a backend can do, used to match backends to step requirements.
 
@@ -45,6 +58,10 @@ class TurnRequest:
     model: str | None = None
     #: Native session id to resume, or None to start a fresh session.
     resume_id: str | None = None
+    #: Told the tool's name each time the agent calls one, while the turn
+    #: runs (feature 036). Backends that cannot see tool calls live never
+    #: call it.
+    on_tool: Callable[[str], None] | None = None
 
 
 @dataclass

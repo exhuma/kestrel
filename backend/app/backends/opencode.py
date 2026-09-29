@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -17,14 +16,21 @@ from app.backends.base import (
     ModelCatalog,
     TurnRequest,
     TurnResult,
+    TurnStopped,
 )
 from app.backends.limiter import BackendLimiter
 from app.backends.opencode_abort import abort_on_cancel
 from app.backends.opencode_models import split_model
+from app.backends.opencode_parts import assistant_error, tool_summary
 from app.backends.opencode_permissions import (
-    DENY_WRITE_TOOLS,
     OpenCodeConnection,
     permission_handler,
+)
+from app.backends.opencode_tools import (
+    ToolLoopGuard,
+    ToolPolicy,
+    guard_watch,
+    tools_map,
 )
 from app.backends.rate_limit import retry_rate_limited
 from app.config import BackendConfig, Settings
@@ -35,34 +41,6 @@ _TASKS: set[asyncio.Task[None]] = set()
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
 _READ_ONLY_MODE = "plan"
 _logger = logging.getLogger(__name__)
-
-
-def _tool_summary(tool_input: object) -> str | None:
-    """Summarise a tool call's input (file_path/path/command first)."""
-    if not isinstance(tool_input, dict):
-        return None
-    for key in ("file_path", "path", "command", "filePath"):
-        value = tool_input.get(key)
-        if isinstance(value, str):
-            return value
-    return json.dumps(tool_input) if tool_input else None
-
-
-def _assistant_error(response: object) -> str | None:
-    """Extract an OpenCode assistant error message from a message response."""
-    if not isinstance(response, dict):
-        return None
-    info = response.get("info")
-    if not isinstance(info, dict):
-        return None
-    error = info.get("error")
-    if not isinstance(error, dict):
-        return None
-    data = error.get("data")
-    if isinstance(data, dict) and isinstance(data.get("message"), str):
-        return data["message"]
-    name = error.get("name")
-    return name if isinstance(name, str) else "unknown assistant error"
 
 
 class OpenCodeBackend(Backend):
@@ -88,6 +66,7 @@ class OpenCodeBackend(Backend):
         self._rate_limit_retries = cfg.rate_limit_retries
         self._rate_limit_backoff_seconds = cfg.rate_limit_backoff_seconds
         self._live: dict[str, asyncio.Task[None]] = {}
+        self._tools = ToolPolicy.of(cfg)
         # HTTP Basic auth for a secured `opencode serve`; username defaults
         # to opencode's own. The password may be given inline (password/
         # api_key) or via api_key_env.
@@ -150,8 +129,7 @@ class OpenCodeBackend(Backend):
                 self.registry.create(sid, req.cwd)
             if on_session_id is not None:
                 on_session_id(sid)
-            read_only = req.permission_mode == _READ_ONLY_MODE
-            content = await self._turn(sid, req.prompt, req.cwd, read_only)
+            content = await self._turn(sid, req)
             return TurnResult(session_id=sid, final_text=content)
         except asyncio.CancelledError:
             abort_on_cancel(self._request, sid, req.cwd)
@@ -263,7 +241,10 @@ class OpenCodeBackend(Backend):
     ) -> None:
         try:
             async with self._limiter.slot():
-                await self._turn(session_id, prompt, directory, read_only)
+                await self._turn(session_id, TurnRequest(
+                    prompt=prompt, cwd=directory or "",
+                    permission_mode=_READ_ONLY_MODE if read_only else "",
+                ))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"
@@ -274,10 +255,7 @@ class OpenCodeBackend(Backend):
             )
             self._record_turn_error(session_id, directory or "", exc)
 
-    async def _turn(
-        self, session_id: str, prompt: str, directory: str | None,
-        read_only: bool,
-    ) -> str:
+    async def _turn(self, session_id: str, req: TurnRequest) -> str:
         """Send the prompt, map this turn's new messages, append a RESULT.
 
         A turn produces several assistant messages (tool calls then a final
@@ -292,8 +270,13 @@ class OpenCodeBackend(Backend):
         in the ``opencode serve`` process's own cwd.
 
         Read-only turns disable write/delegation tools. A concurrent permission
-        handler keeps headless turns from blocking on tool approval.
+        handler keeps headless turns from blocking on tool approval, and
+        feeds the turn's tool calls to a loop guard that aborts it on a
+        loop or past its tool budget (feature 036).
         """
+        prompt, directory = req.prompt, req.cwd
+        read_only = req.permission_mode == _READ_ONLY_MODE
+        guard = ToolLoopGuard(self._tools, req.on_tool)
         seen = {
             self._msg_id(m)
             for m in await self._messages(session_id, directory)
@@ -307,13 +290,12 @@ class OpenCodeBackend(Backend):
         body: dict[str, object] = {"parts": [{"type": "text", "text": prompt}]}
         if self._model is not None:
             body["model"] = self._model
-        if read_only:
-            body["tools"] = {
-                tool: False
-                for tool in (*DENY_WRITE_TOOLS, "question", "task")
-            }
+        tools = tools_map(self._tools, read_only)
+        if tools is not None:
+            body["tools"] = tools
         async with permission_handler(
-            self._conn, session_id, directory, read_only
+            self._conn, session_id, directory, read_only,
+            guard_watch(self._conn, session_id, directory, guard),
         ):
             response = await retry_rate_limited(
                 lambda: self._request(
@@ -325,7 +307,9 @@ class OpenCodeBackend(Backend):
                 self._rate_limit_retries,
                 self._rate_limit_backoff_seconds,
             )
-        error = _assistant_error(response)
+        if guard.tripped is not None:
+            raise TurnStopped(guard.tripped)
+        error = assistant_error(response)
         if error is not None:
             raise RuntimeError(f"opencode assistant failed: {error}")
         texts: list[str] = []
@@ -406,7 +390,7 @@ class OpenCodeBackend(Backend):
                         tool_input=(
                             tool_input if isinstance(tool_input, dict) else None
                         ),
-                        tool_summary=_tool_summary(tool_input),
+                        tool_summary=tool_summary(tool_input),
                         native=part,
                     ),
                 )

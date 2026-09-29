@@ -219,6 +219,9 @@ class RequestActivityOut(BaseModel):
     :param reason: For ``stalled``: ``interrupted_screening``,
         ``interrupted_claim`` or ``nothing_ready``.
     :param since: When this state began (UTC), as far as is known.
+    :param tool: For ``working``: the last tool the agent called
+        (feature 036).
+    :param tool_calls: For ``working``: tool calls the turn has made.
     """
 
     state: Literal[
@@ -229,6 +232,8 @@ class RequestActivityOut(BaseModel):
     detail: str | None = None
     reason: str | None = None
     since: datetime | None = None
+    tool: str | None = None
+    tool_calls: int | None = None
 
 
 class BoardSnapshotOut(BaseModel):

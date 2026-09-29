@@ -13,7 +13,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
 
 from app.backends.base import TurnRequest, TurnResult
 from app.models_board import (
@@ -226,25 +226,38 @@ def build_card_envelope(
     return "\n".join(sections)
 
 
-async def run_card_turn(
-    backend: _TurnBackend,
+def card_request(
     envelope: str,
     *,
-    cwd: str,
-    timeout_seconds: float,
+    cwd: str = "",
     permission_mode: str = "plan",
-) -> SpecialistTurnResult:
-    """Dispatch one card turn and return its raw result.
+    on_tool: Callable[[str], None] | None = None,
+) -> TurnRequest:
+    """A card turn's request: read-only and workspace-less by default.
 
-    :param permission_mode: ``"plan"`` (read-only; the default, correct
-        for every text-only role and the coordinator) or ``"acceptEdits"``
-        for a ``write``-permission card with a real workspace to edit in
-        (see :func:`dispatch_ready_work`).
+    :param permission_mode: ``"plan"`` (read-only; right for every
+        text-only role and the coordinator) or ``"acceptEdits"`` for a
+        ``write``-permission card with a real workspace to edit in (see
+        :func:`dispatch_ready_work`).
+    :param on_tool: Told each tool the agent calls (feature 036).
+    """
+    return TurnRequest(
+        prompt=envelope, cwd=cwd, permission_mode=permission_mode,
+        on_tool=on_tool,
+    )
+
+
+async def run_card_turn(
+    backend: _TurnBackend,
+    request: TurnRequest,
+    *,
+    timeout_seconds: float,
+) -> SpecialistTurnResult:
+    """Dispatch one card turn (see :func:`card_request`) and return its
+    raw result.
+
     :raises CardTurnError: On timeout or backend failure.
     """
-    request = TurnRequest(
-        prompt=envelope, cwd=cwd, permission_mode=permission_mode
-    )
     try:
         result = await asyncio.wait_for(
             backend.run_turn(request), timeout=timeout_seconds
@@ -281,7 +294,7 @@ async def claim_and_dispatch(
     workflow = claims.store.get_workflow(workflow_id)
     envelope = build_card_envelope(specialist, workflow, card)
     result = await run_card_turn(
-        backend, envelope, cwd="", timeout_seconds=timeout_seconds
+        backend, card_request(envelope), timeout_seconds=timeout_seconds
     )
     return card, result
 
@@ -392,8 +405,7 @@ class SchedulingService:
         )
         result = await run_card_turn(
             backend,
-            envelope,
-            cwd="",
+            card_request(envelope),
             timeout_seconds=self._default_timeout_seconds,
         )
         actions = parse_coordinator_actions(result.final_text)

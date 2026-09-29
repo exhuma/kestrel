@@ -44,6 +44,8 @@ class RequestActivity:
         ``interrupted_screening``, ``interrupted_claim`` or
         ``nothing_ready``.
     :param since: When this state began, as far as is known (UTC).
+    :param tool: For ``working``: the last tool called (feature 036).
+    :param tool_calls: For ``working``: how many tool calls so far.
     """
 
     state: str
@@ -52,6 +54,8 @@ class RequestActivity:
     detail: str | None = None
     reason: str | None = None
     since: datetime | None = None
+    tool: str | None = None
+    tool_calls: int | None = None
 
 
 @dataclass(frozen=True)
@@ -71,10 +75,12 @@ class ActivityInputs:
 
 def activity_of(inputs: ActivityInputs) -> RequestActivity:
     """The request's activity, by FR-002's precedence."""
-    if inputs.live is not None:
+    live = inputs.live
+    if live is not None:
         return RequestActivity(
-            "working", actor=inputs.live.actor, subject=inputs.live.subject,
-            since=_utc(inputs.live.started_at),
+            "working", actor=live.actor, subject=live.subject,
+            since=_utc(live.started_at), tool=live.tool,
+            tool_calls=live.tool_calls or None,
         )
     for derive in (_failed_card, _waiting, _failed_turn, _queued):
         found = derive(inputs)

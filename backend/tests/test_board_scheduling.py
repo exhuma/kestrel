@@ -31,6 +31,7 @@ from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
     CardTurnError,
     SchedulingService,
+    card_request,
     claim_and_dispatch,
     run_card_turn,
 )
@@ -130,7 +131,7 @@ class TestCardTurn:
     async def test_successful_turn_returns_final_text(self) -> None:
         backend = _FakeBackend("<RESULT>done</RESULT>")
         result = await run_card_turn(
-            backend, "envelope", cwd="/tmp", timeout_seconds=5
+            backend, card_request("envelope", cwd="/tmp"), timeout_seconds=5
         )
         assert result.final_text == "<RESULT>done</RESULT>"
 
@@ -139,7 +140,9 @@ class TestCardTurn:
         backend = _FakeBackend(delay=10)
         with pytest.raises(CardTurnError):
             await run_card_turn(
-                backend, "envelope", cwd="/tmp", timeout_seconds=0.01
+                backend,
+                card_request("envelope", cwd="/tmp"),
+                timeout_seconds=0.01,
             )
 
     @pytest.mark.asyncio
@@ -147,7 +150,7 @@ class TestCardTurn:
         backend = _FakeBackend(raises=True)
         with pytest.raises(CardTurnError):
             await run_card_turn(
-                backend, "envelope", cwd="/tmp", timeout_seconds=5
+                backend, card_request("envelope", cwd="/tmp"), timeout_seconds=5
             )
 
 

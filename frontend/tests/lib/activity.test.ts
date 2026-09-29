@@ -12,6 +12,8 @@ function activity(overrides: Partial<RequestActivity>): RequestActivity {
     detail: null,
     reason: null,
     since: '2026-09-29T10:08:00Z',
+    tool: null,
+    tool_calls: null,
     ...overrides,
   }
 }
@@ -91,5 +93,31 @@ describe('elapsed', () => {
     expect(elapsed(null, NOW)).toBe('')
     expect(elapsed('2026-09-29T10:09:50Z', NOW)).toBe('just now')
     expect(elapsed('2026-09-29T09:05:00Z', NOW)).toBe('1 h 5 min')
+  })
+})
+
+describe('describeActivity tool use (feature 036)', () => {
+  it('shows the tool being called and how often', () => {
+    const view = describeActivity(
+      activity({
+        actor: 'Project Manager',
+        subject: 'Draft the PRD',
+        tool: 'gitlab_list_project_issues',
+        tool_calls: 40,
+      }),
+      NOW,
+    )
+    expect(view.text).toBe(
+      'Project Manager is working on “Draft the PRD” · calling ' +
+        'gitlab_list_project_issues (×40) · 2 min',
+    )
+  })
+
+  it('leaves out the count for a single call', () => {
+    const view = describeActivity(
+      activity({ actor: 'Coder', tool: 'read', tool_calls: 1 }),
+      NOW,
+    )
+    expect(view.text).toBe('Coder is working… · calling read · 2 min')
   })
 })

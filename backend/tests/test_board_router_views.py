@@ -150,6 +150,7 @@ async def test_list_workflows_returns_the_summary_row(
             "activity": {
                 "state": "stalled", "actor": None, "subject": None,
                 "detail": None, "reason": "nothing_ready", "since": None,
+                "tool": None, "tool_calls": None,
             },
             "awaiting": [],  # nothing waits on a human (035)
         }

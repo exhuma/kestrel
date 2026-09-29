@@ -181,6 +181,10 @@ export interface RequestActivity {
   reason: 'interrupted_screening' | 'interrupted_claim' | 'nothing_ready' | null
   /** When this state began (UTC ISO), as far as is known. */
   since: string | null
+  /** For `working`: the last tool the agent called (feature 036). */
+  tool: string | null
+  /** For `working`: how many tool calls the turn has made. */
+  tool_calls: number | null
 }
 
 /** How one spine step stands (feature 034). Mirrors

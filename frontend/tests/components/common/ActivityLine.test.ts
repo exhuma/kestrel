@@ -15,6 +15,8 @@ const working: RequestActivity = {
   detail: null,
   reason: null,
   since: null,
+  tool: null,
+  tool_calls: null,
 }
 
 describe('ActivityLine (feature 033)', () => {

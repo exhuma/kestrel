@@ -44,9 +44,18 @@ function working(a: RequestActivity): string {
   if (a.actor === 'screening') return 'Screening input…'
   if (a.actor === 'coordinator') return 'The coordinator is planning…'
   const who = a.actor ?? 'An agent'
-  return a.subject
+  const text = a.subject
     ? `${who} is working on ${quote(a.subject)}`
     : `${who} is working…`
+  return `${text}${toolUse(a)}`
+}
+
+/** " · calling read (×12)": the turn's tool use so far, so a model
+ *  stuck on one tool shows as such (feature 036). */
+function toolUse(a: RequestActivity): string {
+  if (!a.tool) return ''
+  const count = (a.tool_calls ?? 0) > 1 ? ` (×${a.tool_calls})` : ''
+  return ` · calling ${a.tool}${count}`
 }
 
 function problem(a: RequestActivity): string {

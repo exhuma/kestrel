@@ -93,6 +93,13 @@ operator`; `ask` is a gate's `requested_decision`, or `do_task`,
 Summary** that waits on a human (`null` otherwise), and the **Workflow
 Collection** carries the list of them, in card order.
 
+**Amendment (feature 036)**: `activity` (`RequestActivityOut`) gains `tool`
+and `tool_calls`. For `working`, these are the last tool the agent called
+and the number of calls the turn has made so far (`null` otherwise). While a
+card turn calls tools, live views receive fresh frames at most every 2 s
+per turn. A turn kestrel stops itself is recorded as `card.turn_failed`,
+with a `detail` of the form "<role>'s turn was stopped: <reason>".
+
 ## Shared Enumerations
 
 ```text
