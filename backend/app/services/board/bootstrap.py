@@ -99,11 +99,11 @@ def get_claims_service() -> ClaimsService:
 @lru_cache
 def get_coordinator_service() -> CoordinatorService:
     """Return the process-wide CoordinatorService singleton."""
-    settings = get_settings()
     return CoordinatorService(
         get_board_store(), get_board_coordinator_store(), get_board_service(),
-        decomposition_required=settings.board_decomposition_required,
-        prd_gate_required=settings.board_prd_gate_required,
+        # Every gate is mandatory: CAB-1, PRD sign-off and CAB-2 (#70).
+        decomposition_required=True,
+        prd_gate_required=True,
     )
 
 
@@ -126,9 +126,11 @@ def get_gates_service() -> GatesService:
         get_board_store(), get_board_gate_store(), get_board_service(),
         get_artifacts_service(),
         required=GateRequirements(
-            decomposition=settings.board_decomposition_required,
-            prd=settings.board_prd_gate_required,
-            cab1=settings.board_cab1_gate_required,
+            # Mandatory in every deployment (#70): a request always
+            # waits for CAB-1, PRD sign-off and CAB-2.
+            decomposition=True,
+            prd=True,
+            cab1=True,
             cab1_interview_max_questions=(
                 settings.board_cab1_interview_max_questions
             ),

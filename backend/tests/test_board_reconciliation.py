@@ -144,7 +144,10 @@ class TestReconciliation:
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
         service.accept_result(
-            "card-1", _artifact(id="artifact-1", producer_card_id="card-1")
+            "card-1", _artifact(
+                id="artifact-1", producer_card_id="card-1",
+                logical_name="design",
+            )
         )
 
         service.accept_result(
@@ -152,6 +155,7 @@ class TestReconciliation:
             _artifact(
                 id="artifact-2",
                 producer_card_id="card-2",
+                logical_name="design",
                 content_hash="sha256:different",
             ),
         )
@@ -171,7 +175,10 @@ class TestReconciliation:
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
         service.accept_result(
-            "card-1", _artifact(id="artifact-1", producer_card_id="card-1")
+            "card-1", _artifact(
+                id="artifact-1", producer_card_id="card-1",
+                logical_name="design",
+            )
         )
 
         service.accept_result(
@@ -179,6 +186,7 @@ class TestReconciliation:
             _artifact(
                 id="artifact-2",
                 producer_card_id="card-2",
+                logical_name="design",
                 content_hash="sha256:different",
             ),
         )
@@ -193,15 +201,45 @@ class TestReconciliation:
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
         service.accept_result(
-            "card-1", _artifact(id="artifact-1", producer_card_id="card-1")
+            "card-1", _artifact(
+                id="artifact-1", producer_card_id="card-1",
+                logical_name="design",
+            )
         )
 
         service.accept_result(
-            "card-2", _artifact(id="artifact-2", producer_card_id="card-2")
+            "card-2",
+            _artifact(
+                id="artifact-2", producer_card_id="card-2",
+                logical_name="design",
+            ),
         )
 
         relations = store.list_relations("wf-1")
         assert not any(r.kind == "reconciliation" for r in relations)
+
+    def test_two_cards_own_results_never_conflict(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensure differing turn results ("report") are not flagged: each
+        is its own card's result, not a shared deliverable (#70)."""
+        service, store, _artifacts = _service(tmp_path)
+        store.create_card(_card("card-1"))
+        store.create_card(_card("card-2"))
+        service.accept_result(
+            "card-1", _artifact(id="artifact-1", producer_card_id="card-1")
+        )
+
+        service.accept_result(
+            "card-2",
+            _artifact(
+                id="artifact-2", producer_card_id="card-2",
+                content_hash="sha256:different",
+            ),
+        )
+
+        kinds = [c.kind for c in store.list_cards("wf-1")]
+        assert "reconciliation" not in kinds
 
     def test_different_logical_names_do_not_conflict(
         self, tmp_path: Path

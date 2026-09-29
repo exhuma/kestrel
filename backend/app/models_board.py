@@ -83,7 +83,7 @@ class CardKind(StrEnum):
     DELIVERY = "delivery"
     #: A pure strategic-fit approve/reject decision, gating entry into
     #: ``refinement`` the same way ``understanding_gate`` does today when
-    #: enforced (feature 027, ``board_cab1_gate_required``). Precedes
+    #: enforced (feature 027; mandatory since #70). Precedes
     #: ``refinement``, not ``understanding_gate`` — see
     #: ``STRATEGIC_INTERVIEW_GATE``.
     CAB1_GATE = "cab1_gate"

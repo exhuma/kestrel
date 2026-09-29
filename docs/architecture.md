@@ -274,9 +274,10 @@ follow per-task progress. Mirroring cards back as sub-tasks, and resolving
 gates or manual tasks from the ticket, are on the backlog as #63 (#64,
 #65).
 
-Decomposition can also be **enforced**, not just offered: the
-`board_decomposition_required` setting (off by default, `config.toml`)
-reflects that Kestrel is sometimes only one part of a larger system where
+Decomposition is **enforced**, not just offered. It is mandatory, like
+CAB-1 and PRD sign-off, since #70; the former
+`board_decomposition_required`, `board_prd_gate_required` and
+`board_cab1_gate_required` switches are gone. This reflects that Kestrel is sometimes only one part of a larger system where
 an ingested task is high-level and may include non-development work, so
 every workflow must pass an approved decomposition (CAB-2) before any
 other work starts — even if the decomposition is a single task covering
@@ -351,8 +352,8 @@ built** (spec 026 T078) — the last of the four human gates the data
 model always had slots for (`understanding_gate`/`refinement_gate`/
 `prd_gate`/`decomposition_gate`) but that, until now, only
 `understanding_gate` (and, when enabled, `decomposition_gate`) ever
-actually got created. Gated behind a new `board_prd_gate_required`
-setting (off by default): approving `understanding_gate` deterministically
+actually got created. Now mandatory (#70; originally gated behind a
+`board_prd_gate_required` setting): approving `understanding_gate` deterministically
 creates three parallel interview cards, one per business-altitude
 persona (`requester`/`pm`/`uiux`, matching the old deleted driver's own
 `BUSINESS_ALTITUDE_IDS` split) — each drafts its own scoped question set,

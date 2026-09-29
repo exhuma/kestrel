@@ -1,10 +1,12 @@
 """Tests for application settings."""
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
 
+from app import config
 from app.config import Settings
 from app.config_models import BackendConfig, TaskSourceConfig
 
@@ -460,3 +462,19 @@ def test_cab1_interview_max_questions_rejects_non_positive() -> None:
         Settings(_env_file=None, board_cab1_interview_max_questions=0)
 
 
+
+
+def test_every_documented_top_level_key_is_read_from_the_file() -> None:
+    """Ensure config.toml.example documents nothing the loader silently
+    ignores (#70: CAB-1's switch and cap, and the health-check timings,
+    were documented but never read)."""
+    example = tomllib.loads(
+        (Path(__file__).parents[2] / "config.toml.example").read_text()
+    )
+    scalars = {
+        key for key, value in example.items()
+        if not isinstance(value, (dict, list))
+    }
+    readable = config._CONFIG_FILE_FIELDS | config._FILE_ONLY_FIELDS
+
+    assert scalars - readable == set()

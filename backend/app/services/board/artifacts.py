@@ -53,6 +53,14 @@ class ArtifactDraft:
     input_artifacts: tuple[str, ...] = ()
 
 
+#: The logical name every card's own turn result is stored under. It is
+#: that card's result, not a deliverable shared with other cards, so two
+#: of them differing is expected — never a conflict to reconcile (#70:
+#: flagging them turned every second result into a reconciliation card
+#: nobody could work). Real conflicts stay the coordinator's call.
+CARD_RESULT_LOGICAL_NAME = "report"
+
+
 class ArtifactsService:
     """Accepts card results, cascades dependents, and reconciles conflicts."""
 
@@ -188,7 +196,9 @@ class ArtifactsService:
         self, card_id: str, artifact: HandoffArtifact
     ) -> HandoffArtifact | None:
         """Return a sibling artifact sharing this logical name but not this
-        content, if one exists."""
+        content, if one exists — never for a card's own result."""
+        if artifact.logical_name == CARD_RESULT_LOGICAL_NAME:
+            return None
         card = self._store.get_card(card_id)
         for sibling in self._store.list_cards(card.workflow_id):
             if sibling.id == card_id:

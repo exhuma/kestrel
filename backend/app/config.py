@@ -55,8 +55,9 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_max_parallel_read_cards",
         "board_recovery_interval_seconds",
         "board_ci_poll_interval_seconds",
-        "board_decomposition_required",
-        "board_prd_gate_required",
+        "board_cab1_interview_max_questions",
+        "health_check_interval_seconds",
+        "health_check_timeout_seconds",
         "board_dev_actions_enabled",
     }
 )
@@ -306,28 +307,6 @@ class Settings(BaseSettings):
     #: source/repo with ``required_ci_statuses`` configured — a workflow
     #: with none configured is never polled regardless.
     board_ci_poll_interval_seconds: float = Field(default=60.0, gt=0)
-    #: Require every workflow to go through a `pm`-proposed,
-    #: human-approved decomposition (CAB-2) before any other work may
-    #: start (feature 026, ``KESTREL_BOARD_DECOMPOSITION_REQUIRED``); its
-    #: approved tasks become cards in the same workflow (feature 031).
-    #: Off by default: a personal/lightweight deployment can trust the
-    #: coordinator's own judgment on whether a task needs splitting.
-    board_decomposition_required: bool = False
-    #: Require a `requester`/`pm`/`uiux` interview and a `pm`-drafted,
-    #: human-approved PRD before any other work may start, right after
-    #: ``understanding_gate`` (feature 026, T078,
-    #: ``KESTREL_BOARD_PRD_GATE_REQUIRED``). Off by default, same
-    #: reasoning as ``board_decomposition_required``. When both this and
-    #: decomposition are required, the PRD gate resolves first.
-    board_prd_gate_required: bool = False
-    #: Require an early, pure human strategic-fit decision ("CAB-1")
-    #: between ``understanding_gate`` and ``refinement``, preceded by a
-    #: light, capped interview with the original requester (feature 027,
-    #: ``KESTREL_BOARD_CAB1_GATE_REQUIRED``). Off by default, same
-    #: reasoning as ``board_decomposition_required``. CAB-1 evaluates only
-    #: strategic fit, never scope/feasibility/cost (that is the separate,
-    #: already-shipped post-decomposition CAB review).
-    board_cab1_gate_required: bool = False
     #: The strategic-fit interview's hard question cap (feature 027,
     #: ``KESTREL_BOARD_CAB1_INTERVIEW_MAX_QUESTIONS``) — keeps the
     #: pre-CAB-1 interview light, unlike the deeper post-approval

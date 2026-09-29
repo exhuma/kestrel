@@ -82,21 +82,9 @@ board_ci_poll_interval_seconds = 60.0
 # Durable, content-addressed store for handoff-artifact bodies, keyed by
 # content hash. In Docker, point this at a persistent volume.
 board_artifacts_root = "./.kestrel-board-artifacts"
-# Require every workflow to pass a human-approved decomposition (CAB-2)
-# before any other work may start; its approved tasks become cards in the
-# same workflow. Off by default (trust the coordinator's own judgment).
-board_decomposition_required = false
-# Require a requester/pm/uiux interview and a pm-drafted, human-approved
-# PRD before any other work may start, right after understanding_gate.
-# Off by default, same reasoning as board_decomposition_required. When
-# both this and decomposition are required, the PRD gate resolves first.
-board_prd_gate_required = false
-# Require an early, pure human strategic-fit decision ("CAB-1") between
-# understanding_gate and refinement, preceded by a light, capped interview
-# with the original requester. Off by default, same reasoning as
-# board_decomposition_required. CAB-1 evaluates only strategic fit, never
-# scope/feasibility/cost.
-board_cab1_gate_required = false
+# Every request passes three human gates, always: CAB-1 (strategic fit),
+# PRD sign-off, and CAB-2 (the approved breakdown). They cannot be switched
+# off (#70).
 # The strategic-fit interview's hard question cap — keeps the pre-CAB-1
 # interview light, unlike the deeper post-approval refinement interviews
 # it precedes.

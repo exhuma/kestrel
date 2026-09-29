@@ -20,7 +20,11 @@ from app.models_board import (
 )
 from app.persistence.board_store import BoardStore
 from app.policy import SpecialistCapabilityError
-from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.artifacts import (
+    CARD_RESULT_LOGICAL_NAME,
+    ArtifactDraft,
+    ArtifactsService,
+)
 from app.services.board.claims import (
     ClaimsService,
     NoEligibleCardError,
@@ -289,7 +293,7 @@ async def _dispatch_one(
     services.artifacts.submit_result(
         ArtifactDraft(
             producer_card_id=card.id,
-            logical_name="report",
+            logical_name=CARD_RESULT_LOGICAL_NAME,
             revision=card.attempt_count,
             content=result.final_text,
             trust="agent_output",
