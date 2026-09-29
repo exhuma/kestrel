@@ -63,13 +63,19 @@ function toggleTheme() {
     <v-app-bar flat border>
       <template #prepend>
         <!-- Theme-matched mark: the dark-outlined logo reads on the light
-             theme, the plain-fill logo reads on the dark theme. -->
-        <img
-          :src="isDark ? '/logo-dark.svg' : '/logo-bright.svg'"
-          alt="kestrel logo"
-          height="32"
-          class="ms-2"
-        />
+             theme, the plain-fill logo reads on the dark theme. It links
+             home, to the board. -->
+        <router-link
+          :to="{ name: 'board' }"
+          aria-label="kestrel home"
+          class="d-flex ms-2"
+        >
+          <img
+            :src="isDark ? '/logo-dark.svg' : '/logo-bright.svg'"
+            alt="kestrel logo"
+            height="32"
+          />
+        </router-link>
       </template>
       <v-app-bar-title> kestrel </v-app-bar-title>
 

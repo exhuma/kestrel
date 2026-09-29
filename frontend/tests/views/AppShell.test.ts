@@ -111,4 +111,16 @@ describe('App shell routed rendering', () => {
     await router.isReady()
     expect(wrapper.findComponent(NotFoundView).exists()).toBe(true)
   })
+
+  it('takes the logo home, to the board', async () => {
+    const router = testRouter()
+    await router.push('/sessions')
+    const wrapper = mount(
+      App,
+      withVuetify({ global: { plugins: [router], stubs } }),
+    )
+    await router.isReady()
+    await wrapper.find('a[aria-label="kestrel home"]').trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('board'))
+  })
 })
