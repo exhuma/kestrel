@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Draft
+**Status**: Implemented (2026-09-29)
 
 **Input**: The Vikunja 710 review. "It's currently really hard telling in the
 UI whether the task in the system is working/active or idle/waiting." The
@@ -75,8 +75,11 @@ restart.
   request: its state, and where relevant who (actor), on what (subject), what
   went wrong (detail), and since when. The backend decides it; the frontend
   only phrases it (constitution Principle II).
-- **FR-002**: Precedence: working > problem > waiting for you > queued > done
-  > stalled.
+- **FR-002**: Precedence: working > a failed card > waiting for you > a failed
+  turn > queued > done > stalled. A failed turn is retried automatically and
+  must not hide a decision waiting on the operator. (Revised during
+  implementation after a live run showed a coordinator timeout masking the
+  understanding gate.)
 - **FR-003**: *Working* MUST come only from live, in-process activity: agent
   turns, the coordinator's turn and screening. It MUST NOT be inferred from a
   stored card state.

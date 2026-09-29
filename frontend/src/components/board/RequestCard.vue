@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import PhaseProgress from '../common/PhaseProgress.vue'
 import RequestSubItems from './RequestSubItems.vue'
+import ActivityLine from '../common/ActivityLine.vue'
 import type { AttentionState, BoardRequest } from '../../lib/stages'
 
 const props = defineProps<{ request: BoardRequest }>()
@@ -64,6 +65,7 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
     </v-card-item>
 
     <v-card-text>
+      <ActivityLine :activity="request.summary.activity" class="mb-2" />
       <div class="text-body-2 mb-1">
         {{ request.summary.phase }}
         <span v-if="request.position.ordinal !== null">

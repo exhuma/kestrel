@@ -1,6 +1,8 @@
 """Ready work is never stranded by one failed scheduling pass (#69)."""
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,10 +14,18 @@ from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board import bootstrap
 from app.services.board.dispatch import CardTurnError
+from app.services.board.dispatch_ready import dispatch_ready_work
+from app.services.board.live_activity import LiveActivity
 from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
+from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
-from tests.test_board_scheduling import _FakeBackend, _scheduling_service
+from tests.test_board_scheduling import (
+    _dispatch_services,
+    _FakeBackend,
+    _scheduling_service,
+    _specialist,
+)
 
 
 def _recovery(
@@ -96,6 +106,13 @@ async def test_dispatch_runs_even_when_the_coordinator_times_out(
     )
     monkeypatch.setattr(bootstrap, "dispatch_ready_work", dispatch)
     monkeypatch.setattr(bootstrap, "get_dispatch_services", lambda: None)
+    problems: list[dict] = []
+    monkeypatch.setattr(
+        bootstrap, "get_board_service",
+        lambda: SimpleNamespace(
+            record_problem=lambda wid, **kw: problems.append({wid: kw})
+        ),
+    )
     monkeypatch.setattr(
         bootstrap, "get_specialist_backend_policy",
         lambda: SimpleNamespace(backend_for=None),
@@ -104,6 +121,11 @@ async def test_dispatch_runs_even_when_the_coordinator_times_out(
     await bootstrap._wake_and_dispatch("wf-1", object())
 
     assert dispatched == ["wf-1"]
+    # ...and the request says why nothing came from the coordinator (033).
+    assert problems == [{"wf-1": {
+        "event_type": "coordinator.turn_failed",
+        "detail": "the coordinator's turn timed out",
+    }}]
 
 
 @pytest.mark.asyncio
@@ -127,3 +149,44 @@ def test_turns_get_their_own_timeout() -> None:
 
     assert settings.board_input_security_timeout_seconds == screening
     assert settings.board_turn_timeout_seconds == turn
+
+
+@pytest.mark.asyncio
+async def test_a_failed_card_turn_is_recorded_on_the_request(
+    tmp_path: Path,
+) -> None:
+    """Ensure a specialist's failed turn is visible, not only logged, and
+    that the card is live only while its turn runs (feature 033)."""
+    roster = SpecialistRoster({"developer": _specialist()})
+    services, store = _dispatch_services(tmp_path, roster)
+    live = LiveActivity()
+    seen_live: list[str | None] = []
+
+    class _Failing(_FakeBackend):
+        async def run_turn(self, _req):
+            turn = live.current("wf-1")
+            seen_live.append(turn.subject if turn else None)
+            raise RuntimeError("backend exploded")
+
+    services = replace(services, board=BoardService(store), live=live)
+    store.create_card(
+        WorkCard(
+            id="card-1", workflow_id="wf-1", kind="analysis",
+            title="Investigate", state="ready", eligible_roles=("developer",),
+        )
+    )
+
+    await dispatch_ready_work(
+        "wf-1", services, lambda _s: _Failing(), timeout_seconds=5
+    )
+
+    assert seen_live == ["Investigate"]  # live only during the turn
+    assert live.current("wf-1") is None
+    (event,) = [
+        e for e in store.list_events("wf-1")
+        if e.event_type == "card.turn_failed"
+    ]
+    assert event.card_id == "card-1"
+    assert json.loads(event.payload) == {
+        "detail": "developer's turn failed; see the kestrel log"
+    }

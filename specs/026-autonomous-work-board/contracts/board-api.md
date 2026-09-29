@@ -68,6 +68,18 @@ See `specs/031-subtask-cards/contracts/board-api-delta.md`.
   screened, with a `security_review` card titled "Screening input" in
   `claimed`, and quarantine happens on that same request.
 
+**Amendment (feature 033)**: one additive, read-only field on both the
+**Workflow Collection** and the **Board Snapshot**: `activity`
+(`RequestActivityOut`), what the request is doing right now. `state` is one of
+`working | problem | waiting | queued | done | stalled`, with optional
+`actor`, `subject` (a card title), `detail` (a problem's safe reason),
+`reason` (a stalled code: `interrupted_screening | interrupted_claim |
+nothing_ready`) and `since` (UTC). `working` comes only from work this
+process is running at that moment.
+
+New event types in the feed: `card.turn_failed` and `coordinator.turn_failed`,
+each with a `{"detail": …}` payload.
+
 ## Shared Enumerations
 
 ```text

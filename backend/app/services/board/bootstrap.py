@@ -30,6 +30,10 @@ from app.services.board.dispatch_ready import (
 )
 from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.interventions import InterventionsService
+from app.services.board.live_activity import (
+    get_live_activity,
+    turn_failure,
+)
 from app.services.board.materialise import (
     approved_candidate,
     render_breakdown,
@@ -212,6 +216,8 @@ def get_dispatch_services() -> DispatchServices:
         projections=get_projections_service(),
         gates=get_gates_service(),
         verify_round_cap=get_settings().max_verify_iterations,
+        board=get_board_service(),
+        live=get_live_activity(),
     )
 
 
@@ -242,13 +248,21 @@ async def _wake_and_dispatch(
     either way (atomic, per-card).
     """
     try:
-        await get_scheduling_service().wake(workflow_id, coordinator_backend)
-    except CardTurnError:
+        with get_live_activity().track(workflow_id, "coordinator"):
+            await get_scheduling_service().wake(
+                workflow_id, coordinator_backend
+            )
+    except CardTurnError as exc:
         # A failed or timed-out coordinator turn must not strand the
-        # board: ready cards still get dispatched (#69).
+        # board: ready cards still get dispatched (#69), and the request
+        # says what went wrong (feature 033).
         _logger.warning(
             "workflow %s: coordinator turn failed; dispatching anyway",
             workflow_id, exc_info=True,
+        )
+        get_board_service().record_problem(
+            workflow_id, event_type="coordinator.turn_failed",
+            detail=turn_failure("the coordinator", exc),
         )
     settings = get_settings()
     await dispatch_ready_work(

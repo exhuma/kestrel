@@ -8,6 +8,7 @@ is enforced consistently regardless of what triggered the transition.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Callable
 
@@ -244,6 +245,39 @@ class BoardService:
         )
         self._store.bump_workflow_revision(card.workflow_id)
         self.announce(card.workflow_id)
+
+    def record_problem(
+        self,
+        workflow_id: str,
+        *,
+        event_type: str,
+        detail: str,
+        card_id: str | None = None,
+    ) -> None:
+        """Record that an agent turn failed, so the request can say so
+        (feature 033, FR-004) — durably, in its feed.
+
+        Written once: a problem that is already the latest event (the
+        same failure on every retry) is not recorded again. It neither
+        bumps the revision nor fires ``on_mutation``, since a failure is
+        not a change for the coordinator to react to.
+
+        :param detail: A short, safe reason — never untrusted content.
+        """
+        events = self._store.list_events(workflow_id)
+        payload = json.dumps({"detail": detail})
+        latest = events[-1] if events else None
+        if latest is not None and (
+            latest.event_type, latest.card_id, latest.payload
+        ) == (event_type, card_id, payload):
+            return
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=workflow_id, card_id=card_id,
+                event_type=event_type, payload=payload,
+            )
+        )
+        self.announce(workflow_id)
 
     def _after_mutation(
         self, workflow_id: str, card_id: str | None, event_type: str

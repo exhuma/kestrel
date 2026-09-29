@@ -7,7 +7,7 @@ so a route only needs to gather the raw domain data once per request.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from app.models_board import (
     CardKind,
@@ -29,14 +29,17 @@ from app.schemas import (
     BoardOwnerOut,
     BoardRoleRefOut,
     BoardSnapshotOut,
+    RequestActivityOut,
     WorkCardGateOut,
     WorkCardRelationOut,
     WorkCardSummaryOut,
     WorkflowSummaryOut,
 )
+from app.services.board.activity import ActivityInputs, activity_of
 from app.services.board.gates import GatesService
 from app.services.board.interventions import allowed_actions_for
-from app.services.board.phases import current_phase, stage_of
+from app.services.board.live_activity import LiveTurn
+from app.services.board.phases import DONE_PHASE, current_phase, stage_of
 from app.services.board.specialists import SpecialistRoster
 
 #: Card states an operator needs to look at (board-api.md
@@ -66,6 +69,8 @@ class BoardLookups:
     #: card_id -> the artifact a gate asks about (its gate record's
     #: target), populated only for gates that have one.
     gate_targets: dict[str, HandoffArtifact] = field(default_factory=dict)
+    #: What the request is doing right now (feature 033).
+    activity: RequestActivityOut | None = None
 
 
 #: ``BoardWorkflowRow.state`` for a synthetic quarantine-hosting workflow
@@ -132,6 +137,7 @@ def workflow_summary(
     workflow: Workflow,
     cards: list[WorkCard],
     gates: GatesService,
+    activity: RequestActivityOut | None = None,
 ) -> WorkflowSummaryOut:
     """One workflow's row in the board collection listing."""
     phase = current_phase(cards)
@@ -146,7 +152,28 @@ def workflow_summary(
         stage=stage_of(phase),
         cap_exhausted=_cap_exhausted(cards, gates),
         open_manual_task_count=open_manual_task_count(cards),
+        activity=activity,
     )
+
+
+def request_activity(
+    cards: list[WorkCard],
+    events: list[BoardEventRecord],
+    live: LiveTurn | None,
+    roster: SpecialistRoster,
+) -> RequestActivityOut:
+    """A request's activity (feature 033), for the listing and the
+    snapshot alike."""
+    labels = {
+        role: _role_ref(roster, role).label
+        for card in cards for role in card.eligible_roles
+    }
+    activity = activity_of(
+        ActivityInputs(
+            cards, events, live, current_phase(cards) == DONE_PHASE, labels
+        )
+    )
+    return RequestActivityOut(**asdict(activity))
 
 
 def _cap_exhausted(cards: list[WorkCard], gates: GatesService) -> bool:
@@ -193,6 +220,7 @@ def board_snapshot(
         phase=phase,
         stage=stage_of(phase),
         task_body=workflow.task_body,
+        activity=lookups.activity,
     )
 
 

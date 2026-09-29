@@ -6,6 +6,7 @@ rejecting any transition ``policy.is_valid_transition`` disallows.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -258,3 +259,34 @@ def test_a_card_round_trips_its_task_node_id(tmp_path: Path) -> None:
 
     assert store.get_card("card-t1").task_node_id == "t1"
     assert store.get_card("card-plain").task_node_id is None
+
+
+def test_a_problem_is_recorded_once_and_wakes_nothing(
+    tmp_path: Path,
+) -> None:
+    """Ensure a failed turn is visible in the feed, not repeated on every
+    retry, and not treated as a change to react to (feature 033)."""
+    store = BoardStore(board_session_factory(tmp_path))
+    wakes: list[str] = []
+    service = BoardService(store, on_mutation=wakes.append)
+    store.create_workflow(
+        Workflow(
+            id="wf-1", source="github-issue", task_ref="o/r#1", repo="o/r",
+            base_branch="main", source_visibility="public", title="t",
+        )
+    )
+    revision = store.get_workflow("wf-1").revision
+
+    for _retry in range(3):
+        service.record_problem(
+            "wf-1", event_type="coordinator.turn_failed",
+            detail="the coordinator's turn timed out",
+        )
+
+    (event,) = store.list_events("wf-1")
+    assert event.event_type == "coordinator.turn_failed"
+    assert json.loads(event.payload) == {
+        "detail": "the coordinator's turn timed out"
+    }
+    assert store.get_workflow("wf-1").revision == revision
+    assert wakes == []

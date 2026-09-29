@@ -46,6 +46,11 @@ from app.services.board.estimation import (
     route_estimation_result,
 )
 from app.services.board.gates import GatesService
+from app.services.board.live_activity import (
+    LiveActivity,
+    tracking,
+    turn_failure,
+)
 from app.services.board.materialise import task_context
 from app.services.board.projections import ProjectionsService
 from app.services.board.refinement import (
@@ -55,6 +60,7 @@ from app.services.board.refinement import (
     route_strategic_interview_result,
 )
 from app.services.board.refinement_rounds import round_context
+from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.understanding import (
     route_understanding_result,
@@ -94,6 +100,9 @@ class DispatchServices:
         ``decomposition_gate`` card (T068). ``None`` leaves a
         ``decomposition`` card's result generically accepted with no
         gate created — effectively disabling decomposition.
+    :param board: Records a failed turn as a problem on the request
+        (feature 033). ``None`` leaves the failure in the log only.
+    :param live: Shows each card turn as live work (feature 033).
     :param verify_round_cap: The most verification rounds one approved
         CAB-2 task may have before a non-clean result escalates instead
         (feature 031, ``Settings.max_verify_iterations``).
@@ -108,6 +117,8 @@ class DispatchServices:
     projections: ProjectionsService | None = None
     gates: GatesService | None = None
     verify_round_cap: int = 3
+    board: BoardService | None = None
+    live: LiveActivity | None = None
 
 
 async def dispatch_ready_work(
@@ -248,15 +259,21 @@ async def _dispatch_one(
         specialist, workflow, card, extra_context=extra_context
     )
     try:
-        result = await run_card_turn(
-            backend, envelope, cwd=cwd, timeout_seconds=timeout_seconds,
-            permission_mode=permission_mode,
-        )
+        with tracking(services.live, workflow_id, specialist.label, card.title):
+            result = await run_card_turn(
+                backend, envelope, cwd=cwd, timeout_seconds=timeout_seconds,
+                permission_mode=permission_mode,
+            )
     except CardTurnError as exc:
         _dispatch_log.warning(
             "workflow %s: %s's turn on card %s failed: %s",
             workflow_id, specialist.id, card.id, exc,
         )
+        if services.board is not None:
+            services.board.record_problem(
+                workflow_id, event_type="card.turn_failed", card_id=card.id,
+                detail=turn_failure(specialist.label, exc),
+            )
         return
     outcome = services.claims.complete(
         card.id, card.attempt_count,

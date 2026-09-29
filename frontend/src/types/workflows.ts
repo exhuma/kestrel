@@ -154,6 +154,23 @@ export interface WorkCardRelation {
  *  against a card in this snapshot must echo back as `expected_revision`.
  *  `phase`/`stage` are a pure, derived, display-only projection — never a
  *  driver — see `app.services.board.phases`. */
+/** What a request is doing right now (feature 033). Mirrors
+ *  `app.schemas.RequestActivityOut`: the backend decides the state; the
+ *  frontend phrases it (`lib/activity.ts`). */
+export interface RequestActivity {
+  state: 'working' | 'problem' | 'waiting' | 'queued' | 'done' | 'stalled'
+  /** Who is working, or who queued work is for. */
+  actor: string | null
+  /** The card concerned, by title. */
+  subject: string | null
+  /** For `problem`: the recorded, safe reason. */
+  detail: string | null
+  /** For `stalled`: why, as a code. */
+  reason: 'interrupted_screening' | 'interrupted_claim' | 'nothing_ready' | null
+  /** When this state began (UTC ISO), as far as is known. */
+  since: string | null
+}
+
 export interface BoardSnapshot {
   id: string
   revision: number
@@ -171,6 +188,8 @@ export interface BoardSnapshot {
    *  so a later edit to the source ticket is not reflected. Snapshot only;
    *  never on the collection listing. */
   task_body: string
+  /** What the request is doing right now (feature 033). */
+  activity: RequestActivity | null
 }
 
 /** One workflow's row in the board collection listing. Mirrors
@@ -193,6 +212,8 @@ export interface BoardWorkflowSummary {
   /** How many `manual_task` cards are neither done nor cancelled
    *  (feature 031) — "N manual tasks assigned to you". */
   open_manual_task_count: number
+  /** What the request is doing right now (feature 033). */
+  activity: RequestActivity | null
 }
 
 /** Request body for one card intervention (board-api.md "Intervention").

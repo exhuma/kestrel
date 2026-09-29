@@ -23,6 +23,11 @@ from app.services.board.bootstrap import (
     get_quarantine_service,
 )
 from app.services.board.intake import awaits_release, open_screening_card
+from app.services.board.live_activity import (
+    LiveActivity,
+    get_live_activity,
+    tracking,
+)
 from app.services.board.quarantine import (
     ExistingWorkflowIntake,
     QuarantineService,
@@ -49,10 +54,12 @@ class BoardIntake:
     :param quarantine: The fail-closed untrusted-input boundary.
     :param board: Creates the request, and runs its screening lifecycle
         (feature 032).
+    :param live: Shows screening as live work (feature 033).
     """
 
     quarantine: QuarantineService
     board: BoardService
+    live: LiveActivity | None = None
 
 
 class IngestionService:
@@ -193,12 +200,13 @@ class IngestionService:
         settle — ``None`` when continuing after a release."""
         self._screening.add(workflow.id)
         try:
-            outcome = await self._quarantine.intake_for_existing_workflow(
-                ExistingWorkflowIntake(
-                    identity_ref=workflow.task_ref, category="intake",
-                    content=task.body, workflow=workflow,
+            with tracking(self.board_intake.live, workflow.id, "screening"):
+                outcome = await self._quarantine.intake_for_existing_workflow(
+                    ExistingWorkflowIntake(
+                        identity_ref=workflow.task_ref, category="intake",
+                        content=task.body, workflow=workflow,
+                    )
                 )
-            )
         finally:
             self._screening.discard(workflow.id)
         board = self.board_intake.board
@@ -281,5 +289,8 @@ def get_ingestion_service() -> IngestionService:
         get_settings(),
         get_task_source_registry(),
         get_dismissal_store(),
-        BoardIntake(get_quarantine_service(), get_board_service()),
+        BoardIntake(
+            get_quarantine_service(), get_board_service(),
+            get_live_activity(),
+        ),
     )

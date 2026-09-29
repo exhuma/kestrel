@@ -64,6 +64,8 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'intervention.reassign': 'info',
   'manual_task.completed': 'success',
   'screening.passed': 'success',
+  'card.turn_failed': 'error',
+  'coordinator.turn_failed': 'error',
   'screening.quarantined': 'warning',
   'screening.released': 'info',
   'coordinator.transition_card': 'info',
@@ -87,6 +89,9 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'intervention.reassign': 'You returned this card to the queue',
   'manual_task.completed': 'You marked a manual task done',
   'screening.passed': 'Input screened: safe to work on',
+  'card.turn_failed': 'A turn on this card failed; it will be retried',
+  'coordinator.turn_failed':
+    "The coordinator's turn failed; it will be retried",
   'screening.quarantined': 'Input quarantined for your review',
   'screening.released': 'You released the quarantined input',
   'coordinator.transition_card': 'Coordinator moved this card on',

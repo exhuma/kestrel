@@ -7,7 +7,6 @@ snapshot payload.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,29 +14,27 @@ from fastapi.responses import StreamingResponse
 
 from app import sse
 from app.models_board import (
-    GATE_CARD_KINDS,
     CardAction,
     CardKind,
-    ClaimLease,
     WorkCard,
 )
-from app.models_board_records import HandoffArtifact, HumanGateRecord
 from app.persistence.board_artifact_content_store import ContentNotFoundError
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,
 )
-from app.persistence.board_claims_store import (
-    BoardClaimsStore,
-    get_board_claims_store,
+from app.routers.board_deps import (
+    BoardListDeps,
+    BoardReadDeps,
+    all_workflow_summaries,
+    board_list_deps,
+    board_lookups,
+    board_read_deps,
+    snapshot_for,
 )
 from app.routers.board_views import (
-    BoardLookups,
     board_events,
-    board_snapshot,
     card_summary,
-    visible_workflows,
-    workflow_summary,
 )
 from app.schemas import (
     BoardArtifactContentOut,
@@ -52,27 +49,20 @@ from app.schemas import (
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.bootstrap import (
     get_artifacts_service,
-    get_board_service,
-    get_gates_service,
     get_interventions_service,
     get_quarantine_service,
-    get_specialist_roster,
     schedule_breakdown_projection,
     schedule_escalation_projection,
     schedule_gate_projection,
     schedule_prd_approval_projection,
 )
-from app.services.board.gates import GatesService
 from app.services.board.interventions import (
     GateResolution,
     InterventionsService,
     InvalidInterventionError,
     StaleInterventionError,
 )
-from app.services.board.phases import DONE_PHASE
 from app.services.board.quarantine import QuarantineService
-from app.services.board.service import BoardService
-from app.services.board.specialists import SpecialistRoster
 from app.services.ingestion import schedule_intake_continuation
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
@@ -153,137 +143,10 @@ async def get_artifact_content(
     return BoardArtifactContentOut(content=content or "", trust=artifact.trust)
 
 
-@dataclass(frozen=True)
-class _BoardReadDeps:
-    """The read-side collaborators every board view route needs."""
-
-    board: BoardService
-    roster: SpecialistRoster
-    claims_store: BoardClaimsStore
-    artifact_store: BoardArtifactStore
-    quarantine: QuarantineService
-    gates: GatesService
-
-
-@dataclass(frozen=True)
-class _BoardCoreDeps:
-    """The first half of ``_BoardReadDeps`` — split out so neither
-    composer function crosses the argument-count limit."""
-
-    board: BoardService
-    roster: SpecialistRoster
-    claims_store: BoardClaimsStore
-
-
-def _board_core_deps(
-    board: BoardService = Depends(get_board_service),
-    roster: SpecialistRoster = Depends(get_specialist_roster),
-    claims_store: BoardClaimsStore = Depends(get_board_claims_store),
-) -> _BoardCoreDeps:
-    return _BoardCoreDeps(board, roster, claims_store)
-
-
-def _board_read_deps(
-    core: _BoardCoreDeps = Depends(_board_core_deps),
-    artifact_store: BoardArtifactStore = Depends(get_board_artifact_store),
-    quarantine: QuarantineService = Depends(get_quarantine_service),
-    gates: GatesService = Depends(get_gates_service),
-) -> _BoardReadDeps:
-    return _BoardReadDeps(
-        core.board,
-        core.roster,
-        core.claims_store,
-        artifact_store,
-        quarantine,
-        gates,
-    )
-
-
-def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
-    leases: dict[str, ClaimLease] = {}
-    latest: dict[str, HandoffArtifact] = {}
-    security_review_ids: dict[str, str] = {}
-    gates: dict[str, HumanGateRecord] = {}
-    gate_rounds: dict[str, tuple[int, int]] = {}
-    gate_targets: dict[str, HandoffArtifact] = {}
-    for card in cards:
-        lease = deps.claims_store.get_active_lease(card.id)
-        if lease is not None:
-            leases[card.id] = lease
-        artifacts = deps.artifact_store.list_for_card(card.id)
-        if artifacts:
-            latest[card.id] = max(artifacts, key=lambda a: a.revision)
-        if card.kind == CardKind.SECURITY_REVIEW.value:
-            review = deps.quarantine.review_for_card(card.id)
-            if review is not None:
-                security_review_ids[card.id] = review.id
-        if CardKind(card.kind) in GATE_CARD_KINDS:
-            gate = deps.gates.get_gate(card.id)
-            if gate is not None:
-                gates[card.id] = gate
-                target = _gate_target(gate, deps)
-                if target is not None:
-                    gate_targets[card.id] = target
-                round_number = deps.gates.gate_round(card, cards)
-                if round_number is not None:
-                    gate_rounds[card.id] = (
-                        round_number,
-                        deps.gates.refinement_round_cap,
-                    )
-    return BoardLookups(
-        roster=deps.roster,
-        leases=leases,
-        latest_artifacts=latest,
-        security_review_ids=security_review_ids,
-        gates=gates,
-        gate_rounds=gate_rounds,
-        gate_targets=gate_targets,
-    )
-
-
-def _gate_target(
-    gate: HumanGateRecord, deps: _BoardReadDeps
-) -> HandoffArtifact | None:
-    """The artifact *gate* asks about, if it has one."""
-    if gate.target_artifact_id is None:
-        return None
-    return deps.artifact_store.get(gate.target_artifact_id)
-
-
-def _all_workflow_summaries(
-    deps: _BoardListDeps, *, include_completed: bool = False
-) -> list[WorkflowSummaryOut]:
-    workflows = visible_workflows(deps.board.list_workflows(newest_first=True))
-    summaries = [
-        workflow_summary(w, deps.board.list_cards(w.id), deps.gates)
-        for w in workflows
-    ]
-    if include_completed:
-        return summaries
-    return [s for s in summaries if s.phase != DONE_PHASE]
-
-
-@dataclass(frozen=True)
-class _BoardListDeps:
-    """Collaborators the board collection listing needs (feature 029 A4)
-    — bundled to keep the route handlers within the argument-count
-    limit."""
-
-    board: BoardService
-    gates: GatesService
-
-
-def _board_list_deps(
-    board: BoardService = Depends(get_board_service),
-    gates: GatesService = Depends(get_gates_service),
-) -> _BoardListDeps:
-    return _BoardListDeps(board, gates)
-
-
 @router.get("/workflows", response_model=list[WorkflowSummaryOut])
 async def list_board_workflows(
     include_completed: bool = False,
-    deps: _BoardListDeps = Depends(_board_list_deps),
+    deps: BoardListDeps = Depends(board_list_deps),
 ) -> list[WorkflowSummaryOut]:
     """List every workflow's board summary row, newest first.
 
@@ -291,13 +154,13 @@ async def list_board_workflows(
     exists (GitHub #45), and a workflow whose cards are all terminal is
     hidden unless ``include_completed`` is set.
     """
-    return _all_workflow_summaries(deps, include_completed=include_completed)
+    return all_workflow_summaries(deps, include_completed=include_completed)
 
 
 @router.get("/workflows/events")
 async def stream_board_workflows(
     include_completed: bool = False,
-    deps: _BoardListDeps = Depends(_board_list_deps),
+    deps: BoardListDeps = Depends(board_list_deps),
     bus: WorkflowBus = Depends(get_workflow_bus),
 ) -> StreamingResponse:
     """Stream the board collection listing as Server-Sent Events.
@@ -311,7 +174,7 @@ async def stream_board_workflows(
         return sse.encode(
             [
                 s.model_dump(mode="json")
-                for s in _all_workflow_summaries(
+                for s in all_workflow_summaries(
                     deps, include_completed=include_completed
                 )
             ]
@@ -331,20 +194,11 @@ async def stream_board_workflows(
     )
 
 
-def _snapshot_for(workflow_id: str, deps: _BoardReadDeps) -> BoardSnapshotOut:
-    workflow = deps.board.get_workflow(workflow_id)
-    if workflow is None:
-        raise HTTPException(status_code=404, detail="unknown workflow")
-    cards = deps.board.list_cards(workflow_id)
-    relations = deps.board.list_relations(workflow_id)
-    return board_snapshot(workflow, cards, relations, _lookups(cards, deps))
-
-
 @router.get(
     "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
 )
 async def list_board_events(
-    workflow_id: str, deps: _BoardReadDeps = Depends(_board_read_deps)
+    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
 ) -> list[BoardEventOut]:
     """Return one workflow's board event history, oldest first — the
     narrative feed's data source.
@@ -368,19 +222,19 @@ async def list_board_events(
     "/workflows/{workflow_id}/board", response_model=BoardSnapshotOut
 )
 async def get_board(
-    workflow_id: str, deps: _BoardReadDeps = Depends(_board_read_deps)
+    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
 ) -> BoardSnapshotOut:
     """Return one workflow's full board snapshot.
 
     :raises HTTPException: 404 if ``workflow_id`` is unknown.
     """
-    return _snapshot_for(workflow_id, deps)
+    return snapshot_for(workflow_id, deps)
 
 
 @router.get("/workflows/{workflow_id}/board/events")
 async def stream_board(
     workflow_id: str,
-    deps: _BoardReadDeps = Depends(_board_read_deps),
+    deps: BoardReadDeps = Depends(board_read_deps),
     bus: WorkflowBus = Depends(get_workflow_bus),
 ) -> StreamingResponse:
     """Stream one workflow's board snapshot as Server-Sent Events.
@@ -393,11 +247,11 @@ async def stream_board(
     :raises HTTPException: 404 before streaming starts, if
         ``workflow_id`` is unknown.
     """
-    _snapshot_for(workflow_id, deps)  # 404 before we start streaming
+    snapshot_for(workflow_id, deps)  # 404 before we start streaming
 
     def _frame() -> bytes:
         return sse.encode(
-            _snapshot_for(workflow_id, deps).model_dump(mode="json")
+            snapshot_for(workflow_id, deps).model_dump(mode="json")
         )
 
     async def _frames() -> AsyncIterator[bytes]:
@@ -421,7 +275,7 @@ async def stream_board(
 async def get_board_card(
     workflow_id: str,
     card_id: str,
-    deps: _BoardReadDeps = Depends(_board_read_deps),
+    deps: BoardReadDeps = Depends(board_read_deps),
 ) -> WorkCardSummaryOut:
     """Return one card's board-visible summary.
 
@@ -433,7 +287,7 @@ async def get_board_card(
         raise HTTPException(status_code=404, detail="unknown card")
     relations = deps.board.list_relations(workflow_id)
     cards = deps.board.list_cards(workflow_id)
-    return card_summary(card, relations, _lookups(cards, deps))
+    return card_summary(card, relations, board_lookups(cards, deps))
 
 
 @router.post(
@@ -444,7 +298,7 @@ async def apply_board_intervention(
     workflow_id: str,
     card_id: str,
     body: BoardInterventionIn,
-    deps: _BoardReadDeps = Depends(_board_read_deps),
+    deps: BoardReadDeps = Depends(board_read_deps),
     interventions: InterventionsService = Depends(get_interventions_service),
 ) -> WorkCardSummaryOut:
     """Apply one operator intervention against a card (board-api.md).
@@ -476,7 +330,7 @@ async def apply_board_intervention(
         schedule_escalation_projection(workflow_id, updated)
     relations = deps.board.list_relations(workflow_id)
     cards = deps.board.list_cards(workflow_id)
-    return card_summary(updated, relations, _lookups(cards, deps))
+    return card_summary(updated, relations, board_lookups(cards, deps))
 
 
 def _schedule_gate_followup(

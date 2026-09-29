@@ -19,6 +19,7 @@ import PhaseSpine from '../components/cockpit/PhaseSpine.vue'
 import NarrativeFeed from '../components/cockpit/NarrativeFeed.vue'
 import ArtifactRail from '../components/cockpit/ArtifactRail.vue'
 import ManualTaskList from '../components/cockpit/ManualTaskList.vue'
+import ActivityLine from '../components/common/ActivityLine.vue'
 
 const route = useRoute()
 const { current, error, loading, select, stop } = useBoard()
@@ -73,6 +74,7 @@ onUnmounted(() => {
         <div class="text-caption text-medium-emphasis">
           {{ snapshot.task_label }}
         </div>
+        <ActivityLine :activity="snapshot.activity" class="mt-1" />
       </div>
 
       <ActionBanner

@@ -85,6 +85,7 @@ describe('useBoard refresh', () => {
                 stage: 'Done',
                 cap_exhausted: false,
                 open_manual_task_count: 0,
+                activity: null,
               },
             ]),
             { status: 200 },

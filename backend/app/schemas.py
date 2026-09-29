@@ -183,6 +183,31 @@ class WorkCardRelationOut(BaseModel):
     kind: str
 
 
+class RequestActivityOut(BaseModel):
+    """What a request is doing right now (feature 033) — see
+    ``app.services.board.activity.RequestActivity``. Structured, not
+    phrased: the frontend words it.
+
+    :param state: ``working``, ``problem``, ``waiting``, ``queued``,
+        ``done`` or ``stalled``.
+    :param actor: Who is working, or who queued work is for.
+    :param subject: The card concerned, by title.
+    :param detail: For ``problem``: the safe recorded reason.
+    :param reason: For ``stalled``: ``interrupted_screening``,
+        ``interrupted_claim`` or ``nothing_ready``.
+    :param since: When this state began (UTC), as far as is known.
+    """
+
+    state: Literal[
+        "working", "problem", "waiting", "queued", "done", "stalled"
+    ]
+    actor: str | None = None
+    subject: str | None = None
+    detail: str | None = None
+    reason: str | None = None
+    since: datetime | None = None
+
+
 class BoardSnapshotOut(BaseModel):
     """One workflow's full board (board-api.md "Board Snapshot").
 
@@ -209,6 +234,7 @@ class BoardSnapshotOut(BaseModel):
     phase: str
     stage: str
     task_body: str = ""
+    activity: RequestActivityOut | None = None
 
 
 class WorkflowSummaryOut(BaseModel):
@@ -236,6 +262,7 @@ class WorkflowSummaryOut(BaseModel):
     stage: str
     cap_exhausted: bool = False
     open_manual_task_count: int = 0
+    activity: RequestActivityOut | None = None
 
 
 class BoardInterventionIn(BaseModel):

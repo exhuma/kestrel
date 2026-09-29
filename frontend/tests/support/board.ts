@@ -37,6 +37,7 @@ export function boardWorkflowSummary(
     stage: 'Build & deliver',
     cap_exhausted: false,
     open_manual_task_count: 0,
+    activity: null,
     ...overrides,
   }
 }
@@ -77,6 +78,7 @@ export function boardSnapshot(
     phase: 'Build',
     stage: 'Build & deliver',
     task_body: '',
+    activity: null,
     ...overrides,
   }
 }
