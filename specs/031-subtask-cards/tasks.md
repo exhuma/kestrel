@@ -69,20 +69,20 @@ workflow delivers once, after every coding task is cleanly verified.
 is no delivery until the last clean verification, then exactly one; the cap
 escalates; a CI repair re-delivers into the same change request.
 
-- [ ] T016 [US2] Create backend/app/services/board/verification_rounds.py:
+- [x] T016 [US2] Create backend/app/services/board/verification_rounds.py:
   - `round_of(task_node_id, cards)`;
   - `tagged_follow_ups(card, findings, cap)`, which returns the action batches for a tagged verification card: remediation actions tagged with the node, then a separate re-verification action that depends on the remediation card ids. At the cap it returns one "Verification cap reached: <title>" `coordinator_review` instead. Escalations are handled as today, tagged (R6, data-model.md table).
-- [ ] T017 [US2] Wire it into `route_verifier_result` in backend/app/services/board/verification.py:
+- [x] T017 [US2] Wire it into `route_verifier_result` in backend/app/services/board/verification.py:
   - a card with a `task_node_id` uses the tagged path, with two `apply_actions` calls under the triggers `verification:<id>:<n>` and `reverification:<id>:<n>`;
   - an untagged card is routed exactly as today;
   - pass the cap through `DispatchServices.verify_round_cap` (backend/app/services/board/dispatch_ready.py), wired from `Settings.max_verify_iterations` in backend/app/services/board/bootstrap.py.
-- [ ] T018 [US2] Tests in backend/tests/test_board_verification_rounds.py: clean → nothing; findings below the cap → tagged remediation + one re-verification depending on all of them; at the cap → one tagged cap escalation and no remediation; escalations are tagged; an untagged card behaves as before
-- [ ] T019 [US2] Create backend/app/services/board/delivery_readiness.py with a pure `delivery_due(cards, relations) -> bool` (the three conditions of R7; manual cards ignored) and `delivery_trigger(cards) -> str` (a digest of the done implementation ids)
-- [ ] T020 [US2] In backend/app/services/board/dispatch_delivery.py, request the `delivery` card from `_dispatch_pending_delivery` when `delivery_due`, with the trigger `delivery:<digest>`. Remove the `_request_delivery` call from `_route_verification` in backend/app/services/board/dispatch_ready.py
-- [ ] T021 [US2] Tests in backend/tests/test_board_delivery_readiness.py (pure):
-  - open, failed or unverified work → false; all clean → true;
+- [x] T018 [US2] Tests in backend/tests/test_board_verification_rounds.py: clean → nothing; findings below the cap → tagged remediation + one re-verification depending on all of them; at the cap → one tagged cap escalation and no remediation; escalations are tagged; an untagged card behaves as before
+- [x] T019 [US2] Create backend/app/services/board/delivery_readiness.py with a pure `delivery_due(cards, relations) -> bool` (the two conditions of R7; manual cards ignored) and `delivery_trigger(cards) -> str` (a digest of the done implementation ids)
+- [x] T020 [US2] In backend/app/services/board/dispatch_delivery.py, gate `_request_delivery` (still called by a clean verification) on `delivery_due`, with the trigger `delivery:<digest>` (R7 as revised during implementation)
+- [x] T021 [US2] Tests in backend/tests/test_board_delivery_readiness.py (pure):
+  - open, failed or unverified approved work → false; all clean → true;
   - a manual card open → still true;
-  - zero implementation cards → false;
+  - coordinator work without edges → true, as before;
   - the digest is stable, and changes when a new implementation card is done.
 
   Update the existing delivery tests (dispatch_delivery/ci_poll):

@@ -158,36 +158,47 @@ coordinator-created (untagged) work.
 
 ## R7 — When delivery happens
 
-**Decision**: replace "every clean verification requests delivery"
-(`_request_delivery` called from `_route_verification`) with a pure readiness
-check, `delivery_due(cards, relations)`. It is evaluated at the start of
-`_dispatch_pending_delivery` on every dispatch pass. Delivery is due when all
-of the following hold:
+**Decision**: delivery is still only ever requested by a clean
+verification (`_route_verification` → `_request_delivery`). That request is
+now gated by a pure check, `delivery_due(cards, relations)`, and delivery
+goes ahead only when both of these hold:
 
-1. at least one `implementation` card is `done`;
-2. every `done` implementation card has a `done` verification card that
-   depends on it;
-3. no `implementation`, `verification`, `reconciliation` or
-   `coordinator_review` card is still open (non-terminal) or `failed`.
+1. no `implementation`, `verification`, `reconciliation` or
+   `coordinator_review` card is still open (non-terminal) or `failed`;
+2. every `done` implementation card that carries a `task_node_id` (an
+   approved task's work, including its remediation) has a `done`
+   verification card depending on it.
 
 Manual cards are ignored, which is the FR-008 part of "does not block
-delivery". The delivery request is idempotent through the coordinator's
-trigger ledger, keyed by a digest of the ids of the `done` implementation
-cards, so it fires once per distinct set of finished work. A later CI-repair
-implementation card changes the set, and its clean re-verification then
-triggers exactly one more delivery. That delivery updates the existing change
-request (FR-013).
+delivery". The request is idempotent through the coordinator's trigger
+ledger. It is keyed by a digest of the ids of the `done` implementation
+cards (`delivery:<digest>`), so it fires once per distinct set of finished
+work. A later CI-repair implementation card changes the set, and the next
+clean verification then triggers exactly one more delivery, which updates
+the existing change request (FR-013). A breakdown with only manual tasks has
+no verification to trigger delivery at all, which covers FR-015.
 
-**Rationale**: several things can be the last event before delivery — a clean
-verification, an escalation resolved by the operator, or a cancelled card. A
-check evaluated on every pass catches all of them. Condition 2 keeps
-today's guarantee that nothing is pushed unverified. A workflow with no
-coding tasks never satisfies condition 1, which covers FR-015.
+**Rationale**: the first clean verification must no longer deliver while other
+coding work is open (FR-012). Keeping "a clean verification" as the only
+trigger preserves today's guarantee that nothing is pushed unverified.
 
-**Behaviour change for non-decomposed workflows**: a clean verification no
-longer delivers while other coding work in the same workflow is still open.
-This is intended (FR-012). Workflows with a single implementation card behave
-as before.
+**Rejected during implementation**: a check evaluated on every dispatch pass,
+which requires every done implementation card to be covered by a
+verification edge. Pre-031 flows break it: coordinator-created verifications
+and CI-repair cards carry no such edge, so either those workflows stall or,
+if the edge condition is relaxed, a finished remediation would be delivered
+unverified.
+
+**Accepted consequence**: when a task hits its verification cap (R6) and the
+resulting `coordinator_review` is resolved, delivery waits for the next clean
+verification, which the coordinator or the operator must bring about. The
+cap exists precisely to stop and ask. Also, a clean verification in a
+workflow where coordinator-created work is still open no longer delivers
+early. That is intended (FR-012).
+
+**Behaviour change for non-decomposed workflows**: only the "still open"
+condition applies, since that work carries no `task_node_id`. Single-task
+workflows behave as before.
 
 ## R8 — The coordinator cannot touch approved cards
 

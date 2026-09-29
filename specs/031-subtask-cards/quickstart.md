@@ -23,7 +23,7 @@ The scenarios the tests must cover. Each maps to a spec story or requirement:
 | manual card: never claimed; `awaiting_human` when unblocked; `complete_manual_task` → done → dependents advance; `resolve_gate` not offered (US3, FR-007/008) | backend interventions tests |
 | `waiting_dependency → awaiting_human` only for `manual_task` in the cascade | backend dependents/policy tests |
 | verification with findings → remediation + re-verification tagged; at the cap → one "Verification cap reached" coordinator_review, no remediation (R6) | backend verification tests |
-| `delivery_due`: false while any coding/verification work is open or failed, or while a done implementation lacks a done verification; true once all clean; ignores manual cards; zero coding tasks → never (US2, US3-4, FR-012/015) | backend delivery tests (pure function) |
+| `delivery_due`: false while any coding/verification work is open or failed, or while an approved task's done implementation lacks a done verification; true once all clean; ignores manual cards; untagged work as before (US2, US3-4, FR-012) | backend delivery tests (pure function) |
 | delivery requested exactly once per distinct set of done implementation cards; a CI repair re-delivers into the same change request (FR-013) | backend dispatch-delivery tests |
 | phase is not `done` while a manual card is open (US3-5, SC-004) | backend phases tests |
 | listing: `open_manual_task_count` correct; no `parent_workflow_id` (FR-009/019) | backend board API tests |

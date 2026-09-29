@@ -222,7 +222,9 @@ class Settings(BaseSettings):
     #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
     #: The default token env var for a ``jira`` task source.
     jira_api_token: str = ""
-    #: Max code↔verify iterations before the loop escalates (feature 003).
+    #: Max verification rounds for one approved CAB-2 task before a
+    #: non-clean result escalates to coordinator review (feature 031; the
+    #: same knob feature 003's fixed driver used for its code↔verify loop).
     max_verify_iterations: int = 3
     #: Independent cap for repair attempts triggered by required CI failures.
     max_ci_repair_iterations: int = Field(default=2, ge=0)

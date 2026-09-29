@@ -20,6 +20,10 @@ from app.services.board.coordinator import (
     TransitionCardAction,
 )
 from app.services.board.delivery import deliver
+from app.services.board.delivery_readiness import (
+    delivery_due,
+    delivery_trigger,
+)
 from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.github import change_request_number
 
@@ -30,14 +34,21 @@ _dispatch_log = logging.getLogger("kestrel.board.dispatch")
 
 
 def _request_delivery(
-    workflow_id: str, card: WorkCard, services: DispatchServices
+    workflow_id: str, services: DispatchServices
 ) -> None:
-    """Create the ``delivery`` card for a cleanly verified workflow
-    (T069). Never claimed by a specialist — ``_dispatch_pending_delivery``
-    below actually performs it, in this same dispatch pass or the next
-    one a retry re-triggers.
+    """Create the ``delivery`` card once a clean verification leaves the
+    workflow's coding work settled (T069; feature 031, research R7).
+
+    Never claimed by a specialist — ``_dispatch_pending_delivery`` below
+    actually performs it, in this same dispatch pass or the next one a
+    retry re-triggers. Keyed by the finished work it delivers, so one
+    set of done implementation cards delivers exactly once.
     """
-    trigger = f"delivery:{card.id}:{card.attempt_count}"
+    store = services.claims.store
+    cards = store.list_cards(workflow_id)
+    if not delivery_due(cards, store.list_relations(workflow_id)):
+        return
+    trigger = delivery_trigger(cards)
     services.coordinator.apply_actions(
         workflow_id, trigger,
         [CreateCardAction(kind=CardKind.DELIVERY.value, title="Deliver")],

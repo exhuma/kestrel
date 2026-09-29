@@ -24,6 +24,11 @@ from app.services.board.validation import (
     is_escalation,
     parse_verifier_result,
 )
+from app.services.board.verification_rounds import (
+    RoundContext,
+    reverification,
+    tagged_follow_ups,
+)
 
 
 @dataclass(frozen=True)
@@ -44,7 +49,10 @@ class VerificationRouting:
 
 
 def route_verifier_result(
-    text: str, card: WorkCard, coordinator: CoordinatorService
+    text: str,
+    card: WorkCard,
+    coordinator: CoordinatorService,
+    rounds: RoundContext | None = None,
 ) -> VerificationRouting:
     """Parse *card*'s verifier turn result and create any follow-up cards.
 
@@ -62,6 +70,11 @@ def route_verifier_result(
     ``verification:<card.id>:<card.attempt_count>``, the same guarantee
     ``CoordinatorService.apply_actions`` already gives a repeated
     coordinator wake for one board revision.
+
+    A card working on an approved CAB-2 task (``task_node_id``, feature
+    031) routes through ``verification_rounds.py`` when *rounds* is
+    given: its follow-ups carry the task, a fix is verified again, and a
+    task past its round cap escalates instead.
     """
     try:
         findings = parse_verifier_result(text)
@@ -77,10 +90,29 @@ def route_verifier_result(
         escalations = [f.summary for f in findings if is_escalation(f)]
         actions = [_action_for(finding) for finding in findings]
         clean = not findings
+    _apply(card, actions, coordinator, rounds)
+    return VerificationRouting(escalations=escalations, clean=clean)
+
+
+def _apply(
+    card: WorkCard,
+    actions: list[CreateCardAction],
+    coordinator: CoordinatorService,
+    rounds: RoundContext | None,
+) -> None:
+    tagged = bool(card.task_node_id) and rounds is not None
+    if tagged:
+        actions = tagged_follow_ups(card, actions, rounds)
     if actions:
         trigger = f"verification:{card.id}:{card.attempt_count}"
         coordinator.apply_actions(card.workflow_id, trigger, actions)
-    return VerificationRouting(escalations=escalations, clean=clean)
+    follow_up = reverification(card, rounds) if tagged else None
+    if follow_up is not None:
+        coordinator.apply_actions(
+            card.workflow_id,
+            f"reverification:{card.id}:{card.attempt_count}",
+            [follow_up],
+        )
 
 
 def _action_for(finding: VerifierFinding) -> CreateCardAction:

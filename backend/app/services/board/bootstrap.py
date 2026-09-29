@@ -207,6 +207,7 @@ def get_dispatch_services() -> DispatchServices:
         coordinator=get_coordinator_service(),
         projections=get_projections_service(),
         gates=get_gates_service(),
+        verify_round_cap=get_settings().max_verify_iterations,
     )
 
 

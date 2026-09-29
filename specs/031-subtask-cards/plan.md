@@ -21,9 +21,10 @@ Prerequisites become dependency edges.
 
 A task's verification findings now trigger remediation plus a re-verification,
 capped by the existing `max_verify_iterations` setting (developer decision,
-R6). Delivery becomes a pure readiness check: once every coding card is
-cleanly verified, exactly one delivery is created, so one request gives one
-branch and one PR.
+R6). A clean verification now requests delivery only when a pure readiness
+check finds all of the workflow's coding work settled and verified, and each
+set of finished work delivers exactly once. So one request gives one branch
+and one PR.
 
 The ticket gets one breakdown comment instead of sub-tasks. The child-link
 machinery is deleted; `create_subtask` is kept for #64. The listing drops
@@ -44,7 +45,7 @@ manual-task panel.
 
 **Project Type**: web application (backend + frontend)
 
-**Performance Goals**: n/a. `delivery_due` is O(cards + relations) per dispatch pass, on boards of tens of cards.
+**Performance Goals**: n/a. `delivery_due` is O(cards + relations), evaluated once per clean verification.
 
 **Constraints**:
 - The structural limits in AGENTS.md: module ≤ 500 lines, branches ≤ 12,
@@ -128,7 +129,7 @@ backend/
 │   │   ├── task_source_utils.py                  # − subtask/manual sentinel helpers
 │   │   └── board/
 │   │       ├── materialise.py                    # NEW: candidate → cards, edges, task_spec; breakdown text
-│   │       ├── delivery_readiness.py             # NEW: pure delivery_due(cards, relations) + trigger digest
+│   │       ├── delivery_readiness.py             # NEW: pure delivery_due(cards, relations) + trigger digest (R7)
 │   │       ├── verification_rounds.py            # NEW: round count, cap, remediation + re-verification actions
 │   │       ├── candidate.py                      # strict prerequisite validation (R11)
 │   │       ├── decomposition.py                  # − publish_decomposition & friends
@@ -139,9 +140,9 @@ backend/
 │   │       ├── policy.py                         # + waiting_dependency → awaiting_human
 │   │       ├── interventions.py                  # complete_manual_task; no resolve_gate for manual cards
 │   │       ├── verification.py                   # tagged routing via verification_rounds
-│   │       ├── dispatch_ready.py                 # task_spec extra context; drop _request_delivery call;
+│   │       ├── dispatch_ready.py                 # task_spec extra context; RoundContext;
 │   │       │                                     #   DispatchServices.verify_round_cap
-│   │       ├── dispatch_delivery.py              # request delivery via delivery_due
+│   │       ├── dispatch_delivery.py              # _request_delivery gated by delivery_due
 │   │       ├── bootstrap.py                      # schedule_breakdown_projection; wire verify_round_cap
 │   │       ├── projections.py                    # − "child_work"
 │   │       ├── phases.py                         # MANUAL_TASK → Build
@@ -204,4 +205,4 @@ Each slice leaves `task quality` and both test suites green.
 | `board_card.task_node_id` column | Four consumers need the card → task link: envelope, round count, coordinator guard, idempotency (R2) | Relation-derived lookup breaks after the first remediation round. Title parsing is fragile. |
 | New policy edge `waiting_dependency → awaiting_human` | A manual card must land in "your move" when unblocked, and `ready → done` is illegal (R4) | Two transitions via `ready` emit a misleading "ready" event and briefly look claimable. |
 | Verification round cap in this feature | Deterministic re-verification without a cap can loop for ever (R6, developer decision) | Uncapped: unsafe. No re-verification: delivery can stall. |
-| Delivery readiness as a per-pass check | Several different events can be the last one before delivery (R7) | Triggering only on a clean verification misses an escalation resolved by the operator, and the workflow stalls. |
+| Delivery gated by a readiness check | The first clean verification must not deliver while other coding work is open (R7) | A per-pass check stalls, or delivers unverified work in, pre-031 flows whose cards carry no verification edge. |

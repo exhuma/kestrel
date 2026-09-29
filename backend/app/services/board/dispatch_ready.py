@@ -56,6 +56,7 @@ from app.services.board.refinement import (
 from app.services.board.refinement_rounds import round_context
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
+from app.services.board.verification_rounds import RoundContext
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
 from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.exceptions import GitError
@@ -88,6 +89,9 @@ class DispatchServices:
         ``decomposition_gate`` card (T068). ``None`` leaves a
         ``decomposition`` card's result generically accepted with no
         gate created — effectively disabling decomposition.
+    :param verify_round_cap: The most verification rounds one approved
+        CAB-2 task may have before a non-clean result escalates instead
+        (feature 031, ``Settings.max_verify_iterations``).
     """
 
     claims: ClaimsService
@@ -98,6 +102,7 @@ class DispatchServices:
     coordinator: CoordinatorService | None = None
     projections: ProjectionsService | None = None
     gates: GatesService | None = None
+    verify_round_cap: int = 3
 
 
 async def dispatch_ready_work(
@@ -330,7 +335,12 @@ async def _route_verification(
     """Best-effort: a routing failure must not undo the already-accepted
     verification card result above it."""
     try:
-        routing = route_verifier_result(final_text, card, services.coordinator)
+        routing = route_verifier_result(
+            final_text, card, services.coordinator,
+            RoundContext(
+                services.claims.store.list_cards, services.verify_round_cap
+            ),
+        )
     except Exception:  # noqa: BLE001 — never let routing crash dispatch
         _dispatch_log.exception(
             "workflow %s: verifier-finding routing failed for card %s",
@@ -340,7 +350,7 @@ async def _route_verification(
     for index, summary in enumerate(routing.escalations):
         await _project_escalation(workflow_id, card, index, summary, services)
     if routing.clean:
-        _request_delivery(workflow_id, card, services)
+        _request_delivery(workflow_id, services)
 
 
 async def _project_escalation(
