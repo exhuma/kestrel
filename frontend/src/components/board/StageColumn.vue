@@ -18,7 +18,7 @@ defineProps<{
       <span>{{ stage }}</span>
       <v-chip size="small" class="ml-2">{{ requests.length }}</v-chip>
     </div>
-    <div class="stage-column-body flex-grow-1 pa-2 pt-0">
+    <div class="stage-column-body flex-grow-1 pa-2">
       <RequestCard
         v-for="request in requests"
         :key="request.summary.id"
