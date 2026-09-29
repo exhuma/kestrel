@@ -155,10 +155,10 @@ ingests normally.
 ## Phase 7: Polish & cross-cutting
 
 - [x] T038 [P] Amend specs/026-autonomous-work-board/contracts/board-api.md per contracts/board-api-delta.md: remove `parent_workflow_id`; add `open_manual_task_count`, the `manual_task` kind and the `complete_manual_task` action; replace the child_work write-back with the breakdown comment. Land it with T024/T028 if possible
-- [ ] T039 [P] Add a "Superseded (child tickets) by feature 031" note at the top of specs/012-task-decomposition-pipeline/spec.md, with User Story 3's publish half, FR-011, FR-013, FR-014 and FR-015 listed as reversed (FR-022)
-- [ ] T040 [P] Update docs/architecture.md: one workflow → one branch → one PR; decomposition materialises cards; manual tasks; the capped verification loop; per-task tickets lost for now (backlog #63/#64/#65)
-- [ ] T041 Run the full gate: `task quality`, backend `uv run pytest -q`, and frontend `npx prettier --check`, `npm test` and `npm run build`. Walk the quickstart manual scenario where feasible
-- [ ] T042 Mark the spec Status "Implemented", tick the tasks, and comment on GitHub #54 and Vikunja 708 with the commits
+- [x] T039 [P] Add a "Superseded (child tickets) by feature 031" note at the top of specs/012-task-decomposition-pipeline/spec.md, with User Story 3's publish half, FR-011, FR-013, FR-014 and FR-015 listed as reversed (FR-022)
+- [x] T040 [P] Update docs/architecture.md: one workflow → one branch → one PR; decomposition materialises cards; manual tasks; the capped verification loop; per-task tickets lost for now (backlog #63/#64/#65)
+- [x] T041 Run the full gate: `task quality`, backend `uv run pytest -q`, and frontend `npx prettier --check`, `npm test` and `npm run build`. Walk the quickstart manual scenario where feasible
+- [x] T042 Mark the spec Status "Implemented", tick the tasks, and comment on GitHub #54 and Vikunja 708 with the commits
 
 ## Dependencies & execution order
 

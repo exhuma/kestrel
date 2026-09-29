@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Draft
+**Status**: Implemented (2026-09-29)
 
 **Input**: GitHub #54 (epic #39), Vikunja task 708. It interacts with #51,
 whose "manual tasks block downstream work" and "N manual tasks assigned to you"

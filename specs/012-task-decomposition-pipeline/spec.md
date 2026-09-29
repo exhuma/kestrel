@@ -1,5 +1,23 @@
 # Feature Specification: Task Decomposition Pipeline
 
+> **Partly superseded by [feature 031](../031-subtask-cards/spec.md)
+> (2026-09-29).** Approved follow-up tasks are no longer published as
+> separate tickets. They stay cards inside the original request's workflow,
+> and that workflow delivers them as one branch and one pull request. The
+> following are **reversed**:
+>
+> - User Story 3's publishing half: acceptance scenarios 3–5, from
+>   "published back to the task source" onwards;
+> - FR-011 (publish each follow-up task as a linked ticket);
+> - FR-013 (a published follow-up starts its own run later);
+> - FR-014 (the original run ends at publishing);
+> - FR-015 (a triggered follow-up skips to technical design);
+> - SC-004 and SC-005.
+>
+> The understanding checkpoint, the PRD phase and the technical analysis
+> itself still stand. Losing per-task tickets is an accepted trade-off for
+> now: see #63.
+
 **Feature Branch**: `012-task-decomposition-pipeline`
 
 **Created**: 2026-09-02

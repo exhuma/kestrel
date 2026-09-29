@@ -189,8 +189,8 @@ post failure (recorded as retryable instead). Wired for **gate decisions**
 (resolving a human gate posts `"Gate approved: <title>"` or `rejected`),
 **escalations** (a `coordinator_review` card — created either by a
 verifier's routed finding, T051, or an operator's own "request
-coordinator review" — posts `"Escalation: <summary/title>"`), and now
-**child work** (below) — see `tests/test_board_write_back.py`,
+coordinator review" — posts `"Escalation: <summary/title>"`), and an
+**approved task breakdown** (below) — see `tests/test_board_write_back.py`,
 `tests/test_board_verification.py`, and
 `bootstrap.py::schedule_gate_projection`/`schedule_escalation_projection`.
 
@@ -205,25 +205,13 @@ it, durably stores the raw candidate as a `HandoffArtifact` (via the new
 without the card-acceptance side effects `submit_result` carries), and
 opens a `decomposition_gate` human gate referencing it — an unparseable
 result escalates to `coordinator_review` instead (fail closed, same
-pattern as T051's verifier routing). Approving the gate schedules
-`decomposition.py::publish_decomposition`, which creates each child via
-`TaskSource.create_subtask`, records it in the still-intact
-`child_task_store.py` (feature 012), and projects a `child_work` comment
-back to the parent per child.
+pattern as T051's verifier routing). What approving the gate does is
+described under spec 031 below.
 
 This intentionally does **not** resurrect the old fixed driver's
 propose→self-critique→revise loop (`technical_analysis.py`, deleted in
 Phase 10) — the human gate is the quality backstop instead; a rejected or
-poorly-scoped candidate is retried like any other card. What the port
-*did* need to preserve is the old driver's **task-vs-subtask distinction**:
-a task ingested from a task source may need decomposing, but a child task
-Kestrel itself publishes must not be decomposed again (the old driver's
-loop-breaker, `has_subtask_sentinel`/`SUBTASK_SENTINEL`). This is now
-`Workflow.skip_decomposition`, set once at ingestion
-(`app/services/ingestion.py`) from the same marker
-(`app/markers.py::SubtaskSentinel`), and `publish_decomposition` tags
-every child it creates with that same marker so it carries the exemption
-forward.
+poorly-scoped candidate is retried like any other card.
 
 **As of 2026-09-28, CAB-2 has something to decide on** (spec 030,
 GitHub #50–#52). The `pm`'s `<DECOMPOSITION>` block now also classifies
@@ -249,18 +237,48 @@ executive summary on the gate card itself, so the summary is the gate's
 `exec_summary.py`, not written by an agent, and it makes no go/no-go
 recommendation. Invalid estimates fail closed to `coordinator_review`.
 
-After approval, `publish_decomposition` appends each task's estimate to
-its published body. It tags manual tasks with an extra
-`ManualTaskSentinel`, and ingestion never starts a workflow for a body
-carrying that marker, so no specialist can claim a manual task. A gate
-opened before spec 030 still publishes as before, reading the
-unclassified candidate as all-coding.
+**As of 2026-09-29, approved tasks are cards in the request's own
+workflow** (spec 031, GitHub #54). This reverses spec 012, which published
+each approved task as a child ticket that was then ingested as a workflow of
+its own, with its own branch and PR. Approving the `decomposition_gate`
+now runs `app/services/board/materialise.py` inside `GatesService.resolve`:
+
+- per coding task, an `implementation` card for `coder` and the
+  `verification` card that checks it;
+- per manual task, a `manual_task` card that no specialist can claim. The
+  operator completes it from the cockpit (`complete_manual_task`).
+
+Prerequisites become dependency edges between the tasks' head cards. Every
+card carries its task in `board_card.task_node_id`, and each head card holds
+the approved text and estimate as a `task_spec` artifact. That artifact is
+what every card on the task works from (`_extra_context_for`). The
+coordinator cannot change these cards. The request's ticket gets one
+breakdown comment instead of one ticket per task. `TaskSource.create_subtask`
+stays on the port, unused, for mirroring cards back as sub-tasks later
+(backlog epic #63).
+
+The result is **one request → one workflow → one branch → one PR** by
+construction. A tagged verification with findings creates tagged
+remediation plus a re-verification. After `max_verify_iterations` rounds it
+escalates to `coordinator_review` instead (`verification_rounds.py`). A
+clean verification requests delivery only once no coding, verification,
+reconciliation or review work is open or failed, and every approved task's
+work is verified (`delivery_readiness.py`). The request is keyed by the set
+of finished implementation cards, so each set delivers once. Manual tasks
+never hold back delivery, but they keep the request out of Done, and the
+stage board counts them ("N manual tasks assigned to you").
+
+**Accepted trade-off:** per-task tickets in GitHub/Jira are gone for now.
+The task source was the only place people without kestrel access could
+follow per-task progress. Mirroring cards back as sub-tasks, and resolving
+gates or manual tasks from the ticket, are on the backlog as #63 (#64,
+#65).
 
 Decomposition can also be **enforced**, not just offered: the
 `board_decomposition_required` setting (off by default, `config.toml`)
 reflects that Kestrel is sometimes only one part of a larger system where
 an ingested task is high-level and may include non-development work, so
-every non-exempt workflow must publish at least one child task before any
+every workflow must pass an approved decomposition (CAB-2) before any
 other work starts — even if the decomposition is a single task covering
 everything. This is enforced two ways, deliberately redundant: `GatesService`
 deterministically creates the `decomposition` card itself right after
@@ -268,9 +286,7 @@ deterministically creates the `decomposition` card itself right after
 discretion), and `CoordinatorService.apply_actions` independently rejects
 any other card-creating action until a `decomposition_gate` card reaches
 `done` — the first guarantees the assessment starts, the second guarantees
-nothing else can happen in parallel with it. A workflow with
-`skip_decomposition` set is exempt from enforcement regardless of the
-setting. See `tests/test_board_decomposition.py`,
+nothing else can happen in parallel with it. See `tests/test_board_decomposition.py`,
 `tests/test_board_gates.py::TestDecompositionEnforcement`, and
 `tests/test_board_coordinator.py::TestDecompositionEnforcement`.
 
@@ -394,9 +410,9 @@ creates a board **Workflow** and its initial cards on a qualifying task
 automatically, including a `coder` role committing real file edits to
 its own local worktree branch, and human gates/interventions still
 happen only in the Kestrel web UI. Gate decisions, escalations,
-published child tickets, an approved PRD, and a clean verification's
-delivery all now get reported back to the ticket itself (T067/T068/
-T069/T078); what an operator still can't see from the source or a PR
+an approved task breakdown, an approved PRD, and a clean verification's
+delivery all now get reported back to the ticket itself (T067/T069/T078,
+spec 031); what an operator still can't see from the source or a PR
 alone is anything short of those milestones — day-to-day card-by-card
 progress is still Kestrel-UI-only.
 
@@ -408,7 +424,7 @@ progress is still Kestrel-UI-only.
   face the network so GitHub can deliver events; its authenticity gate is an
   HMAC signature, not loopback binding (see the constitution's access model).
   The endpoint currently handles only the `issues` event (label-trigger
-  ingestion and child-issue lifecycle observation) — the `issue_comment` /
+  ingestion) — the `issue_comment` /
   `pull_request_review` / `pull_request_review_comment` handling the old
   feedback-intake subsystem added was removed with the fixed driver (see
   "Current gap" above) and carried no separate access-model exception of its
