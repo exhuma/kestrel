@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { useBoard } from '../../src/composables/useBoard'
+import { resetBoardSelection, useBoard } from '../../src/composables/useBoard'
 import type { BoardSnapshot, WorkCardSummary } from '../../src/types/workflows'
 
 let esInstances = 0
@@ -20,11 +20,11 @@ beforeEach(() => {
   esInstances = 0
   lastEs = null
   vi.stubGlobal('EventSource', FakeEventSource)
-  useBoard().stop()
+  resetBoardSelection()
   useBoard().current.value = null
 })
 afterEach(() => {
-  useBoard().stop()
+  resetBoardSelection()
   vi.restoreAllMocks()
 })
 
@@ -166,6 +166,38 @@ describe('useBoard select', () => {
     await select('wf-1')
     stop()
     expect(lastEs?.close).toHaveBeenCalled()
+  })
+})
+
+describe('useBoard selection ownership', () => {
+  it("a view leaving never ends the next view's selection or load", async () => {
+    let resolve: (r: Response) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((r) => (resolve = r))),
+    )
+    const leaving = useBoard()
+    const arriving = useBoard()
+    void leaving.select('wf-1')
+    const loaded = arriving.select('wf-1')
+    leaving.stop()
+    resolve(new Response(JSON.stringify(snapshot('wf-1')), { status: 200 }))
+    await loaded
+    expect(arriving.loading.value).toBe(false)
+    expect(arriving.selectedId.value).toBe('wf-1')
+    expect(arriving.current.value?.id).toBe('wf-1')
+  })
+
+  it('stopping mid-load clears the loading state', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    )
+    const view = useBoard()
+    void view.select('wf-1')
+    expect(view.loading.value).toBe(true)
+    view.stop()
+    expect(view.loading.value).toBe(false)
   })
 })
 

@@ -20,6 +20,15 @@ const selectedId = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+/** The view that made the current selection. A view leaving the page
+ *  (its `stop`) must not end a selection the next view has already made
+ *  — route changes mount the new view and unmount the old in either
+ *  order, often while a fetch is still in flight. */
+let owner: symbol | null = null
+/** The latest snapshot fetch; only it may clear `loading`, so a fetch
+ *  that went stale can never leave the header's loading bar on. */
+let fetchSeq = 0
+
 let listSource: EventSource | null = null
 let detailSource: EventSource | null = null
 
@@ -71,6 +80,7 @@ function stopDetail(): void {
 }
 
 async function fetchSnapshot(id: string): Promise<boolean> {
+  const seq = ++fetchSeq
   loading.value = true
   error.value = null
   try {
@@ -84,7 +94,7 @@ async function fetchSnapshot(id: string): Promise<boolean> {
     if (selectedId.value === id) error.value = describe(e)
     return false
   } finally {
-    if (selectedId.value === id) loading.value = false
+    if (seq === fetchSeq) loading.value = false
   }
 }
 
@@ -109,9 +119,13 @@ async function select(id: string): Promise<void> {
   if (ok && selectedId.value === id) openDetailStream(id)
 }
 
-function stop(): void {
+/** End the selection whoever made it, and any load in flight. */
+export function resetBoardSelection(): void {
   stopDetail()
   selectedId.value = null
+  owner = null
+  fetchSeq += 1
+  loading.value = false
 }
 
 // Every intervention echoes the snapshot's own revision back as
@@ -166,7 +180,10 @@ async function resolveQuarantine(
   }
 }
 
+/** Each caller (one per component instance) gets its own `select` and
+ *  `stop`: `stop` ends the selection only if this caller made it. */
 export function useBoard() {
+  const me = Symbol('board-view')
   return {
     workflows,
     current,
@@ -176,8 +193,13 @@ export function useBoard() {
     refresh,
     startList,
     stopList,
-    select,
-    stop,
+    select: (id: string) => {
+      owner = me
+      return select(id)
+    },
+    stop: () => {
+      if (owner === me) resetBoardSelection()
+    },
     applyIntervention,
     resolveQuarantine,
   }
