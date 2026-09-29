@@ -61,9 +61,16 @@ opening a second one.
   kept dormant. Child tickets that are still open are closed or unlabelled by
   hand. Workflows that were already created from child tickets stay as
   ordinary workflows.
-- **Accepted trade-off: per-task tickets in Jira/GitHub are lost.** kestrel is
-  a single-user tool, and the request-level ticket remains. The task breakdown
-  is instead posted **once**, as one comment on the request's ticket.
+- **Accepted trade-off, for now: per-task tickets in Jira/GitHub are lost.**
+  The request-level ticket remains, and the task breakdown is posted **once**,
+  as one comment on the request's ticket. This is a known loss, not an
+  endorsement. The task source is how people without kestrel access (for
+  access or authorisation reasons, or a line manager) follow progress.
+  Sub-tasks are expected to come back as *mirrors* of cards, never as
+  ingestable requests, under the backlog epic #63 (bidirectional messaging
+  between kestrel and the task source; sub-issues #64 and #65). They are
+  deferred so as not to add churn while the board redesign (Vikunja 710)
+  lands.
 
 ### Rejected alternative
 
@@ -320,8 +327,10 @@ ordinary, full request.
 - **FR-017**: Ingestion MUST treat every ticket as an ordinary request. The
   former subtask and manual-task markers in a ticket body MUST no longer
   change how it is ingested.
-- **FR-018**: The ability to create a sub-task in an external task source MUST
-  be removed from every task-source implementation. Nothing may call it.
+- **FR-018**: Nothing in the decomposition flow may call the task source's
+  "create sub-task" capability any more. The capability itself and its
+  per-source implementations are **kept**, unused, for reuse by #64.
+  Deleting them now and re-adding them later would be churn.
 - **FR-019**: The board listing MUST no longer expose a request's parent
   request, and the stage board MUST no longer nest one request inside another.
   This supersedes the "decomposition children" case of feature 029's FR-002
@@ -354,7 +363,8 @@ ordinary, full request.
 - **Breakdown comment**: one write-back per approval to the request's ticket.
   It replaces the per-child write-backs.
 - **Removed**: the child-task link records, the per-workflow skip-decomposition
-  flag, the subtask marker, and the task-source "create sub-task" capability.
+  flag and the subtask marker. The task-source "create sub-task" capability is
+  kept, unused (FR-018).
 
 ## Success Criteria *(mandatory)*
 
@@ -375,8 +385,9 @@ ordinary, full request.
   card starts before every one of its prerequisites is resolved. Both are
   covered by automated tests.
 - **SC-006**: After the upgrade, the code base contains no reference to the
-  child-task link, the skip-decomposition flag, the subtask marker or the
-  create-sub-task capability. The dead-code checks in `task quality` pass.
+  child-task link, the skip-decomposition flag or the subtask marker, and
+  nothing in the decomposition flow calls the create-sub-task capability. The
+  dead-code checks in `task quality` pass.
 
 ## Assumptions
 
@@ -411,5 +422,7 @@ ordinary, full request.
 - Any merge or integration-branch machinery (see *Rejected alternative*).
 - Closing, unlabelling or migrating legacy child tickets in the external task
   sources.
+- Mirroring cards back to the task source as sub-tasks, and resolving gates or
+  manual tasks from the task source: backlog epic #63 (#64, #65).
 - Editing an approved decomposition after CAB-2 (adding, removing or reordering
   tasks other than through operator interventions on individual cards).
