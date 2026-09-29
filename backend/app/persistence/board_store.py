@@ -60,6 +60,7 @@ def _row_to_card(row: BoardCardRow) -> WorkCard:
         attempt_limit=row.attempt_limit,
         attempt_count=row.attempt_count,
         wait_reason=row.wait_reason,
+        task_node_id=row.task_node_id,
     )
 
 
@@ -131,6 +132,7 @@ class BoardStore:
                     workspace_permission=card.workspace_permission,
                     attempt_limit=card.attempt_limit,
                     wait_reason=card.wait_reason,
+                    task_node_id=card.task_node_id,
                     created_at=created_at,
                     updated_at=created_at,
                 )

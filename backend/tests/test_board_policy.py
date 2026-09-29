@@ -44,6 +44,13 @@ class TestStateTransitions:
             CardState.WAITING_DEPENDENCY, CardState.READY
         )
 
+    def test_waiting_dependency_to_awaiting_human_is_valid(self) -> None:
+        """Ensure an unblocked manual task can become the operator's move
+        directly (feature 031, research R4)."""
+        assert is_valid_transition(
+            CardState.WAITING_DEPENDENCY, CardState.AWAITING_HUMAN
+        )
+
     def test_ready_to_awaiting_human_is_valid(self) -> None:
         assert is_valid_transition(CardState.READY, CardState.AWAITING_HUMAN)
 

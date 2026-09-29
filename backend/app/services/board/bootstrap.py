@@ -18,16 +18,11 @@ from app.persistence.board_gate_store import get_board_gate_store
 from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
 from app.persistence.board_store import get_board_store
-from app.persistence.child_task_store import get_child_task_store
 from app.policy import get_specialist_backend_policy
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.ci_poll import CiPollService
 from app.services.board.claims import ClaimsService
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.decomposition import (
-    DecompositionResultError,
-    publish_decomposition,
-)
 from app.services.board.dispatch import SchedulingService
 from app.services.board.dispatch_ready import (
     DispatchServices,
@@ -35,6 +30,10 @@ from app.services.board.dispatch_ready import (
 )
 from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.interventions import InterventionsService
+from app.services.board.materialise import (
+    approved_candidate,
+    render_breakdown,
+)
 from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
 from app.services.board.recovery import RecoveryService
@@ -330,59 +329,39 @@ async def _project(
     await post_projection(request, task_source, get_projections_service())
 
 
-def schedule_decomposition_publish(workflow_id: str, card: WorkCard) -> None:
-    """Schedule publishing an approved decomposition candidate's child
-    tasks (feature 026, T068), in the background.
+def schedule_breakdown_projection(workflow_id: str, card: WorkCard) -> None:
+    """Schedule posting an approved decomposition's task breakdown to the
+    request's ticket (feature 031, FR-006), in the background.
 
-    Fire-and-forget, mirroring ``schedule_gate_projection``: the caller
-    (a router handler) must not block its HTTP response on however many
-    ``create_subtask`` round trips the candidate needs.
+    One comment per approval, in place of the one child ticket per task
+    feature 012 used to publish: the tasks themselves are cards in this
+    workflow already (``materialise.py``). Fire-and-forget, mirroring
+    ``schedule_gate_projection``.
     """
-    task = asyncio.create_task(_publish_decomposition(workflow_id, card))
+    task = asyncio.create_task(_project_breakdown(workflow_id, card))
     task.add_done_callback(
         lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
     )
 
 
-async def _publish_decomposition(workflow_id: str, card: WorkCard) -> None:
+async def _project_breakdown(workflow_id: str, card: WorkCard) -> None:
     gate = get_gates_service().get_gate(card.id)
-    if gate is None or gate.target_artifact_id is None:
+    content = (
+        get_artifacts_service().read_content(gate.target_artifact_id)
+        if gate is not None and gate.target_artifact_id is not None
+        else None
+    )
+    candidate = approved_candidate(content) if content else None
+    if candidate is None:
         _logger.warning(
-            "workflow %s: decomposition_gate %s has no candidate "
-            "artifact; nothing published", workflow_id, card.id,
+            "workflow %s: decomposition_gate %s has no readable candidate; "
+            "no breakdown posted", workflow_id, card.id,
         )
         return
-    artifact = get_board_artifact_store().get(gate.target_artifact_id)
-    if artifact is None:
-        _logger.warning(
-            "workflow %s: decomposition candidate artifact %s missing",
-            workflow_id, gate.target_artifact_id,
-        )
-        return
-    workflow = get_board_store().get_workflow(workflow_id)
-    task_source = get_task_source_registry().sources.get(workflow.source)
-    if task_source is None:
-        _logger.warning(
-            "workflow %s: no task source for source %r; decomposition "
-            "not published", workflow_id, workflow.source,
-        )
-        return
-    content = get_board_artifact_content_store().read(artifact.content_ref)
-    try:
-        refs = await publish_decomposition(
-            workflow, content, task_source, get_child_task_store()
-        )
-    except DecompositionResultError:
-        _logger.exception(
-            "workflow %s: approved decomposition candidate no longer "
-            "parses", workflow_id,
-        )
-        return
-    for ref in refs:
-        await _project(
-            workflow_id, "child_work", f"child_work:{card.id}:{ref}",
-            f"Created child task: {ref}",
-        )
+    await _project(
+        workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
+        render_breakdown(candidate),
+    )
 
 
 def schedule_prd_approval_projection(workflow_id: str, card: WorkCard) -> None:

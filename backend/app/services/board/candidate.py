@@ -86,6 +86,7 @@ def load_candidate(raw: str, *, strict: bool) -> Candidate:
     summary = _parse_summary(data.get("summary"), strict)
     if strict:
         tasks = _assign_ids(tasks)
+        _check_prerequisites(tasks)
     return Candidate(tasks=tuple(tasks), summary=summary)
 
 
@@ -157,7 +158,7 @@ def _assign_ids(tasks: list[DecompositionTask]) -> list[DecompositionTask]:
     """Give every id-less task ``t<position>``; reject any duplicate."""
     assigned = [
         task if task.task_node_id
-        else _with_id(task, f"t{index}")
+        else with_task_id(task, f"t{index}")
         for index, task in enumerate(tasks, start=1)
     ]
     ids = [task.task_node_id for task in assigned]
@@ -166,7 +167,44 @@ def _assign_ids(tasks: list[DecompositionTask]) -> list[DecompositionTask]:
     return assigned
 
 
-def _with_id(task: DecompositionTask, task_node_id: str) -> DecompositionTask:
+def _check_prerequisites(tasks: list[DecompositionTask]) -> None:
+    """Reject a prerequisite that names no task, the task itself, or
+    closes a cycle (feature 031, research R11) — prerequisites become
+    card dependencies, so a bad one would strand work for ever."""
+    graph = {task.task_node_id: task.prerequisites for task in tasks}
+    for node, prerequisites in graph.items():
+        unknown = [p for p in prerequisites if p not in graph]
+        if unknown:
+            raise DecompositionResultError(
+                f"task {node} has unknown prerequisite(s) {unknown}"
+            )
+        if node in prerequisites:
+            raise DecompositionResultError(f"task {node} requires itself")
+    _check_acyclic(graph)
+
+
+def _check_acyclic(graph: dict[str, tuple[str, ...]]) -> None:
+    """Kahn's algorithm: any node never freed sits on a cycle."""
+    pending = {node: len(prereqs) for node, prereqs in graph.items()}
+    freed = [node for node, count in pending.items() if count == 0]
+    while freed:
+        done = freed.pop()
+        for node, prereqs in graph.items():
+            if done in prereqs:
+                pending[node] -= 1
+                if pending[node] == 0:
+                    freed.append(node)
+    cyclic = sorted(node for node, count in pending.items() if count > 0)
+    if cyclic:
+        raise DecompositionResultError(
+            f"prerequisites form a cycle through {cyclic}"
+        )
+
+
+def with_task_id(
+    task: DecompositionTask, task_node_id: str
+) -> DecompositionTask:
+    """*task* with its ``task_node_id`` set to *task_node_id*."""
     return DecompositionTask(
         title=task.title,
         body=task.body,

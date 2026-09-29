@@ -34,7 +34,9 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
         }
     ),
     CardState.WAITING_DEPENDENCY: frozenset(
-        {CardState.READY, CardState.CANCELLED}
+        # AWAITING_HUMAN: an unblocked ``manual_task`` is the operator's
+        # move, never claimable work (feature 031, research R4).
+        {CardState.READY, CardState.AWAITING_HUMAN, CardState.CANCELLED}
     ),
     CardState.AWAITING_HUMAN: frozenset(
         # READY resumes claimable work paused for a human answer; DONE is

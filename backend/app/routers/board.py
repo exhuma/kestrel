@@ -61,7 +61,7 @@ from app.services.board.bootstrap import (
     get_interventions_service,
     get_quarantine_service,
     get_specialist_roster,
-    schedule_decomposition_publish,
+    schedule_breakdown_projection,
     schedule_escalation_projection,
     schedule_gate_projection,
     schedule_prd_approval_projection,
@@ -478,6 +478,6 @@ def _schedule_gate_followup(
     if decision != "approved":
         return
     if updated.kind == CardKind.DECOMPOSITION_GATE.value:
-        schedule_decomposition_publish(workflow_id, updated)
+        schedule_breakdown_projection(workflow_id, updated)
     elif updated.kind == CardKind.PRD_GATE.value:
         schedule_prd_approval_projection(workflow_id, updated)

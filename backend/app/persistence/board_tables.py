@@ -89,6 +89,9 @@ class BoardCardRow(Base):
     scope_authority_artifact: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    #: The approved-decomposition task this card works on (feature 031,
+    #: research R2); ``NULL`` for every other card.
+    task_node_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -337,7 +340,8 @@ class BoardExternalProjectionRow(Base):
     workflow_id: Mapped[str] = mapped_column(
         ForeignKey("board_workflow.id")
     )
-    #: "gate" | "escalation" | "approved_artifact" | "child_work" | "delivery".
+    #: "gate" | "escalation" | "approved_artifact" | "delivery" (a legacy
+    #: row may still read "child_work", no longer written — feature 031).
     kind: Mapped[str] = mapped_column(Text)
     idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
     #: "pending" | "completed" | "retryable_failure".

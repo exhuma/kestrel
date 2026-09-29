@@ -1,5 +1,6 @@
-"""Tests for decomposition-candidate parsing, routing, and publishing
-(feature 026, T068).
+"""Tests for decomposition-candidate parsing and routing (feature 026,
+T068). Approval no longer publishes anything: see
+``test_board_materialise.py`` (feature 031).
 """
 from __future__ import annotations
 
@@ -8,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from app.markers import ManualTaskSentinel, SubtaskSentinel
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
@@ -26,7 +26,6 @@ from app.services.board.decomposition import (
     DecompositionTask,
     RoutingServices,
     parse_decomposition_result,
-    publish_decomposition,
     route_decomposition_result,
 )
 from app.services.board.dispatch_ready import (
@@ -211,142 +210,6 @@ class TestRouting:
             c for c in services.store.list_cards("wf-1") if c.id != "card-1"
         ]
         assert [c.kind for c in new_cards] == ["coordinator_review"]
-
-
-class _FakeTaskSource:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str, str, tuple]] = []
-        self._next = 1
-
-    async def create_subtask(
-        self, parent_ref: str, title: str, body: str, markers=()
-    ) -> str:
-        self.calls.append((parent_ref, title, body, markers))
-        ref = f"owner/repo#{100 + self._next}"
-        self._next += 1
-        return ref
-
-
-class _FakeChildTasks:
-    def __init__(self) -> None:
-        self.recorded: list[dict] = []
-
-    def record(
-        self, parent_workflow_id, task_ref, task_node_id="",
-        prerequisites=(), integration_branch="",
-    ) -> None:
-        self.recorded.append(
-            {
-                "parent_workflow_id": parent_workflow_id,
-                "task_ref": task_ref,
-                "task_node_id": task_node_id,
-                "prerequisites": prerequisites,
-                "integration_branch": integration_branch,
-            }
-        )
-
-
-_PROPOSAL = json.dumps(
-    {
-        "summary": "s",
-        "tasks": [
-            {
-                "task_node_id": "t1", "title": "Do X", "body": "details",
-                "classification": "coding",
-                "estimate": {
-                    "size": "M", "confidence": "low", "man_hours": 6,
-                    "agent_tokens": 400000, "review_hours": 1.5,
-                    "risks": ["schema migration"], "rationale": "one table",
-                },
-            },
-            {
-                "task_node_id": "t2", "title": "Ask legal", "body": "sign",
-                "classification": "manual",
-                "estimate": {
-                    "size": "S", "confidence": "high", "man_hours": 2,
-                    "agent_tokens": 0, "review_hours": 0,
-                    "risks": [], "rationale": "one email",
-                },
-            },
-        ],
-    }
-)
-
-
-class TestPublishing:
-    @pytest.mark.asyncio
-    async def test_publishes_every_task_with_a_subtask_sentinel(self) -> None:
-        task_source = _FakeTaskSource()
-        child_tasks = _FakeChildTasks()
-        candidate = (
-            '{"tasks": [{"title": "Do X", "body": "details"}, '
-            '{"title": "Do Y", "body": "more", "task_node_id": "T2", '
-            '"prerequisites": ["T1"]}]}'
-        )
-
-        refs = await publish_decomposition(
-            _WORKFLOW, candidate, task_source, child_tasks
-        )
-
-        published_task_count = 2
-        assert refs == ["owner/repo#101", "owner/repo#102"]
-        assert len(task_source.calls) == published_task_count
-        for _parent, _title, _body, markers in task_source.calls:
-            assert isinstance(markers[0], SubtaskSentinel)
-        assert child_tasks.recorded[1]["task_node_id"] == "T2"
-        assert child_tasks.recorded[1]["prerequisites"] == ("T1",)
-        assert child_tasks.recorded[0]["parent_workflow_id"] == "wf-1"
-
-    @pytest.mark.asyncio
-    async def test_a_legacy_candidate_publishes_unchanged(self) -> None:
-        """Ensure a pre-030 gate target still publishes (FR-019)."""
-        task_source = _FakeTaskSource()
-        candidate = '{"tasks": [{"title": "Do X", "body": "details"}]}'
-
-        await publish_decomposition(
-            _WORKFLOW, candidate, task_source, _FakeChildTasks()
-        )
-
-        _parent, _title, body, markers = task_source.calls[0]
-        assert body == "details"
-        assert [type(m) for m in markers] == [SubtaskSentinel]
-
-    @pytest.mark.asyncio
-    async def test_a_manual_task_carries_the_manual_marker(self) -> None:
-        """Ensure ingestion can recognise a manual child (FR-017/018)."""
-        task_source = _FakeTaskSource()
-        child_tasks = _FakeChildTasks()
-
-        await publish_decomposition(
-            _WORKFLOW, _PROPOSAL, task_source, child_tasks
-        )
-
-        coding, manual = task_source.calls
-        assert [type(m) for m in coding[3]] == [SubtaskSentinel]
-        assert [type(m) for m in manual[3]] == [
-            SubtaskSentinel, ManualTaskSentinel,
-        ]
-        assert manual[2].startswith("**Manual task** — for a human.")
-        assert len(child_tasks.recorded) == len(task_source.calls)
-
-    @pytest.mark.asyncio
-    async def test_every_published_body_carries_its_estimate(self) -> None:
-        task_source = _FakeTaskSource()
-
-        await publish_decomposition(
-            _WORKFLOW, _PROPOSAL, task_source, _FakeChildTasks()
-        )
-
-        coding_body = task_source.calls[0][2]
-        assert coding_body.startswith("details\n\n")
-        assert "## Estimate (agent, unverified)" in coding_body
-        assert (
-            "Size M · confidence low · ~6.0 man-hours · "
-            "~400,000 agent tokens · ~1.5 review hours"
-        ) in coding_body
-        assert "Risks: schema migration" in coding_body
-        assert "Rationale: one table" in coding_body
-        assert "Risks:" not in task_source.calls[1][2]
 
 
 class TestEndToEndDispatchRouting:

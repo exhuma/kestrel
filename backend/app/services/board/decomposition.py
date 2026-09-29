@@ -6,11 +6,8 @@ follow-up work. Its candidate is validated strictly (``candidate.py``)
 and handed to `developer` on an ``estimation`` card; only a valid
 estimate opens the ``decomposition_gate`` (CAB-2 — see
 ``estimation.py``). No child task is ever published without that
-approval. Publishing an approved candidate (``publish_decomposition``)
-is a separate, later step (see
-``bootstrap.py::schedule_decomposition_publish``), since it needs
-collaborators (a ``TaskSource``, ``ChildTaskLinks``) this module's
-routing half does not.
+approval. Approval turns the candidate into cards in the same workflow
+(feature 031, ``materialise.py``) — nothing is published as a ticket.
 
 An unparseable proposal is routed as an escalation too (fail closed),
 the same convention ``verification.py`` uses: an untrustworthy result
@@ -22,26 +19,20 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from app.markers import ManualTaskSentinel, Marker, SubtaskSentinel
 from app.models_board import (
     CardKind,
     CardRelation,
     CardState,
     RelationKind,
     WorkCard,
-    Workflow,
     WorkspacePermission,
 )
 from app.persistence.board_store import BoardStore
-from app.persistence.child_task_store import ChildTaskLinks
-from app.ports import TaskSource
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.candidate import (
-    MANUAL,
     Candidate,
     DecompositionResultError,
     DecompositionTask,
-    TaskEstimate,
     dump_candidate,
     load_candidate,
 )
@@ -55,7 +46,6 @@ __all__ = [
     "RoutingServices",
     "escalate",
     "parse_decomposition_result",
-    "publish_decomposition",
     "route_decomposition_result",
 ]
 
@@ -152,76 +142,3 @@ def route_decomposition_result(
         ),
         created_by_action="decomposition",
     )
-
-
-async def publish_decomposition(
-    workflow: Workflow,
-    candidate_json: str,
-    task_source: TaskSource,
-    child_tasks: ChildTaskLinks,
-) -> list[str]:
-    """Publish every task in an approved decomposition candidate.
-
-    Each child is created via ``create_subtask`` with a
-    :class:`SubtaskSentinel` marker, so its own later ingestion never
-    forces it through decomposition again (``Workflow.skip_decomposition``),
-    plus a :class:`ManualTaskSentinel` for a manual task, so ingestion
-    never turns it into agent work at all (FR-018). Each is then
-    recorded as a linked child (``ChildTaskLinks.record``) so
-    re-adoption/reopen tracking — and cleanup — recognizes it.
-
-    :returns: The new child task refs, in candidate order.
-    :raises DecompositionResultError: If *candidate_json* is no longer
-        parseable (should not happen — it was validated before the gate
-        was created).
-    """
-    candidate = load_candidate(candidate_json, strict=False)
-    refs = []
-    for task in candidate.tasks:
-        ref = await task_source.create_subtask(
-            workflow.task_ref, task.title, published_body(task),
-            markers=_markers_for(task),
-        )
-        child_tasks.record(
-            workflow.id, ref,
-            task_node_id=task.task_node_id,
-            prerequisites=task.prerequisites,
-            integration_branch=workflow.base_branch,
-        )
-        refs.append(ref)
-    return refs
-
-
-def _markers_for(task: DecompositionTask) -> tuple[Marker, ...]:
-    if task.classification == MANUAL:
-        return (SubtaskSentinel(), ManualTaskSentinel())
-    return (SubtaskSentinel(),)
-
-
-def published_body(task: DecompositionTask) -> str:
-    """*task*'s body as published: a manual-task header when it is for a
-    human, and its approved estimate when it has one (data-model.md).
-    A pre-feature-030 task has neither, so publishes unchanged."""
-    body = task.body
-    if task.classification == MANUAL:
-        body = (
-            "**Manual task** — for a human. kestrel will not assign this "
-            f"to an agent.\n\n{body}"
-        )
-    if task.estimate is not None:
-        body = f"{body.rstrip()}\n\n{_estimate_section(task.estimate)}"
-    return body
-
-
-def _estimate_section(estimate: TaskEstimate) -> str:
-    lines = [
-        "## Estimate (agent, unverified)",
-        f"Size {estimate.size} · confidence {estimate.confidence} · "
-        f"~{estimate.man_hours:.1f} man-hours · "
-        f"~{estimate.agent_tokens:,} agent tokens · "
-        f"~{estimate.review_hours:.1f} review hours",
-    ]
-    if estimate.risks:
-        lines.append(f"Risks: {', '.join(estimate.risks)}")
-    lines.append(f"Rationale: {estimate.rationale}")
-    return "\n".join(lines)

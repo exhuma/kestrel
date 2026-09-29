@@ -20,6 +20,10 @@ from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dependents import advance_ready_dependents
+from app.services.board.materialise import (
+    MaterialiseTarget,
+    materialise_decomposition,
+)
 from app.services.board.prd_redraft import maybe_redraft_prd
 from app.services.board.refinement_rounds import (
     has_any_round,
@@ -213,6 +217,7 @@ class GatesService:
             self._maybe_advance_refinement_round(card)
             self._maybe_require_decomposition(card)
             self._maybe_approve_prd(card)
+            self._maybe_materialise(card)
             advance_ready_dependents(
                 self._store, self._board_service, card.workflow_id
             )
@@ -403,20 +408,32 @@ class GatesService:
 
     def _maybe_approve_prd(self, prd_gate: WorkCard) -> None:
         """Record the approved PRD's content on the workflow, once its
-        gate is approved.
-
-        A no-op for any other gate kind, or if the gate somehow has no
-        target artifact (should not happen — ``refinement.py`` always
-        sets one when creating a ``prd_gate``).
-        """
-        if prd_gate.kind != CardKind.PRD_GATE.value:
-            return
-        gate = self._gate_store.get_for_card(prd_gate.id)
-        if gate is None or gate.target_artifact_id is None:
-            return
-        content = self._artifacts.read_content(gate.target_artifact_id)
+        gate is approved. A no-op for any other gate kind."""
+        content = self._approved_target(prd_gate, CardKind.PRD_GATE)
         if content is not None:
             self._store.record_approved_prd(prd_gate.workflow_id, content)
+
+    def _maybe_materialise(self, gate: WorkCard) -> None:
+        """Turn an approved CAB-2 decomposition into cards in the same
+        workflow (feature 031) — never child tickets. A no-op for any
+        other gate kind; see ``materialise.py``."""
+        content = self._approved_target(gate, CardKind.DECOMPOSITION_GATE)
+        if content is not None:
+            materialise_decomposition(
+                gate.workflow_id, content,
+                MaterialiseTarget(self._store, self._artifacts),
+            )
+
+    def _approved_target(self, gate: WorkCard, kind: CardKind) -> str | None:
+        """The content an approved *kind* gate targets, or ``None`` for
+        another kind or a gate with no target (should not happen — both
+        gate kinds are always created with one)."""
+        if gate.kind != kind.value:
+            return None
+        record = self._gate_store.get_for_card(gate.id)
+        if record is None or record.target_artifact_id is None:
+            return None
+        return self._artifacts.read_content(record.target_artifact_id)
 
     def _maybe_redraft_prd(self, prd_gate: WorkCard) -> None:
         """Route a ``prd_gate`` rejection to the coordinator for

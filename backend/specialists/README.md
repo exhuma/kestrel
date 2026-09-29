@@ -32,7 +32,11 @@ classification, no tools, no workspace — see its manifest). `analysis` and
 read-only sizing of a decomposition, created only by decomposition routing
 (never by the coordinator); its valid result opens the
 `decomposition_gate` (CAB-2). `implementation` is write-capable
-coder work. `verification` is the verifier's work. `reconciliation` is
+coder work. `verification` is the verifier's work. Approving CAB-2
+creates, per approved coding task, an `implementation` card and the
+`verification` card that checks it, and per approved manual task a
+`manual_task` card. No specialist ever claims a `manual_task`: it is the
+operator's own work, which the operator marks done. `reconciliation` is
 created only by the coordinator when specialist outputs conflict.
 
 ## Roles

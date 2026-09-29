@@ -130,6 +130,45 @@ class TestValidationAndApplication:
         assert records[0].applied is False
         assert store.get_card("card-1").state == "ready"
 
+    def test_an_approved_task_card_cannot_be_transitioned(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensure CAB-2-approved work is not the coordinator's to change
+        (feature 031, FR-005)."""
+        coordinator, store = _coordinator(tmp_path)
+        store.create_card(
+            WorkCard(
+                id="card-t1", workflow_id="wf-1", kind="implementation",
+                title="Approved", state="ready", task_node_id="t1",
+            )
+        )
+        records = coordinator.apply_actions(
+            "wf-1", "card.done",
+            [TransitionCardAction(card_id="card-t1", target_state="cancelled")],
+        )
+        assert records[0].validation_decision == "rejected"
+        assert store.get_card("card-t1").state == "ready"
+
+    def test_a_proposed_task_node_id_is_never_parsed(self) -> None:
+        """Ensure only code can tie a card to an approved task."""
+        actions = parse_coordinator_actions(
+            '<COORDINATOR_ACTIONS>{"actions": [{"type": "create_card", '
+            '"kind": "analysis", "title": "x", "task_node_id": "t1"}]}'
+            "</COORDINATOR_ACTIONS>"
+        )
+        assert actions[0].task_node_id is None
+
+    def test_code_created_cards_keep_their_task_node_id(
+        self, tmp_path: Path
+    ) -> None:
+        coordinator, store = _coordinator(tmp_path)
+        coordinator.apply_actions(
+            "wf-1", "verification:x:1",
+            [CreateCardAction(kind="analysis", title="x", task_node_id="t1")],
+        )
+        (created,) = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
+        assert created.task_node_id == "t1"
+
     def test_transition_of_unknown_card_is_rejected(
         self, tmp_path: Path
     ) -> None:
@@ -204,6 +243,18 @@ class TestValidationAndApplication:
         records = coordinator.apply_actions(
             "wf-1", "task.ingested",
             [CreateCardAction(kind="estimation", title="Estimate")],
+        )
+        assert records[0].validation_decision == "rejected"
+        assert len(store.list_cards("wf-1")) == 1
+
+    def test_coordinator_cannot_create_a_manual_task_card(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensure manual_task stays code-created only (feature 031, R8)."""
+        coordinator, store = _coordinator(tmp_path)
+        records = coordinator.apply_actions(
+            "wf-1", "task.ingested",
+            [CreateCardAction(kind="manual_task", title="Do it")],
         )
         assert records[0].validation_decision == "rejected"
         assert len(store.list_cards("wf-1")) == 1

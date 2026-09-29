@@ -1,7 +1,7 @@
 """Projection eligibility, idempotency, retry, and cleanup-ownership
 tests for ``ProjectionsService`` (feature 026, T064/T065).
 
-FR-033/FR-034 confine projections to five milestone kinds — ordinary
+FR-033/FR-034 confine projections to four milestone kinds — ordinary
 claims, retries, and routine completions never reach this ledger at all
 (that filtering happens at the call site, not here); FR-035 makes the
 ledger the durable boundary of what Kestrel may later clean up. Actually
@@ -28,7 +28,7 @@ def _service(tmp_path: Path) -> ProjectionsService:
 
 
 class TestPlanningEligibility:
-    """Only the five FR-033 milestone kinds may be planned."""
+    """Only the four FR-033 milestone kinds may be planned."""
 
     def test_plans_a_gate_projection(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
@@ -40,7 +40,7 @@ class TestPlanningEligibility:
 
     @pytest.mark.parametrize(
         "kind",
-        ["gate", "escalation", "approved_artifact", "child_work", "delivery"],
+        ["gate", "escalation", "approved_artifact", "delivery"],
     )
     def test_every_fr033_kind_is_accepted(
         self, tmp_path: Path, kind: str
@@ -48,6 +48,13 @@ class TestPlanningEligibility:
         service = _service(tmp_path)
         record = service.plan("wf-1", kind, f"wf-1:{kind}:1", "x")
         assert record.kind == kind
+
+    def test_child_work_is_no_longer_a_kind(self, tmp_path: Path) -> None:
+        """Ensure no child-ticket write-back is ever planned (feature
+        031, FR-021)."""
+        service = _service(tmp_path)
+        with pytest.raises(UnsupportedProjectionKindError):
+            service.plan("wf-1", "child_work", "wf-1:child_work:1", "x")
 
     def test_unsupported_kind_is_rejected(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
@@ -141,13 +148,13 @@ class TestCleanupOwnership:
     def test_completed_projection_is_owned(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
         record = service.plan(
-            "wf-1", "child_work", "wf-1:child_work:sub-1", "x"
+            "wf-1", "approved_artifact", "wf-1:approved_artifact:g-1", "x"
         )
         service.complete(record.id, external_id="issue-99")
 
         owned = service.owned_external_ids("wf-1")
 
-        assert owned == [("child_work", "issue-99")]
+        assert owned == [("approved_artifact", "issue-99")]
 
     def test_pending_projection_is_not_yet_owned(self, tmp_path: Path) -> None:
         service = _service(tmp_path)

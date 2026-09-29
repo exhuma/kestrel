@@ -45,6 +45,7 @@ from app.services.board.estimation import (
     route_estimation_result,
 )
 from app.services.board.gates import GatesService
+from app.services.board.materialise import task_context
 from app.services.board.projections import ProjectionsService
 from app.services.board.refinement import (
     gather_refinement_context,
@@ -174,8 +175,14 @@ def _extra_context_for(
     workflow_id: str, card: WorkCard, services: DispatchServices
 ) -> str:
     """Per-card-kind envelope extras (feature 026's ``prd`` interview
-    context, feature 028's round-N-of-M text for a ``refinement`` card).
+    context, feature 028's round-N-of-M text for a ``refinement`` card,
+    feature 031's approved task for any card working on one).
     """
+    if card.task_node_id:
+        return task_context(
+            card, services.claims.store.list_cards(workflow_id),
+            services.artifacts,
+        )
     if card.kind == CardKind.PRD.value:
         return gather_refinement_context(
             workflow_id, services.claims.store, services.artifacts

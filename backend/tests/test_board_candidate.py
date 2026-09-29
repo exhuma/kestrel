@@ -86,6 +86,45 @@ class TestStrict:
             load_candidate(raw, strict=True)
 
 
+class TestPrerequisites:
+    """Strict prerequisite validation (feature 031, research R11)."""
+
+    def test_valid_prerequisites_are_kept(self) -> None:
+        candidate = load_candidate(
+            _doc(_task(), _task(title="Do Y", prerequisites=["t1"])),
+            strict=True,
+        )
+        assert candidate.tasks[1].prerequisites == ("t1",)
+
+    @pytest.mark.parametrize(
+        ("tasks", "match"),
+        [
+            ([_task(prerequisites=["t9"])], "unknown"),
+            ([_task(prerequisites=["t1"])], "itself"),
+            (
+                [
+                    _task(prerequisites=["t2"]),
+                    _task(title="Do Y", prerequisites=["t1"]),
+                ],
+                "cycle",
+            ),
+        ],
+        ids=["unknown", "self", "cycle"],
+    )
+    def test_a_bad_prerequisite_is_rejected(
+        self, tasks: list[dict], match: str
+    ) -> None:
+        with pytest.raises(DecompositionResultError, match=match):
+            load_candidate(_doc(*tasks), strict=True)
+
+    def test_lenient_parsing_does_not_validate_them(self) -> None:
+        """Ensure a gate approved before this feature still loads."""
+        candidate = load_candidate(
+            _doc(_task(prerequisites=["t9"])), strict=False
+        )
+        assert candidate.tasks[0].prerequisites == ("t9",)
+
+
 class TestLenient:
     def test_a_legacy_candidate_defaults_to_coding(self) -> None:
         """Ensure a pre-030 gate target still reads (FR-019)."""
@@ -108,7 +147,10 @@ class TestLenient:
 class TestRoundTrip:
     def test_dump_then_load_preserves_the_proposal(self) -> None:
         original = load_candidate(
-            _doc(_task(estimate=_ESTIMATE, prerequisites=["t0"])),
+            _doc(
+                _task(estimate=_ESTIMATE),
+                _task(title="Do Y", prerequisites=["t1"]),
+            ),
             strict=True,
         )
         assert load_candidate(dump_candidate(original), strict=True) == (

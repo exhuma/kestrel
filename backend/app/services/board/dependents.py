@@ -7,7 +7,7 @@ commits, so the cascade itself lives in one place.
 """
 from __future__ import annotations
 
-from app.models_board import CardState
+from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
 from app.services.board.policy import dependencies_met
 from app.services.board.service import BoardService
@@ -17,7 +17,8 @@ def advance_ready_dependents(
     store: BoardStore, board_service: BoardService, workflow_id: str
 ) -> None:
     """Move every ``waiting_dependency`` card whose dependencies are now
-    met to ``ready``."""
+    met to ``ready`` — or, for a ``manual_task``, to ``awaiting_human``
+    (feature 031): it is the operator's move, not claimable work."""
     cards = store.list_cards(workflow_id)
     relations = store.list_relations(workflow_id)
     states = {c.id: CardState(c.state) for c in cards}
@@ -26,5 +27,13 @@ def advance_ready_dependents(
             continue
         if dependencies_met(card.id, relations, states):
             board_service.transition_card(
-                card.id, CardState.READY.value, event_type="card.dependency_met"
+                card.id, unblocked_state(card).value,
+                event_type="card.dependency_met",
             )
+
+
+def unblocked_state(card: WorkCard) -> CardState:
+    """The state *card* takes once nothing blocks it (feature 031)."""
+    if card.kind == CardKind.MANUAL_TASK.value:
+        return CardState.AWAITING_HUMAN
+    return CardState.READY

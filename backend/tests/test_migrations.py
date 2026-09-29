@@ -208,3 +208,30 @@ def test_board_workflow_task_body_and_approved_prd_default_empty_unset(
         "board_workflow"
     )}
     assert "skip_decomposition" not in columns
+
+
+def test_board_card_task_node_id_defaults_unset(tmp_path: Path) -> None:
+    """Ensure 0033 adds a nullable task_node_id, unset on existing cards."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0032")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "skip_decomposition, ci_repair_round, task_body, created_at) "
+            "VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', "
+            "'public', 't', 'active', 1, 0, 0, '', '2026-09-24T00:00:00')"
+        ))
+        conn.execute(sa.text(
+            "INSERT INTO board_card (id, workflow_id, kind, title, state, "
+            "created_at, updated_at) VALUES ('card-1', 'wf-1', "
+            "'analysis', 't', 'ready', '2026-09-24T00:00:00', "
+            "'2026-09-24T00:00:00')"
+        ))
+    command.upgrade(cfg, "0033")
+
+    with engine.begin() as conn:
+        value = conn.execute(sa.text(
+            "SELECT task_node_id FROM board_card WHERE id = 'card-1'"
+        )).scalar_one()
+    assert value is None

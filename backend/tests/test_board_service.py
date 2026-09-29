@@ -268,3 +268,33 @@ class TestOnMutationHook:
         service.transition_card(
             "card-1", "cancelled", event_type="card.cancelled"
         )
+
+
+def test_a_card_round_trips_its_task_node_id(tmp_path: Path) -> None:
+    """Ensure a card's task_node_id is persisted and read back."""
+    store = BoardStore(board_session_factory(tmp_path))
+    store.create_workflow(
+        Workflow(
+            id="wf-1",
+            source="github-issue",
+            task_ref="owner/repo#1",
+            repo="owner/repo",
+            base_branch="main",
+            source_visibility="public",
+            title="Add a thing",
+        )
+    )
+    for card_id, node in (("card-t1", "t1"), ("card-plain", None)):
+        store.create_card(
+            WorkCard(
+                id=card_id,
+                workflow_id="wf-1",
+                kind="implementation",
+                title="Build it",
+                state="ready",
+                task_node_id=node,
+            )
+        )
+
+    assert store.get_card("card-t1").task_node_id == "t1"
+    assert store.get_card("card-plain").task_node_id is None

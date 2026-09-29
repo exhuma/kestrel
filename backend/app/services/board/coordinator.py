@@ -31,8 +31,11 @@ from app.text_extract import extract_tag
 #: Kinds only code may create, never a coordinator proposal: an
 #: ``estimation`` card is meaningless without the dependency edge on the
 #: decomposition candidate it estimates, which only decomposition routing
-#: sets up (feature 030, research R8).
-_CODE_ONLY_CARD_KINDS = frozenset({CardKind.ESTIMATION.value})
+#: sets up (feature 030, research R8); a ``manual_task`` exists only as
+#: an operator-approved CAB-2 task (feature 031, research R8).
+_CODE_ONLY_CARD_KINDS = frozenset(
+    {CardKind.ESTIMATION.value, CardKind.MANUAL_TASK.value}
+)
 _VALID_CARD_KINDS = (
     frozenset(k.value for k in CardKind) - _CODE_ONLY_CARD_KINDS
 )
@@ -42,13 +45,19 @@ _MIN_RECONCILIATION_CARDS = 2
 
 @dataclass(frozen=True)
 class CreateCardAction:
-    """Propose a new card (FR-006). ``depends_on`` names existing cards."""
+    """Propose a new card (FR-006). ``depends_on`` names existing cards.
+
+    ``task_node_id`` ties the card to an approved CAB-2 task (feature
+    031). Only code sets it: ``_ACTION_FIELDS`` never parses it from a
+    coordinator's own proposal.
+    """
 
     kind: str
     title: str
     eligible_roles: tuple[str, ...] = ()
     workspace_permission: str = "none"
     depends_on: tuple[str, ...] = ()
+    task_node_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -308,6 +317,7 @@ class CoordinatorService:
             state=state,
             eligible_roles=action.eligible_roles,
             workspace_permission=action.workspace_permission,
+            task_node_id=action.task_node_id,
         )
         self._store.create_card(card)
         for dep in action.depends_on:
@@ -422,6 +432,8 @@ def _validate_transition(
     card = cards.get(action.card_id)
     if card is None:
         return f"unknown card: {action.card_id}"
+    if card.task_node_id:
+        return "card comes from an approved decomposition"
     try:
         target = CardState(action.target_state)
     except ValueError:

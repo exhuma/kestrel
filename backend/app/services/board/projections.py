@@ -1,7 +1,7 @@
 """External-projection planning and retry handling (feature 026, T066,
 FR-033..FR-035).
 
-Only five milestone kinds ever project to a task source by default
+Only four milestone kinds ever project to a task source by default
 (FR-033): ordinary claims, retries, and routine completions never reach
 this module at all (FR-034) — a caller decides *that* something is
 projection-worthy; this service only makes recording and retrying that
@@ -20,7 +20,7 @@ from app.persistence.board_projection_store import BoardProjectionStore
 
 #: FR-033's closed vocabulary of default-projected milestones.
 VALID_PROJECTION_KINDS = frozenset(
-    {"gate", "escalation", "approved_artifact", "child_work", "delivery"}
+    {"gate", "escalation", "approved_artifact", "delivery"}
 )
 
 

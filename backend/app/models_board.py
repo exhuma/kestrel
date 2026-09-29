@@ -97,6 +97,11 @@ class CardKind(StrEnum):
     #: (feature 027); resolving it deterministically creates the
     #: ``CAB1_GATE`` decision.
     STRATEGIC_INTERVIEW_GATE = "strategic_interview_gate"
+    #: A task approved at CAB-2 as manual — work for the operator, never
+    #: a specialist (feature 031). Created only by materialising an
+    #: approved decomposition; resolved only by the operator's
+    #: ``complete_manual_task`` action from ``awaiting_human``.
+    MANUAL_TASK = "manual_task"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves
@@ -239,6 +244,10 @@ class WorkCard:
     :param attempt_limit: Bounded retry authority.
     :param attempt_count: Attempts made so far.
     :param wait_reason: Safe explanation when not ``ready``.
+    :param task_node_id: The approved-decomposition task this card works
+        on (feature 031): set on the cards CAB-2 approval creates and on
+        the remediation/re-verification cards that follow from them;
+        ``None`` for every other card.
     """
 
     id: str
@@ -251,6 +260,7 @@ class WorkCard:
     attempt_limit: int = 1
     attempt_count: int = 0
     wait_reason: str | None = None
+    task_node_id: str | None = None
 
 
 @dataclass(frozen=True)

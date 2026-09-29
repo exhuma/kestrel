@@ -16,16 +16,16 @@ and both test suites (plan "Suggested commit slices").
 
 ## Phase 1: Setup
 
-- [ ] T001 Confirm a clean baseline: `task quality`, backend `uv run pytest -q` (note the 2 known failures in `test_claude_backend.py`, which are not ours) and frontend `npm test` / `npm run build`
+- [x] T001 Confirm a clean baseline: `task quality`, backend `uv run pytest -q` (note the 2 known failures in `test_claude_backend.py`, which are not ours) and frontend `npm test` / `npm run build`
 
 ## Phase 2: Foundational (blocks all stories)
 
-- [ ] T002 Create backend/alembic/versions/0033_subtask_cards.py: add a nullable `board_card.task_node_id` (Text) only. Drops come in T041. Add `BoardCardRow.task_node_id` in backend/app/persistence/board_tables.py; add `WorkCard.task_node_id: str | None = None` (docstring) in backend/app/models_board.py; persist and map it in `create_card` / `_row_to_card` in backend/app/persistence/board_store.py
-- [ ] T003 [P] Migration and store tests: upgrade adds the nullable column and a card round-trips `task_node_id` (in backend/tests/test_migrations.py and backend/tests/test_board_service.py)
-- [ ] T004 Add `CardKind.MANUAL_TASK = "manual_task"` (docstring comment) in backend/app/models_board.py; map it to "Build" in backend/app/services/board/phases.py; add it to `_CODE_ONLY_CARD_KINDS` in backend/app/services/board/coordinator.py (R8)
-- [ ] T005 Add the policy edge `waiting_dependency → awaiting_human` in backend/app/services/board/policy.py, and make `advance_ready_dependents` in backend/app/services/board/dependents.py move a `manual_task` card to `awaiting_human` (every other kind still goes to `ready`) (R4)
-- [ ] T006 [P] Tests: the new edge is legal; the cascade sends a manual card to `awaiting_human` and an implementation card to `ready`; the coordinator cannot create a `manual_task` (backend/tests/test_board_policy.py, a dependents test, backend/tests/test_board_coordinator.py)
-- [ ] T007 Strict prerequisite validation in `load_candidate` (strict mode) in backend/app/services/board/candidate.py: an unknown id, a self-reference or a cycle raises `DecompositionResultError` (R11). Tests go in backend/tests/test_board_candidate.py
+- [x] T002 Create backend/alembic/versions/0033_subtask_cards.py: add a nullable `board_card.task_node_id` (Text) only. Drops come in T041. Add `BoardCardRow.task_node_id` in backend/app/persistence/board_tables.py; add `WorkCard.task_node_id: str | None = None` (docstring) in backend/app/models_board.py; persist and map it in `create_card` / `_row_to_card` in backend/app/persistence/board_store.py
+- [x] T003 [P] Migration and store tests: upgrade adds the nullable column and a card round-trips `task_node_id` (in backend/tests/test_migrations.py and backend/tests/test_board_service.py)
+- [x] T004 Add `CardKind.MANUAL_TASK = "manual_task"` (docstring comment) in backend/app/models_board.py; map it to "Build" in backend/app/services/board/phases.py; add it to `_CODE_ONLY_CARD_KINDS` in backend/app/services/board/coordinator.py (R8)
+- [x] T005 Add the policy edge `waiting_dependency → awaiting_human` in backend/app/services/board/policy.py, and make `advance_ready_dependents` in backend/app/services/board/dependents.py move a `manual_task` card to `awaiting_human` (every other kind still goes to `ready`) (R4)
+- [x] T006 [P] Tests: the new edge is legal; the cascade sends a manual card to `awaiting_human` and an implementation card to `ready`; the coordinator cannot create a `manual_task` (backend/tests/test_board_policy.py, a dependents test, backend/tests/test_board_coordinator.py)
+- [x] T007 Strict prerequisite validation in `load_candidate` (strict mode) in backend/app/services/board/candidate.py: an unknown id, a self-reference or a cycle raises `DecompositionResultError` (R11). Tests go in backend/tests/test_board_candidate.py
 
 ## Phase 3: User Story 1 — Approved tasks become the request's own work (P1) 🎯 MVP
 
@@ -39,26 +39,26 @@ chain, a manual task and a legacy (id-less) variant. Check the card set, the
 edges, the initial states, the `task_spec` artifacts, idempotency, one
 comment, and zero `create_subtask` calls.
 
-- [ ] T008 [US1] Create backend/app/services/board/materialise.py:
+- [x] T008 [US1] Create backend/app/services/board/materialise.py:
   - `materialise_decomposition(gate_card, store, artifacts, gate_record)` reads the target `cab2_proposal` (`load_candidate(strict=False)`), assigns `t<n>` ids to id-less tasks, and is a no-op when the workflow already has any card with a `task_node_id`;
   - it creates `impl(t)` + `ver(t)` for coding tasks and `man(t)` for manual tasks, and the relations `ver(t)`→`impl(t)` and head(t)→head(p) for each prerequisite *p*, dropping an unknown prerequisite with a warning;
   - initial states are `ready` / `awaiting_human` when a card has no dependency and `waiting_dependency` otherwise;
   - it writes one `task_spec` reference artifact (`operator_approved`) per `impl`/`man` card, rendered by a pure `render_task_spec(task, titles_by_id)`. That function carries over the estimate section from the old `_estimate_section` in decomposition.py (data-model.md).
-- [ ] T009 [US1] Call `materialise_decomposition` from the approval path of `GatesService.resolve` in backend/app/services/board/gates.py, only for `decomposition_gate`, before `advance_ready_dependents`. Keep gates.py under 500 lines with a single hook method
-- [ ] T010 [US1] Tests in backend/tests/test_board_materialise.py for every row of the quickstart "materialisation" scenarios:
+- [x] T009 [US1] Call `materialise_decomposition` from the approval path of `GatesService.resolve` in backend/app/services/board/gates.py, only for `decomposition_gate`, before `advance_ready_dependents`. Keep gates.py under 500 lines with a single hook method
+- [x] T010 [US1] Tests in backend/tests/test_board_materialise.py for every row of the quickstart "materialisation" scenarios:
   - card kinds, roles, permissions, titles and `task_node_id`;
   - edges, including a manual prerequisite, and initial states;
   - `task_spec` content (body, estimate, trust);
   - idempotency, the legacy candidate, the unknown prerequisite, and a candidate with only manual tasks.
-- [ ] T011 [US1] Envelope: in `_extra_context_for` in backend/app/services/board/dispatch_ready.py, a card with a `task_node_id` gets "Approved task:" followed by the `task_spec` of that node's `implementation` or `manual_task` card, looked up via `ArtifactsService.latest_content_for_card`. Keep the branch count within limits, extracting a helper into materialise.py if needed. Test it in backend/tests/test_board_dispatch_ready.py (or the existing dispatch test module)
-- [ ] T012 [US1] Coordinator guard in backend/app/services/board/coordinator.py: `_validate_transition` rejects any transition of a card whose `task_node_id` is set (FR-005). Add `CreateCardAction.task_node_id: str | None = None` and persist it in `_apply_one`, making sure the coordinator-output parser never populates it. Test in backend/tests/test_board_coordinator.py: the transition is rejected, and the coordinator can still create its own implementation card
-- [ ] T013 [US1] Replace publishing with the breakdown comment:
+- [x] T011 [US1] Envelope: in `_extra_context_for` in backend/app/services/board/dispatch_ready.py, a card with a `task_node_id` gets "Approved task:" followed by the `task_spec` of that node's `implementation` or `manual_task` card, looked up via `ArtifactsService.latest_content_for_card`. Keep the branch count within limits, extracting a helper into materialise.py if needed. Test it in backend/tests/test_board_dispatch_ready.py (or the existing dispatch test module)
+- [x] T012 [US1] Coordinator guard in backend/app/services/board/coordinator.py: `_validate_transition` rejects any transition of a card whose `task_node_id` is set (FR-005). Add `CreateCardAction.task_node_id: str | None = None` and persist it in `_apply_one`, making sure the coordinator-output parser never populates it. Test in backend/tests/test_board_coordinator.py: the transition is rejected, and the coordinator can still create its own implementation card
+- [x] T013 [US1] Replace publishing with the breakdown comment:
   - in backend/app/services/board/bootstrap.py, rename `schedule_decomposition_publish` → `schedule_breakdown_projection`, which posts one `approved_artifact` projection with the key `approved_artifact:<gate card id>` and a body from `render_breakdown(candidate)` in materialise.py (titles + classification, candidate order);
   - update the call site in backend/app/routers/board.py;
   - remove `publish_decomposition`, `published_body`, `_markers_for` and `_estimate_section` from backend/app/services/board/decomposition.py;
   - remove `"child_work"` from backend/app/services/board/projections.py and the comments in backend/app/persistence/board_tables.py / backend/app/models_board_records.py.
-- [ ] T014 [US1] Tests: `render_breakdown` output; one projection per approval (a repeat is idempotent); `create_subtask` never called. Replace the publish tests in backend/tests/test_board_decomposition.py and add them to the bootstrap/projection tests
-- [ ] T015 [P] [US1] Coordinator prompt: add one sentence to backend/specialists/coordinator/prompt.md saying that approved decomposition tasks arrive with their own implementation and verification cards, which must not be duplicated or changed. Add `manual_task` to the card-kind vocabulary in backend/specialists/README.md
+- [x] T014 [US1] Tests: `render_breakdown` output; one projection per approval (a repeat is idempotent); `create_subtask` never called. Replace the publish tests in backend/tests/test_board_decomposition.py and add them to the bootstrap/projection tests
+- [x] T015 [P] [US1] Coordinator prompt: add one sentence to backend/specialists/coordinator/prompt.md saying that approved decomposition tasks arrive with their own implementation and verification cards, which must not be duplicated or changed. Add `manual_task` to the card-kind vocabulary in backend/specialists/README.md
 
 ## Phase 4: User Story 2 — One request, one pull request (P1)
 
