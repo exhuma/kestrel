@@ -23,7 +23,7 @@ from app.services.board.artifacts import ArtifactsService
 from app.services.board.ci_poll import CiPollService
 from app.services.board.claims import ClaimsService
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.dispatch import SchedulingService
+from app.services.board.dispatch import CardTurnError, SchedulingService
 from app.services.board.dispatch_ready import (
     DispatchServices,
     dispatch_ready_work,
@@ -163,6 +163,7 @@ def get_recovery_service() -> RecoveryService:
         get_board_claims_store(),
         get_board_service(),
         interval_seconds=settings.board_recovery_interval_seconds,
+        nudge=_trigger_scheduling,
     )
 
 
@@ -188,7 +189,7 @@ def get_scheduling_service() -> SchedulingService:
         get_specialist_roster(),
         get_coordinator_service(),
         get_artifacts_service(),
-        default_timeout_seconds=settings.board_input_security_timeout_seconds,
+        default_timeout_seconds=settings.board_turn_timeout_seconds,
     )
 
 
@@ -240,13 +241,21 @@ async def _wake_and_dispatch(
     tried against this same trigger, though a specialist claim is safe
     either way (atomic, per-card).
     """
-    await get_scheduling_service().wake(workflow_id, coordinator_backend)
+    try:
+        await get_scheduling_service().wake(workflow_id, coordinator_backend)
+    except CardTurnError:
+        # A failed or timed-out coordinator turn must not strand the
+        # board: ready cards still get dispatched (#69).
+        _logger.warning(
+            "workflow %s: coordinator turn failed; dispatching anyway",
+            workflow_id, exc_info=True,
+        )
     settings = get_settings()
     await dispatch_ready_work(
         workflow_id,
         get_dispatch_services(),
         get_specialist_backend_policy().backend_for,
-        timeout_seconds=settings.board_input_security_timeout_seconds,
+        timeout_seconds=settings.board_turn_timeout_seconds,
     )
 
 

@@ -60,6 +60,11 @@ board_input_max_bytes = 65536
 # Timeout in seconds for the input-security specialist's classification call.
 # A timeout fails closed into quarantine, the same as a malformed result.
 board_input_security_timeout_seconds = 30.0
+# Timeout in seconds for one agent turn on the board: the coordinator's, or a
+# specialist's on a card. Kept separate from the screening timeout above,
+# because a coder's turn legitimately runs for minutes, and a slow local model
+# needs far longer than a classification does.
+board_turn_timeout_seconds = 600.0
 # How long a card claim lease is held before it is considered abandoned and
 # eligible for retry/reassignment/escalation on recovery.
 board_claim_lease_seconds = 600

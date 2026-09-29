@@ -367,7 +367,12 @@ class SchedulingService:
             if self._woken_revision.get(workflow_id) == workflow.revision:
                 return
             self._woken_revision[workflow_id] = workflow.revision
-            await self._turn(workflow_id, backend)
+            try:
+                await self._turn(workflow_id, backend)
+            except CardTurnError:
+                # Not handled after all: a later wake may try again (#69).
+                self._woken_revision.pop(workflow_id, None)
+                raise
 
     async def _turn(self, workflow_id: str, backend: _TurnBackend) -> None:
         """Run one coordinator turn for *workflow_id* and apply its result.

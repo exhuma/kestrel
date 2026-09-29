@@ -49,6 +49,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "specialists_root",
         "board_input_max_bytes",
         "board_input_security_timeout_seconds",
+        "board_turn_timeout_seconds",
         "board_claim_lease_seconds",
         "board_workspace_lease_seconds",
         "board_max_parallel_read_cards",
@@ -277,6 +278,14 @@ class Settings(BaseSettings):
     #: timeout is treated as a malformed result and fails closed into
     #: quarantine.
     board_input_security_timeout_seconds: float = Field(default=30.0, gt=0)
+    #: Timeout in seconds for one agent turn on the board — the
+    #: coordinator's, or any specialist's on a card
+    #: (``KESTREL_BOARD_TURN_TIMEOUT_SECONDS``). Separate from the input-
+    #: security timeout: a coder's turn legitimately runs for minutes,
+    #: and a slow local model needs far more than a classification does.
+    #: Defaults to the claim lease, past which recovery would reclaim the
+    #: card anyway.
+    board_turn_timeout_seconds: float = Field(default=600.0, gt=0)
     #: How long a card claim lease is held before it is considered abandoned
     #: and eligible for recovery (feature 026,
     #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
