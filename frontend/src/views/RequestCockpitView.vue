@@ -18,6 +18,7 @@ import ActionBanner from '../components/cockpit/ActionBanner.vue'
 import PhaseSpine from '../components/cockpit/PhaseSpine.vue'
 import NarrativeFeed from '../components/cockpit/NarrativeFeed.vue'
 import ArtifactRail from '../components/cockpit/ArtifactRail.vue'
+import ManualTaskList from '../components/cockpit/ManualTaskList.vue'
 
 const route = useRoute()
 const { current, error, loading, select, stop } = useBoard()
@@ -83,6 +84,8 @@ onUnmounted(() => {
       <v-sheet class="pa-2 mb-4" rounded>
         <PhaseSpine :phase="snapshot.phase" />
       </v-sheet>
+
+      <ManualTaskList class="mb-4" :cards="snapshot.cards" />
 
       <div class="cockpit__panes d-flex ga-4">
         <v-sheet class="cockpit__feed flex-1-1" rounded>

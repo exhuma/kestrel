@@ -136,6 +136,8 @@ class CardAction(StrEnum):
     RELEASE_QUARANTINE = "release_quarantine"
     DISCARD_QUARANTINE = "discard_quarantine"
     REQUEST_COORDINATOR_REVIEW = "request_coordinator_review"
+    #: The operator's own "I did this" on a ``manual_task`` (feature 031).
+    COMPLETE_MANUAL_TASK = "complete_manual_task"
 
 
 class WorkspacePermission(StrEnum):

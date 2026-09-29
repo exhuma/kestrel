@@ -48,6 +48,8 @@ export type CardAction =
   | 'reassign'
   | 'resolve_gate'
   | 'request_coordinator_review'
+  /** The operator's own "I did this" on a `manual_task` card (feature 031). */
+  | 'complete_manual_task'
 
 /** Kinds of directed edge between two cards (board-api.md `RelationKind`). */
 export type RelationKind = 'dependency' | 'reconciliation' | 'supersedes'
@@ -186,6 +188,9 @@ export interface BoardWorkflowSummary {
   /** Whether an interview round cap was hit without a usable answer
    *  (feature 029 A4) — the board's `cap-reached` treatment. */
   cap_exhausted: boolean
+  /** How many `manual_task` cards are neither done nor cancelled
+   *  (feature 031) — "N manual tasks assigned to you". */
+  open_manual_task_count: number
 }
 
 /** Request body for one card intervention (board-api.md "Intervention").

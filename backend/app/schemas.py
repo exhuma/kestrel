@@ -216,6 +216,9 @@ class WorkflowSummaryOut(BaseModel):
     :param cap_exhausted: Whether an interview round cap has been hit
         without a usable answer (feature 029 A4) — the board's
         ``cap-reached`` treatment.
+    :param open_manual_task_count: How many ``manual_task`` cards are
+        neither done nor cancelled (feature 031) — the stage board's
+        "N manual tasks assigned to you".
     """
 
     id: str
@@ -228,6 +231,7 @@ class WorkflowSummaryOut(BaseModel):
     phase: str
     stage: str
     cap_exhausted: bool = False
+    open_manual_task_count: int = 0
 
 
 class BoardInterventionIn(BaseModel):
@@ -245,6 +249,7 @@ class BoardInterventionIn(BaseModel):
         "reassign",
         "resolve_gate",
         "request_coordinator_review",
+        "complete_manual_task",
     ]
     expected_revision: int
     decision: str | None = None

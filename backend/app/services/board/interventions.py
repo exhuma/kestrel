@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from app.models_board import CardAction, CardKind, CardState, WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
+from app.services.board.dependents import advance_ready_dependents
 from app.services.board.gates import GatesService, UnknownGateError
 from app.services.board.service import BoardService
 
@@ -99,17 +100,24 @@ class InterventionsService:
     def _dispatch(
         self, card: WorkCard, action: CardAction, resolution: GateResolution
     ) -> WorkCard:
-        if action == CardAction.RETRY:
-            return self._retry(card)
-        if action == CardAction.CANCEL:
-            return self._cancel(card)
-        if action == CardAction.REASSIGN:
-            return self._reassign(card)
-        if action == CardAction.RESOLVE_GATE:
-            return self._resolve_gate(card, resolution)
-        if action == CardAction.REQUEST_COORDINATOR_REVIEW:
-            return self._request_coordinator_review(card)
-        raise InvalidInterventionError(f"unsupported intervention: {action}")
+        handlers = {
+            CardAction.RETRY: self._retry,
+            CardAction.CANCEL: self._cancel,
+            CardAction.REASSIGN: self._reassign,
+            CardAction.RESOLVE_GATE: lambda c: self._resolve_gate(
+                c, resolution
+            ),
+            CardAction.REQUEST_COORDINATOR_REVIEW: (
+                self._request_coordinator_review
+            ),
+            CardAction.COMPLETE_MANUAL_TASK: self._complete_manual_task,
+        }
+        handler = handlers.get(action)
+        if handler is None:
+            raise InvalidInterventionError(
+                f"unsupported intervention: {action}"
+            )
+        return handler(card)
 
     def _retry(self, card: WorkCard) -> WorkCard:
         if card.state != CardState.FAILED.value:
@@ -157,6 +165,21 @@ class InterventionsService:
         except UnknownGateError as exc:
             raise InvalidInterventionError(str(exc)) from exc
 
+    def _complete_manual_task(self, card: WorkCard) -> WorkCard:
+        """Mark the operator's own manual task done, releasing every card
+        waiting on it (feature 031, FR-007/FR-008)."""
+        if not _is_open_manual_task(card):
+            raise InvalidInterventionError(
+                f"cannot complete a {card.kind} card in state {card.state}"
+            )
+        done = self._board_service.transition_card(
+            card.id, CardState.DONE.value, event_type="manual_task.completed"
+        )
+        advance_ready_dependents(
+            self._store, self._board_service, card.workflow_id
+        )
+        return done
+
     def _request_coordinator_review(self, card: WorkCard) -> WorkCard:
         review = WorkCard(
             id=f"card-{uuid.uuid4().hex[:8]}",
@@ -183,8 +206,18 @@ def allowed_actions_for(card: WorkCard) -> list[CardAction]:
         actions.append(CardAction.CANCEL)
     if card.state == CardState.CLAIMED.value:
         actions.append(CardAction.REASSIGN)
-    if card.state == CardState.AWAITING_HUMAN.value:
+    if _is_open_manual_task(card):
+        actions.append(CardAction.COMPLETE_MANUAL_TASK)
+    elif card.state == CardState.AWAITING_HUMAN.value:
         actions.append(CardAction.RESOLVE_GATE)
     if card.state not in _CANCEL_BLOCKED_STATES:
         actions.append(CardAction.REQUEST_COORDINATOR_REVIEW)
     return actions
+
+
+def _is_open_manual_task(card: WorkCard) -> bool:
+    """A manual task the operator can mark done right now."""
+    return (
+        card.kind == CardKind.MANUAL_TASK.value
+        and card.state == CardState.AWAITING_HUMAN.value
+    )

@@ -44,6 +44,7 @@ const OPERATOR_EVENTS: ReadonlySet<string> = new Set([
   'intervention.retry',
   'intervention.cancel',
   'intervention.reassign',
+  'manual_task.completed',
   'dev_reset.cleanup',
   'dev_reset.rerun',
 ])
@@ -61,6 +62,7 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'intervention.retry': 'warning',
   'intervention.cancel': 'warning',
   'intervention.reassign': 'info',
+  'manual_task.completed': 'success',
   'coordinator.transition_card': 'info',
   'card.recovery_retry': 'warning',
   'card.recovery_escalated': 'error',
@@ -80,6 +82,7 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'intervention.retry': 'You retried this card',
   'intervention.cancel': 'You cancelled this card',
   'intervention.reassign': 'You returned this card to the queue',
+  'manual_task.completed': 'You marked a manual task done',
   'coordinator.transition_card': 'Coordinator moved this card on',
   'card.recovery_retry': 'Recovery retried a stalled card',
   'card.recovery_escalated': 'Recovery escalated a failed card',

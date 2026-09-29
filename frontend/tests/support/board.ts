@@ -37,6 +37,7 @@ export function boardWorkflowSummary(
     phase: 'Build',
     stage: 'Build & deliver',
     cap_exhausted: false,
+    open_manual_task_count: 0,
     ...overrides,
   }
 }

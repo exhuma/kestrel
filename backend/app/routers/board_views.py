@@ -45,6 +45,9 @@ from app.services.board.specialists import SpecialistRoster
 #: routine in-progress work.
 _ACTION_REQUIRED_STATES = frozenset({"awaiting_human", "quarantined", "failed"})
 
+#: A manual task in either state no longer asks anything of the operator.
+_CLOSED_STATES = frozenset({CardState.DONE.value, CardState.CANCELLED.value})
+
 
 @dataclass(frozen=True)
 class BoardLookups:
@@ -114,6 +117,15 @@ def action_required_count(cards: list[WorkCard]) -> int:
     return sum(1 for c in cards if c.state in _ACTION_REQUIRED_STATES)
 
 
+def open_manual_task_count(cards: list[WorkCard]) -> int:
+    """How many of *cards* are manual tasks still open (feature 031)."""
+    return sum(
+        1 for c in cards
+        if c.kind == CardKind.MANUAL_TASK.value
+        and c.state not in _CLOSED_STATES
+    )
+
+
 def workflow_summary(
     workflow: Workflow,
     cards: list[WorkCard],
@@ -135,6 +147,7 @@ def workflow_summary(
         phase=phase,
         stage=stage_of(phase),
         cap_exhausted=_cap_exhausted(cards, gates),
+        open_manual_task_count=open_manual_task_count(cards),
     )
 
 

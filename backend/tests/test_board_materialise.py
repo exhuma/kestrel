@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from app.models_board import WorkCard
+from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board import bootstrap
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.candidate import load_candidate
+from app.services.board.claims import ClaimsService, NoEligibleCardError
 from app.services.board.gates import GatesService
 from app.services.board.materialise import (
     TASK_SPEC_LOGICAL_NAME,
     render_breakdown,
     task_context,
 )
+from app.services.board.specialists import SpecialistRoster
+from tests.board_test_support import board_session_factory
 from tests.test_board_decomposition import _setup
+from tests.test_board_delivery import _verifier
 
 _ESTIMATE = {
     "size": "M", "confidence": "low", "man_hours": 6,
@@ -284,3 +290,22 @@ async def test_approval_posts_one_breakdown_comment_and_no_ticket(
     assert (workflow_id, kind) == ("wf-1", "approved_artifact")
     assert key == f"approved_artifact:{gate.id}"
     assert "1. Schema (coding)" in text
+
+
+def test_no_specialist_can_claim_a_manual_task(tmp_path: Path) -> None:
+    """Ensure a manual task is never agent work, even for a role that
+    lists the kind (FR-007)."""
+    board = _Board(tmp_path)
+    board.approve(_task("t1", "Legal sign-off", classification="manual"))
+    board.store.set_card_state(board.one("manual_task", "t1").id, "ready")
+    anyone = replace(_verifier(), allowed_card_types=("manual_task",))
+    claims = ClaimsService(
+        store=board.store,
+        claims_store=BoardClaimsStore(board_session_factory(tmp_path)),
+        roster=SpecialistRoster({"verifier": anyone}),
+        max_parallel_read_cards=4, default_lease_seconds=60,
+        default_workspace_lease_seconds=600,
+    )
+
+    with pytest.raises(NoEligibleCardError):
+        claims.claim_next_ready_card("wf-1", "verifier")

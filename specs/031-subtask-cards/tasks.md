@@ -99,23 +99,23 @@ dependents and completion, but not delivery.
 right; "Mark done" unblocks a dependent coding card; the request is not Done
 while a manual card is open.
 
-- [ ] T022 [US3] Add `CardAction.COMPLETE_MANUAL_TASK = "complete_manual_task"` in backend/app/models_board.py and to the `BoardInterventionIn.action` literal in backend/app/schemas.py. In backend/app/services/board/interventions.py:
+- [x] T022 [US3] Add `CardAction.COMPLETE_MANUAL_TASK = "complete_manual_task"` in backend/app/models_board.py and to the `BoardInterventionIn.action` literal in backend/app/schemas.py. In backend/app/services/board/interventions.py:
   - `_complete_manual_task`: only for `manual_task` in `awaiting_human`, else `InvalidInterventionError`. It transitions to `done` with the event `manual_task.completed`, then calls `advance_ready_dependents`, which needs `BoardStore`; the service already holds it;
   - `allowed_actions_for` offers `complete_manual_task` for that case and stops offering `resolve_gate` for `manual_task`.
-- [ ] T023 [US3] Tests in backend/tests/test_board_interventions.py and the router tests:
+- [x] T023 [US3] Tests in backend/tests/test_board_interventions.py and the router tests:
   - completing a manual card makes a waiting dependent `ready`;
   - wrong kind or state → 422; a stale revision → 409;
   - no specialist can ever claim a manual card (backend/tests/test_board_claims.py);
   - the phase is not `done` while a manual card is open (backend/tests/test_board_phases.py or equivalent).
-- [ ] T024 [US3] Listing count (Principle I, one commit with T026): add `open_manual_task_count: int = 0` to `WorkflowSummaryOut` in backend/app/schemas.py, filled in `workflow_summary` in backend/app/routers/board_views.py. Test in backend/tests/test_board_views.py
-- [ ] T025 [P] [US3] Create frontend/src/components/cockpit/ManualTaskList.vue: a `v-list` of the snapshot's `manual_task` cards showing title and state; "Read task" opens `ArtifactDialog` on `latest_artifact`; "Mark done" is shown only when `allowed_actions` includes `complete_manual_task` and calls `applyIntervention(card.id, 'complete_manual_task')` (frontend/src/composables/useBoard.ts). Render nothing when there are no manual cards. Mount it in frontend/src/views/RequestCockpitView.vue
-- [ ] T026 [US3] Frontend types and board chip:
+- [x] T024 [US3] Listing count (Principle I, one commit with T026): add `open_manual_task_count: int = 0` to `WorkflowSummaryOut` in backend/app/schemas.py, filled in `workflow_summary` in backend/app/routers/board_views.py. Test in backend/tests/test_board_views.py
+- [x] T025 [P] [US3] Create frontend/src/components/cockpit/ManualTaskList.vue: a `v-list` of the snapshot's `manual_task` cards showing title and state; "Read task" opens `ArtifactDialog` on `latest_artifact`; "Mark done" is shown only when `allowed_actions` includes `complete_manual_task` and calls `applyIntervention(card.id, 'complete_manual_task')` (frontend/src/composables/useBoard.ts). Render nothing when there are no manual cards. Mount it in frontend/src/views/RequestCockpitView.vue
+- [x] T026 [US3] Frontend types and board chip:
   - add `open_manual_task_count: number` to `BoardWorkflowSummary`, and `'complete_manual_task'` to `CardAction`, in frontend/src/types/workflows.ts;
   - add `ACTION_LABELS.complete_manual_task = 'Mark done'` in frontend/src/components/WorkCardDetail.vue;
   - add a "N manual task(s) assigned to you" `v-chip` in frontend/src/components/board/RequestCard.vue, only when the count is > 0;
   - make `manual_task.completed` an operator event in frontend/src/lib/personas.ts;
   - update the factory in frontend/tests/support/board.ts.
-- [ ] T027 [P] [US3] Frontend tests: frontend/tests/components/cockpit/ManualTaskList.test.ts (list, read, mark done with the revision, hidden action, empty) and frontend/tests/components/board/RequestCard.test.ts (chip at 2, singular at 1, absent at 0)
+- [x] T027 [P] [US3] Frontend tests: frontend/tests/components/cockpit/ManualTaskList.test.ts (list, read, mark done with the revision, hidden action, empty) and frontend/tests/components/board/RequestCard.test.ts (chip at 2, singular at 1, absent at 0)
 
 ## Phase 6: User Story 4 — The child-ticket machinery is gone (P3)
 

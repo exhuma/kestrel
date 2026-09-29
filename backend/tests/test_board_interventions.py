@@ -12,7 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from app.models_board import CardAction, ClaimRequest, WorkCard, Workflow
+from app.models_board import (
+    CardAction,
+    CardRelation,
+    ClaimRequest,
+    WorkCard,
+    Workflow,
+)
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
 )
@@ -309,6 +315,59 @@ class TestUnknownCard:
                 CardAction.CANCEL,
                 expected_revision=_revision(store),
             )
+
+
+class TestCompleteManualTask:
+    """The operator marks a manual task done (feature 031, FR-007)."""
+
+    def test_it_is_done_and_releases_its_dependents(
+        self, tmp_path: Path
+    ) -> None:
+        service, store, _claims, _gates = _service(tmp_path)
+        store.create_card(
+            _card("man", kind="manual_task", state="awaiting_human")
+        )
+        store.create_card(
+            _card("impl", kind="implementation", state="waiting_dependency")
+        )
+        store.add_relation(
+            CardRelation(card_id="impl", depends_on_card_id="man"),
+            created_by_action="test",
+        )
+
+        done = service.apply(
+            "wf-1", "man", CardAction.COMPLETE_MANUAL_TASK,
+            expected_revision=_revision(store),
+        )
+
+        assert done.state == "done"
+        assert store.get_card("impl").state == "ready"
+
+    @pytest.mark.parametrize(
+        ("kind", "state"),
+        [("manual_task", "waiting_dependency"), ("analysis", "ready")],
+        ids=["blocked-manual-task", "not-a-manual-task"],
+    )
+    def test_it_is_rejected_otherwise(
+        self, tmp_path: Path, kind: str, state: str
+    ) -> None:
+        service, store, _claims, _gates = _service(tmp_path)
+        store.create_card(_card("c", kind=kind, state=state))
+
+        with pytest.raises(InvalidInterventionError):
+            service.apply(
+                "wf-1", "c", CardAction.COMPLETE_MANUAL_TASK,
+                expected_revision=_revision(store),
+            )
+
+    def test_an_open_manual_task_offers_it_instead_of_resolve_gate(
+        self,
+    ) -> None:
+        actions = allowed_actions_for(
+            _card(kind="manual_task", state="awaiting_human")
+        )
+        assert CardAction.COMPLETE_MANUAL_TASK in actions
+        assert CardAction.RESOLVE_GATE not in actions
 
 
 class TestAllowedActions:

@@ -152,6 +152,7 @@ async def test_list_workflows_returns_the_summary_row(
             "phase": "Technical analysis",
             "stage": "Planning",
             "cap_exhausted": False,
+            "open_manual_task_count": 0,
         }
     ]
 

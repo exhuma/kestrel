@@ -155,6 +155,7 @@ class TestWorkflowSummary:
         assert summary.state_counts == {"ready": 1}
         assert summary.action_required_count == 0
         assert summary.cap_exhausted is False
+        assert summary.open_manual_task_count == 0
 
     def test_title_falls_back_to_task_label_when_unrecorded(self) -> None:
         workflow = Workflow(**{**_WORKFLOW.__dict__, "title": ""})

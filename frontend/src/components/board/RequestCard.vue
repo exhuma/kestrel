@@ -37,6 +37,12 @@ const ATTENTION_ICON: Partial<Record<AttentionState, string>> = {
   done: '$checkCircle',
 }
 
+const manualTasks = computed(() => {
+  const count = props.request.summary.open_manual_task_count
+  const noun = count === 1 ? 'task' : 'tasks'
+  return count > 0 ? `${count} manual ${noun} assigned to you` : ''
+})
+
 const color = computed(() => ATTENTION_COLOR[props.request.attention])
 const label = computed(() => ATTENTION_LABEL[props.request.attention])
 const icon = computed(() => ATTENTION_ICON[props.request.attention])
@@ -73,6 +79,15 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
         class="mt-2"
       >
         {{ label }}
+      </v-chip>
+      <v-chip
+        v-if="manualTasks"
+        color="info"
+        size="small"
+        prepend-icon="$account"
+        class="mt-2 ml-1"
+      >
+        {{ manualTasks }}
       </v-chip>
 
       <RequestSubItems

@@ -32,6 +32,17 @@ class TestCurrentPhase:
         ]
         assert current_phase(cards) == "done"
 
+    def test_an_open_manual_task_keeps_the_request_unfinished(
+        self,
+    ) -> None:
+        """Ensure a workflow is not done because the code is (feature
+        031, SC-004)."""
+        cards = [
+            _card("d", "delivery", state="done"),
+            _card("m", "manual_task", state="awaiting_human"),
+        ]
+        assert current_phase(cards) == "Build"
+
     def test_single_outstanding_card_reports_its_phase(self) -> None:
         cards = [_card("a", "prd", state="ready")]
         assert current_phase(cards) == "PRD"

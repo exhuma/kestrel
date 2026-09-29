@@ -114,6 +114,7 @@ const ACTION_LABELS: Record<CardAction, string> = {
   reassign: 'Reassign',
   resolve_gate: 'Resolve',
   request_coordinator_review: 'Request coordinator review',
+  complete_manual_task: 'Mark done',
 }
 
 const nonGateActions = computed(() =>
