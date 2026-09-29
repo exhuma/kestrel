@@ -20,7 +20,11 @@ export type AnswerState = 'answered' | 'unknown' | 'not-relevant' | 'unanswered'
  *  (data-model.md §2). */
 export interface QuestionAnswer {
   state: AnswerState
+  /** Free text: the whole answer to an open question, or the optional
+   *  comment on a choice question. */
   text: string
+  /** The options picked, for a choice question (feature 034). */
+  choices?: string[]
 }
 
 /** One question, scoped to the gate card it must be submitted through.
@@ -30,6 +34,11 @@ export interface QuestionAnswer {
 export interface InterviewQuestion {
   id: string
   prompt: string
+  /** The options to pick from, for a choice question (feature 034);
+   *  absent for an open question. */
+  options?: string[]
+  /** Whether several options may be picked. */
+  multiple?: boolean
 }
 
 /** One persona's open interview gate: its question set plus the round

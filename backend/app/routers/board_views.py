@@ -29,6 +29,7 @@ from app.schemas import (
     BoardOwnerOut,
     BoardRoleRefOut,
     BoardSnapshotOut,
+    PhaseStatusOut,
     RequestActivityOut,
     WorkCardGateOut,
     WorkCardRelationOut,
@@ -39,7 +40,12 @@ from app.services.board.activity import ActivityInputs, activity_of
 from app.services.board.gates import GatesService
 from app.services.board.interventions import allowed_actions_for
 from app.services.board.live_activity import LiveTurn
-from app.services.board.phases import DONE_PHASE, current_phase, stage_of
+from app.services.board.phases import (
+    DONE_PHASE,
+    current_phase,
+    phase_statuses,
+    stage_of,
+)
 from app.services.board.specialists import SpecialistRoster
 
 #: Card states an operator needs to look at (board-api.md
@@ -221,6 +227,10 @@ def board_snapshot(
         stage=stage_of(phase),
         task_body=workflow.task_body,
         activity=lookups.activity,
+        phases=[
+            PhaseStatusOut(name=name, status=status)
+            for name, status in phase_statuses(cards)
+        ],
     )
 
 

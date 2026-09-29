@@ -19,6 +19,11 @@ from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.board.gates import GatesService
+from app.services.board.questions import (
+    Question,
+    QuestionError,
+    normalise_questions,
+)
 from app.text_extract import extract_tag
 
 #: The one logical name every gate resolution's free-text response is
@@ -41,7 +46,7 @@ class RefinementRound:
         complete, needing no further round.
     """
 
-    questions: list[str]
+    questions: list[Question]
     satisfied: bool
 
 
@@ -63,20 +68,18 @@ def parse_refinement_round(text: str) -> RefinementRound:
         raise RefinementResultError("no REFINEMENT_QUESTIONS block")
     try:
         data = json.loads(raw)
-        questions = data["questions"]
+        questions = normalise_questions(data["questions"])
         satisfied = bool(data.get("satisfied", False))
-        if not isinstance(questions, list):
-            raise RefinementResultError("questions must be a list")
         if not questions and not satisfied:
             raise RefinementResultError("questions must be a nonempty list")
-        if not all(isinstance(q, str) for q in questions):
-            raise RefinementResultError("every question must be a string")
+    except QuestionError as exc:
+        raise RefinementResultError(f"malformed question: {exc}") from exc
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise RefinementResultError(f"malformed result: {exc}") from exc
     return RefinementRound(questions=questions, satisfied=satisfied)
 
 
-def parse_refinement_questions(text: str) -> list[str]:
+def parse_refinement_questions(text: str) -> list[Question]:
     """Parse the ``<REFINEMENT_QUESTIONS>`` block's question list.
 
     Thin wrapper over :func:`parse_refinement_round` for callers (the
@@ -102,7 +105,6 @@ def route_refinement_result(
     """
     persona = card.eligible_roles[0] if card.eligible_roles else "unknown"
     try:
-        raw = extract_tag(text, "REFINEMENT_QUESTIONS") or ""
         round_result = parse_refinement_round(text)
     except RefinementResultError:
         _escalate_unparseable(coordinator, card, "refinement", persona)
@@ -116,7 +118,11 @@ def route_refinement_result(
             producer_card_id=card.id,
             logical_name="questions",
             revision=card.attempt_count,
-            content=raw,
+            # Normalised, so the interview reads one shape (feature 034).
+            content=json.dumps(
+                {"questions": questions,
+                 "satisfied": round_result.satisfied}
+            ),
             trust="agent_output",
         )
     )

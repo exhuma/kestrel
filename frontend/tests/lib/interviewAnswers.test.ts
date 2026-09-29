@@ -108,6 +108,21 @@ describe('reconcileAnswers', () => {
 })
 
 describe('serializeAnswers', () => {
+  it('names the picked options and the comment (feature 034)', () => {
+    const choice = {
+      id: 'c',
+      prompt: 'Formats?',
+      options: ['CSV', 'PDF'],
+      multiple: true,
+    }
+    const answers: Record<string, QuestionAnswer> = {
+      c: { state: 'answered', text: ' PDF later ', choices: ['CSV', 'PDF'] },
+    }
+    expect(serializeAnswers([choice], answers)).toBe(
+      'Q: Formats?\nA: CSV, PDF\nComment: PDF later',
+    )
+  })
+
   it('renders a concrete answer plainly', () => {
     const answers: Record<string, QuestionAnswer> = {
       [q1.id]: { state: 'answered', text: '  OIDC, with PKCE  ' },

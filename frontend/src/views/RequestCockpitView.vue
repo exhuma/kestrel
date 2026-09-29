@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// One request, scoped entirely to itself (FR-010). Four regions, each
+// One request, scoped entirely to itself (FR-010). Its regions each
 // answering a different question:
 //
 //   banner — what does this want from me?   (the most important)
 //   spine  — where is it?
+//   work   — what is it made of, and what ended how?
 //   feed   — why did it get here?
 //   rail   — what has it produced?
 //
@@ -19,6 +20,7 @@ import PhaseSpine from '../components/cockpit/PhaseSpine.vue'
 import NarrativeFeed from '../components/cockpit/NarrativeFeed.vue'
 import ArtifactRail from '../components/cockpit/ArtifactRail.vue'
 import ManualTaskList from '../components/cockpit/ManualTaskList.vue'
+import WorkList from '../components/cockpit/WorkList.vue'
 import ActivityLine from '../components/common/ActivityLine.vue'
 
 const route = useRoute()
@@ -84,10 +86,12 @@ onUnmounted(() => {
       />
 
       <v-sheet class="pa-2 mb-4" rounded>
-        <PhaseSpine :phase="snapshot.phase" />
+        <PhaseSpine :phase="snapshot.phase" :phases="snapshot.phases" />
       </v-sheet>
 
       <ManualTaskList class="mb-4" :cards="snapshot.cards" />
+
+      <WorkList class="mb-4" :cards="snapshot.cards" :events="events" />
 
       <div class="cockpit__panes d-flex ga-4">
         <v-sheet class="cockpit__feed flex-1-1" rounded>

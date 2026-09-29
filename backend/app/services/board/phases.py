@@ -115,3 +115,41 @@ def current_phase(cards: list[WorkCard]) -> str:
 def stage_of(phase: str) -> str:
     """The stage grouping *phase* belongs to."""
     return _STAGE_BY_PHASE.get(phase, phase)
+
+
+#: Card states that mean a phase waits on the operator, not on work.
+_WAITING_STATES = frozenset({"awaiting_human", "quarantined"})
+
+
+def phase_statuses(cards: list[WorkCard]) -> list[tuple[str, str]]:
+    """Every phase, in order, with its status (feature 034): ``done``,
+    ``active``, ``waiting``, ``problem``, ``skipped`` or ``upcoming``.
+
+    Still display-only. A phase with no cards is ``skipped`` once the
+    request has moved past it (or finished), and ``upcoming`` otherwise.
+    """
+    by_phase: dict[str, list[WorkCard]] = {p.name: [] for p in _PHASES}
+    for card in cards:
+        if card.kind in _PHASE_BY_KIND:
+            by_phase[_PHASE_BY_KIND[card.kind]].append(card)
+    names = [p.name for p in _PHASES]
+    finished = current_phase(cards) == DONE_PHASE and bool(cards)
+    reached = [i for i, name in enumerate(names) if by_phase[name]]
+    last_reached = max(reached, default=-1)
+    return [
+        (name, _status(by_phase[name], finished or i < last_reached))
+        for i, name in enumerate(names)
+    ]
+
+
+def _status(cards: list[WorkCard], passed: bool) -> str:
+    if not cards:
+        return "skipped" if passed else "upcoming"
+    open_states = {c.state for c in cards if c.state not in TERMINAL_STATES}
+    if open_states & _WAITING_STATES:
+        return "waiting"
+    if open_states:
+        return "active"
+    if any(c.state == "failed" for c in cards):
+        return "problem"
+    return "done" if any(c.state == "done" for c in cards) else "skipped"

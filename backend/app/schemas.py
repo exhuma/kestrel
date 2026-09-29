@@ -183,6 +183,20 @@ class WorkCardRelationOut(BaseModel):
     kind: str
 
 
+class PhaseStatusOut(BaseModel):
+    """One spine step and its status (feature 034) — display-only, like
+    the phase projection itself.
+
+    :param status: ``done``, ``active``, ``waiting``, ``problem``,
+        ``skipped`` or ``upcoming``.
+    """
+
+    name: str
+    status: Literal[
+        "done", "active", "waiting", "problem", "skipped", "upcoming"
+    ]
+
+
 class RequestActivityOut(BaseModel):
     """What a request is doing right now (feature 033) — see
     ``app.services.board.activity.RequestActivity``. Structured, not
@@ -235,6 +249,7 @@ class BoardSnapshotOut(BaseModel):
     stage: str
     task_body: str = ""
     activity: RequestActivityOut | None = None
+    phases: list[PhaseStatusOut] = []
 
 
 class WorkflowSummaryOut(BaseModel):

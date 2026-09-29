@@ -171,6 +171,21 @@ export interface RequestActivity {
   since: string | null
 }
 
+/** How one spine step stands (feature 034). Mirrors
+ *  `app.schemas.PhaseStatusOut`; the server decides, the spine shows it. */
+export type PhaseStatusValue =
+  | 'done'
+  | 'active'
+  | 'waiting'
+  | 'problem'
+  | 'skipped'
+  | 'upcoming'
+
+export interface PhaseStatus {
+  name: string
+  status: PhaseStatusValue
+}
+
 export interface BoardSnapshot {
   id: string
   revision: number
@@ -190,6 +205,8 @@ export interface BoardSnapshot {
   task_body: string
   /** What the request is doing right now (feature 033). */
   activity: RequestActivity | null
+  /** Every spine step's status, in order (feature 034). Snapshot only. */
+  phases: PhaseStatus[]
 }
 
 /** One workflow's row in the board collection listing. Mirrors

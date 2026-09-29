@@ -15,6 +15,7 @@
 // `$alias` used in `src/` resolves to a non-empty path.
 import {
   mdiAccount,
+  mdiAccountClock,
   mdiAlertCircle,
   mdiArrowRight,
   mdiBell,
@@ -30,6 +31,8 @@ import {
   mdiGavel,
   mdiHelpCircleOutline,
   mdiInboxArrowDown,
+  mdiMinusCircleOutline,
+  mdiProgressClock,
   mdiRadar,
   mdiRefresh,
   mdiRestart,
@@ -45,6 +48,7 @@ import {
 
 export const aliases: Record<string, string> = {
   account: mdiAccount,
+  accountClock: mdiAccountClock,
   alertCircle: mdiAlertCircle,
   arrowRight: mdiArrowRight,
   bell: mdiBell,
@@ -60,6 +64,8 @@ export const aliases: Record<string, string> = {
   gavel: mdiGavel,
   helpCircleOutline: mdiHelpCircleOutline,
   inboxArrowDown: mdiInboxArrowDown,
+  minusCircleOutline: mdiMinusCircleOutline,
+  progressClock: mdiProgressClock,
   radar: mdiRadar,
   refresh: mdiRefresh,
   restart: mdiRestart,

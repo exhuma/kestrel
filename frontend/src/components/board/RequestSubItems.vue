@@ -3,7 +3,8 @@
 // appearing as separate top-level cards (FR-002): its cards, as a compact
 // per-state count. The listing carries aggregate `state_counts`, not
 // individually named cards — those are the cockpit's job, backed by the
-// full snapshot. A request's approved tasks are among these cards
+// full snapshot, where the cockpit's work list names each card and why a
+// cancelled or failed one ended (feature 034). A request's approved tasks are among these cards
 // (feature 031); decomposition no longer creates separate workflows.
 import { computed } from 'vue'
 import type { CardState } from '../../types/workflows'

@@ -3,14 +3,20 @@ import { mount } from '@vue/test-utils'
 import { withVuetify } from '../../support/vuetify'
 import PhaseSpine from '../../../src/components/cockpit/PhaseSpine.vue'
 import { PHASE_ORDER } from '../../../src/lib/stages'
+import type { PhaseStatus } from '../../../src/types/workflows'
 
-function mountSpine(phase: string) {
-  return mount(PhaseSpine, withVuetify({ props: { phase } }))
+function mountSpine(phase: string, phases: PhaseStatus[] = []) {
+  return mount(PhaseSpine, withVuetify({ props: { phase, phases } }))
 }
 
 function items(wrapper: ReturnType<typeof mountSpine>) {
   return wrapper.findAllComponents({ name: 'VTimelineItem' })
 }
+
+const FINISHED: PhaseStatus[] = PHASE_ORDER.map((name, i) => ({
+  name,
+  status: i === 6 ? 'skipped' : 'done',
+}))
 
 describe('PhaseSpine sequence', () => {
   it('renders all ten phases in order', () => {
@@ -21,43 +27,52 @@ describe('PhaseSpine sequence', () => {
   })
 })
 
-describe('PhaseSpine current-phase highlighting', () => {
-  // "PRD sign-off" is the 6th of ten: five passed, one current, four not
-  // yet reached.
-  it('marks five phases passed and four not yet reached for PRD sign-off', () => {
-    const wrapper = mountSpine('PRD sign-off')
-    const colors = items(wrapper).map((i) => i.props('dotColor'))
-    expect(colors.filter((c) => c === 'success')).toHaveLength(5)
-    expect(colors.filter((c) => c === 'primary')).toHaveLength(1)
-    expect(colors.filter((c) => c === undefined)).toHaveLength(4)
+describe('PhaseSpine step status (feature 034)', () => {
+  it('marks every step of a finished request, none left blank', () => {
+    const wrapper = mountSpine('done', FINISHED)
+    const icons = items(wrapper).map((i) => i.props('icon'))
+    expect(icons.filter((i) => i === '$checkCircle')).toHaveLength(9)
+    expect(icons[6]).toBe('$minusCircleOutline')
+    expect(wrapper.text()).toContain('Skipped')
+    expect(wrapper.text()).not.toContain('Not reached')
   })
 
-  it('marks the current phase with the primary colour at its own position', () => {
-    const wrapper = mountSpine('PRD sign-off')
-    expect(items(wrapper)[5].props('dotColor')).toBe('primary')
-    expect(wrapper.text()).toContain('Current phase')
+  it('tells each status apart by icon and word, not colour alone', () => {
+    const phases: PhaseStatus[] = [
+      { name: 'Intake', status: 'done' },
+      { name: 'Understanding', status: 'problem' },
+      { name: 'CAB-1 - strategic fit', status: 'waiting' },
+      { name: 'Pre-assessment', status: 'active' },
+    ]
+    const wrapper = mountSpine('Pre-assessment', phases)
+    const icons = items(wrapper).map((i) => i.props('icon'))
+    expect(icons.slice(0, 5)).toEqual([
+      '$checkCircle',
+      '$alertCircle',
+      '$accountClock',
+      '$progressClock',
+      '$circleOutline',
+    ])
+    for (const word of ['Done', 'Problem', 'Waiting for you', 'In progress'])
+      expect(wrapper.text()).toContain(word)
   })
 
-  it('claims nothing passed at the first phase', () => {
+  it('reads an unreported step as not reached', () => {
     const wrapper = mountSpine('Intake')
     const colors = items(wrapper).map((i) => i.props('dotColor'))
-    expect(colors.filter((c) => c === 'success')).toHaveLength(0)
-    expect(colors[0]).toBe('primary')
+    expect(colors.every((c) => c === undefined)).toBe(true)
   })
 })
 
 describe('PhaseSpine gate distinction', () => {
-  it('gives the three gate phases a distinct icon and work phases none', () => {
+  it('marks the three gate phases beside their label', () => {
     const wrapper = mountSpine('PRD')
-    const icons = items(wrapper).map((i) => i.props('icon'))
-    expect(icons.filter((i) => i === '$shieldAlert')).toHaveLength(3)
+    const marked = items(wrapper).map((i) =>
+      i.find('[data-testid="gate-mark"]').exists(),
+    )
     // CAB-1 (3rd), PRD sign-off (6th) and CAB-2 (8th) are the gates.
-    expect([icons[2], icons[5], icons[7]]).toEqual([
-      '$shieldAlert',
-      '$shieldAlert',
-      '$shieldAlert',
-    ])
-    expect(icons[0]).toBeUndefined()
+    expect(marked.filter(Boolean)).toHaveLength(3)
+    expect([marked[2], marked[5], marked[7]]).toEqual([true, true, true])
   })
 })
 
@@ -65,8 +80,8 @@ describe('PhaseSpine unrecognised phase', () => {
   it('renders the label verbatim with no position marker', () => {
     const wrapper = mountSpine('Rethinking everything')
     expect(wrapper.text()).toContain('Rethinking everything')
-    const colors = items(wrapper).map((i) => i.props('dotColor'))
-    expect(colors.every((c) => c === undefined)).toBe(true)
+    const statuses = items(wrapper).map((i) => i.attributes('data-status'))
+    expect(statuses.every((st) => st === 'upcoming')).toBe(true)
   })
 
   it('says the phase is outside the standard sequence rather than guessing', () => {

@@ -38,12 +38,37 @@ export function personaOf(card: WorkCardSummary): string {
   return match ? match[1].toLowerCase() : 'requester'
 }
 
-/** Parse an interview artifact's `{questions: string[], satisfied?:
- *  boolean}` content (`refinement.py`'s `REFINEMENT_QUESTIONS` block, as
- *  stored verbatim). Returns `null` for anything unparseable or empty
- *  (FR-045) — callers surface that as "could not be read", never as an
- *  empty interview. */
-export function parseQuestionSet(text: string | null): string[] | null {
+/** One question as parsed: open (`options` null) or a choice question
+ *  (feature 034). */
+export interface ParsedQuestion {
+  prompt: string
+  options: string[] | null
+  multiple: boolean
+}
+
+function parseQuestion(raw: unknown): ParsedQuestion | null {
+  if (typeof raw === 'string') {
+    return raw.trim() ? { prompt: raw, options: null, multiple: false } : null
+  }
+  if (typeof raw !== 'object' || raw === null) return null
+  const q = raw as Record<string, unknown>
+  const options = q.options
+  if (typeof q.prompt !== 'string' || !q.prompt.trim()) return null
+  if (!Array.isArray(options) || options.length < 2) return null
+  if (!options.every((o) => typeof o === 'string' && o.trim())) return null
+  return {
+    prompt: q.prompt,
+    options: options as string[],
+    multiple: q.multiple === true,
+  }
+}
+
+/** Parse an interview artifact's `{questions: [...], satisfied?: boolean}`
+ *  content (`refinement.py`, normalised by `questions.py`): each question
+ *  a plain string, or `{prompt, options, multiple}`. Returns `null` for
+ *  anything unparseable or empty (FR-045) — callers surface that as
+ *  "could not be read", never as an empty interview. */
+export function parseQuestionSet(text: string | null): ParsedQuestion[] | null {
   if (!text) return null
   let data: unknown
   try {
@@ -54,8 +79,9 @@ export function parseQuestionSet(text: string | null): string[] | null {
   if (typeof data !== 'object' || data === null) return null
   const questions = (data as Record<string, unknown>).questions
   if (!Array.isArray(questions) || questions.length === 0) return null
-  if (!questions.every((q) => typeof q === 'string' && q.trim())) return null
-  return questions as string[]
+  const parsed = questions.map(parseQuestion)
+  if (parsed.some((q) => q === null)) return null
+  return parsed as ParsedQuestion[]
 }
 
 /** Build one `InterviewCard` per open gate whose artifact content parsed.
@@ -77,7 +103,11 @@ export function buildInterviewCards(
     result.push({
       cardId: card.id,
       persona: personaOf(card),
-      questions: raw.map((prompt, i) => ({ id: `${card.id}:${i}`, prompt })),
+      questions: raw.map((q, i) => ({
+        id: `${card.id}:${i}`,
+        prompt: q.prompt,
+        ...(q.options ? { options: q.options, multiple: q.multiple } : {}),
+      })),
       round: card.gate?.round ?? null,
       cap: card.gate?.cap ?? null,
     })

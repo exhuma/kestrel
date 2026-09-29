@@ -31,6 +31,7 @@ const resolvable = { ...vuetifyAliases, ...appAliases }
 // function-length limit.
 const EXPECTED_ALIASES = [
   'account',
+  'accountClock',
   'alertCircle',
   'arrowRight',
   'bell',
@@ -46,6 +47,8 @@ const EXPECTED_ALIASES = [
   'gavel',
   'helpCircleOutline',
   'inboxArrowDown',
+  'minusCircleOutline',
+  'progressClock',
   'radar',
   'refresh',
   'restart',

@@ -6,7 +6,7 @@ A pure, display-only label over card kinds — no store, no writes. See
 from __future__ import annotations
 
 from app.models_board import WorkCard
-from app.services.board.phases import current_phase, stage_of
+from app.services.board.phases import current_phase, phase_statuses, stage_of
 
 
 def _card(card_id: str, kind: str, state: str = "ready") -> WorkCard:
@@ -96,3 +96,44 @@ class TestStageOf:
 
     def test_done_has_its_own_stage(self) -> None:
         assert stage_of("done") == "Done"
+
+
+class TestPhaseStatuses:
+    """Every spine step has a status, finished or not (feature 034)."""
+
+    def test_a_finished_request_marks_every_step(self) -> None:
+        """Ensure no step is left blank: reached steps are done, the
+        rest skipped."""
+        cards = [
+            _card("s", "security_review", state="done"),
+            _card("u", "understanding_gate", state="done"),
+            _card("p", "prd_gate", state="cancelled"),
+        ]
+        statuses = dict(phase_statuses(cards))
+
+        assert statuses["Intake"] == "done"
+        assert statuses["Understanding"] == "done"
+        assert statuses["PRD sign-off"] == "skipped"
+        assert statuses["Delivery"] == "skipped"
+        assert "upcoming" not in statuses.values()
+
+    def test_a_request_in_progress(self) -> None:
+        cards = [
+            _card("s", "security_review", state="done"),
+            _card("u", "understanding_gate", state="awaiting_human"),
+        ]
+        statuses = dict(phase_statuses(cards))
+
+        assert statuses["Intake"] == "done"
+        assert statuses["Understanding"] == "waiting"
+        assert statuses["CAB-1 - strategic fit"] == "upcoming"
+
+    def test_work_under_way_and_a_failure(self) -> None:
+        statuses = dict(phase_statuses([
+            _card("i", "implementation", state="claimed"),
+            _card("d", "delivery", state="failed"),
+        ]))
+
+        assert statuses["Build"] == "active"
+        assert statuses["Delivery"] == "problem"
+        assert statuses["PRD"] == "skipped"

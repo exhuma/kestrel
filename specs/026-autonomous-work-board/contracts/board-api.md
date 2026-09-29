@@ -80,6 +80,12 @@ process is running at that moment.
 New event types in the feed: `card.turn_failed` and `coordinator.turn_failed`,
 each with a `{"detail": …}` payload.
 
+**Amendment (feature 034)**: one additive, read-only field on the **Board
+Snapshot** only: `phases`, a list of `{name, status}` (`PhaseStatusOut`), one
+per spine phase in order. `status` is one of `done | active | waiting |
+problem | skipped | upcoming`. A phase the request passed without any card is
+`skipped`; once the request is done no phase is `upcoming`.
+
 ## Shared Enumerations
 
 ```text

@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Draft
+**Status**: Implemented (2026-09-29)
 
 **Input**: The Vikunja 710 review, after a full test run:
 
@@ -91,8 +91,10 @@ the coordinator, a rejected gate, recovery…).
   the spine MUST show it with a distinct icon and colour per status (never
   colour alone).
 - **FR-006**: The cockpit MUST list every card grouped by state, with the
-  explanation of its latest event for cancelled and failed cards; the
-  board card's state counts MUST link to it.
+  explanation of its latest event for cancelled and failed cards. The
+  board card is itself a link to the cockpit, so its state counts lead
+  there; they get no link of their own (a link inside a link is invalid
+  and unreachable by keyboard).
 
 ## Success Criteria *(mandatory)*
 

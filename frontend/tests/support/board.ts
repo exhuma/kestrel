@@ -79,6 +79,7 @@ export function boardSnapshot(
     stage: 'Build & deliver',
     task_body: '',
     activity: null,
+    phases: [],
     ...overrides,
   }
 }

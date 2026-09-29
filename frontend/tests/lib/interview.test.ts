@@ -93,16 +93,42 @@ describe('personaOf', () => {
 })
 
 describe('parseQuestionSet', () => {
+  const open = (prompt: string) => ({ prompt, options: null, multiple: false })
+
   it('parses the plain {questions} shape', () => {
     expect(
       parseQuestionSet(JSON.stringify({ questions: ['A?', 'B?'] })),
-    ).toEqual(['A?', 'B?'])
+    ).toEqual([open('A?'), open('B?')])
   })
 
   it('ignores the satisfied flag alongside the questions', () => {
     expect(
       parseQuestionSet(JSON.stringify({ questions: ['A?'], satisfied: false })),
-    ).toEqual(['A?'])
+    ).toEqual([open('A?')])
+  })
+
+  it('parses choice questions (feature 034)', () => {
+    const text = JSON.stringify({
+      questions: [
+        { prompt: 'Who uses it?', options: ['Finance', 'Sales'] },
+        { prompt: 'Formats?', options: ['CSV', 'PDF'], multiple: true },
+      ],
+    })
+    expect(parseQuestionSet(text)).toEqual([
+      {
+        prompt: 'Who uses it?',
+        options: ['Finance', 'Sales'],
+        multiple: false,
+      },
+      { prompt: 'Formats?', options: ['CSV', 'PDF'], multiple: true },
+    ])
+  })
+
+  it('returns null for a choice question with fewer than two options', () => {
+    const text = JSON.stringify({
+      questions: [{ prompt: 'Pick', options: ['Only'] }],
+    })
+    expect(parseQuestionSet(text)).toBeNull()
   })
 
   it('returns null for null, prose, and malformed JSON', () => {

@@ -71,8 +71,13 @@ const STATE_TEXT: Readonly<Record<Exclude<AnswerState, 'answered'>, string>> = {
 }
 
 function bodyOf(answer: QuestionAnswer | undefined): string {
-  if (answer?.state === 'answered') return answer.text.trim()
-  return STATE_TEXT[answer?.state ?? 'unanswered']
+  if (answer?.state !== 'answered')
+    return STATE_TEXT[answer?.state ?? 'unanswered']
+  const choices = answer.choices ?? []
+  const text = answer.text.trim()
+  if (!choices.length) return text
+  const picked = choices.join(', ')
+  return text ? `${picked}\nComment: ${text}` : picked
 }
 
 /** Serialise one persona's questions and answers into the single
