@@ -18,6 +18,7 @@ import { useBoard } from '../../composables/useBoard'
 import type { WorkCardSummary } from '../../types/workflows'
 import ArtifactDialog from './ArtifactDialog.vue'
 import InlineArtifact from './InlineArtifact.vue'
+import { actorLabel } from '../../lib/awaiting'
 
 const props = defineProps<{
   cards: WorkCardSummary[]
@@ -40,6 +41,12 @@ const tone = computed(() =>
  *  the PRD, the strategic-fit answers, CAB-2's executive summary. `null`
  *  when the ask has nothing to read. */
 const inline = computed(() => (ask.value ? inlineReading(ask.value) : null))
+
+/** Which hat this decision needs (feature 035). */
+const actor = computed(() => {
+  const awaiting = ask.value?.card.awaiting
+  return awaiting ? actorLabel(awaiting) : null
+})
 const reading = computed(() =>
   ask.value && !inline.value ? readingFor(ask.value) : null,
 )
@@ -143,6 +150,9 @@ const staleMessage = computed(() =>
 <template>
   <div v-if="ask">
     <v-alert :type="tone" prominent data-testid="action-banner">
+      <div v-if="actor" class="text-overline" data-testid="banner-actor">
+        Your move as {{ actor }}
+      </div>
       <div class="text-body-1 font-weight-medium">{{ ask.title }}</div>
       <InlineArtifact v-if="inline" :artifact-id="inline" class="my-2" />
       <div

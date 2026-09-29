@@ -10,6 +10,7 @@ import PhaseProgress from '../common/PhaseProgress.vue'
 import RequestSubItems from './RequestSubItems.vue'
 import ActivityLine from '../common/ActivityLine.vue'
 import type { AttentionState, BoardRequest } from '../../lib/stages'
+import { describeMoves } from '../../lib/awaiting'
 
 const props = defineProps<{ request: BoardRequest }>()
 
@@ -43,6 +44,9 @@ const manualTasks = computed(() => {
   const noun = count === 1 ? 'task' : 'tasks'
   return count > 0 ? `${count} manual ${noun} assigned to you` : ''
 })
+
+/** Whose move it is, and what: "CAB: decide strategic fit" (feature 035). */
+const moves = computed(() => describeMoves(props.request.summary.awaiting))
 
 const color = computed(() => ATTENTION_COLOR[props.request.attention])
 const label = computed(() => ATTENTION_LABEL[props.request.attention])
@@ -91,6 +95,13 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
       >
         {{ manualTasks }}
       </v-chip>
+      <div
+        v-if="request.attention !== 'none' && moves"
+        class="text-body-2 mt-1"
+        data-testid="moves"
+      >
+        {{ moves }}
+      </div>
 
       <RequestSubItems :state-counts="request.summary.state_counts" />
     </v-card-text>

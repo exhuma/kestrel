@@ -91,3 +91,24 @@ describe('RequestCard manual tasks (feature 031)', () => {
     expect(wrapper.text()).not.toContain('manual task')
   })
 })
+
+describe('RequestCard whose move (feature 035)', () => {
+  it('names who acts and what, and how many more wait', () => {
+    const wrapper = mountCard(
+      request('your-move', {
+        awaiting: [
+          { actor: 'cab', ask: 'approve_strategic_fit' },
+          { actor: 'you', ask: 'do_task' },
+        ],
+      }),
+    )
+    expect(wrapper.find('[data-testid="moves"]').text()).toBe(
+      'CAB: decide strategic fit (+1 more)',
+    )
+  })
+
+  it('says nothing about moves when none is wanted', () => {
+    const wrapper = mountCard(request('none'))
+    expect(wrapper.find('[data-testid="moves"]').exists()).toBe(false)
+  })
+})

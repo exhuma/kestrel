@@ -139,6 +139,18 @@ export interface WorkCardSummary {
   /** This card's gate decision detail, for a gate-kind card that has one
    *  recorded. */
   gate: WorkCardGate | null
+  /** Who this card waits on, and for what (feature 035); `null` when it
+   *  waits on nobody. */
+  awaiting: Awaiting | null
+}
+
+/** Who a card waits on, and for what (feature 035). Mirrors
+ *  `app.schemas.AwaitingOut`: codes the server decides; `lib/awaiting.ts`
+ *  phrases them. `ask` is a gate's `requested_decision`, or `do_task`,
+ *  `review_input`, `retry_or_cancel` or `review`. */
+export interface Awaiting {
+  actor: 'requester' | 'cab' | 'you' | 'operator'
+  ask: string
 }
 
 /** One directed edge in a workflow's card graph. Mirrors
@@ -231,6 +243,8 @@ export interface BoardWorkflowSummary {
   open_manual_task_count: number
   /** What the request is doing right now (feature 033). */
   activity: RequestActivity | null
+  /** Every card waiting on a human, in card order (feature 035). */
+  awaiting: Awaiting[]
 }
 
 /** Request body for one card intervention (board-api.md "Intervention").

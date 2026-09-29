@@ -23,6 +23,7 @@ from app.models_board_records import (
     HumanGateRecord,
 )
 from app.schemas import (
+    AwaitingOut,
     BoardArtifactRefOut,
     BoardEventOut,
     BoardLeaseOut,
@@ -37,6 +38,7 @@ from app.schemas import (
     WorkflowSummaryOut,
 )
 from app.services.board.activity import ActivityInputs, activity_of
+from app.services.board.awaiting import Awaiting, awaiting_all, awaiting_of
 from app.services.board.gates import GatesService
 from app.services.board.interventions import allowed_actions_for
 from app.services.board.live_activity import LiveTurn
@@ -159,7 +161,12 @@ def workflow_summary(
         cap_exhausted=_cap_exhausted(cards, gates),
         open_manual_task_count=open_manual_task_count(cards),
         activity=activity,
+        awaiting=[AwaitingOut(**asdict(a)) for a in awaiting_all(cards)],
     )
+
+
+def _awaiting_out(found: Awaiting | None) -> AwaitingOut | None:
+    return AwaitingOut(**asdict(found)) if found is not None else None
 
 
 def request_activity(
@@ -259,6 +266,7 @@ def card_summary(
         allowed_actions=[a.value for a in allowed_actions_for(card)],
         security_review_id=lookups.security_review_ids.get(card.id),
         gate=_gate_detail(card.id, lookups),
+        awaiting=_awaiting_out(awaiting_of(card)),
     )
 
 

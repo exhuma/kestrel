@@ -38,6 +38,7 @@ export function boardWorkflowSummary(
     cap_exhausted: false,
     open_manual_task_count: 0,
     activity: null,
+    awaiting: [],
     ...overrides,
   }
 }
@@ -59,6 +60,7 @@ export function workCardSummary(
     allowed_actions: [],
     security_review_id: null,
     gate: null,
+    awaiting: null,
     ...overrides,
   }
 }

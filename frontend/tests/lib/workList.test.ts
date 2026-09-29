@@ -58,3 +58,19 @@ describe('workGroups', () => {
     expect(group.items[0].endedBecause).toBeNull()
   })
 })
+
+describe('workGroups waiting cards (feature 035)', () => {
+  it('says who a waiting card waits on', () => {
+    const [group] = workGroups(
+      [
+        workCardSummary({
+          id: 'g',
+          state: 'awaiting_human',
+          awaiting: { actor: 'cab', ask: 'approve_strategic_fit' },
+        }),
+      ],
+      [],
+    )
+    expect(group.items[0].waitsOn).toBe('CAB: decide strategic fit')
+  })
+})

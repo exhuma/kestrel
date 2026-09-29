@@ -333,3 +333,16 @@ describe('ActionBanner understanding (feature 032)', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('ActionBanner whose move (feature 035)', () => {
+  it('names the hat the decision needs', () => {
+    const wrapper = mountBanner([
+      gateCard('approve_strategic_fit', {
+        awaiting: { actor: 'cab', ask: 'approve_strategic_fit' },
+      }),
+    ])
+    expect(wrapper.find('[data-testid="banner-actor"]').text()).toBe(
+      'Your move as CAB',
+    )
+  })
+})

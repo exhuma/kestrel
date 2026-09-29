@@ -126,6 +126,14 @@ class WorkCardGateOut(BaseModel):
     target_artifact: BoardArtifactRefOut | None = None
 
 
+class AwaitingOut(BaseModel):
+    """Who a card waits on, and for what (feature 035), as codes the
+    frontend phrases (``app.services.board.awaiting``)."""
+
+    actor: Literal["requester", "cab", "you", "operator"]
+    ask: str
+
+
 class WorkCardSummaryOut(BaseModel):
     """One card's board-visible state (board-api.md ``CardSummary``).
 
@@ -156,6 +164,7 @@ class WorkCardSummaryOut(BaseModel):
     allowed_actions: list[str]
     security_review_id: str | None = None
     gate: WorkCardGateOut | None = None
+    awaiting: AwaitingOut | None = None
 
 
 class BoardArtifactContentOut(BaseModel):
@@ -278,6 +287,7 @@ class WorkflowSummaryOut(BaseModel):
     cap_exhausted: bool = False
     open_manual_task_count: int = 0
     activity: RequestActivityOut | None = None
+    awaiting: list[AwaitingOut] = []
 
 
 class BoardInterventionIn(BaseModel):

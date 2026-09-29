@@ -86,6 +86,13 @@ per spine phase in order. `status` is one of `done | active | waiting |
 problem | skipped | upcoming`. A phase the request passed without any card is
 `skipped`; once the request is done no phase is `upcoming`.
 
+**Amendment (feature 035)**: `awaiting` (`AwaitingOut`, `{actor, ask}`) says
+who a card waits on and for what. `actor` is one of `requester | cab | you |
+operator`; `ask` is a gate's `requested_decision`, or `do_task`,
+`review_input`, `retry_or_cancel` or `review`. It is set on every **Card
+Summary** that waits on a human (`null` otherwise), and the **Workflow
+Collection** carries the list of them, in card order.
+
 ## Shared Enumerations
 
 ```text

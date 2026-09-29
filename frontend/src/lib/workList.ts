@@ -8,6 +8,7 @@
  * cause from the last event recorded against the card.
  */
 import { summaryOf } from './personas'
+import { describeAwaiting } from './awaiting'
 import type { BoardEvent, CardState, WorkCardSummary } from '../types/workflows'
 
 export interface WorkGroup {
@@ -23,6 +24,8 @@ export interface WorkItem {
   role: string | null
   /** For a cancelled or failed card: why it ended, if an event says. */
   endedBecause: string | null
+  /** For a card waiting on a human: who, and for what (feature 035). */
+  waitsOn: string | null
 }
 
 /** Group order is reading order: what is moving, what is stuck on
@@ -74,6 +77,7 @@ function toItem(card: WorkCardSummary, event: BoardEvent | undefined) {
     card,
     role: card.eligible_roles[0]?.label ?? null,
     endedBecause: ENDINGS.has(card.state) ? endedBecause(event) : null,
+    waitsOn: card.awaiting ? describeAwaiting(card.awaiting) : null,
   }
 }
 
