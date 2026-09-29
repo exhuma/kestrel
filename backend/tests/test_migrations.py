@@ -81,7 +81,8 @@ def test_upgrade_to_head_drops_the_retired_fixed_driver_tables(
     # The board schema and the tables it coexists with are unaffected.
     assert set(_BOARD_TABLES) <= tables
     assert "notification" in tables
-    assert "child_task_link" in tables
+    # Feature 031 (0033) drops the child-ticket link table too.
+    assert "child_task_link" not in tables
 
 
 def test_downgrade_from_head_restores_the_retired_tables(
@@ -235,3 +236,40 @@ def test_board_card_task_node_id_defaults_unset(tmp_path: Path) -> None:
             "SELECT task_node_id FROM board_card WHERE id = 'card-1'"
         )).scalar_one()
     assert value is None
+
+
+def test_0033_drops_the_child_ticket_bookkeeping(tmp_path: Path) -> None:
+    """Ensure a database that used feature 012's child tickets upgrades,
+    keeping its former child workflow as an ordinary one (feature 031)."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0032")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "skip_decomposition, ci_repair_round, task_body, created_at) "
+            "VALUES ('wf-child', 'github-issue', 'o/r#2', 'o/r', 'main', "
+            "'public', 't', 'active', 1, 1, 0, '', '2026-09-24T00:00:00')"
+        ))
+        conn.execute(sa.text(
+            "INSERT INTO child_task_link (task_ref, parent_workflow_id, "
+            "source_state) VALUES ('o/r#2', 'wf-parent', 'open')"
+        ))
+
+    command.upgrade(cfg, "0033")
+
+    inspector = sa.inspect(engine)
+    assert "child_task_link" not in inspector.get_table_names()
+    columns = {c["name"] for c in inspector.get_columns("board_workflow")}
+    assert "skip_decomposition" not in columns
+    with engine.begin() as conn:
+        kept = conn.execute(sa.text(
+            "SELECT id FROM board_workflow"
+        )).scalars().all()
+    assert kept == ["wf-child"]
+
+    command.downgrade(cfg, "0032")
+    inspector = sa.inspect(engine)
+    assert "child_task_link" in inspector.get_table_names()
+    columns = {c["name"] for c in inspector.get_columns("board_workflow")}
+    assert "skip_decomposition" in columns

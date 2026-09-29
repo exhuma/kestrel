@@ -73,11 +73,6 @@ class LocalTaskPollService:
             _log.info("ingest outcome=unresolved-repo %s", ref)
             return
         try:
-            generation = data.get("generation")
-            await self.ingestion.observe_child_retrigger(
-                ref,
-                str(generation) if generation is not None else None,
-            )
             await self.ingestion.maybe_start_run(
                 source="local-task",
                 task_ref=ref,

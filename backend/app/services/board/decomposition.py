@@ -1,13 +1,12 @@
-"""Decomposition-candidate routing and publishing (feature 026, T068;
-feature 030).
+"""Decomposition-candidate routing (feature 026, T068; feature 030).
 
 A ``pm``-worked ``decomposition`` card proposes splitting a task into
 follow-up work. Its candidate is validated strictly (``candidate.py``)
 and handed to `developer` on an ``estimation`` card; only a valid
 estimate opens the ``decomposition_gate`` (CAB-2 — see
-``estimation.py``). No child task is ever published without that
-approval. Approval turns the candidate into cards in the same workflow
-(feature 031, ``materialise.py``) — nothing is published as a ticket.
+``estimation.py``). Approval turns the candidate into cards in the same
+workflow (feature 031, ``materialise.py``) — nothing is published as a
+ticket.
 
 An unparseable proposal is routed as an escalation too (fail closed),
 the same convention ``verification.py`` uses: an untrustworthy result

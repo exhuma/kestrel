@@ -42,13 +42,6 @@ class _FakeIngestion:
         self.calls.append(kw)
         return "wf-x"
 
-    async def observe_missing_child_source_tasks(self, prefix, qualifying):
-        self.calls.append({"missing_prefix": prefix, "qualifying": qualifying})
-
-    async def observe_child_source_state(self, task_ref, state):
-        self.calls.append({"observed": task_ref, "state": state})
-
-
 class _FakeDismissals:
     def __init__(self, dismissed=()) -> None:
         self._d = set(dismissed)
@@ -139,22 +132,6 @@ async def test_still_qualifying_dismissal_is_kept() -> None:
     dis = _FakeDismissals(dismissed={"RFC-5"})
     await _svc(jira, _FakeIngestion(), dis).run_cycle()
     assert dis.is_dismissed("RFC-5") is True
-
-
-@pytest.mark.asyncio
-async def test_observes_jira_qualifying_exit_and_reentry() -> None:
-    """A JQL exit closes linked children and a re-entry observes them open."""
-    jira = _FakeJira([], fields={"RFC-5": "team/svc"})
-    ing = _FakeIngestion()
-    service = _svc(jira, ing, _FakeDismissals())
-
-    await service.run_cycle()
-    jira._tasks = [Task("RFC-5", "t", "b")]
-    await service.run_cycle()
-
-    assert ing.calls[0] == {"missing_prefix": "RFC-", "qualifying": set()}
-    assert ing.calls[1] == {"missing_prefix": "RFC-", "qualifying": {"RFC-5"}}
-    assert ing.calls[2] == {"observed": "RFC-5", "state": "open"}
 
 
 @pytest.mark.asyncio

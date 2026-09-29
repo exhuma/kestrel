@@ -1,19 +1,15 @@
 <script setup lang="ts">
 // A request's own sub-work, nested inside its board card rather than
-// appearing as separate top-level cards (FR-002). Two distinct sources,
-// both already on the listing row — no per-workflow fetch:
-//
-// 1. The request's own cards, as a compact per-state count (the listing
-//    carries aggregate `state_counts`, not individually named cards —
-//    those are the cockpit's job, backed by the full snapshot).
-// 2. Its decomposition children — separate workflows, matched via the
-//    FR-040 parent link (`lib/stages.ts`'s `groupByStage`).
+// appearing as separate top-level cards (FR-002): its cards, as a compact
+// per-state count. The listing carries aggregate `state_counts`, not
+// individually named cards — those are the cockpit's job, backed by the
+// full snapshot. A request's approved tasks are among these cards
+// (feature 031); decomposition no longer creates separate workflows.
 import { computed } from 'vue'
-import type { BoardWorkflowSummary, CardState } from '../../types/workflows'
+import type { CardState } from '../../types/workflows'
 
 const props = defineProps<{
   stateCounts: Partial<Record<CardState, number>>
-  children: BoardWorkflowSummary[]
 }>()
 
 const ownCardCounts = computed(() =>
@@ -27,7 +23,7 @@ function stateLabel(state: string): string {
 
 <template>
   <v-list
-    v-if="ownCardCounts.length > 0 || children.length > 0"
+    v-if="ownCardCounts.length > 0"
     density="compact"
     class="request-sub-items"
   >
@@ -35,13 +31,6 @@ function stateLabel(state: string): string {
       v-for="[state, count] in ownCardCounts"
       :key="state"
       :title="`${count} ${stateLabel(state)}`"
-      prepend-icon="$subdirectoryArrowRight"
-    />
-    <v-list-item
-      v-for="child in children"
-      :key="child.id"
-      :title="child.title"
-      :subtitle="child.task_label"
       prepend-icon="$subdirectoryArrowRight"
     />
   </v-list>

@@ -5,47 +5,41 @@ from __future__ import annotations
 import pytest
 
 from app.markers import (
-    SUBTASK_SENTINEL,
     Marker,
     ReviewTokenMarker,
-    SubtaskSentinel,
     apply_code_markers,
     apply_markers,
 )
-from app.services.task_source_utils import append_subtask_sentinel
+
+_FIRST = "<!-- first -->"
 
 
-def test_subtask_sentinel_render_is_the_workflow_literal() -> None:
-    """Ensure the marker renders exactly the workflow sentinel comment."""
-    assert SubtaskSentinel().render() == SUBTASK_SENTINEL
+class _Sentinel(Marker):
+    """A content-free marker for exercising the generic helpers."""
+
+    def __init__(self, text: str = _FIRST) -> None:
+        self._text = text
+
+    def render(self) -> str:
+        """Return this test marker's literal text."""
+        return self._text
+
+    def present_in(self, body: str) -> bool:
+        """Return whether this marker already appears in ``body``."""
+        return self.render() in body
 
 
-def test_subtask_sentinel_present_in_detects_the_comment() -> None:
-    """Ensure present_in is True only when the sentinel is in the body."""
-    sentinel = SubtaskSentinel()
-    assert not sentinel.present_in("plain body")
-    assert sentinel.present_in(f"body\n\n{SUBTASK_SENTINEL}\n")
-
-
-def test_subtask_sentinel_extract_is_none() -> None:
-    """Ensure a content-free sentinel yields no payload on extract."""
-    assert SubtaskSentinel().extract(SUBTASK_SENTINEL) is None
+def test_a_content_free_marker_extracts_nothing() -> None:
+    """Ensure a sentinel-style marker yields no payload on extract."""
+    assert _Sentinel().extract(_FIRST) is None
 
 
 def test_apply_markers_appends_sentinel_once_and_idempotently() -> None:
     """Ensure apply_markers appends the sentinel and never duplicates it."""
-    once = apply_markers("body", (SubtaskSentinel(),))
-    assert SUBTASK_SENTINEL in once
-    twice = apply_markers(once, (SubtaskSentinel(),))
+    once = apply_markers("body", (_Sentinel(),))
+    assert once == f"body\n\n{_FIRST}\n"
+    twice = apply_markers(once, (_Sentinel(),))
     assert twice == once
-
-
-def test_apply_markers_is_byte_identical_to_legacy_helper() -> None:
-    """Ensure [SubtaskSentinel()] reproduces append_subtask_sentinel exactly."""
-    for body in ("body", "body\n", "  padded  \n\n"):
-        assert apply_markers(body, (SubtaskSentinel(),)) == (
-            append_subtask_sentinel(body)
-        )
 
 
 def test_apply_markers_with_no_markers_is_a_noop() -> None:
@@ -56,31 +50,19 @@ def test_apply_markers_with_no_markers_is_a_noop() -> None:
 
 def test_apply_code_markers_wraps_sentinel_once_and_idempotently() -> None:
     """Ensure code-marked sentinels survive repeated Cloud serialization."""
-    once = apply_code_markers("body", (SubtaskSentinel(),))
-    assert once.endswith(f"`{SUBTASK_SENTINEL}`\n")
-    assert apply_code_markers(once, (SubtaskSentinel(),)) == once
-
-
-class _SecondSentinel(Marker):
-    """A second content-free marker used to exercise ordering."""
-
-    def render(self) -> str:
-        """Return this test marker's literal text."""
-        return "<!-- second -->"
-
-    def present_in(self, body: str) -> bool:
-        """Return whether this marker already appears in ``body``."""
-        return self.render() in body
+    once = apply_code_markers("body", (_Sentinel(),))
+    assert once.endswith(f"`{_FIRST}`\n")
+    assert apply_code_markers(once, (_Sentinel(),)) == once
 
 
 def test_apply_markers_appends_multiple_markers_in_order() -> None:
     """Ensure several markers are appended in the order given."""
     result = apply_markers(
-        "body", (SubtaskSentinel(), _SecondSentinel())
+        "body", (_Sentinel(), _Sentinel("<!-- second -->"))
     )
-    sub_pos = result.index(SUBTASK_SENTINEL)
+    first_pos = result.index(_FIRST)
     second_pos = result.index("<!-- second -->")
-    assert sub_pos < second_pos
+    assert first_pos < second_pos
 
 
 def test_review_token_marker_renders_bracketed_token() -> None:

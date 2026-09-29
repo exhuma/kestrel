@@ -30,7 +30,6 @@ export function boardWorkflowSummary(
     id: 'wf-1',
     task_label: 'o/r#1',
     title: 'A request',
-    parent_workflow_id: null,
     status: 'active',
     state_counts: {},
     action_required_count: 0,

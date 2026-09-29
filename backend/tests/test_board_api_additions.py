@@ -1,12 +1,12 @@
-"""Tests for the four additive board-API fields (feature 029, T005):
-decomposition parent link, human title, interview round/cap, and the
-cap-exhausted marker.
+"""Tests for the additive board-API fields (feature 029, T005): human
+title, interview round/cap, and the cap-exhausted marker. (The fourth,
+the decomposition parent link, was removed by feature 031.)
 
 See ``specs/029-workflow-visualisation/contracts/board-api-additions.md``.
-Unlike ``test_board_views.py`` (stubbed ``GatesService``/``ChildTaskStore``
-boundaries), this drives ``workflow_summary``/``GatesService.gate_round``
-against real, store-backed collaborators — the integration seam these four
-additions actually depend on.
+Unlike ``test_board_views.py`` (a stubbed ``GatesService`` boundary),
+this drives ``workflow_summary``/``GatesService.gate_round`` against
+real, store-backed collaborators — the integration seam these additions
+actually depend on.
 """
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from app.persistence.board_artifact_content_store import (
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
-from app.persistence.child_task_store import ChildTaskStore
 from app.routers.board_views import workflow_summary
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.gates import GateRequirements, GatesService
@@ -37,7 +36,7 @@ _WORKFLOW = Workflow(
 
 def _rig(
     tmp_path: Path, *, round_cap: int = 1
-) -> tuple[GatesService, BoardStore, ChildTaskStore]:
+) -> tuple[GatesService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     board_service = BoardService(store)
@@ -50,7 +49,7 @@ def _rig(
         required=GateRequirements(refinement_round_cap=round_cap),
     )
     store.create_workflow(_WORKFLOW)
-    return gates, store, ChildTaskStore(factory)
+    return gates, store
 
 
 def _questions_artifact(card_id: str) -> ArtifactDraft:
@@ -68,43 +67,22 @@ def _refinement_card(card_id: str) -> WorkCard:
     )
 
 
-class TestParentLink:
-    """A1 (FR-040): the decomposition parent, nullable."""
-
-    def test_null_for_an_ordinary_request(self, tmp_path: Path) -> None:
-        gates, store, child_tasks = _rig(tmp_path)
-        summary = workflow_summary(
-            _WORKFLOW, store.list_cards("wf-1"), gates, child_tasks
-        )
-        assert summary.parent_workflow_id is None
-
-    def test_set_for_a_decomposed_child(self, tmp_path: Path) -> None:
-        gates, store, child_tasks = _rig(tmp_path)
-        child_tasks.record(
-            parent_workflow_id="wf-parent", task_ref="owner/repo#1"
-        )
-        summary = workflow_summary(
-            _WORKFLOW, store.list_cards("wf-1"), gates, child_tasks
-        )
-        assert summary.parent_workflow_id == "wf-parent"
-
-
 class TestTitle:
     """A2 (FR-041): present on the listing row, falling back when unset."""
 
     def test_title_present(self, tmp_path: Path) -> None:
-        gates, store, child_tasks = _rig(tmp_path)
+        gates, store = _rig(tmp_path)
         summary = workflow_summary(
-            _WORKFLOW, store.list_cards("wf-1"), gates, child_tasks
+            _WORKFLOW, store.list_cards("wf-1"), gates
         )
         assert summary.title == "Add CSV export"
 
     def test_falls_back_to_task_label_when_unrecorded(
         self, tmp_path: Path
     ) -> None:
-        gates, store, child_tasks = _rig(tmp_path)
+        gates, store = _rig(tmp_path)
         untitled = Workflow(**{**_WORKFLOW.__dict__, "title": ""})
-        summary = workflow_summary(untitled, [], gates, child_tasks)
+        summary = workflow_summary(untitled, [], gates)
         assert summary.title == "owner/repo#1"
 
 
@@ -112,7 +90,7 @@ class TestRoundAndCap:
     """A3 (FR-042): {round, cap} on a refinement_gate's detail."""
 
     def test_null_for_a_non_capped_gate(self, tmp_path: Path) -> None:
-        gates, store, _child_tasks = _rig(tmp_path)
+        gates, store = _rig(tmp_path)
         gate = gates.create_gate(
             "wf-1", kind="prd_gate", title="Approve PRD",
             requested_decision="approve_prd",
@@ -120,7 +98,7 @@ class TestRoundAndCap:
         assert gates.gate_round(gate, store.list_cards("wf-1")) is None
 
     def test_populated_for_a_capped_gate(self, tmp_path: Path) -> None:
-        gates, store, _child_tasks = _rig(tmp_path, round_cap=_ROUND_CAP)
+        gates, store = _rig(tmp_path, round_cap=_ROUND_CAP)
         store.create_card(_refinement_card("card-r1"))
         artifact = gates._artifacts.store_reference_artifact(
             _questions_artifact("card-r1")
@@ -138,7 +116,7 @@ class TestCapExhausted:
     """A4 (FR-043): whether a round cap was hit without a usable answer."""
 
     def test_false_normally(self, tmp_path: Path) -> None:
-        gates, store, child_tasks = _rig(tmp_path, round_cap=_ROUND_CAP)
+        gates, store = _rig(tmp_path, round_cap=_ROUND_CAP)
         store.create_card(_refinement_card("card-r1"))
         artifact = gates._artifacts.store_reference_artifact(
             _questions_artifact("card-r1")
@@ -148,14 +126,14 @@ class TestCapExhausted:
             requested_decision="answer", target_artifact_id=artifact.id,
         )
         summary = workflow_summary(
-            _WORKFLOW, store.list_cards("wf-1"), gates, child_tasks
+            _WORKFLOW, store.list_cards("wf-1"), gates
         )
         assert summary.cap_exhausted is False
 
     def test_true_once_the_final_round_gate_still_awaits(
         self, tmp_path: Path
     ) -> None:
-        gates, store, child_tasks = _rig(tmp_path, round_cap=_ROUND_CAP)
+        gates, store = _rig(tmp_path, round_cap=_ROUND_CAP)
         store.create_card(_refinement_card("card-r1"))
         store.create_card(_refinement_card("card-r2"))
         artifact = gates._artifacts.store_reference_artifact(
@@ -166,6 +144,6 @@ class TestCapExhausted:
             requested_decision="answer", target_artifact_id=artifact.id,
         )
         summary = workflow_summary(
-            _WORKFLOW, store.list_cards("wf-1"), gates, child_tasks
+            _WORKFLOW, store.list_cards("wf-1"), gates
         )
         assert summary.cap_exhausted is True

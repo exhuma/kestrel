@@ -282,26 +282,6 @@ class TestDecompositionEnforcement:
 
         assert store.list_cards("wf-1") == [store.get_card(gate.id)]
 
-    def test_a_skip_decomposition_workflow_is_exempt_even_when_required(
-        self, tmp_path: Path
-    ) -> None:
-        subtask_workflow = Workflow(
-            id="wf-2", source="github-issue", task_ref="owner/repo#2",
-            repo="owner/repo", base_branch="main", source_visibility="public",
-            title="A published child", skip_decomposition=True,
-        )
-        service, store = _service(
-            tmp_path, decomposition_required=True, workflow=subtask_workflow,
-        )
-        gate = service.create_gate(
-            "wf-2", kind="understanding_gate", title="Confirm understanding",
-            requested_decision="Approve?",
-        )
-
-        service.resolve(gate.id, "approved")
-
-        assert store.list_cards("wf-2") == [store.get_card(gate.id)]
-
     def test_rejecting_understanding_gate_creates_nothing(
         self, tmp_path: Path
     ) -> None:

@@ -211,8 +211,6 @@ class WorkflowSummaryOut(BaseModel):
     (``app.services.board.phases``) — never a driver. ``title`` (feature
     029 A2) falls back to ``task_label`` when unrecorded.
 
-    :param parent_workflow_id: The workflow this request was decomposed
-        from, if any (feature 029 A1) — ``None`` for an ordinary request.
     :param cap_exhausted: Whether an interview round cap has been hit
         without a usable answer (feature 029 A4) — the board's
         ``cap-reached`` treatment.
@@ -224,7 +222,6 @@ class WorkflowSummaryOut(BaseModel):
     id: str
     task_label: str
     title: str
-    parent_workflow_id: str | None = None
     status: str
     state_counts: dict[str, int]
     action_required_count: int

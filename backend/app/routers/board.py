@@ -31,10 +31,6 @@ from app.persistence.board_claims_store import (
     BoardClaimsStore,
     get_board_claims_store,
 )
-from app.persistence.child_task_store import (
-    ChildTaskStore,
-    get_child_task_store,
-)
 from app.routers.board_views import (
     BoardLookups,
     board_events,
@@ -242,9 +238,7 @@ def _all_workflow_summaries(
 ) -> list[WorkflowSummaryOut]:
     workflows = visible_workflows(deps.board.list_workflows(newest_first=True))
     summaries = [
-        workflow_summary(
-            w, deps.board.list_cards(w.id), deps.gates, deps.child_task_store
-        )
+        workflow_summary(w, deps.board.list_cards(w.id), deps.gates)
         for w in workflows
     ]
     if include_completed:
@@ -254,21 +248,19 @@ def _all_workflow_summaries(
 
 @dataclass(frozen=True)
 class _BoardListDeps:
-    """Collaborators the board collection listing needs (feature 029
-    A1/A4) — bundled to keep the route handlers within the argument-count
+    """Collaborators the board collection listing needs (feature 029 A4)
+    — bundled to keep the route handlers within the argument-count
     limit."""
 
     board: BoardService
     gates: GatesService
-    child_task_store: ChildTaskStore
 
 
 def _board_list_deps(
     board: BoardService = Depends(get_board_service),
     gates: GatesService = Depends(get_gates_service),
-    child_task_store: ChildTaskStore = Depends(get_child_task_store),
 ) -> _BoardListDeps:
-    return _BoardListDeps(board, gates, child_task_store)
+    return _BoardListDeps(board, gates)
 
 
 @router.get("/workflows", response_model=list[WorkflowSummaryOut])

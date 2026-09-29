@@ -175,14 +175,16 @@ class TaskSource(Protocol):
     ) -> str:
         """Create a follow-up task linked to ``parent_ref`` (feature 012).
 
-        ``body`` is already final and self-contained (the caller has run
-        the completeness check). ``markers`` are trailing decorations the
-        implementation must preserve through its source-native write/read
-        round trip; the caller decides *which* markers, the adapter only
-        decides *how*. When a technical-analysis follow-up is published
-        the caller passes
-        ``(SubtaskSentinel(),)``; an empty tuple appends nothing.
-        Implementations MUST create the ticket without satisfying this
+        **Currently unused** (feature 031): approved decomposition tasks
+        stay cards inside the request's workflow and are no longer
+        published. Kept, with every adapter, for mirroring those cards
+        back to the task source as sub-tasks (GitHub #64).
+
+        ``body`` is already final and self-contained. ``markers`` are
+        trailing decorations the implementation must preserve through its
+        source-native write/read round trip; the caller decides *which*
+        markers, the adapter only decides *how*; an empty tuple appends
+        nothing. Implementations MUST create the ticket without satisfying this
         source's own ingestion-trigger condition (e.g. GitHub: no
         ``trigger_label``), so publishing a follow-up task never itself
         starts a new run.

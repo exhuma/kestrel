@@ -39,12 +39,6 @@ class BoardWorkflowRow(Base):
     state: Mapped[str] = mapped_column(Text)
     #: Monotonic version for snapshots and optimistic interventions.
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
-    #: Set once at ingestion from the source task's own body
-    #: (``has_subtask_sentinel``): a task Kestrel itself published as a
-    #: decomposition child is never forced through decomposition again.
-    skip_decomposition: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
-    )
     #: The change request delivery opened, once known (T052).
     change_request_number: Mapped[int | None] = mapped_column(
         Integer, nullable=True

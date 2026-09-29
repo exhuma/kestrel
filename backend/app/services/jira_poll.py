@@ -146,11 +146,7 @@ class JiraPollService:
         _log.info("jira: %d qualifying RFC(s)", len(tasks))
         qualifying = {task.ref for task in tasks}
         self._clear_stale_dismissals(qualifying)
-        await self.ingestion.observe_missing_child_source_tasks(
-            f"{self.source.key}-", qualifying
-        )
         for task in tasks:
-            await self.ingestion.observe_child_source_state(task.ref, "open")
             await self._ingest(task)
 
     async def _ingest(self, task) -> None:

@@ -71,15 +71,10 @@ describe('StageBoardView columns', () => {
     expect(columns.map((c) => c.props('stage'))).toEqual(STAGE_ORDER)
   })
 
-  it('shows exactly one card per request, with a decomposed parent nesting its children', () => {
+  it('shows exactly one card per request', () => {
     state.workflows.value = [
       summary({ id: 'quarantined-1', stage: 'Intake & alignment' }),
-      summary({ id: 'parent-1', stage: 'Build & deliver' }),
-      summary({
-        id: 'child-1',
-        parent_workflow_id: 'parent-1',
-        stage: 'Intake & alignment',
-      }),
+      summary({ id: 'request-1', stage: 'Build & deliver' }),
     ]
     const wrapper = mountView()
     const cards = wrapper.findAllComponents({ name: 'RequestCard' })

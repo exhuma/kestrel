@@ -80,7 +80,6 @@ class AcceptedTaskIntake:
     :param base_branch: The branch write work will target.
     :param source_visibility: ``public`` or ``private``.
     :param title: Safe display title.
-    :param skip_decomposition: See ``Workflow.skip_decomposition``.
     :param body: See ``Workflow.task_body`` — the quarantine-released
         safe content, already screened by the caller (FR-018/FR-024).
     """
@@ -91,7 +90,6 @@ class AcceptedTaskIntake:
     base_branch: str
     source_visibility: str
     title: str
-    skip_decomposition: bool = False
     body: str = ""
 
 
@@ -248,7 +246,8 @@ class ExternalProjectionRecord:
     :param id: Stable record identity.
     :param workflow_id: The workflow this milestone belongs to.
     :param kind: ``"gate"``, ``"escalation"``, ``"approved_artifact"``,
-        ``"child_work"``, or ``"delivery"``.
+        or ``"delivery"`` (a legacy row may still read ``"child_work"``,
+        which feature 031 no longer writes).
     :param idempotency_key: Unique per real-world event; a webhook and a
         poll cycle racing to report the same milestone still project it
         at most once.

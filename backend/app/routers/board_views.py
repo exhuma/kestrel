@@ -22,7 +22,6 @@ from app.models_board_records import (
     HandoffArtifact,
     HumanGateRecord,
 )
-from app.persistence.child_task_store import ChildTaskStore
 from app.schemas import (
     BoardArtifactRefOut,
     BoardEventOut,
@@ -130,7 +129,6 @@ def workflow_summary(
     workflow: Workflow,
     cards: list[WorkCard],
     gates: GatesService,
-    child_task_store: ChildTaskStore,
 ) -> WorkflowSummaryOut:
     """One workflow's row in the board collection listing."""
     phase = current_phase(cards)
@@ -138,9 +136,6 @@ def workflow_summary(
         id=workflow.id,
         task_label=workflow.task_ref,
         title=workflow.title or workflow.task_ref,
-        parent_workflow_id=child_task_store.parent_workflow_id(
-            workflow.task_ref
-        ),
         status=workflow.state,
         state_counts=state_counts(cards),
         action_required_count=action_required_count(cards),

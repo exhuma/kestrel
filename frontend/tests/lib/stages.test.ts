@@ -100,30 +100,13 @@ describe('groupByStage', () => {
     expect(columns.map((c) => c.stage)).toEqual(STAGE_ORDER)
   })
 
-  it('nests a decomposition child inside its parent rather than listing it top-level', () => {
-    const parent = summary({ id: 'parent', stage: 'Build & deliver' })
-    const child = summary({
-      id: 'child',
-      parent_workflow_id: 'parent',
-      stage: 'Intake & alignment',
-    })
-    const columns = groupByStage([parent, child])
-    const buildColumn = columns.find((c) => c.stage === 'Build & deliver')!
-    expect(buildColumn.requests).toHaveLength(1)
-    expect(buildColumn.requests[0].children.map((c) => c.id)).toEqual(['child'])
-    const intakeColumn = columns.find((c) => c.stage === 'Intake & alignment')!
-    expect(intakeColumn.requests).toHaveLength(0)
-  })
-
-  it('falls back a child to top-level when its parent is absent from the listing', () => {
-    const child = summary({
-      id: 'child',
-      parent_workflow_id: 'missing-parent',
-      stage: 'Discovery',
-    })
-    const columns = groupByStage([child])
-    const discovery = columns.find((c) => c.stage === 'Discovery')!
-    expect(requestIds(discovery)).toEqual(['child'])
+  it('lists every request as its own card, never nested', () => {
+    const columns = groupByStage([
+      summary({ id: 'a', stage: 'Build & deliver' }),
+      summary({ id: 'b', stage: 'Build & deliver' }),
+    ])
+    const build = columns.find((c) => c.stage === 'Build & deliver')!
+    expect(requestIds(build)).toEqual(['a', 'b'])
   })
 
   it('places an unrecognised stage in a trailing column instead of dropping it', () => {

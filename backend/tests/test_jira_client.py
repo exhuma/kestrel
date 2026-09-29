@@ -11,7 +11,6 @@ import pytest
 from app.config_models import TaskSourceConfig
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
-from app.services.task_source_utils import has_subtask_sentinel
 
 
 def _client(handler, **kw) -> JiraClient:
@@ -211,7 +210,7 @@ async def test_task_source_create_subtask_derives_project_key() -> None:
     )
     assert ref == "RFC-2"
     assert seen["body"]["fields"]["project"] == {"key": "RFC"}
-    assert has_subtask_sentinel(seen["body"]["fields"]["description"])
+    assert "<!-- kestrel:subtask -->" in seen["body"]["fields"]["description"]
 
 
 @pytest.mark.asyncio

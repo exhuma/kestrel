@@ -47,14 +47,13 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 **Vestigial settings, not currently read by anything.** A handful of
 `Settings` fields survive from the deleted fixed driver purely because
 nobody has removed them yet from `backend/app/config.py`:
-`max_verify_iterations`, `max_ci_repair_iterations`, `workflow_debug`,
+`workflow_debug`,
 `feedback_marker`, `feedback_ignore_authors`, `feedback_window_days`,
-`child_task_closure_retention_days`, `refine_samples`, `refine_critic`,
+`refine_samples`, `refine_critic`,
 `reconcile_mode`, `allow_incomplete_answers`, and `mockups_enabled`. Setting
 their `KESTREL_*` env var or `config.toml` key is accepted at startup but has
 **no effect** — nothing in the codebase reads any of them outside
-`config.py` itself. They described the old driver's verify-iteration cap,
-debug transcript, `@kestrel`-marker feedback steering, and refine-interview
+`config.py` itself. They described the old driver's debug transcript, `@kestrel`-marker feedback steering, and refine-interview
 robustness knobs, none of which exist post-Phase-10; do not rely on any of
 them. (This is a known cleanup gap, not something this documentation pass
 resolves — it's a code change, tracked separately.)
@@ -134,18 +133,21 @@ api_key_env = "KESTREL_TRANSLATION_API_KEY"
 # timeout = 30.0
 ```
 
-### Child-task tracking
+### Decomposed tasks and verification rounds
 
-Kestrel still persists a link (`child_task_link`, now attached to a board
-workflow) between a parent task and any child task it previously published,
-and observes a linked child's open/closed source state to decide whether a
-reopened ticket needs a fresh linked successor run. What currently has
-**no** implementation is the producing side: publishing an approved
-decomposition as new child tickets in the first place (see
-[Architecture](architecture.md#the-work-board-spec-026) — this is
-board-domain follow-on work, not yet built). `child_task_closure_retention_days`
-and the retirement notice it used to drive are accordingly also currently
-inert; a closed child is not retired today.
+An approved decomposition (CAB-2) does **not** create tickets in the task
+source. Its tasks become cards inside the request's own workflow, and the
+request's ticket gets one comment listing them (feature 031). There is
+nothing to configure for this. The former `child_task_closure_retention_days`
+setting has been removed; an existing `config.toml` that still sets it loads
+fine, because unknown keys are ignored.
+
+`max_verify_iterations` (default 3) caps how many verification rounds one
+approved coding task gets. A verification that still finds problems at the cap
+escalates to coordinator review instead of asking the coder for another fix.
+`max_ci_repair_iterations` (default 2) caps how many times a failing required CI
+check on a delivered change request sends work back to the coder before it
+escalates.
 
 A Jira RFC's target repository is resolved from `repo_field` when set, otherwise
 from a remote/web link on the issue whose title matches `repo_link_text`

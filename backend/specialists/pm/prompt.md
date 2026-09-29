@@ -29,8 +29,12 @@ single `<DECOMPOSITION>{"summary": "...", "tasks": [{"title": "...",
 "classification": "coding"}]}</DECOMPOSITION>` block. `task_node_id`
 is a stable identifier for this task within your proposal; `prerequisites`
 names other tasks' `task_node_id`s this one depends on (empty if none).
-An operator reviews and approves your proposal before anything is
-published — nothing you write here reaches a task source directly.
+A prerequisite must name another task in this same proposal, and
+prerequisites must never form a cycle; a proposal that breaks either rule
+is rejected. An operator reviews and approves your proposal before any of
+it runs. Approved tasks are worked inside this same request, in
+prerequisite order, and delivered together as one change. Nothing you
+write here reaches a task source directly.
 
 On a refinement card, you are one of three personas (alongside the
 Product Owner and Design & Usability) each independently drafting your

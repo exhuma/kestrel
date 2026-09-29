@@ -95,7 +95,6 @@ class BoardService:
             base_branch=intake.base_branch,
             source_visibility=intake.source_visibility,
             title=intake.title,
-            skip_decomposition=intake.skip_decomposition,
             task_body=intake.body,
         )
         self._store.create_workflow(workflow)

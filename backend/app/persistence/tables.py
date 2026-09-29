@@ -85,26 +85,3 @@ class NotificationRow(Base):
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
-class ChildTaskLinkRow(Base):
-    """One published child, its DAG position, and latest workflow generation."""
-
-    __tablename__ = "child_task_link"
-
-    task_ref: Mapped[str] = mapped_column(Text, primary_key=True)
-    parent_workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
-    )
-    task_node_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    prerequisites: Mapped[str] = mapped_column(Text, default="[]")
-    integration_branch: Mapped[str] = mapped_column(Text, default="")
-    latest_workflow_id: Mapped[str | None] = mapped_column(
-        ForeignKey("board_workflow.id"), nullable=True
-    )
-    #: "open" | "closed" | "reopening" | "retiring". The last two are claims.
-    source_state: Mapped[str] = mapped_column(Text)
-    #: Fixture source's explicit re-adoption generation, when supplied.
-    source_generation: Mapped[str | None] = mapped_column(Text, nullable=True)
-    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

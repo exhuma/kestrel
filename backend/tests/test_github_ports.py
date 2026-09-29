@@ -11,7 +11,7 @@ from app.config_models import TaskSourceConfig
 from app.ports import Feedback, LifecycleEvent, Task
 from app.services.github import GitHubClient, GitHubCodeHost, parse_github_ref
 from app.services.github_tasksource import GitHubTaskSource
-from app.services.task_source_utils import has_sentinel, has_subtask_sentinel
+from app.services.task_source_utils import has_sentinel
 
 
 def _client(handler) -> GitHubClient:
@@ -132,7 +132,7 @@ async def test_create_subtask_creates_issue_without_trigger_label() -> None:
     payload = json.loads(seen["body"])
     assert "labels" not in payload
     assert "Sub-task of #7" in payload["body"]
-    assert has_subtask_sentinel(payload["body"])
+    assert "<!-- kestrel:subtask -->" in payload["body"]
 
 
 @pytest.mark.asyncio

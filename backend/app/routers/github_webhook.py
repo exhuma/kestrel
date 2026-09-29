@@ -96,62 +96,6 @@ def _dispatch_start(
     _fire_and_forget(_run())
 
 
-def _dispatch_child_lifecycle(
-    ingestion: IngestionService, repo: str, issue_number: int, state: str
-) -> None:
-    """Observe one GitHub issue lifecycle transition in the background."""
-
-    async def _run() -> None:
-        try:
-            await ingestion.observe_child_source_state(
-                f"{repo}#{issue_number}", state
-            )
-        except Exception:  # noqa: BLE001 — best-effort; ACK already sent
-            _log.exception(
-                "webhook lifecycle-observation-failed %s#%s", repo, issue_number
-            )
-
-    _fire_and_forget(_run())
-
-
-@dataclass
-class _IssueLifecycle:
-    """Parsed GitHub issue event fields used for lifecycle observation."""
-
-    delivery: str
-    repo: object
-    action: object
-    issue_number: object
-
-
-def _handle_child_lifecycle(
-    deps: "_WebhookDeps", settings: Settings, event: _IssueLifecycle
-) -> JSONResponse | None:
-    """Accept a watched GitHub close or reopen, or return ``None``.
-
-    This is deliberately outside label ingestion: lifecycle observation can
-    only cause a successor through the child-link store's closed-state claim.
-    """
-    if event.action not in {"closed", "reopened"}:
-        return None
-    if (
-        not isinstance(event.repo, str)
-        or not isinstance(event.issue_number, int)
-    ):
-        return JSONResponse(status_code=200, content={"status": "ignored"})
-    if settings.github_source_for(event.repo) is None:
-        return JSONResponse(status_code=200, content={"status": "ignored"})
-    if deps.deliveries.seen(
-        event.delivery, "issues", "accepted", event.repo, event.issue_number
-    ):
-        return JSONResponse(status_code=200, content={"status": "duplicate"})
-    state = "closed" if event.action == "closed" else "open"
-    _dispatch_child_lifecycle(
-        deps.ingestion, event.repo, event.issue_number, state
-    )
-    return JSONResponse(status_code=202, content={"status": "accepted"})
-
-
 @dataclass
 class _WebhookDeps:
     """Bundles the webhook route's per-request dependencies (keeps the
@@ -210,12 +154,6 @@ async def github_webhook(
         nested so it shares ``_ack``/the parsed payload fields via
         closure instead of a long parameter list, and so the outer
         route function's own branch count stays under the guardrail."""
-        lifecycle_event = _IssueLifecycle(
-            delivery, repo, action, issue_number
-        )
-        lifecycle = _handle_child_lifecycle(deps, settings, lifecycle_event)
-        if lifecycle:
-            return lifecycle
         gh_source = settings.github_source_for(repo) if repo else None
         watched = gh_source is not None
         is_trigger = (

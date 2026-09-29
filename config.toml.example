@@ -41,9 +41,6 @@ health_check_timeout_seconds = 10
 max_verify_iterations = 3
 # Max CI-triggered repair attempts. This does not consume verify iterations.
 max_ci_repair_iterations = 2
-# How long a closed published child remains monitored before Kestrel posts one
-# retirement notice. The default is six months.
-child_task_closure_retention_days = 183
 # Mark Kestrel-generated comments and ignore them during feedback intake. This
 # protects personal-token installations until Kestrel has its own account.
 comment_sentinel_enabled = true

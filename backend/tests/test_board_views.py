@@ -79,17 +79,6 @@ class _StubGates:
         return self._rounds.get(card.id)
 
 
-class _StubChildTasks:
-    """Minimal stand-in for ``ChildTaskStore.parent_workflow_id`` (feature
-    029 A1)."""
-
-    def __init__(self, parents: dict[str, str] | None = None) -> None:
-        self._parents = parents or {}
-
-    def parent_workflow_id(self, task_ref: str) -> str | None:
-        return self._parents.get(task_ref)
-
-
 def _card(card_id: str = "card-1", **overrides: object) -> WorkCard:
     fields: dict[str, object] = {
         "id": card_id,
@@ -145,12 +134,11 @@ class TestWorkflowSummary:
     def test_summary_fields(self) -> None:
         cards = [_card(state="ready")]
         summary = workflow_summary(
-            _WORKFLOW, cards, _StubGates(), _StubChildTasks()
+            _WORKFLOW, cards, _StubGates()
         )
         assert summary.id == "wf-1"
         assert summary.task_label == "owner/repo#1"
         assert summary.title == "Add a thing"
-        assert summary.parent_workflow_id is None
         assert summary.status == "active"
         assert summary.state_counts == {"ready": 1}
         assert summary.action_required_count == 0
@@ -160,18 +148,9 @@ class TestWorkflowSummary:
     def test_title_falls_back_to_task_label_when_unrecorded(self) -> None:
         workflow = Workflow(**{**_WORKFLOW.__dict__, "title": ""})
         summary = workflow_summary(
-            workflow, [], _StubGates(), _StubChildTasks()
+            workflow, [], _StubGates()
         )
         assert summary.title == "owner/repo#1"
-
-    def test_parent_workflow_id_is_set_for_a_decomposed_child(self) -> None:
-        summary = workflow_summary(
-            _WORKFLOW,
-            [],
-            _StubGates(),
-            _StubChildTasks({"owner/repo#1": "wf-parent"}),
-        )
-        assert summary.parent_workflow_id == "wf-parent"
 
     def test_cap_exhausted_when_the_final_round_gate_still_awaits(
         self,
@@ -183,7 +162,7 @@ class TestWorkflowSummary:
         ]
         gates = _StubGates(cap=2, rounds={"gate-1": 2})
         summary = workflow_summary(
-            _WORKFLOW, cards, gates, _StubChildTasks()
+            _WORKFLOW, cards, gates
         )
         assert summary.cap_exhausted is True
 
@@ -195,7 +174,7 @@ class TestWorkflowSummary:
         ]
         gates = _StubGates(cap=2, rounds={"gate-1": 1})
         summary = workflow_summary(
-            _WORKFLOW, cards, gates, _StubChildTasks()
+            _WORKFLOW, cards, gates
         )
         assert summary.cap_exhausted is False
 
@@ -363,7 +342,7 @@ class TestBoardSnapshot:
         )
         snapshot = board_snapshot(workflow, [], [], _empty_lookups())
         summary = workflow_summary(
-            workflow, [], _StubGates(), _StubChildTasks()
+            workflow, [], _StubGates()
         )
         assert snapshot.task_body == "Please add CSV export."
         assert "task_body" not in summary.model_dump()

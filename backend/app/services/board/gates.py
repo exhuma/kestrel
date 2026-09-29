@@ -251,10 +251,7 @@ class GatesService:
         """Deterministically create the decomposition-assessment card
         right after its trigger gate is approved, when enforced.
 
-        A no-op for any other gate kind, when enforcement is off, or for
-        a workflow whose source task is itself already a published
-        decomposition child (``Workflow.skip_decomposition``) — never
-        force decomposition into a child's children.
+        A no-op for any other gate kind or when enforcement is off.
         """
         if (
             not self._required.decomposition
@@ -262,7 +259,7 @@ class GatesService:
         ):
             return
         workflow = self._store.get_workflow(resolved_gate.workflow_id)
-        if workflow is None or workflow.skip_decomposition:
+        if workflow is None:
             return
         self._store.create_card(
             WorkCard(
@@ -279,10 +276,7 @@ class GatesService:
         """Deterministically create the strategic-interview card right
         after ``understanding_gate`` is approved, when CAB-1 is enforced.
 
-        A no-op for any other gate kind, when CAB-1 enforcement is off, or
-        for a workflow whose source task is itself already a published
-        decomposition child (same subtask exemption as
-        :meth:`_maybe_require_refinement`).
+        A no-op for any other gate kind or when CAB-1 enforcement is off.
         """
         if (
             not self._required.cab1
@@ -290,7 +284,7 @@ class GatesService:
         ):
             return
         workflow = self._store.get_workflow(resolved_gate.workflow_id)
-        if workflow is None or workflow.skip_decomposition:
+        if workflow is None:
             return
         self._store.create_card(
             WorkCard(
@@ -326,11 +320,8 @@ class GatesService:
 
         The trigger is ``cab1_gate`` when CAB-1 is also required (feature
         027 — refinement must wait for a strategic go), else
-        ``understanding_gate`` as before. A no-op for any other gate kind,
-        when enforcement is off, or for a workflow whose source task is
-        itself already a published decomposition child — a subtask
-        Kestrel itself scoped out has already had its own refinement pass
-        at the parent's level.
+        ``understanding_gate`` as before. A no-op for any other gate kind
+        or when enforcement is off.
         """
         if (
             not self._required.prd
@@ -338,7 +329,7 @@ class GatesService:
         ):
             return
         workflow = self._store.get_workflow(resolved_gate.workflow_id)
-        if workflow is None or workflow.skip_decomposition:
+        if workflow is None:
             return
         for persona in _REFINEMENT_PERSONAS:
             self._store.create_card(

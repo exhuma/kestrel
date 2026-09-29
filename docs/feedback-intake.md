@@ -15,8 +15,7 @@ Phase 10 "clean break" (see
 
 There is currently **no board-domain replacement**. A handful of related
 config fields (`KESTREL_FEEDBACK_MARKER`, `KESTREL_FEEDBACK_IGNORE_AUTHORS`,
-`KESTREL_FEEDBACK_WINDOW_DAYS`, `KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS`,
-the `[translation]` table) still exist in `backend/app/config.py` and are
+`KESTREL_FEEDBACK_WINDOW_DAYS`, the `[translation]` table) still exist in `backend/app/config.py` and are
 accepted at startup, but nothing reads them — see [Configuration →
 Vestigial settings](configuration.md#environment-variables).
 

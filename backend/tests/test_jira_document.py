@@ -18,10 +18,9 @@ from app.documents import (
     paragraph,
     render_adf,
 )
-from app.markers import SUBTASK_SENTINEL, SubtaskSentinel
+from app.markers import Marker
 from app.services.jira import JiraClient, JiraTaskSource
 from app.services.jira_document import to_text
-from app.services.task_source_utils import has_subtask_sentinel
 
 
 def _client(handler) -> JiraClient:
@@ -113,6 +112,21 @@ async def test_cloud_feedback_normalizes_adf_review_token() -> None:
     assert items[0].body == "@kestrel approve [kestrel-review:abc]"
 
 
+_MARKER = "<!-- test:marker -->"
+
+
+class _TestMarker(Marker):
+    """A content-free marker, as ``create_subtask`` callers may pass."""
+
+    def render(self) -> str:
+        """Return this test marker's literal text."""
+        return _MARKER
+
+    def present_in(self, body: str) -> bool:
+        """Return whether this marker already appears in ``body``."""
+        return _MARKER in body
+
+
 @pytest.mark.asyncio
 async def test_cloud_subtask_marker_survives_adf_round_trip() -> None:
     """Cloud subtasks preserve their marker as a final code paragraph."""
@@ -127,7 +141,7 @@ async def test_cloud_subtask_marker_survives_adf_round_trip() -> None:
         "RFC-1",
         "Child",
         "Self-contained body",
-        markers=(SubtaskSentinel(),),
+        markers=(_TestMarker(),),
     )
 
     description = seen["body"]["fields"]["description"]
@@ -136,11 +150,11 @@ async def test_cloud_subtask_marker_survives_adf_round_trip() -> None:
         "type": "paragraph",
         "content": [{
             "type": "text",
-            "text": SUBTASK_SENTINEL,
+            "text": _MARKER,
             "marks": [{"type": "code"}],
         }],
     }
-    assert has_subtask_sentinel(to_text(description))
+    assert _MARKER in to_text(description)
 
 
 def _comment() -> dict:

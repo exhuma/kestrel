@@ -31,6 +31,26 @@ read-only field, and one card kind:
 
 See `specs/030-cab2-estimates-summary/contracts/board-api-delta.md`.
 
+**Amendment (feature 031, board-api-delta.md)**: decomposition no longer
+creates child workflows, so the listing's parent link goes. This is the one
+breaking change, and backend and frontend change together:
+
+- **Workflow Collection** (`WorkflowSummaryOut`): `parent_workflow_id` is
+  **removed** (supersedes feature 029's A1). `open_manual_task_count` is
+  **added**: how many `manual_task` cards are neither `done` nor `cancelled`.
+- **Card kind** `manual_task`: an approved manual CAB-2 task. No specialist
+  claims it, and its `latest_artifact` is the approved task text
+  (`operator_approved`).
+- **Card action** `complete_manual_task`: offered only for a `manual_task` in
+  `awaiting_human`, through the existing interventions endpoint.
+  `resolve_gate` is not offered for a `manual_task`.
+- **Behaviour**: approving a `decomposition_gate` adds `implementation` +
+  `verification` cards per coding task and a `manual_task` per manual task to
+  the same workflow. It creates no ticket, and posts one breakdown comment
+  (projection kind `approved_artifact`; `child_work` is retired).
+
+See `specs/031-subtask-cards/contracts/board-api-delta.md`.
+
 ## Shared Enumerations
 
 ```text
@@ -39,7 +59,7 @@ CardState = ready | claimed | waiting_dependency | awaiting_human | review |
 
 CardAction = retry | cancel | reassign | resolve_gate |
              release_quarantine | discard_quarantine |
-             request_coordinator_review
+             request_coordinator_review | complete_manual_task
 
 RelationKind = dependency | reconciliation | supersedes
 ```

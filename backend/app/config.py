@@ -39,7 +39,6 @@ _CONFIG_FILE_FIELDS = frozenset(
         "poll_interval_seconds",
         "max_verify_iterations",
         "max_ci_repair_iterations",
-        "child_task_closure_retention_days",
         "port",
         "database_url",
         "workspace_root",
@@ -260,10 +259,6 @@ class Settings(BaseSettings):
     #: finished run forever. A run still non-terminal is always polled
     #: regardless of this setting.
     feedback_window_days: int = 14
-    #: How many days a closed published child remains actively monitored before
-    #: Kestrel posts its retirement notice. Environment variable:
-    #: ``KESTREL_CHILD_TASK_CLOSURE_RETENTION_DAYS``. Six months is the default.
-    child_task_closure_retention_days: int = 183
     #: Root directory of file-backed specialist definitions (feature 026,
     #: ``KESTREL_SPECIALISTS_ROOT``): one subdirectory per named role, each
     #: holding a manifest and prompt file. Relative paths resolve against the
@@ -302,24 +297,19 @@ class Settings(BaseSettings):
     #: source/repo with ``required_ci_statuses`` configured — a workflow
     #: with none configured is never polled regardless.
     board_ci_poll_interval_seconds: float = Field(default=60.0, gt=0)
-    #: Require every non-subtask workflow to publish at least one child
-    #: task through a `pm`-proposed, human-approved decomposition before
-    #: any other work may start (feature 026,
-    #: ``KESTREL_BOARD_DECOMPOSITION_REQUIRED``). Off by default: a
-    #: personal/lightweight deployment can trust the coordinator's own
-    #: judgment on whether a task needs splitting. A workflow whose
-    #: source task already carries the subtask sentinel (Kestrel's own
-    #: prior decomposition output) is exempt either way — decomposition
-    #: never recurses into a child's children.
+    #: Require every workflow to go through a `pm`-proposed,
+    #: human-approved decomposition (CAB-2) before any other work may
+    #: start (feature 026, ``KESTREL_BOARD_DECOMPOSITION_REQUIRED``); its
+    #: approved tasks become cards in the same workflow (feature 031).
+    #: Off by default: a personal/lightweight deployment can trust the
+    #: coordinator's own judgment on whether a task needs splitting.
     board_decomposition_required: bool = False
     #: Require a `requester`/`pm`/`uiux` interview and a `pm`-drafted,
     #: human-approved PRD before any other work may start, right after
     #: ``understanding_gate`` (feature 026, T078,
     #: ``KESTREL_BOARD_PRD_GATE_REQUIRED``). Off by default, same
     #: reasoning as ``board_decomposition_required``. When both this and
-    #: decomposition are required, the PRD gate resolves first — a
-    #: workflow whose source task already carries the subtask sentinel
-    #: is exempt from both either way.
+    #: decomposition are required, the PRD gate resolves first.
     board_prd_gate_required: bool = False
     #: Require an early, pure human strategic-fit decision ("CAB-1")
     #: between ``understanding_gate`` and ``refinement``, preceded by a

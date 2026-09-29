@@ -21,11 +21,9 @@ An in-flight turn simply finishes and its result is discarded: the card
 it was working is already ``cancelled`` by the time it tries to
 complete, so ``ClaimsService.complete``'s stale-lease check rejects it.
 
-Deliberately does not touch ``ChildTaskLinks`` bookkeeping for a
-decomposed workflow's children — this is a throwaway reset of one
-workflow's own board state, not a cascading operation; a child workflow
-published before cleanup remains independently owned and untouched,
-matching the task-vs-subtask ownership split (T068).
+A decomposed workflow's approved tasks are cards in this same workflow
+(feature 031), so resetting it covers them too; a child workflow
+published before feature 031 is a separate workflow and untouched.
 """
 from __future__ import annotations
 

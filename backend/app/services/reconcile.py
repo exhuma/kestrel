@@ -87,11 +87,8 @@ class ReconcileService:
     async def _observe_or_start(
         self, repo: str, issue: Issue, is_labelled: bool
     ) -> None:
-        """Observe every issue while ingesting only labelled open issues."""
+        """Ingest a labelled open issue; ignore every other one."""
         try:
-            await self.ingestion.observe_child_source_state(
-                f"{repo}#{issue.number}", issue.state
-            )
             if issue.state == "closed" or not is_labelled:
                 return
             await self.ingestion.maybe_start_run(

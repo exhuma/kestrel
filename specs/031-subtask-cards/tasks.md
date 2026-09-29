@@ -126,35 +126,35 @@ cleanly, and marked tickets ingest as ordinary requests.
 `skip_decomposition` workflow. It lists as ordinary, and a marked body
 ingests normally.
 
-- [ ] T028 [US4] Remove `parent_workflow_id` (Principle I, one commit):
+- [x] T028 [US4] Remove `parent_workflow_id` (Principle I, one commit):
   - drop it from `WorkflowSummaryOut` in backend/app/schemas.py and from `workflow_summary` / `_BoardListDeps` in backend/app/routers/board_views.py and backend/app/routers/board.py;
   - drop it from `BoardWorkflowSummary` in frontend/src/types/workflows.ts;
   - remove `partitionByParentage`, `children` and the nesting from frontend/src/lib/stages.ts, and the children list from frontend/src/components/board/RequestSubItems.vue and RequestCard.vue.
-- [ ] T029 [P] [US4] Update the frontend tests: frontend/tests/lib/stages.test.ts (drop the nesting tests; one card per request), RequestSubItems.test.ts, RequestCard.test.ts, frontend/tests/views/StageBoardView.test.ts, frontend/tests/composables/useBoard.test.ts, frontend/tests/support/board.ts
-- [ ] T030 [US4] Delete the ingestion child machinery in backend/app/services/ingestion.py:
+- [x] T029 [P] [US4] Update the frontend tests: frontend/tests/lib/stages.test.ts (drop the nesting tests; one card per request), RequestSubItems.test.ts, RequestCard.test.ts, frontend/tests/views/StageBoardView.test.ts, frontend/tests/composables/useBoard.test.ts, frontend/tests/support/board.ts
+- [x] T030 [US4] Delete the ingestion child machinery in backend/app/services/ingestion.py:
   - `_scheduled_child`, the `child_tasks` parameter, `observe_child_source_state`, `observe_missing_child_source_tasks`, `observe_child_retrigger`, `maybe_start_reopened_successor`, `start_successor_run`, the `has_manual_sentinel` skip, and `skip_decomposition=` at intake;
   - remove their callers in backend/app/services/jira_poll.py, backend/app/services/local_task_poll.py, backend/app/services/reconcile.py and backend/app/routers/github_webhook.py.
-- [ ] T031 [US4] Delete backend/app/persistence/child_task_store.py, `ChildTaskLinkRow` in backend/app/persistence/tables.py, backend/app/services/task_scheduler.py, and the `child_task_store` wiring in backend/app/services/board/bootstrap.py / backend/app/routers/board.py
-- [ ] T032 [US4] Delete `SubtaskSentinel`, `ManualTaskSentinel`, `SUBTASK_SENTINEL` and `MANUAL_SENTINEL` in backend/app/markers.py, and `has_subtask_sentinel`, `has_manual_sentinel` and `append_subtask_sentinel` in backend/app/services/task_source_utils.py. Update the `create_subtask` docstring in backend/app/ports.py; the method itself is kept (FR-018)
-- [ ] T033 [US4] Remove `skip_decomposition`:
+- [x] T031 [US4] Delete backend/app/persistence/child_task_store.py, `ChildTaskLinkRow` in backend/app/persistence/tables.py, backend/app/services/task_scheduler.py, and the `child_task_store` wiring in backend/app/services/board/bootstrap.py / backend/app/routers/board.py
+- [x] T032 [US4] Delete `SubtaskSentinel`, `ManualTaskSentinel`, `SUBTASK_SENTINEL` and `MANUAL_SENTINEL` in backend/app/markers.py, and `has_subtask_sentinel`, `has_manual_sentinel` and `append_subtask_sentinel` in backend/app/services/task_source_utils.py. Update the `create_subtask` docstring in backend/app/ports.py; the method itself is kept (FR-018)
+- [x] T033 [US4] Remove `skip_decomposition`:
   - from `Workflow` (backend/app/models_board.py), `AcceptedTaskIntake` (backend/app/models_board_records.py), `BoardWorkflowRow` (backend/app/persistence/board_tables.py), backend/app/persistence/board_store.py and backend/app/services/board/service.py;
   - the exemptions in backend/app/services/board/gates.py (three) and backend/app/services/board/coordinator.py (two), with their docstrings;
   - the related comments in backend/app/config.py.
-- [ ] T034 [US4] Remove `child_task_closure_retention_days` from backend/app/config.py (the field and `_CONFIG_FILE_FIELDS`) and from config.toml.example. Update the backend/app/services/board/dev_reset.py docstring
-- [ ] T035 [US4] Extend backend/alembic/versions/0033_subtask_cards.py to drop `board_workflow.skip_decomposition` and the `child_task_link` table (batch mode). Downgrade re-creates both, and the docstring states that rows are not restored
-- [ ] T036 [US4] Backend test clean-up:
+- [x] T034 [US4] Remove `child_task_closure_retention_days` from backend/app/config.py (the field and `_CONFIG_FILE_FIELDS`) and from config.toml.example. Update the backend/app/services/board/dev_reset.py docstring
+- [x] T035 [US4] Extend backend/alembic/versions/0033_subtask_cards.py to drop `board_workflow.skip_decomposition` and the `child_task_link` table (batch mode). Downgrade re-creates both, and the docstring states that rows are not restored
+- [x] T036 [US4] Backend test clean-up:
   - delete backend/tests/test_child_task_store.py and backend/tests/test_task_scheduler.py;
   - remove the sentinel tests from backend/tests/test_markers.py;
   - remove the skip_decomposition tests from test_board_gates.py, test_board_gates_prd.py, test_board_coordinator.py, test_board_coordinator_prd.py, test_board_input_intake.py and test_board_service.py;
   - remove the child tests and fixtures from test_board_api_additions.py, test_board_views.py, test_board_router_views.py, test_board_claims.py, test_ingestion_service.py and test_reconcile.py;
   - keep the `create_subtask` adapter tests.
-- [ ] T037 [US4] New tests:
+- [x] T037 [US4] New tests:
   - migration 0033 upgrades a DB containing `child_task_link` rows and a `skip_decomposition=1` workflow, and downgrades back (backend/tests/test_migrations.py);
   - a body with `<!-- kestrel:subtask -->` or `<!-- kestrel:manual -->` ingests as an ordinary request that gets its understanding gate (backend/tests/test_ingestion_service.py or test_board_input_intake.py).
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T038 [P] Amend specs/026-autonomous-work-board/contracts/board-api.md per contracts/board-api-delta.md: remove `parent_workflow_id`; add `open_manual_task_count`, the `manual_task` kind and the `complete_manual_task` action; replace the child_work write-back with the breakdown comment. Land it with T024/T028 if possible
+- [x] T038 [P] Amend specs/026-autonomous-work-board/contracts/board-api.md per contracts/board-api-delta.md: remove `parent_workflow_id`; add `open_manual_task_count`, the `manual_task` kind and the `complete_manual_task` action; replace the child_work write-back with the breakdown comment. Land it with T024/T028 if possible
 - [ ] T039 [P] Add a "Superseded (child tickets) by feature 031" note at the top of specs/012-task-decomposition-pipeline/spec.md, with User Story 3's publish half, FR-011, FR-013, FR-014 and FR-015 listed as reversed (FR-022)
 - [ ] T040 [P] Update docs/architecture.md: one workflow → one branch → one PR; decomposition materialises cards; manual tasks; the capped verification loop; per-task tickets lost for now (backlog #63/#64/#65)
 - [ ] T041 Run the full gate: `task quality`, backend `uv run pytest -q`, and frontend `npx prettier --check`, `npm test` and `npm run build`. Walk the quickstart manual scenario where feasible

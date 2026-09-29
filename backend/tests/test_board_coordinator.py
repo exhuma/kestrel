@@ -26,7 +26,7 @@ from tests.board_test_support import board_session_factory
 
 def _coordinator(
     tmp_path: Path, *, decomposition_required: bool = False,
-    prd_gate_required: bool = False, skip_decomposition: bool = False,
+    prd_gate_required: bool = False,
 ) -> tuple[CoordinatorService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
@@ -41,7 +41,6 @@ def _coordinator(
             base_branch="main",
             source_visibility="public",
             title="Add a thing",
-            skip_decomposition=skip_decomposition,
         )
     )
     store.create_card(
@@ -453,21 +452,6 @@ class TestDecompositionEnforcement:
         )
 
         assert results[0].validation_decision == "rejected"
-
-    def test_a_skip_decomposition_workflow_is_exempt(
-        self, tmp_path: Path
-    ) -> None:
-        coordinator, store = _coordinator(
-            tmp_path, decomposition_required=True, skip_decomposition=True,
-        )
-
-        coordinator.apply_actions(
-            "wf-1", "trigger-1",
-            [CreateCardAction(kind="design", title="Design it")],
-        )
-
-        titles = {c.title for c in store.list_cards("wf-1")}
-        assert "Design it" in titles
 
     def test_disabled_by_default_allows_design_immediately(
         self, tmp_path: Path

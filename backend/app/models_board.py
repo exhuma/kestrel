@@ -162,12 +162,6 @@ class Workflow:
     :param title: Safe display title after input acceptance.
     :param state: Summary state derived from active cards and outcome.
     :param revision: Monotonic version for snapshots and interventions.
-    :param skip_decomposition: Set once at ingestion from the source
-        task's own body (``has_subtask_sentinel``): a task Kestrel itself
-        published as a decomposition child must never be forced through
-        decomposition again, regardless of ``board_decomposition_required``
-        — otherwise a required-decomposition deployment would recurse
-        forever, decomposing its own children's children.
     :param change_request_number: The change request delivery opened,
         once known (T052) — ``None`` before any delivery, or when the
         code host doesn't support change requests at all.
@@ -201,7 +195,6 @@ class Workflow:
     title: str
     state: str = "active"
     revision: int = 1
-    skip_decomposition: bool = False
     change_request_number: int | None = None
     ci_repair_round: int = 0
     ci_status: str | None = None

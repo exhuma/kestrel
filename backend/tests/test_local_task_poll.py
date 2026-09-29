@@ -19,10 +19,6 @@ class _FakeIngestion:
         self.calls.append(kw)
         return "wf-x"
 
-    async def observe_child_retrigger(self, task_ref, generation):
-        self.calls.append({"retrigger": task_ref, "generation": generation})
-
-
 def _source(tasks_dir) -> TaskSourceConfig:
     return TaskSourceConfig(
         type="local", tasks_dir=str(tasks_dir), code_host="local"
@@ -71,23 +67,9 @@ async def test_run_cycle_twice_is_deduped_by_ingestion(tmp_path) -> None:
     await service.run_cycle()
     await service.run_cycle()
 
-    assert len(ingestion.calls) == _TWO_CYCLES * 2
-    assert {c["task_ref"] for c in ingestion.calls if "task_ref" in c} == {
+    assert len(ingestion.calls) == _TWO_CYCLES
+    assert {c["task_ref"] for c in ingestion.calls} == {
         "local:hello-task"
-    }
-
-
-@pytest.mark.asyncio
-async def test_generation_is_only_local_task_retrigger_signal(tmp_path) -> None:
-    """An explicit local task generation reaches the child re-adoption seam."""
-    _write_task(tmp_path, "hello-task", generation="2")
-    ingestion = _FakeIngestion()
-
-    await LocalTaskPollService(_source(tmp_path), ingestion).run_cycle()
-
-    assert ingestion.calls[0] == {
-        "retrigger": "local:hello-task",
-        "generation": "2",
     }
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.markers import MANUAL_SENTINEL, SENTINEL, SUBTASK_SENTINEL
+from app.markers import SENTINEL
 
 #: Length of a bare numeric UTC-offset suffix, e.g. "+0000" or "-0500".
 _OFFSET_LEN = 5
@@ -27,24 +27,6 @@ def append_sentinel(body: str) -> str:
     if has_sentinel(body):
         return body
     return f"{body.rstrip()}\n\n{SENTINEL}\n"
-
-
-def has_subtask_sentinel(body: str) -> bool:
-    """Return True if the body marks a technical_analysis follow-up task."""
-    return SUBTASK_SENTINEL in body
-
-
-def has_manual_sentinel(body: str) -> bool:
-    """Return True if the body marks a manual decomposition child — one
-    ingestion must never turn into agent work (feature 030)."""
-    return MANUAL_SENTINEL in body
-
-
-def append_subtask_sentinel(body: str) -> str:
-    """Append the subtask sentinel to a body, at most once."""
-    if has_subtask_sentinel(body):
-        return body
-    return f"{body.rstrip()}\n\n{SUBTASK_SENTINEL}\n"
 
 
 def append_comment_sentinel(body: str, enabled: bool, sentinel: str) -> str:

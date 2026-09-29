@@ -90,10 +90,7 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
         {{ manualTasks }}
       </v-chip>
 
-      <RequestSubItems
-        :state-counts="request.summary.state_counts"
-        :children="request.children"
-      />
+      <RequestSubItems :state-counts="request.summary.state_counts" />
     </v-card-text>
   </v-card>
 </template>

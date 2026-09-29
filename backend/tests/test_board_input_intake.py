@@ -175,28 +175,6 @@ class TestSafeIntakeCreatesBoardWorkflow:
         assert result == "wf-new"
         assert quarantine.calls[0].body == "please add"
         assert board.calls[0].task_ref == "owner/repo#1"
-        assert board.calls[0].skip_decomposition is False
-
-    @pytest.mark.asyncio
-    async def test_a_subtask_sentinel_body_sets_skip_decomposition(
-        self,
-    ) -> None:
-        task = Task(
-            ref="owner/repo#2", title="Child", body="do it\n\n"
-            "<!-- kestrel:subtask -->\n",
-        )
-        service, _quarantine, board = _service(
-            _Case(source_key="github-issue", task=task, released=True)
-        )
-
-        await service.maybe_start_run(
-            source="github-issue",
-            task_ref="owner/repo#2",
-            code_repo="owner/repo",
-            issue_number=2,
-        )
-
-        assert board.calls[0].skip_decomposition is True
 
     @pytest.mark.asyncio
     async def test_jira_task_body_creates_workflow(self) -> None:
@@ -230,39 +208,6 @@ class TestSafeIntakeCreatesBoardWorkflow:
 
         assert result == "wf-new"
         assert board.calls[0].source == "local-task"
-
-
-class TestManualChildrenNeverBecomeWork:
-    """A manual decomposition child is for a human (feature 030, FR-018)."""
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "marker",
-        ["<!-- kestrel:manual -->", "`<!-- kestrel:manual -->`"],
-        ids=["html-comment", "jira-code-span"],
-    )
-    async def test_a_manual_body_never_starts_a_workflow(
-        self, marker: str
-    ) -> None:
-        task = Task(
-            ref="owner/repo#3", title="Legal sign-off",
-            body=f"ask legal\n\n<!-- kestrel:subtask -->\n\n{marker}\n",
-        )
-        service, quarantine, board = _service(
-            _Case(source_key="github-issue", task=task, released=True)
-        )
-
-        results = [
-            await service.maybe_start_run(
-                source="github-issue", task_ref="owner/repo#3",
-                code_repo="owner/repo", issue_number=3,
-            )
-            for _poll in range(2)
-        ]
-
-        assert results == [None, None]
-        assert quarantine.calls == []
-        assert board.calls == []
 
 
 class TestSuspectIntakeNeverCreatesBoardWork:

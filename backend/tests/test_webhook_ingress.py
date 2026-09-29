@@ -52,16 +52,11 @@ class _FakeDismissals:
 class _FakeIngestion:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int | None]] = []
-        self.lifecycle_calls: list[tuple[str, str]] = []
 
     async def maybe_start_run(self, *, source, task_ref, code_repo,
                               issue_number=None, base_branch=None):
         self.calls.append((code_repo, issue_number))
         return "wf-x"
-
-    async def observe_child_source_state(self, task_ref, state):
-        self.lifecycle_calls.append((task_ref, state))
-
 
 def _sign(body: bytes) -> str:
     digest = hmac.new(_SECRET.encode(), body, hashlib.sha256).hexdigest()
@@ -226,8 +221,9 @@ async def test_unlabeled_clears_dismissal_then_relabel_starts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_issue_closed_and_reopened_observe_child_lifecycle() -> None:
-    """Lifecycle webhooks observe state without entering normal ingestion."""
+async def test_issue_closed_and_reopened_are_ignored() -> None:
+    """Ensure close/reopen no longer drive child re-adoption (feature 031):
+    they are acknowledged and start nothing."""
     ing = _FakeIngestion()
     async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
         closed = await _post(c, _payload(action="closed"), delivery="closed")
@@ -235,20 +231,7 @@ async def test_issue_closed_and_reopened_observe_child_lifecycle() -> None:
             c, _payload(action="reopened"), delivery="reopened"
         )
         await _tick()
-    assert closed.status_code == 202
-    assert reopened.status_code == 202
-    assert ing.lifecycle_calls == [("o/r#5", "closed"), ("o/r#5", "open")]
+    assert closed.json()["status"] == "ignored"
+    assert reopened.json()["status"] == "ignored"
     assert ing.calls == []
 
-
-@pytest.mark.asyncio
-async def test_reopened_delivery_is_deduplicated() -> None:
-    """A redelivered reopen does not queue another lifecycle observation."""
-    ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
-        first = await _post(c, _payload(action="reopened"), delivery="reopen")
-        second = await _post(c, _payload(action="reopened"), delivery="reopen")
-        await _tick()
-    assert first.status_code == 202
-    assert second.json()["status"] == "duplicate"
-    assert ing.lifecycle_calls == [("o/r#5", "open")]

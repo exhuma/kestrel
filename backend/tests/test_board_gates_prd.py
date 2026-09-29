@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.models_board import WorkCard, Workflow
+from app.models_board import WorkCard
 from app.services.board.artifacts import ArtifactDraft
 from tests.test_board_gates import _service
 
@@ -110,27 +110,6 @@ class TestRefinementEnforcement:
         service.resolve(gate.id, "approved")
 
         assert store.list_cards("wf-1") == [store.get_card(gate.id)]
-
-    def test_a_skip_decomposition_workflow_is_exempt_even_when_required(
-        self, tmp_path: Path
-    ) -> None:
-        subtask_workflow = Workflow(
-            id="wf-2", source="github-issue", task_ref="owner/repo#2",
-            repo="owner/repo", base_branch="main", source_visibility="public",
-            title="A published child", skip_decomposition=True,
-        )
-        service, store = _service(
-            tmp_path, prd_gate_required=True, workflow=subtask_workflow,
-        )
-        gate = service.create_gate(
-            "wf-2", kind="understanding_gate", title="Confirm understanding",
-            requested_decision="Approve?",
-        )
-
-        service.resolve(gate.id, "approved")
-
-        assert store.list_cards("wf-2") == [store.get_card(gate.id)]
-
 
 class TestPrdDraftTrigger:
     """T078: once every interview is terminal, pm's PRD-drafting card

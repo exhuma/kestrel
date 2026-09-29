@@ -228,8 +228,7 @@ class CoordinatorService:
         gate before any other work-creating action is allowed."""
         if not self._decomposition_required:
             return False
-        workflow = self._store.get_workflow(workflow_id)
-        if workflow is None or workflow.skip_decomposition:
+        if self._store.get_workflow(workflow_id) is None:
             return False
         return not any(
             c.kind == CardKind.DECOMPOSITION_GATE.value
@@ -245,8 +244,7 @@ class CoordinatorService:
         allowed."""
         if not self._prd_gate_required:
             return False
-        workflow = self._store.get_workflow(workflow_id)
-        if workflow is None or workflow.skip_decomposition:
+        if self._store.get_workflow(workflow_id) is None:
             return False
         return not any(
             c.kind == CardKind.PRD_GATE.value

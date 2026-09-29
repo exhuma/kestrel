@@ -22,7 +22,6 @@ function request(
     summary: summary(overrides),
     position: { ordinal: 9, isTerminal: false },
     attention,
-    children: [],
   }
 }
 
@@ -73,17 +72,6 @@ describe('RequestCard attention treatments', () => {
   it('shows no chip when nothing is wanted', () => {
     const wrapper = mountCard(request('none'))
     expect(wrapper.findComponent({ name: 'VChip' }).exists()).toBe(false)
-  })
-})
-
-describe('RequestCard nesting', () => {
-  it('renders decomposition children inside the card', () => {
-    const req = request('none')
-    req.children = [
-      summary({ id: 'child-1', title: 'Child work', task_label: 'o/r#2' }),
-    ]
-    const wrapper = mountCard(req)
-    expect(wrapper.text()).toContain('Child work')
   })
 })
 

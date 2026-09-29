@@ -177,9 +177,6 @@ export interface BoardWorkflowSummary {
   /** Human title (feature 029 A2), falling back to `task_label` when
    *  unrecorded. */
   title: string
-  /** The workflow this request was decomposed from, if any (feature 029
-   *  A1) — `null` for an ordinary request. */
-  parent_workflow_id: string | null
   status: string
   state_counts: Partial<Record<CardState, number>>
   action_required_count: number

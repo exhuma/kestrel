@@ -111,21 +111,6 @@ class TestPrdGateEnforcement:
 
         assert results[0].validation_decision == "rejected"
 
-    def test_a_skip_decomposition_workflow_is_exempt(
-        self, tmp_path: Path
-    ) -> None:
-        coordinator, store = _coordinator(
-            tmp_path, prd_gate_required=True, skip_decomposition=True,
-        )
-
-        coordinator.apply_actions(
-            "wf-1", "trigger-1",
-            [CreateCardAction(kind="design", title="Design it")],
-        )
-
-        titles = {c.title for c in store.list_cards("wf-1")}
-        assert "Design it" in titles
-
     def test_disabled_by_default_allows_design_immediately(
         self, tmp_path: Path
     ) -> None:

@@ -1,7 +1,8 @@
 /**
  * Stage-board pure logic (feature 029, US1): the six-stage/ten-phase
  * projection, per-card attention treatment, and grouping requests into
- * stage columns with decomposition children nested under their parent.
+ * stage columns — one card per request (a request's approved tasks are
+ * cards inside its own workflow, feature 031).
  *
  * Mirrors `app.services.board.phases` (stage/phase names) and
  * data-model.md §"AttentionState"/"BoardRequest". Pure and
@@ -75,15 +76,12 @@ export function attentionOf(summary: BoardWorkflowSummary): AttentionState {
   return 'none'
 }
 
-/** One board card: a top-level request, its ten-phase position, its
- *  attention treatment, and the decomposition children nested inside it
- *  (FR-002) — matched via the FR-040 parent link, from the same listing
- *  rather than a per-workflow fetch. */
+/** One board card: a request, its ten-phase position and its attention
+ *  treatment (FR-002). */
 export interface BoardRequest {
   summary: BoardWorkflowSummary
   position: PhasePosition
   attention: AttentionState
-  children: BoardWorkflowSummary[]
 }
 
 export interface StageColumn {
@@ -91,54 +89,24 @@ export interface StageColumn {
   requests: BoardRequest[]
 }
 
-function toBoardRequest(
-  summary: BoardWorkflowSummary,
-  childrenByParent: Map<string, BoardWorkflowSummary[]>,
-): BoardRequest {
+function toBoardRequest(summary: BoardWorkflowSummary): BoardRequest {
   return {
     summary,
     position: phasePosition(summary.phase),
     attention: attentionOf(summary),
-    children: childrenByParent.get(summary.id) ?? [],
   }
 }
 
-/** Split *workflows* into top-level requests and their decomposition
- *  children. A child whose parent is absent from *workflows* (e.g.
- *  filtered out) falls back to top-level — FR-002 guarantees a request
- *  appears exactly once, not at most once. */
-function partitionByParentage(workflows: BoardWorkflowSummary[]): {
-  topLevel: BoardWorkflowSummary[]
-  childrenByParent: Map<string, BoardWorkflowSummary[]>
-} {
-  const ids = new Set(workflows.map((w) => w.id))
-  const topLevel: BoardWorkflowSummary[] = []
-  const childrenByParent = new Map<string, BoardWorkflowSummary[]>()
-  for (const w of workflows) {
-    const parentId = w.parent_workflow_id
-    if (parentId && ids.has(parentId)) {
-      const siblings = childrenByParent.get(parentId) ?? []
-      siblings.push(w)
-      childrenByParent.set(parentId, siblings)
-    } else {
-      topLevel.push(w)
-    }
-  }
-  return { topLevel, childrenByParent }
-}
-
-/** Group ingested requests into the six stage columns (FR-001), with
- *  decomposition children nested inside their parent's card rather than
- *  appearing as their own top-level card (FR-002). An unrecognised
- *  stage name gets a trailing column instead of dropping the request. */
+/** Group ingested requests into the six stage columns (FR-001), one card
+ *  per request (FR-002). An unrecognised stage name gets a trailing
+ *  column instead of dropping the request. */
 export function groupByStage(workflows: BoardWorkflowSummary[]): StageColumn[] {
-  const { topLevel, childrenByParent } = partitionByParentage(workflows)
   const buckets = new Map<string, BoardRequest[]>(
     STAGE_ORDER.map((stage) => [stage, []]),
   )
   const trailing: BoardRequest[] = []
-  for (const summary of topLevel) {
-    const request = toBoardRequest(summary, childrenByParent)
+  for (const summary of workflows) {
+    const request = toBoardRequest(summary)
     const bucket = buckets.get(summary.stage)
     if (bucket) bucket.push(request)
     else trailing.push(request)

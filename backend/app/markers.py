@@ -17,13 +17,6 @@ from collections.abc import Sequence
 
 #: Marks a ticket as refined (feature 001).
 SENTINEL = "<!-- kestrel:refined -->"
-#: Marks a ticket as a technical_analysis follow-up task (feature 012): its body
-#: is already self-contained and technically scoped, so a run against it
-#: skips describe/refine/technical_analysis entirely and starts at design.
-SUBTASK_SENTINEL = "<!-- kestrel:subtask -->"
-#: Marks a published decomposition child as a *manual* task (feature 030):
-#: it is for a human, and ingestion must never turn it into agent work.
-MANUAL_SENTINEL = "<!-- kestrel:manual -->"
 
 
 class Marker(ABC):
@@ -50,40 +43,6 @@ class Marker(ABC):
         recover. Content-bearing markers override this and use the body.
         """
         return None
-
-
-class SubtaskSentinel(Marker):
-    """Marks a ticket as a technical_analysis follow-up task (feature 012).
-
-    Its body is already self-contained and technically scoped, so a run
-    against it skips describe/refine/technical_analysis and starts at design.
-    Content-free: detection is by presence, not payload.
-    """
-
-    def render(self) -> str:
-        """Return the subtask sentinel comment."""
-        return SUBTASK_SENTINEL
-
-    def present_in(self, body: str) -> bool:
-        """Return whether the subtask sentinel already appears in ``body``."""
-        return self.render() in body
-
-
-class ManualTaskSentinel(Marker):
-    """Marks a published decomposition child as a manual task (feature 030).
-
-    Applied alongside :class:`SubtaskSentinel`. Ingestion never starts a
-    workflow for a body carrying it, so no specialist can ever claim the
-    task (FR-018). Content-free: detection is by presence, not payload.
-    """
-
-    def render(self) -> str:
-        """Return the manual-task sentinel comment."""
-        return MANUAL_SENTINEL
-
-    def present_in(self, body: str) -> bool:
-        """Return whether the manual sentinel already appears in ``body``."""
-        return self.render() in body
 
 
 class ReviewTokenMarker(Marker):
@@ -129,8 +88,7 @@ def apply_markers(body: str, markers: Sequence[Marker] = ()) -> str:
     The single "how" every task-source adapter shares: for each marker not
     already present (per :meth:`Marker.present_in`), append its
     :meth:`Marker.render` output on its own trailing paragraph, in the
-    order given. Idempotent and byte-identical to the legacy
-    ``append_subtask_sentinel`` when handed ``[SubtaskSentinel()]``.
+    order given. Idempotent.
 
     Content-bearing markers that must appear *inline* (e.g. review tokens)
     are not applied here; they are embedded at their render site. This helper
