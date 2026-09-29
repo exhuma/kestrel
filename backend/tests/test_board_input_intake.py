@@ -68,6 +68,7 @@ class _FakeBoard:
         self.calls: list[AcceptedTaskIntake] = []
         self.workflows: list[Workflow] = []
         self._raise_duplicate = raise_duplicate
+        self.announced: list[str] = []
 
     def create_workflow_from_intake(
         self, intake: AcceptedTaskIntake
@@ -90,6 +91,9 @@ class _FakeBoard:
 
     def list_workflows(self) -> list[Workflow]:
         return self.workflows
+
+    def announce(self, workflow_id: str) -> None:
+        self.announced.append(workflow_id)
 
 
 class _FakeGates:
@@ -232,6 +236,8 @@ class TestSuspectIntakeNeverCreatesBoardWork:
         assert quarantine.calls  # was screened
         assert board.calls == []  # never reached
         assert result == "wf-q"  # the quarantine-hosting workflow
+        # Live board views hear about it without a reload (#66).
+        assert board.announced == ["wf-q"]
 
 
 class TestExistingFiltersStillApply:

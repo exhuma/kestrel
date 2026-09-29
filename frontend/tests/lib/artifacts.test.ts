@@ -89,6 +89,7 @@ describe('railItems states', () => {
           decision: 'approved',
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     ])
@@ -103,6 +104,7 @@ describe('railItems states', () => {
           decision: 'rejected',
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     ])

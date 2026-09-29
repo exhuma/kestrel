@@ -51,6 +51,14 @@ breaking change, and backend and frontend change together:
 
 See `specs/031-subtask-cards/contracts/board-api-delta.md`.
 
+**Amendment (#66)**: one additive, read-only field:
+
+- **Card Summary** (`WorkCardSummaryOut.gate`): `target_artifact` (nullable,
+  same shape as `latest_artifact`) is what the gate asks about: the
+  interview's questions, the PRD draft, the CAB-2 proposal, or the
+  strategic-fit answers (a `cab1_gate` now targets them). It is produced by
+  another card, so it is never the gate card's own `latest_artifact`.
+
 ## Shared Enumerations
 
 ```text

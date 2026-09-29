@@ -202,9 +202,22 @@ class QuarantineService:
             )
             return ClassificationResult(
                 safe=False,
-                category="malformed_result",
-                reason="classification failed",
+                category=exc.category,
+                reason=self._failure_reason(exc.category),
             )
+
+    def _failure_reason(self, category: str) -> str:
+        """Why a classification that never produced a verdict failed —
+        never the untrusted content, never raw backend output (#66)."""
+        if category == "timeout":
+            return (
+                "the input-security check did not finish within "
+                f"{self._classify_timeout_seconds:g}s "
+                "(board_input_security_timeout_seconds)"
+            )
+        if category == "backend_error":
+            return "the input-security backend failed; see the kestrel log"
+        return "the input-security result could not be read"
 
     def review_for_card(self, card_id: str) -> SecurityReviewRecord | None:
         """Return the review gating *card_id*, if any (board-view lookup —

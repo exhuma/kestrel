@@ -127,14 +127,21 @@ class ArtifactsService:
         """
         if self._content_store is None:
             raise ValueError("no content store configured")
+        latest = self.latest_for_card(card_id, logical_name)
+        if latest is None:
+            return None
+        return self._content_store.read(latest.content_ref)
+
+    def latest_for_card(
+        self, card_id: str, logical_name: str
+    ) -> HandoffArtifact | None:
+        """Return the newest ``logical_name`` artifact *card_id*
+        produced, or ``None`` if there is none."""
         matches = [
             a for a in self._artifact_store.list_for_card(card_id)
             if a.logical_name == logical_name
         ]
-        if not matches:
-            return None
-        latest = max(matches, key=lambda a: a.revision)
-        return self._content_store.read(latest.content_ref)
+        return max(matches, key=lambda a: a.revision) if matches else None
 
     def _write(self, draft: ArtifactDraft) -> HandoffArtifact:
         if self._content_store is None:

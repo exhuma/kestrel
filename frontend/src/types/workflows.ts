@@ -112,6 +112,11 @@ export interface WorkCardGate {
   decision: 'approved' | 'rejected' | null
   round: number | null
   cap: number | null
+  /** What the gate asks about — the interview's questions, the PRD
+   *  draft, the strategic-fit answers (#66). It belongs to the card that
+   *  produced it, so it is never the gate card's own `latest_artifact`.
+   *  `null` when the gate has no target. */
+  target_artifact: BoardArtifactRef | null
 }
 
 /** One card's board-visible state. Mirrors `app.schemas.WorkCardSummaryOut`. */

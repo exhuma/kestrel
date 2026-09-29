@@ -49,7 +49,15 @@ class ClassificationError(Exception):
     Every caller must treat this the same as an explicit "suspect"
     result: a timeout, backend failure, or malformed result all fail
     closed into quarantine (FR-020) rather than proceeding as safe.
+
+    :param category: Which of those it was — ``"timeout"``,
+        ``"backend_error"`` or ``"malformed_result"`` — so the operator
+        is told why the input was quarantined (#66).
     """
+
+    def __init__(self, message: str, category: str = "malformed_result"):
+        super().__init__(message)
+        self.category = category
 
 
 @dataclass(frozen=True)
@@ -120,7 +128,9 @@ async def classify_input(
             "input-security classification timed out after %ss",
             timeout_seconds,
         )
-        raise ClassificationError("input-security turn timed out") from exc
+        raise ClassificationError(
+            "input-security turn timed out", category="timeout"
+        ) from exc
     except Exception as exc:
         # .exception() attaches the full traceback — for a backend-side
         # failure this shows exactly where inside whichever adapter is
@@ -130,7 +140,7 @@ async def classify_input(
             "input-security classification backend error: %s", exc
         )
         raise ClassificationError(
-            f"input-security backend error: {exc}"
+            f"input-security backend error: {exc}", category="backend_error"
         ) from exc
     return _parse_classification(result.final_text)
 
@@ -317,12 +327,13 @@ def build_coordinator_envelope(
 class SchedulingService:
     """Wakes the coordinator and applies whatever it validly proposes.
 
-    One coordinator turn per wake, idempotent per board revision
-    (``CoordinatorService.apply_actions``'s own per-trigger idempotency):
-    a repeated wake for a board snapshot that hasn't changed since is a
-    no-op rather than a second LLM call (FR-004's event-driven triggers —
-    card creation, completion, gate resolution, claim expiry, absence of
-    eligible work — all bump the workflow's revision before waking).
+    At most one coordinator turn per board revision (FR-004's
+    event-driven triggers — card creation, completion, gate resolution,
+    claim expiry, absence of eligible work — all bump the workflow's
+    revision before waking): wakes for one workflow run one at a time,
+    and a wake that finds the revision it would act on already handled
+    is skipped *before* any LLM call. A burst of mutations therefore
+    costs one turn, not one per mutation (#66).
     """
 
     def __init__(
@@ -342,8 +353,23 @@ class SchedulingService:
         #: ``refinement.gather_refinement_context``.
         self._artifacts = artifacts
         self._default_timeout_seconds = default_timeout_seconds
+        self._wake_locks: dict[str, asyncio.Lock] = {}
+        self._woken_revision: dict[str, int] = {}
 
     async def wake(self, workflow_id: str, backend: _TurnBackend) -> None:
+        """Wake the coordinator for *workflow_id* unless its current
+        revision has already had its turn (see the class docstring)."""
+        lock = self._wake_locks.setdefault(workflow_id, asyncio.Lock())
+        async with lock:
+            workflow = self._store.get_workflow(workflow_id)
+            if workflow is None:
+                return
+            if self._woken_revision.get(workflow_id) == workflow.revision:
+                return
+            self._woken_revision[workflow_id] = workflow.revision
+            await self._turn(workflow_id, backend)
+
+    async def _turn(self, workflow_id: str, backend: _TurnBackend) -> None:
         """Run one coordinator turn for *workflow_id* and apply its result.
 
         A malformed or empty proposal applies nothing (``coordinator.py``'s

@@ -111,12 +111,19 @@ class WorkCardGateOut(BaseModel):
     :param round: This gate's 1-based interview round (feature 029 A3),
         or ``None`` if it is not a round-capped ``refinement_gate``.
     :param cap: The configured round cap in force when ``round`` is set.
+    :param target_artifact: What the gate asks about — the interview's
+        questions, the PRD draft, the CAB-2 proposal, the strategic-fit
+        answers (``HumanGateRecord.target_artifact_id``). It belongs to
+        the card that produced it, never to the gate card itself, so it
+        is not the gate's ``latest_artifact``. ``None`` when the gate
+        has no target.
     """
 
     requested_decision: str
     decision: str | None = None
     round: int | None = None
     cap: int | None = None
+    target_artifact: BoardArtifactRefOut | None = None
 
 
 class WorkCardSummaryOut(BaseModel):

@@ -202,6 +202,7 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
     security_review_ids: dict[str, str] = {}
     gates: dict[str, HumanGateRecord] = {}
     gate_rounds: dict[str, tuple[int, int]] = {}
+    gate_targets: dict[str, HandoffArtifact] = {}
     for card in cards:
         lease = deps.claims_store.get_active_lease(card.id)
         if lease is not None:
@@ -217,6 +218,9 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
             gate = deps.gates.get_gate(card.id)
             if gate is not None:
                 gates[card.id] = gate
+                target = _gate_target(gate, deps)
+                if target is not None:
+                    gate_targets[card.id] = target
                 round_number = deps.gates.gate_round(card, cards)
                 if round_number is not None:
                     gate_rounds[card.id] = (
@@ -230,7 +234,17 @@ def _lookups(cards: list[WorkCard], deps: _BoardReadDeps) -> BoardLookups:
         security_review_ids=security_review_ids,
         gates=gates,
         gate_rounds=gate_rounds,
+        gate_targets=gate_targets,
     )
+
+
+def _gate_target(
+    gate: HumanGateRecord, deps: _BoardReadDeps
+) -> HandoffArtifact | None:
+    """The artifact *gate* asks about, if it has one."""
+    if gate.target_artifact_id is None:
+        return None
+    return deps.artifact_store.get(gate.target_artifact_id)
 
 
 def _all_workflow_summaries(

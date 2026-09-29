@@ -10,6 +10,7 @@ and the resolved review's own ``reason``.
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -233,3 +234,35 @@ class TestClassificationFailureLogging:
             and "classification failed" in m
             for m in messages
         )
+
+
+class _SlowBackend:
+    """Never answers within the classification timeout."""
+
+    async def run_turn(self, _req: TurnRequest) -> TurnResult:
+        await asyncio.sleep(5)
+        return TurnResult(session_id="turn-1", final_text="")
+
+
+@pytest.mark.asyncio
+async def test_a_timeout_is_quarantined_as_a_timeout(tmp_path: Path) -> None:
+    """Ensure the operator is told the check ran out of time, and which
+    setting controls it, not a generic failure (#66)."""
+    factory = board_session_factory(tmp_path)
+    store = BoardStore(factory)
+    service = QuarantineService(
+        BoardQuarantineStore(factory),
+        SpecialistRoster({"input-security": _input_security()}),
+        _FakeBackendPolicy(_SlowBackend()),
+        max_bytes=65536, classify_timeout_seconds=0.05,
+    )
+
+    outcome = await service.intake_for_new_task(
+        NewTaskIntake(source="local-task", task_ref="local:t", body="hi")
+    )
+
+    reason = store.get_card(outcome.card_id).wait_reason
+    assert reason == (
+        "the input-security check did not finish within 0.05s "
+        "(board_input_security_timeout_seconds)"
+    )

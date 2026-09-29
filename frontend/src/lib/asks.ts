@@ -80,3 +80,32 @@ export function pendingAsks(cards: WorkCardSummary[]): PendingAsk[] {
 export function pendingAsk(cards: WorkCardSummary[]): PendingAsk | null {
   return pendingAsks(cards)[0] ?? null
 }
+
+/** What the operator can read before deciding an ask (#66). */
+export interface AskReading {
+  artifactId: string
+  /** Names the thing, e.g. "the PRD" — the button reads "Read <label>". */
+  label: string
+}
+
+/** Readings by requested decision. CAB-2's executive summary is the gate
+ *  card's own artifact (feature 030); every other gate's content is its
+ *  target, produced by another card. */
+const READING_LABELS: Readonly<Record<string, string>> = {
+  confirm_understanding: 'the understanding',
+  approve_strategic_fit: 'the answers',
+  approve_prd: 'the PRD',
+  approve_decomposition: 'the executive summary',
+}
+
+export function readingFor(ask: PendingAsk): AskReading | null {
+  const gate = ask.card.gate
+  if (ask.kind !== 'approval' || !gate) return null
+  const artifact =
+    gate.requested_decision === 'approve_decomposition'
+      ? ask.card.latest_artifact
+      : gate.target_artifact
+  if (!artifact) return null
+  const label = READING_LABELS[gate.requested_decision] ?? 'what is asked'
+  return { artifactId: artifact.id, label }
+}

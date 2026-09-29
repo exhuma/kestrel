@@ -7,7 +7,12 @@
 // (FR-017); only decisions are taken here, and each one is confirmed in a
 // `v-dialog` rather than `window.confirm()` (FR-038).
 import { computed, ref } from 'vue'
-import { pendingAsk, pendingAsks, type PendingAsk } from '../../lib/asks'
+import {
+  pendingAsk,
+  pendingAsks,
+  readingFor,
+  type PendingAsk,
+} from '../../lib/asks'
 import { useBoard } from '../../composables/useBoard'
 import type { WorkCardSummary } from '../../types/workflows'
 import ArtifactDialog from './ArtifactDialog.vue'
@@ -29,16 +34,11 @@ const tone = computed(() =>
   ask.value?.kind === 'quarantine' ? 'error' : 'warning',
 )
 
-/** CAB-2's executive summary is the gate card's own artifact (feature
- *  030), so the operator can read what they are deciding on before
- *  approving. `null` for any other ask, and for a CAB-2 gate opened
- *  before summaries existed. */
-const summaryId = computed(() =>
-  ask.value?.card.gate?.requested_decision === 'approve_decomposition'
-    ? (ask.value.card.latest_artifact?.id ?? null)
-    : null,
-)
-const summaryOpen = ref(false)
+/** What the operator is deciding on, readable before approving (#66):
+ *  the PRD, the strategic-fit answers, CAB-2's executive summary. `null`
+ *  when the ask has nothing to read. */
+const reading = computed(() => (ask.value ? readingFor(ask.value) : null))
+const readingOpen = ref(false)
 
 /** The confirmation in flight, or `null` when no dialog is open. */
 type Confirmation = {
@@ -139,6 +139,13 @@ const staleMessage = computed(() =>
   <div v-if="ask">
     <v-alert :type="tone" prominent data-testid="action-banner">
       <div class="text-body-1 font-weight-medium">{{ ask.title }}</div>
+      <div
+        v-if="ask.kind === 'quarantine' && ask.card.waiting_reason"
+        class="text-body-2"
+        data-testid="quarantine-reason"
+      >
+        Why: {{ ask.card.waiting_reason }}
+      </div>
       <div v-if="otherAskCount > 0" class="text-caption">
         {{ otherAskCount }} other decision(s) also waiting.
       </div>
@@ -154,12 +161,12 @@ const staleMessage = computed(() =>
           </v-btn>
 
           <v-btn
-            v-if="summaryId"
+            v-if="reading"
             variant="outlined"
             prepend-icon="$textBoxCheckOutline"
-            @click="summaryOpen = true"
+            @click="readingOpen = true"
           >
-            Read executive summary
+            Read {{ reading.label }}
           </v-btn>
 
           <template v-if="ask.kind === 'approval'">
@@ -193,9 +200,9 @@ const staleMessage = computed(() =>
     </v-alert>
 
     <ArtifactDialog
-      :artifact-id="summaryOpen ? summaryId : null"
-      label="Executive summary"
-      @close="summaryOpen = false"
+      :artifact-id="readingOpen && reading ? reading.artifactId : null"
+      :label="reading ? `Read ${reading.label}` : ''"
+      @close="readingOpen = false"
     />
 
     <v-dialog :model-value="confirming !== null" max-width="600" persistent>

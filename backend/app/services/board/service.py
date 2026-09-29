@@ -109,6 +109,13 @@ class BoardService:
             self._on_mutation(workflow.id)
         return workflow
 
+    def announce(self, workflow_id: str) -> None:
+        """Tell live board views that *workflow_id* changed outside this
+        service — e.g. a quarantine written straight to its own store
+        (#66) — without waking the coordinator: nothing for it to do."""
+        if self._bus is not None:
+            self._bus.publish(workflow_id)
+
     def transition_card(
         self,
         card_id: str,

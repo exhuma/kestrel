@@ -33,6 +33,7 @@ function gateCard(
       decision: null,
       round: null,
       cap: null,
+      target_artifact: null,
     },
     ...overrides,
   })
@@ -259,7 +260,7 @@ describe('ActionBanner CAB-2 executive summary (feature 030)', () => {
     ])
     expect(dialogId(wrapper)).toBeNull()
 
-    await button(wrapper, 'Read executive summary')?.trigger('click')
+    await button(wrapper, 'Read the executive summary')?.trigger('click')
     await flushPromises()
 
     expect(dialogId(wrapper)).toBe('art-sum')
@@ -268,13 +269,33 @@ describe('ActionBanner CAB-2 executive summary (feature 030)', () => {
 
   it('offers no summary on a CAB-2 gate opened before summaries existed', () => {
     const wrapper = mountBanner([gateCard('approve_decomposition')])
-    expect(button(wrapper, 'Read executive summary')).toBeUndefined()
+    expect(button(wrapper, 'Read the executive summary')).toBeUndefined()
   })
 
   it('offers no summary on any other decision', () => {
     const wrapper = mountBanner([
       gateCard('approve_prd', { latest_artifact: summary }),
     ])
-    expect(button(wrapper, 'Read executive summary')).toBeUndefined()
+    expect(button(wrapper, 'Read the executive summary')).toBeUndefined()
+  })
+
+  it("offers the gate's target to read, e.g. the PRD (#66)", () => {
+    const card = gateCard('approve_prd')
+    card.gate!.target_artifact = { id: 'art-prd', label: 'draft', revision: 1 }
+    const wrapper = mountBanner([card])
+    expect(button(wrapper, 'Read the PRD')).toBeDefined()
+  })
+
+  it('says why content was quarantined (#66)', () => {
+    const wrapper = mountBanner([
+      workCardSummary({
+        state: 'quarantined',
+        security_review_id: 'rev-1',
+        waiting_reason: 'the input-security check did not finish within 30s',
+      }),
+    ])
+    expect(wrapper.get('[data-testid="quarantine-reason"]').text()).toBe(
+      'Why: the input-security check did not finish within 30s',
+    )
   })
 })

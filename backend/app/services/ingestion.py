@@ -156,6 +156,8 @@ class IngestionService:
         )
         if not outcome.released:
             _log.info("ingest outcome=quarantined %s", task_ref)
+            if outcome.workflow_id is not None:
+                self.board_intake.board.announce(outcome.workflow_id)
             return outcome.workflow_id
         try:
             workflow = self.board_intake.board.create_workflow_from_intake(

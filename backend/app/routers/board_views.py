@@ -7,7 +7,7 @@ so a route only needs to gather the raw domain data once per request.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.models_board import (
     CardKind,
@@ -63,6 +63,9 @@ class BoardLookups:
     #: card_id -> (round, cap), populated only for a ``refinement_gate``
     #: whose persona is recoverable (feature 029 A3).
     gate_rounds: dict[str, tuple[int, int]]
+    #: card_id -> the artifact a gate asks about (its gate record's
+    #: target), populated only for gates that have one.
+    gate_targets: dict[str, HandoffArtifact] = field(default_factory=dict)
 
 
 #: ``BoardWorkflowRow.state`` for a synthetic quarantine-hosting workflow
@@ -268,6 +271,7 @@ def _gate_detail(
         decision=gate.decision,
         round=round_state[0] if round_state else None,
         cap=round_state[1] if round_state else None,
+        target_artifact=_artifact_ref(lookups.gate_targets.get(card_id)),
     )
 
 

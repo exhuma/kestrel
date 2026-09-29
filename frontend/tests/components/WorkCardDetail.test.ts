@@ -147,6 +147,7 @@ describe('WorkCardDetail gate answer field visibility', () => {
           decision: null,
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     )
@@ -162,6 +163,7 @@ describe('WorkCardDetail gate answer field visibility', () => {
           decision: null,
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     )
@@ -177,6 +179,7 @@ describe('WorkCardDetail gate answer field visibility', () => {
           decision: null,
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     )
@@ -194,6 +197,7 @@ describe('WorkCardDetail gate answer field submission', () => {
           decision: null,
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     )
@@ -212,6 +216,7 @@ describe('WorkCardDetail gate answer field submission', () => {
           decision: null,
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     )
@@ -230,6 +235,7 @@ describe('WorkCardDetail gate answer field submission', () => {
           decision: null,
           round: null,
           cap: null,
+          target_artifact: null,
         },
       }),
     )

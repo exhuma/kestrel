@@ -62,7 +62,9 @@ const contentReady = ref(false)
 async function fetchContent(
   card: WorkCardSummary,
 ): Promise<[string, string | null]> {
-  const artifactId = card.latest_artifact?.id
+  // The questions are the gate's target — an artifact of the card that
+  // wrote them — never the gate card's own artifact (#66).
+  const artifactId = card.gate?.target_artifact?.id
   if (!artifactId) return [card.id, null]
   try {
     const content = await api.get<BoardArtifactContent>(

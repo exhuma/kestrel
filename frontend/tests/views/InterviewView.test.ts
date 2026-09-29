@@ -37,8 +37,15 @@ function interviewGate(overrides: Parameters<typeof workCardSummary>[0] = {}) {
     title: 'pm interview (2 questions)',
     state: 'awaiting_human',
     allowed_actions: ['resolve_gate'],
-    gate: { requested_decision: 'answer', decision: null, round: 1, cap: 2 },
-    latest_artifact: { id: 'art-pm', label: 'questions', revision: 1 },
+    // The questions are the gate's target, never its own artifact (#66).
+    gate: {
+      requested_decision: 'answer',
+      decision: null,
+      round: 1,
+      cap: 2,
+      target_artifact: { id: 'art-pm', label: 'questions', revision: 1 },
+    },
+    latest_artifact: null,
     ...overrides,
   })
 }
@@ -109,8 +116,12 @@ describe('InterviewView per-persona grouping (FR-021)', () => {
             decision: null,
             round: 1,
             cap: 2,
+            target_artifact: {
+              id: 'art-uiux',
+              label: 'questions',
+              revision: 1,
+            },
           },
-          latest_artifact: { id: 'art-uiux', label: 'questions', revision: 1 },
         }),
       ],
     })

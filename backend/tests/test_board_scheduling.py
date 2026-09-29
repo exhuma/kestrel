@@ -299,6 +299,36 @@ class TestSchedulingServiceWake:
         assert len(matching) == 1
 
 
+class _CountingBackend(_FakeBackend):
+    """Counts the coordinator turns actually sent to the model."""
+
+    def __init__(self) -> None:
+        super().__init__("", delay=0.05)
+        self.turns = 0
+
+    async def run_turn(self, req: TurnRequest) -> TurnResult:
+        self.turns += 1
+        return await super().run_turn(req)
+
+
+@pytest.mark.asyncio
+async def test_a_burst_of_wakes_costs_one_turn_per_revision(
+    tmp_path: Path,
+) -> None:
+    """Ensure concurrent wakes for one board revision make one LLM call,
+    and a changed board is woken for again (#66)."""
+    service, store = _scheduling_service(tmp_path)
+    backend = _CountingBackend()
+
+    await asyncio.gather(*(service.wake("wf-1", backend) for _ in range(5)))
+    assert backend.turns == 1
+
+    store.bump_workflow_revision("wf-1")
+    await service.wake("wf-1", backend)
+    second_revision_turns = 2
+    assert backend.turns == second_revision_turns
+
+
 def test_claims_service_no_eligible_card_error_is_importable() -> None:
     """Sanity import check: dispatch.py depends on this error type too."""
     assert issubclass(NoEligibleCardError, Exception)

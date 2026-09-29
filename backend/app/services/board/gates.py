@@ -307,11 +307,16 @@ class GatesService:
         """
         if resolved_gate.kind != CardKind.STRATEGIC_INTERVIEW_GATE.value:
             return
+        answer = self._artifacts.latest_for_card(
+            resolved_gate.id, _RESPONSE_LOGICAL_NAME
+        )
         self.create_gate(
             resolved_gate.workflow_id,
             kind=CardKind.CAB1_GATE.value,
             title="Approve strategic fit",
             requested_decision="approve_strategic_fit",
+            # The decision is taken on the requester's answers (#66).
+            target_artifact_id=answer.id if answer is not None else None,
         )
 
     def _maybe_require_refinement(self, resolved_gate: WorkCard) -> None:

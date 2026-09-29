@@ -19,12 +19,12 @@ from app.backends.base import (
     TurnResult,
 )
 from app.backends.limiter import BackendLimiter
+from app.backends.opencode_abort import abort_on_cancel
 from app.backends.opencode_models import split_model
 from app.backends.opencode_permissions import (
     DENY_WRITE_TOOLS,
     OpenCodeConnection,
     permission_handler,
-    run_permission_loop,
 )
 from app.backends.rate_limit import retry_rate_limited
 from app.config import BackendConfig, Settings
@@ -153,6 +153,9 @@ class OpenCodeBackend(Backend):
             read_only = req.permission_mode == _READ_ONLY_MODE
             content = await self._turn(sid, req.prompt, req.cwd, read_only)
             return TurnResult(session_id=sid, final_text=content)
+        except asyncio.CancelledError:
+            abort_on_cancel(self._request, sid, req.cwd)
+            raise
         except Exception as exc:
             _logger.exception(
                 "opencode run_turn failed (session=%s, cwd=%s)", sid, req.cwd,
@@ -230,17 +233,6 @@ class OpenCodeBackend(Backend):
         """Return the working directory recorded for a session, if any."""
         record = self.registry.get(session_id)
         return record.cwd if record is not None else None
-
-    async def _permission_loop(
-        self, session_id: str, directory: str | None, read_only: bool
-    ) -> None:
-        """Stream ``/event`` and answer this session's permission prompts.
-
-        Delegates to :mod:`app.backends.opencode_permissions`; kept as a
-        thin method so callers/tests can address it on the backend
-        instance without reaching into that module directly.
-        """
-        await run_permission_loop(self._conn, session_id, directory, read_only)
 
     def _schedule(
         self,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pendingAsk, pendingAsks } from '../../src/lib/asks'
+import { pendingAsk, pendingAsks, readingFor } from '../../src/lib/asks'
 import { workCardSummary } from '../support/board'
 import type { WorkCardSummary } from '../../src/types/workflows'
 
@@ -15,6 +15,7 @@ function gateCard(
       decision: null,
       round: null,
       cap: null,
+      target_artifact: null,
     },
     ...overrides,
   })
@@ -43,6 +44,7 @@ describe('pendingAsk when nothing is wanted', () => {
         decision: 'approved',
         round: null,
         cap: null,
+        target_artifact: null,
       },
     })
     expect(pendingAsk([card])).toBeNull()
@@ -118,5 +120,37 @@ describe('pendingAsk precedence', () => {
     ]
     expect(pendingAsks(cards)).toHaveLength(2)
     expect(pendingAsk(cards)?.card.id).toBe('g1')
+  })
+})
+
+describe('readingFor (#66)', () => {
+  const target = { id: 'art-t', label: 'draft', revision: 1 }
+
+  it("offers a gate's target, named for the decision", () => {
+    const card = gateCard('approve_prd')
+    card.gate!.target_artifact = target
+    expect(readingFor(pendingAsk([card])!)).toEqual({
+      artifactId: 'art-t',
+      label: 'the PRD',
+    })
+  })
+
+  it("reads CAB-2's summary from the gate card itself", () => {
+    const card = gateCard('approve_decomposition', {
+      latest_artifact: { id: 'art-sum', label: 'summary', revision: 1 },
+    })
+    expect(readingFor(pendingAsk([card])!)?.artifactId).toBe('art-sum')
+  })
+
+  it('offers nothing for a gate without a target', () => {
+    expect(readingFor(pendingAsk([gateCard('confirm_understanding')])!)).toBe(
+      null,
+    )
+  })
+
+  it('offers nothing for an interview, which has its own page', () => {
+    const card = gateCard('answer')
+    card.gate!.target_artifact = target
+    expect(readingFor(pendingAsk([card])!)).toBeNull()
   })
 })
