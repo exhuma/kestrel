@@ -46,13 +46,28 @@ function isQuarantineAsk(card: WorkCardSummary): boolean {
   return card.state === 'quarantined' && card.security_review_id !== null
 }
 
+/** Decisions whose rejection must say what is wrong: the redraft works
+ *  from it (the PRD, feature 028; the understanding, feature 032). */
+const REJECTION_NEEDS_FEEDBACK: ReadonlySet<string> = new Set([
+  'approve_prd',
+  'confirm_understanding',
+])
+
+/** The understanding is short and is itself the decision, so it is shown
+ *  in place rather than behind "Read" (feature 032). */
+export function inlineReading(ask: PendingAsk): string | null {
+  const gate = ask.card.gate
+  if (gate?.requested_decision !== 'confirm_understanding') return null
+  return gate.target_artifact?.id ?? null
+}
+
 function toGateAsk(card: WorkCardSummary): PendingAsk {
   const requested = card.gate?.requested_decision ?? ''
   return {
     kind: requested === 'answer' ? 'interview' : 'approval',
     card,
     title: GATE_TITLES[requested] ?? card.title,
-    requiresRejectionFeedback: requested === 'approve_prd',
+    requiresRejectionFeedback: REJECTION_NEEDS_FEEDBACK.has(requested),
   }
 }
 

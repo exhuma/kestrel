@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Draft
+**Status**: Implemented (2026-09-29)
 
 **Input**: GitHub #67 (the understanding gate has no restatement to confirm)
 and #68 (ingest: screening is invisible until classification finishes). Both

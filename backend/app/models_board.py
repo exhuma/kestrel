@@ -97,6 +97,11 @@ class CardKind(StrEnum):
     #: (feature 027); resolving it deterministically creates the
     #: ``CAB1_GATE`` decision.
     STRATEGIC_INTERVIEW_GATE = "strategic_interview_gate"
+    #: `pm`'s restatement of an accepted request, for the
+    #: ``understanding_gate`` to show and the operator to confirm or
+    #: correct (feature 032). Created only by code — at intake once
+    #: screening passes, and as a capped redraft after a rejection.
+    UNDERSTANDING = "understanding"
     #: A task approved at CAB-2 as manual — work for the operator, never
     #: a specialist (feature 031). Created only by materialising an
     #: approved decomposition; resolved only by the operator's

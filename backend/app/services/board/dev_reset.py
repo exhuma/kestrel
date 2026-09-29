@@ -27,13 +27,12 @@ published before feature 031 is a separate workflow and untouched.
 """
 from __future__ import annotations
 
-import uuid
-
-from app.models_board import TERMINAL_STATES, CardKind, CardState, WorkCard
+from app.models_board import TERMINAL_STATES, CardState
 from app.models_board_records import BoardEventRecord
 from app.persistence.board_store import BoardStore
 from app.services.board.claims import ClaimsService
 from app.services.board.service import BoardService
+from app.services.board.understanding_redraft import understanding_card
 from app.services.board.workspace import WorkspaceService
 
 
@@ -80,7 +79,8 @@ async def rerun_workflow(
     claims: ClaimsService,
     workspace: WorkspaceService,
 ) -> None:
-    """Reset *workflow_id* and reopen it at a fresh understanding gate.
+    """Reset *workflow_id* and restart it at the understanding step: a
+    fresh restatement for the operator to confirm (feature 032).
 
     Reuses the same workflow row and id rather than creating a new one —
     the least-change option: no re-ingestion, no dismissal bookkeeping,
@@ -92,15 +92,7 @@ async def rerun_workflow(
         workflow_id, store=store, board_service=board_service,
         claims=claims, workspace=workspace,
     )
-    store.create_card(
-        WorkCard(
-            id=f"card-{uuid.uuid4().hex[:8]}",
-            workflow_id=workflow_id,
-            kind=CardKind.UNDERSTANDING_GATE,
-            title="Confirm understanding",
-            state=CardState.AWAITING_HUMAN,
-        )
-    )
+    store.create_card(understanding_card(workflow_id))
     store.append_event(
         BoardEventRecord(workflow_id=workflow_id, event_type="dev_reset.rerun")
     )

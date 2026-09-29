@@ -158,7 +158,7 @@ class TestCleanupWorkflow:
 
 class TestRerunWorkflow:
     @pytest.mark.asyncio
-    async def test_reopens_the_same_workflow_at_understanding_gate(
+    async def test_restarts_the_same_workflow_at_the_understanding_step(
         self, tmp_path: Path
     ) -> None:
         store, board_service, claims, workspace = _services(
@@ -178,9 +178,10 @@ class TestRerunWorkflow:
 
         assert store.get_card("card-1").state == "cancelled"
         cards = store.list_cards("wf-1")
-        gates = [c for c in cards if c.kind == "understanding_gate"]
-        assert len(gates) == 1
-        assert gates[0].state == CardState.AWAITING_HUMAN.value
+        drafts = [c for c in cards if c.kind == "understanding"]
+        assert len(drafts) == 1
+        assert drafts[0].state == CardState.READY.value
+        assert drafts[0].eligible_roles == ("pm",)
         assert store.get_workflow("wf-1").id == "wf-1"
 
     @pytest.mark.asyncio

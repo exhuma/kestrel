@@ -162,7 +162,7 @@ describe('ActionBanner approval decisions', () => {
   })
 
   it('rejects without feedback where none is required', async () => {
-    const wrapper = mountBanner([gateCard('confirm_understanding')])
+    const wrapper = mountBanner([gateCard('approve_strategic_fit')])
     await confirmVia(wrapper, 'Reject')
     expect(mockApplyIntervention).toHaveBeenCalledWith(
       'card-1',
@@ -297,5 +297,39 @@ describe('ActionBanner CAB-2 executive summary (feature 030)', () => {
     expect(wrapper.get('[data-testid="quarantine-reason"]').text()).toBe(
       'Why: the input-security check did not finish within 30s',
     )
+  })
+})
+
+describe('ActionBanner understanding (feature 032)', () => {
+  it("shows pm's restatement in place of a Read button", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            content: 'You want a CSV export.',
+            trust: 'agent_output',
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const card = gateCard('confirm_understanding')
+    card.gate!.target_artifact = {
+      id: 'art-und',
+      label: 'restatement',
+      revision: 1,
+    }
+
+    const wrapper = mountBanner([card])
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="inline-artifact"]').text()).toBe(
+      'You want a CSV export.',
+    )
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      '/api/board/artifacts/art-und/content',
+    )
+    expect(button(wrapper, 'Read the understanding')).toBeUndefined()
+    vi.unstubAllGlobals()
   })
 })

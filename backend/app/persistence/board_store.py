@@ -247,6 +247,17 @@ class BoardStore:
             workflow = db.get(BoardWorkflowRow, workflow_id)
             workflow.approved_prd = content
 
+    def record_intake(
+        self, workflow_id: str, *, title: str, task_body: str
+    ) -> None:
+        """Record a screened request's title and body (feature 032):
+        a request exists before screening, showing only its ticket ref,
+        and gets its content only once the content is safe."""
+        with self._factory.begin() as db:
+            workflow = db.get(BoardWorkflowRow, workflow_id)
+            workflow.title = title
+            workflow.task_body = task_body
+
     def set_card_state(
         self,
         card_id: str,

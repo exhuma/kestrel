@@ -59,6 +59,15 @@ See `specs/031-subtask-cards/contracts/board-api-delta.md`.
   strategic-fit answers (a `cab1_gate` now targets them). It is produced by
   another card, so it is never the gate card's own `latest_artifact`.
 
+**Amendment (feature 032)**: one card kind, no shape change:
+
+- **Card kind** `understanding`: `pm`'s restatement of a newly accepted
+  request. The `understanding_gate` that follows targets it
+  (`gate.target_artifact`).
+- **Behaviour:** a picked-up ticket's request is listed before it is
+  screened, with a `security_review` card titled "Screening input" in
+  `claimed`, and quarantine happens on that same request.
+
 ## Shared Enumerations
 
 ```text

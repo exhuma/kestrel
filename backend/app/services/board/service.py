@@ -22,7 +22,9 @@ from app.models_board_records import (
     BoardEventRecord,
 )
 from app.persistence.board_store import BoardStore
+from app.services.board.intake import screening_card
 from app.services.board.policy import PolicyViolation, is_valid_transition
+from app.services.board.understanding_redraft import understanding_card
 from app.storage.workflow_bus import WorkflowBus
 
 
@@ -72,7 +74,7 @@ class BoardService:
         return self._store.list_events(workflow_id)
 
     def create_workflow_from_intake(
-        self, intake: AcceptedTaskIntake
+        self, intake: AcceptedTaskIntake, *, notify: bool = True
     ) -> Workflow:
         """Create a workflow for a safety-cleared task (FR-001).
 
@@ -83,6 +85,11 @@ class BoardService:
         caller creates the gate immediately after this returns (see
         ``IngestionService._start_via_board``).
 
+        :param notify: ``False`` creates it silently — no live-view
+            tick, no coordinator wake. Intake (feature 032) creates the
+            request before screening and announces it once its screening
+            card exists; the coordinator must not wake for content that
+            has not been screened.
         :raises WorkflowAlreadyExistsError: If this (source, task_ref)
             already has a workflow — the durable de-dup guard for a
             ticket delivered by both a webhook and a poll cycle.
@@ -103,10 +110,10 @@ class BoardService:
                 workflow_id=workflow.id, event_type="workflow.created"
             )
         )
-        if self._bus is not None:
-            self._bus.publish(workflow.id)
-        if self._on_mutation is not None:
-            self._on_mutation(workflow.id)
+        if notify:
+            self.announce(workflow.id)
+            if self._on_mutation is not None:
+                self._on_mutation(workflow.id)
         return workflow
 
     def announce(self, workflow_id: str) -> None:
@@ -172,6 +179,71 @@ class BoardService:
             return None
         self._after_mutation(card.workflow_id, card_id, event_type)
         return card
+
+    def open_screening(
+        self, intake: AcceptedTaskIntake
+    ) -> tuple[Workflow, WorkCard]:
+        """Create a picked-up request and its in-progress screening card,
+        then show it (feature 032, FR-001). Nothing wakes: the content
+        is not screened yet.
+
+        :raises WorkflowAlreadyExistsError: See
+            :meth:`create_workflow_from_intake`.
+        """
+        workflow = self.create_workflow_from_intake(intake, notify=False)
+        card = screening_card(workflow.id)
+        self._store.create_card(card)
+        self.announce(workflow.id)
+        return workflow, card
+
+    def pass_screening(
+        self,
+        workflow_id: str,
+        *,
+        title: str,
+        body: str,
+        card_id: str | None,
+    ) -> None:
+        """Give a screened request its content and start understanding
+        (FR-003): `pm`'s restatement card, then one commit that wakes
+        the coordinator. *card_id* is the screening card to complete, or
+        ``None`` when continuing after a quarantine release (FR-005)."""
+        self._store.record_intake(workflow_id, title=title, task_body=body)
+        self._store.create_card(understanding_card(workflow_id))
+        if card_id is None:
+            self._after_mutation(workflow_id, None, "screening.released")
+            return
+        self.settle_screening(
+            card_id, CardState.DONE.value,
+            event_type="screening.passed", wake=True,
+        )
+
+    def settle_screening(
+        self, card_id: str, state: str, *, event_type: str, wake: bool
+    ) -> None:
+        """End a request's screening card (feature 032, research R3).
+
+        A system card that never passes through ``review``, so its state
+        is set directly rather than through the transition policy. One
+        commit: event, revision, live views, and — when *wake* — the
+        coordinator, which a passed screening now has work for and a
+        quarantine does not.
+        """
+        card = self._store.get_card(card_id)
+        if card is None:
+            raise PolicyViolation(f"unknown card: {card_id}")
+        self._store.set_card_state(card_id, state)
+        if wake:
+            self._after_mutation(card.workflow_id, card_id, event_type)
+            return
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=card.workflow_id, card_id=card_id,
+                event_type=event_type,
+            )
+        )
+        self._store.bump_workflow_revision(card.workflow_id)
+        self.announce(card.workflow_id)
 
     def _after_mutation(
         self, workflow_id: str, card_id: str | None, event_type: str

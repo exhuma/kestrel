@@ -101,7 +101,7 @@ async def test_rerun_reopens_a_known_private_workflow(
         resp = await client.post("/api/board/workflows/wf-1/dev/rerun")
 
     assert resp.status_code == httpx.codes.NO_CONTENT
-    gates = [
-        c for c in store.list_cards("wf-1") if c.kind == "understanding_gate"
+    drafts = [
+        c for c in store.list_cards("wf-1") if c.kind == "understanding"
     ]
-    assert len(gates) == 1
+    assert len(drafts) == 1

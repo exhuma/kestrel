@@ -9,15 +9,15 @@ rewritten off the deleted fixed-step driver (``app.services.workflows``,
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_board import Workflow
-from app.models_board_records import AcceptedTaskIntake, IntakeOutcome
 from app.ports import Task
-from app.services.board.quarantine import NewTaskIntake
 from app.services.ingestion import BoardIntake, IngestionService
+from tests.intake_doubles import FakeIntakeBoard, fake_board_intake
 
 
 class _FakeTaskSource:
@@ -60,57 +60,8 @@ class _FakeDismissals:
         self._d.discard(task_ref)
 
 
-class _FakeQuarantine:
-    """Always releases content unscreened; ingestion filters are what's
-    under test here, not the quarantine boundary (see
-    ``test_board_input_intake.py`` for that)."""
-
-    async def intake_for_new_task(self, intake: NewTaskIntake) -> IntakeOutcome:
-        return IntakeOutcome(released=True, safe_content=intake.body)
-
-
-class _FakeBoard:
-    """Records each accepted intake and returns a deterministic workflow."""
-
-    def __init__(self, fail: bool = False) -> None:
-        self.calls: list[AcceptedTaskIntake] = []
-        self.workflows: list[Workflow] = []
-        self._fail = fail
-
-    def create_workflow_from_intake(
-        self, intake: AcceptedTaskIntake
-    ) -> Workflow:
-        if self._fail:
-            raise RuntimeError("create failed")
-        workflow = Workflow(
-            id=f"wf-{len(self.calls)}",
-            source=intake.source,
-            task_ref=intake.task_ref,
-            repo=intake.repo,
-            base_branch=intake.base_branch,
-            source_visibility=intake.source_visibility,
-            title=intake.title,
-        )
-        self.calls.append(intake)
-        self.workflows.append(workflow)
-        return workflow
-
-    def list_workflows(self) -> list[Workflow]:
-        return self.workflows
-
-
-class _FakeGates:
-    """Records each initial understanding-gate creation."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def create_gate(self, workflow_id: str, **_kwargs: object) -> None:
-        self.calls.append(workflow_id)
-
-
 def _board_intake(*, fail: bool = False) -> BoardIntake:
-    return BoardIntake(_FakeQuarantine(), _FakeBoard(fail=fail), _FakeGates())
+    return fake_board_intake(board=FakeIntakeBoard(fail=fail))
 
 
 def _service(
@@ -221,4 +172,77 @@ async def test_a_former_child_ticket_is_an_ordinary_request(
     workflow_id = await svc.maybe_start_run(**_gh("o/r#2", "o/r"))
 
     assert workflow_id is not None
-    assert board_intake.gates.calls == [workflow_id]
+    ((passed_id, _title, _body),) = board_intake.board.passed
+    assert passed_id == workflow_id
+
+
+@pytest.mark.asyncio
+async def test_the_request_is_shown_before_it_is_screened() -> None:
+    """Ensure the request exists, titled only by its ref, before the
+    classification runs (feature 032, FR-001/FR-002)."""
+    board_intake = _board_intake()
+    svc = _service(_FakeDismissals(), board_intake=board_intake)
+
+    await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
+
+    (intake,) = board_intake.board.calls
+    assert (intake.title, intake.body) == ("o/r#5", "")
+    (screened,) = board_intake.quarantine.calls
+    assert screened.workflow.id == "wf-0"
+    assert board_intake.board.passed == [("wf-0", "t", "b")]
+
+
+@pytest.mark.asyncio
+async def test_a_suspect_ticket_is_quarantined_in_place() -> None:
+    """Ensure the screening card ends and no content reaches the request
+    (FR-004)."""
+    board_intake = fake_board_intake(released=False)
+    svc = _service(_FakeDismissals(), board_intake=board_intake)
+
+    workflow_id = await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
+
+    assert workflow_id == "wf-0"
+    assert board_intake.board.passed == []
+    ((_card, state),) = board_intake.board.settled
+    assert state == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_an_interrupted_screening_is_redone() -> None:
+    """Ensure a request left screening by a restart is screened again on
+    the next poll (FR-006)."""
+    board = FakeIntakeBoard()
+    stuck = fake_board_intake(board=board, released=False)
+    await _service(_FakeDismissals(), board_intake=stuck).maybe_start_run(
+        **_gh("o/r#5", "o/r")
+    )
+    card = board.cards["wf-0"][0]
+    board.cards["wf-0"] = [replace(card, state="claimed")]  # never settled
+
+    resumed = fake_board_intake(board=board)
+    await _service(_FakeDismissals(), board_intake=resumed).maybe_start_run(
+        **_gh("o/r#5", "o/r")
+    )
+
+    assert len(board.calls) == 1  # no second request
+    assert board.passed == [("wf-0", "t", "b")]
+
+
+@pytest.mark.asyncio
+async def test_a_released_intake_continues() -> None:
+    """Ensure releasing an intake quarantine starts understanding
+    (FR-005), and only for a request actually waiting on it."""
+    board = FakeIntakeBoard()
+    await _service(
+        _FakeDismissals(), board_intake=fake_board_intake(
+            board=board, released=False
+        ),
+    ).maybe_start_run(**_gh("o/r#5", "o/r"))
+    svc = _service(_FakeDismissals(), board_intake=fake_board_intake(
+        board=board
+    ))
+
+    await svc.continue_intake("wf-0")
+    await svc.continue_intake("wf-missing")
+
+    assert board.passed == [("wf-0", "t", "b")]

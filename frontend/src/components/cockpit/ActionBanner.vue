@@ -10,12 +10,14 @@ import { computed, ref } from 'vue'
 import {
   pendingAsk,
   pendingAsks,
+  inlineReading,
   readingFor,
   type PendingAsk,
 } from '../../lib/asks'
 import { useBoard } from '../../composables/useBoard'
 import type { WorkCardSummary } from '../../types/workflows'
 import ArtifactDialog from './ArtifactDialog.vue'
+import InlineArtifact from './InlineArtifact.vue'
 
 const props = defineProps<{
   cards: WorkCardSummary[]
@@ -37,7 +39,10 @@ const tone = computed(() =>
 /** What the operator is deciding on, readable before approving (#66):
  *  the PRD, the strategic-fit answers, CAB-2's executive summary. `null`
  *  when the ask has nothing to read. */
-const reading = computed(() => (ask.value ? readingFor(ask.value) : null))
+const inline = computed(() => (ask.value ? inlineReading(ask.value) : null))
+const reading = computed(() =>
+  ask.value && !inline.value ? readingFor(ask.value) : null,
+)
 const readingOpen = ref(false)
 
 /** The confirmation in flight, or `null` when no dialog is open. */
@@ -139,6 +144,7 @@ const staleMessage = computed(() =>
   <div v-if="ask">
     <v-alert :type="tone" prominent data-testid="action-banner">
       <div class="text-body-1 font-weight-medium">{{ ask.title }}</div>
+      <InlineArtifact v-if="inline" :artifact-id="inline" class="my-2" />
       <div
         v-if="ask.kind === 'quarantine' && ask.card.waiting_reason"
         class="text-body-2"

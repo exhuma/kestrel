@@ -26,6 +26,9 @@ One subdirectory per named role, loaded from `specialists_root`
 
 `understanding_gate`, `refinement_gate`, `prd_gate`, `decomposition_gate` are
 human gates: no specialist claims them, the operator resolves them directly.
+`understanding` is `pm`'s restatement of a newly accepted request, which the
+`understanding_gate` shows. It is created only by code, at intake and as a
+capped redraft after a rejection.
 `security_review` is claimed only by `input-security` (structured
 classification, no tools, no workspace — see its manifest). `analysis` and
 `design` are read-only specialist work. `estimation` is `developer`'s

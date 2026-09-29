@@ -32,7 +32,7 @@ _PHASES: tuple[_PhaseDef, ...] = (
     _PhaseDef(
         "Understanding",
         "Intake & alignment",
-        frozenset({CardKind.UNDERSTANDING_GATE}),
+        frozenset({CardKind.UNDERSTANDING, CardKind.UNDERSTANDING_GATE}),
     ),
     _PhaseDef(
         "CAB-1 - strategic fit",

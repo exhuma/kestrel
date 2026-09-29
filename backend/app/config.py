@@ -336,6 +336,11 @@ class Settings(BaseSettings):
     #: today's single-redraft behavior; a further rejection past the cap
     #: escalates to the operator instead of redrafting again.
     board_prd_redraft_cap: int = Field(default=1, ge=1)
+    #: Max redrafts of `pm`'s restatement after the operator rejects the
+    #: understanding (feature 032, ``KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP``).
+    #: A further rejection past the cap opens a coordinator review instead
+    #: of another redraft. ``0`` never redrafts.
+    board_understanding_redraft_cap: int = Field(default=2, ge=0)
     #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
     #: endpoints (feature 026, T069,
     #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —

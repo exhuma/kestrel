@@ -15,7 +15,9 @@
 > - SC-004 and SC-005.
 >
 > The understanding checkpoint, the PRD phase and the technical analysis
-> itself still stand. Losing per-task tickets is an accepted trade-off for
+> itself still stand. The understanding checkpoint's restatement (User
+> Story 1), dropped by the board rewrite, is back since
+> [feature 032](../032-intake-understanding/spec.md). Losing per-task tickets is an accepted trade-off for
 > now: see #63.
 
 **Feature Branch**: `012-task-decomposition-pipeline`

@@ -5,13 +5,12 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_board import Workflow
-from app.models_board_records import IntakeOutcome
 from app.ports import Task
 from app.services.exceptions import GitHubError
 from app.services.github import Issue
 from app.services.ingestion import BoardIntake, IngestionService
 from app.services.reconcile import ReconcileService
+from tests.intake_doubles import fake_board_intake
 
 
 class _FakeTaskSource:
@@ -30,41 +29,8 @@ class _FakeTaskSources:
         self.code_hosts: dict[str, object] = {}
 
 
-class _FakeQuarantine:
-    async def intake_for_new_task(self, intake):
-        return IntakeOutcome(released=True, safe_content=intake.body)
-
-
-class _FakeBoard:
-    def __init__(self) -> None:
-        self.calls = []
-        self.workflows: list[Workflow] = []
-
-    def create_workflow_from_intake(self, intake):
-        self.calls.append(intake)
-        workflow = Workflow(
-            id=f"wf-{len(self.calls) - 1}",
-            source=intake.source,
-            task_ref=intake.task_ref,
-            repo=intake.repo,
-            base_branch=intake.base_branch,
-            source_visibility=intake.source_visibility,
-            title=intake.title,
-        )
-        self.workflows.append(workflow)
-        return workflow
-
-    def list_workflows(self) -> list[Workflow]:
-        return self.workflows
-
-
-class _FakeGates:
-    def create_gate(self, workflow_id, **_kwargs):
-        pass
-
-
 def _board_intake() -> BoardIntake:
-    return BoardIntake(_FakeQuarantine(), _FakeBoard(), _FakeGates())
+    return fake_board_intake()
 
 
 class _FakeDismissals:

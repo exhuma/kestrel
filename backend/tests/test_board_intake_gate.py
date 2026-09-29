@@ -26,18 +26,21 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
+from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.persistence.dismissal_store import DismissalStore
 from app.ports import Task
 from app.services.board.artifacts import ArtifactsService
+from app.services.board.coordinator import CoordinatorService
 from app.services.board.gates import GatesService
 from app.services.board.interventions import (
     GateResolution,
     InterventionsService,
 )
-from app.services.board.quarantine import NewTaskIntake
+from app.services.board.quarantine import ExistingWorkflowIntake
 from app.services.board.service import BoardService
+from app.services.board.understanding import route_understanding_result
 from app.services.ingestion import BoardIntake, IngestionService
 from tests.board_test_support import board_session_factory
 
@@ -63,8 +66,10 @@ class _FakeQuarantine:
     """Always releases — the fail-closed boundary is not what's under
     test here."""
 
-    async def intake_for_new_task(self, intake: NewTaskIntake) -> IntakeOutcome:
-        return IntakeOutcome(released=True, safe_content=intake.body)
+    async def intake_for_existing_workflow(
+        self, intake: ExistingWorkflowIntake
+    ) -> IntakeOutcome:
+        return IntakeOutcome(released=True, safe_content=intake.content)
 
 
 @pytest.mark.asyncio
@@ -95,7 +100,7 @@ async def test_intake_gate_resolves_through_interventions(
         settings,
         _FakeTaskSources(),
         DismissalStore(factory),
-        BoardIntake(_FakeQuarantine(), board_service, gates),
+        BoardIntake(_FakeQuarantine(), board_service),
     )
 
     workflow_id = await ingestion.maybe_start_run(
@@ -105,6 +110,18 @@ async def test_intake_gate_resolves_through_interventions(
     )
     assert workflow_id is not None
 
+    # Since feature 032 the gate opens on pm's restatement.
+    (draft,) = [
+        c for c in store.list_cards(workflow_id) if c.kind == "understanding"
+    ]
+    store.set_card_state(draft.id, "done")
+    route_understanding_result(
+        "<UNDERSTANDING>You want a thing.</UNDERSTANDING>", draft,
+        CoordinatorService(
+            store, BoardCoordinatorStore(factory), board_service
+        ),
+        gates, artifacts,
+    )
     cards = store.list_cards(workflow_id)
     gate_cards = [c for c in cards if c.kind == "understanding_gate"]
     assert len(gate_cards) == 1

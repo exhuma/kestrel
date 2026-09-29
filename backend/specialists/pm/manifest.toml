@@ -1,7 +1,9 @@
 id = "pm"
 label = "Project Manager"
 purpose = "Scope boundaries, priority, dependencies, sequencing, and delivery risk."
-allowed_card_types = ["analysis", "decomposition", "refinement", "prd"]
+allowed_card_types = [
+    "understanding", "analysis", "decomposition", "refinement", "prd",
+]
 required_abilities = ["text"]
 model_policy = "default"
 workspace_permission = "read_only"

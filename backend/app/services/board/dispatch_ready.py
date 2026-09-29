@@ -18,6 +18,7 @@ from app.models_board import (
     WorkCard,
     WorkspacePermission,
 )
+from app.persistence.board_store import BoardStore
 from app.policy import SpecialistCapabilityError
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.claims import (
@@ -55,6 +56,10 @@ from app.services.board.refinement import (
 )
 from app.services.board.refinement_rounds import round_context
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.understanding import (
+    route_understanding_result,
+    understanding_context,
+)
 from app.services.board.verification import route_verifier_result
 from app.services.board.verification_rounds import RoundContext
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
@@ -176,6 +181,19 @@ def _claim_for(
     return backend, card
 
 
+#: Envelope extras that need only the store and artifacts: the PRD
+#: card's interview answers (feature 026), and an understanding
+#: redraft's rejected restatement plus correction (feature 032).
+_STORE_CONTEXTS: dict[
+    str, Callable[[WorkCard, BoardStore, ArtifactsService], str]
+] = {
+    CardKind.PRD.value: lambda card, store, artifacts: (
+        gather_refinement_context(card.workflow_id, store, artifacts)
+    ),
+    CardKind.UNDERSTANDING.value: understanding_context,
+}
+
+
 def _extra_context_for(
     workflow_id: str, card: WorkCard, services: DispatchServices
 ) -> str:
@@ -188,9 +206,9 @@ def _extra_context_for(
             card, services.claims.store.list_cards(workflow_id),
             services.artifacts,
         )
-    if card.kind == CardKind.PRD.value:
-        return gather_refinement_context(
-            workflow_id, services.claims.store, services.artifacts
+    if card.kind in _STORE_CONTEXTS:
+        return _STORE_CONTEXTS[card.kind](
+            card, services.claims.store, services.artifacts
         )
     if (
         card.kind == CardKind.ESTIMATION.value
@@ -306,6 +324,7 @@ _ROUTES: dict[str, _Route] = {
     CardKind.STRATEGIC_INTERVIEW.value: _legacy_route(
         route_strategic_interview_result
     ),
+    CardKind.UNDERSTANDING.value: _legacy_route(route_understanding_result),
 }
 
 

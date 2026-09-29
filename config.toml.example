@@ -77,10 +77,9 @@ board_ci_poll_interval_seconds = 60.0
 # Durable, content-addressed store for handoff-artifact bodies, keyed by
 # content hash. In Docker, point this at a persistent volume.
 board_artifacts_root = "./.kestrel-board-artifacts"
-# Require every non-subtask workflow to publish at least one child task
-# through a human-approved decomposition before any other work may start.
-# Off by default (trust the coordinator's own judgment); a task Kestrel
-# itself published as a decomposition child is always exempt.
+# Require every workflow to pass a human-approved decomposition (CAB-2)
+# before any other work may start; its approved tasks become cards in the
+# same workflow. Off by default (trust the coordinator's own judgment).
 board_decomposition_required = false
 # Require a requester/pm/uiux interview and a pm-drafted, human-approved
 # PRD before any other work may start, right after understanding_gate.

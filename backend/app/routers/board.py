@@ -73,6 +73,7 @@ from app.services.board.phases import DONE_PHASE
 from app.services.board.quarantine import QuarantineService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.ingestion import schedule_intake_continuation
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
 router = APIRouter(prefix="/api/board")
@@ -110,6 +111,8 @@ async def resolve_security_review(
     # and so never ticks the bus on its own — without this, the board and
     # card detail SSE streams would never reflect the resolved state.
     bus.publish(review.workflow_id)
+    if review.review_state == "released":
+        schedule_intake_continuation(review.workflow_id)  # feature 032
     return SecurityReviewOut(
         id=review.id,
         card_id=review.card_id,

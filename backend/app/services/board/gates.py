@@ -32,6 +32,9 @@ from app.services.board.refinement_rounds import (
     still_pending,
 )
 from app.services.board.service import BoardService
+from app.services.board.understanding_redraft import (
+    maybe_redraft_understanding,
+)
 
 _DECISION_TARGET_STATE = {
     "approved": CardState.DONE,
@@ -73,6 +76,9 @@ class GateRequirements:
     #: Max PRD redraft attempts per workflow after a rejection (feature
     #: 028). ``1`` allows exactly one redraft before escalating.
     prd_redraft_cap: int = 1
+    #: Max restatement redrafts after an understanding rejection
+    #: (feature 032).
+    understanding_redraft_cap: int = 2
     #: Routes a ``prd_gate`` rejection's fix-vs-reinterview triage
     #: (feature 028) through the coordinator's own judgment rather than
     #: a deterministic redraft. Carried here, not as its own
@@ -223,6 +229,9 @@ class GatesService:
             )
         else:
             self._maybe_redraft_prd(card)
+            maybe_redraft_understanding(
+                card, self._store, self._required.understanding_redraft_cap
+            )
             self._invalidate_dependents(card.workflow_id, card_id)
         self._maybe_start_prd(card)
         return card

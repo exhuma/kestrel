@@ -282,9 +282,11 @@ class TestDecompositionEnforcement:
 
         assert store.list_cards("wf-1") == [store.get_card(gate.id)]
 
-    def test_rejecting_understanding_gate_creates_nothing(
+    def test_rejecting_understanding_gate_only_redrafts_it(
         self, tmp_path: Path
     ) -> None:
+        """Ensure a rejected understanding starts no decomposition — only
+        pm's redraft of the restatement (feature 032)."""
         service, store = _service(tmp_path, decomposition_required=True)
         gate = service.create_gate(
             "wf-1", kind="understanding_gate", title="Confirm understanding",
@@ -293,7 +295,8 @@ class TestDecompositionEnforcement:
 
         service.resolve(gate.id, "rejected")
 
-        assert store.list_cards("wf-1") == [store.get_card(gate.id)]
+        others = [c for c in store.list_cards("wf-1") if c.id != gate.id]
+        assert [c.kind for c in others] == ["understanding"]
 
     def test_a_non_understanding_gate_never_triggers_this(
         self, tmp_path: Path

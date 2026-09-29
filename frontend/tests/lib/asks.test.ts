@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { pendingAsk, pendingAsks, readingFor } from '../../src/lib/asks'
+import {
+  inlineReading,
+  pendingAsk,
+  pendingAsks,
+  readingFor,
+} from '../../src/lib/asks'
 import { workCardSummary } from '../support/board'
 import type { WorkCardSummary } from '../../src/types/workflows'
 
@@ -76,12 +81,12 @@ describe('pendingAsk classification', () => {
     expect(pendingAsk([card])?.title).toBe('A new gate')
   })
 
-  it('requires written feedback only for a PRD rejection', () => {
+  it('requires written feedback only where a redraft works from it', () => {
     expect(
       pendingAsk([gateCard('approve_prd')])?.requiresRejectionFeedback,
     ).toBe(true)
     expect(
-      pendingAsk([gateCard('confirm_understanding')])
+      pendingAsk([gateCard('approve_strategic_fit')])
         ?.requiresRejectionFeedback,
     ).toBe(false)
   })
@@ -152,5 +157,23 @@ describe('readingFor (#66)', () => {
     const card = gateCard('answer')
     card.gate!.target_artifact = target
     expect(readingFor(pendingAsk([card])!)).toBeNull()
+  })
+})
+
+describe('the understanding decision (feature 032)', () => {
+  it('shows the restatement in place, and a rejection needs a correction', () => {
+    const card = gateCard('confirm_understanding')
+    card.gate!.target_artifact = { id: 'art-u', label: 'r', revision: 1 }
+    const ask = pendingAsk([card])!
+
+    expect(inlineReading(ask)).toBe('art-u')
+    expect(ask.requiresRejectionFeedback).toBe(true)
+  })
+
+  it('shows nothing in place for any other decision', () => {
+    const card = gateCard('approve_prd')
+    card.gate!.target_artifact = { id: 'art-p', label: 'd', revision: 1 }
+
+    expect(inlineReading(pendingAsk([card])!)).toBeNull()
   })
 })

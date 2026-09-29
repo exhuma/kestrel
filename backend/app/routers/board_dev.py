@@ -57,7 +57,7 @@ async def dev_rerun_workflow(
     claims: ClaimsService = Depends(get_claims_service),
     workspace: WorkspaceService = Depends(get_workspace_service),
 ) -> None:
-    """Reset a workflow and reopen it at a fresh understanding gate.
+    """Reset a workflow and restart it at the understanding step.
 
     :raises HTTPException: 422 if the workflow is unknown or not private.
     """

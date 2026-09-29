@@ -404,9 +404,28 @@ own envelope (`build_coordinator_envelope`) now also carries this
 rejection feedback, reusing `refinement.gather_refinement_context`
 rather than a new mechanism.
 
+**As of 2026-09-29, intake is visible and the understanding is real**
+(spec 032, #67/#68). A picked-up ticket gets its request straight away,
+titled only by its ticket ref and holding no content, with a "Screening
+input" card that no specialist claims. Only then does the input-security
+classification run (`services/board/intake.py`,
+`IngestionService._screen`). Creating the request wakes nothing
+(`BoardService.open_screening`).
+- **Safe input:** the request gets its title and body, and a `pm`
+  `understanding` card. That one commit wakes the coordinator.
+- **Suspect input:** it is quarantined on the same request. A release
+  continues it (`continue_intake`), and a restart mid-screening re-screens
+  it on the next poll.
+- **The understanding step:** `pm` writes a restatement
+  (`<UNDERSTANDING>`). Only a readable one opens the `understanding_gate`,
+  which targets it, and the cockpit shows it inline. A rejection requires a
+  correction and redrafts, up to `board_understanding_redraft_cap`; past
+  the cap it opens a coordinator review (`understanding.py`,
+  `understanding_redraft.py`).
+
 Practically, this means a configured GitHub/Jira/local source today
-creates a board **Workflow** and its initial cards on a qualifying task
-(after quarantine screening); specialist cards then progress
+creates a board **Workflow** on a qualifying task, screens it in place,
+and starts the understanding step; specialist cards then progress
 automatically, including a `coder` role committing real file edits to
 its own local worktree branch, and human gates/interventions still
 happen only in the Kestrel web UI. Gate decisions, escalations,

@@ -32,9 +32,14 @@ from app.text_extract import extract_tag
 #: ``estimation`` card is meaningless without the dependency edge on the
 #: decomposition candidate it estimates, which only decomposition routing
 #: sets up (feature 030, research R8); a ``manual_task`` exists only as
-#: an operator-approved CAB-2 task (feature 031, research R8).
+#: an operator-approved CAB-2 task (feature 031, research R8); an
+#: ``understanding`` card only at intake or as a capped redraft (032).
 _CODE_ONLY_CARD_KINDS = frozenset(
-    {CardKind.ESTIMATION.value, CardKind.MANUAL_TASK.value}
+    {
+        CardKind.ESTIMATION.value,
+        CardKind.MANUAL_TASK.value,
+        CardKind.UNDERSTANDING.value,
+    }
 )
 _VALID_CARD_KINDS = (
     frozenset(k.value for k in CardKind) - _CODE_ONLY_CARD_KINDS

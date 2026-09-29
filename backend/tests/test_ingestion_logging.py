@@ -4,10 +4,9 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
-from app.models_board import Workflow
-from app.models_board_records import IntakeOutcome
 from app.ports import Task
-from app.services.ingestion import BoardIntake, IngestionService
+from app.services.ingestion import IngestionService
+from tests.intake_doubles import fake_board_intake
 
 
 class _TaskSource:
@@ -40,45 +39,12 @@ class _Dismissals:
         return list(self._d)
 
 
-class _Quarantine:
-    async def intake_for_new_task(self, intake):
-        return IntakeOutcome(released=True, safe_content=intake.body)
-
-
-class _Board:
-    def __init__(self) -> None:
-        self.calls = []
-        self.workflows: list[Workflow] = []
-
-    def create_workflow_from_intake(self, intake):
-        workflow = Workflow(
-            id=f"wf-{len(self.calls)}",
-            source=intake.source,
-            task_ref=intake.task_ref,
-            repo=intake.repo,
-            base_branch=intake.base_branch,
-            source_visibility=intake.source_visibility,
-            title=intake.title,
-        )
-        self.calls.append(intake)
-        self.workflows.append(workflow)
-        return workflow
-
-    def list_workflows(self) -> list[Workflow]:
-        return self.workflows
-
-
-class _Gates:
-    def create_gate(self, workflow_id, **_kwargs):
-        pass
-
-
 def _svc(dismissed=()) -> IngestionService:
     return IngestionService(
         Settings(jira_project="RFC"),
         _FakeTaskSources(),
         _Dismissals(dismissed),
-        BoardIntake(_Quarantine(), _Board(), _Gates()),
+        fake_board_intake(),
     )
 
 

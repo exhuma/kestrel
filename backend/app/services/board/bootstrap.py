@@ -130,6 +130,9 @@ def get_gates_service() -> GatesService:
             ),
             refinement_round_cap=settings.board_refinement_round_cap,
             prd_redraft_cap=settings.board_prd_redraft_cap,
+            understanding_redraft_cap=(
+                settings.board_understanding_redraft_cap
+            ),
             coordinator=get_coordinator_service(),
         ),
     )
