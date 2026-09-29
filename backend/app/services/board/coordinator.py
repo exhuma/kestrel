@@ -45,6 +45,12 @@ _VALID_CARD_KINDS = (
     frozenset(k.value for k in CardKind) - _CODE_ONLY_CARD_KINDS
 )
 _VALID_WORKSPACE_PERMISSIONS = frozenset(p.value for p in WorkspacePermission)
+#: What is waiting on a human never times out and is never resolved on
+#: their behalf — not even by the coordinator deciding they took too
+#: long: a gate, a manual task, a quarantine.
+_WAITS_ON_THE_OPERATOR = frozenset(
+    {CardState.AWAITING_HUMAN.value, CardState.QUARANTINED.value}
+)
 _MIN_RECONCILIATION_CARDS = 2
 
 
@@ -435,14 +441,26 @@ def _validate_transition(
     card = cards.get(action.card_id)
     if card is None:
         return f"unknown card: {action.card_id}"
-    if card.task_node_id:
-        return "card comes from an approved decomposition"
+    protected = _not_the_coordinators(card)
+    if protected is not None:
+        return protected
     try:
         target = CardState(action.target_state)
     except ValueError:
         return f"unknown target state: {action.target_state}"
     if not is_valid_transition(CardState(card.state), target):
         return f"illegal transition {card.state} -> {action.target_state}"
+    return None
+
+
+def _not_the_coordinators(card: WorkCard) -> str | None:
+    """Why *card* is not the coordinator's to move, if it is not: an
+    approved CAB-2 task (feature 031), or anything waiting on the
+    operator, which never times out and is never resolved for them."""
+    if card.task_node_id:
+        return "card comes from an approved decomposition"
+    if card.state in _WAITS_ON_THE_OPERATOR:
+        return "card is waiting on the operator; only they resolve it"
     return None
 
 

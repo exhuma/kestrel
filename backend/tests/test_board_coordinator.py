@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.models_board import WorkCard, Workflow
 from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
@@ -147,6 +149,30 @@ class TestValidationAndApplication:
         )
         assert records[0].validation_decision == "rejected"
         assert store.get_card("card-t1").state == "ready"
+
+    @pytest.mark.parametrize("state", ["awaiting_human", "quarantined"])
+    def test_what_waits_on_the_operator_is_never_resolved_for_them(
+        self, tmp_path: Path, state: str
+    ) -> None:
+        """Ensure a gate, manual task or quarantine never "times out" at
+        the coordinator's hand, however long it has waited."""
+        coordinator, store = _coordinator(tmp_path)
+        store.create_card(
+            WorkCard(
+                id="card-wait", workflow_id="wf-1", kind="prd_gate",
+                title="Approve PRD", state=state,
+            )
+        )
+        records = coordinator.apply_actions(
+            "wf-1", "card.done",
+            [
+                TransitionCardAction(
+                    card_id="card-wait", target_state="cancelled"
+                )
+            ],
+        )
+        assert records[0].validation_decision == "rejected"
+        assert store.get_card("card-wait").state == state
 
     def test_a_proposed_task_node_id_is_never_parsed(self) -> None:
         """Ensure only code can tie a card to an approved task."""

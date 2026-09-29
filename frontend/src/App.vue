@@ -12,8 +12,11 @@ import { useConnectivity } from './composables/useConnectivity'
 
 const router = useRouter()
 
-// Shared composable state: the header reflects fleet-wide status.
-const { sessions, loading: sessionsLoading } = useSessions()
+// Shared composable state: the header's loading bar covers every
+// primary fetch. (A fleet-wide live/idle chip was removed: it reflected
+// ad-hoc sessions only, and read "idle" while board requests worked —
+// each request's own activity line says that now, feature 033.)
+const { loading: sessionsLoading } = useSessions()
 const { loading: boardLoading } = useBoard()
 
 // Registered once, here, before any child's onMounted fetch runs — every
@@ -21,9 +24,6 @@ const { loading: boardLoading } = useBoard()
 // reach the backend (wrong port, backend down) surfaces as a persistent
 // banner instead of failing silently in the console.
 const { reachable, apiBase } = useConnectivity()
-const running = computed(() =>
-  sessions.value.some((s) => s.status === 'running'),
-)
 
 // Page-level loading: a thin indeterminate bar under the app bar while any
 // primary fetch (sessions or board) is in flight (module-vue-vuetify
@@ -84,20 +84,6 @@ function toggleTheme() {
       >
         <span aria-hidden="true">‹/›</span>&nbsp;sessions
       </v-btn>
-
-      <v-chip
-        :color="running ? 'success' : undefined"
-        variant="tonal"
-        label
-        class="me-2"
-      >
-        <v-icon
-          :icon="running ? '$circle' : '$circleOutline'"
-          size="x-small"
-          start
-        />
-        {{ running ? 'live' : 'idle' }}
-      </v-chip>
 
       <SourceHealthIndicator />
       <NotificationCenter @navigate="onNotificationNavigate" />

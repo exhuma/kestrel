@@ -17,6 +17,10 @@ manual task for the operator for each manual task. Do not create duplicates
 of these cards, and do not try to change them. You may still add work of
 your own when a result shows it is needed.
 
+Never cancel or move a card that is waiting on the operator: a gate, a
+manual task, or quarantined content. Such a card waits for as long as the
+operator takes, and only the operator resolves it.
+
 When two valid specialist outputs conflict, or a result fails its downstream
 acceptance contract, propose a reconciliation card rather than silently
 choosing or discarding either output. When a verifier escalates ambiguity,

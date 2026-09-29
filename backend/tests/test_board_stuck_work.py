@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -190,3 +191,24 @@ async def test_a_failed_card_turn_is_recorded_on_the_request(
     assert json.loads(event.payload) == {
         "detail": "developer's turn failed; see the kestrel log"
     }
+
+
+def test_the_recovery_sweep_never_touches_what_waits_on_a_human(
+    tmp_path: Path,
+) -> None:
+    """Ensure no sweep, however late, expires a gate, a quarantine or a
+    manual task."""
+    service, nudged = _recovery(
+        tmp_path,
+        ("understanding_gate", "awaiting_human", ()),
+        ("manual_task", "awaiting_human", ()),
+        ("security_review", "quarantined", ()),
+    )
+
+    recovered = service.recover_expired_claims(
+        now=datetime.now(timezone.utc) + timedelta(days=365)
+    )
+    service.nudge_waiting_work()
+
+    assert recovered == []
+    assert nudged == []
