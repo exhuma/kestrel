@@ -98,9 +98,11 @@ class ClaimsService:
     def _request_for(
         self, card: WorkCard, specialist_id: str, backend_id: str | None
     ) -> ClaimRequest:
-        needs_repo = card.workspace_permission != WorkspacePermission.NONE.value
+        # Only a writer holds the repository's lease: readers never
+        # contend for it, and never keep a writer out.
+        writes = card.workspace_permission == WorkspacePermission.WRITE.value
         workflow = self.store.get_workflow(card.workflow_id)
-        repo = workflow.repo if needs_repo else None
+        repo = workflow.repo if writes else None
         return ClaimRequest(
             card.id,
             specialist_id,

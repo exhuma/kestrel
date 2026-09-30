@@ -58,7 +58,7 @@ class BoardClaimsStore:
                 if request.workspace_repo is not None
                 else None
             )
-            if existing_lease is not None and existing_lease.expires_at > now:
+            if _lease_held(db, existing_lease, now):
                 return ClaimOutcome(
                     success=False, reason="workspace_lease_unavailable"
                 )
@@ -192,6 +192,10 @@ class BoardClaimsStore:
             db.query(BoardClaimLeaseRow).filter(
                 BoardClaimLeaseRow.card_id == card_id
             ).delete()
+            # The repository is free again once its writer is done.
+            db.query(BoardWorkspaceLeaseRow).filter(
+                BoardWorkspaceLeaseRow.claim_card_id == card_id
+            ).delete()
             db.commit()
             return CompleteOutcome(success=True)
 
@@ -312,3 +316,14 @@ class BoardClaimsStore:
 def get_board_claims_store() -> BoardClaimsStore:
     """Return the process-wide BoardClaimsStore singleton."""
     return BoardClaimsStore(get_sessionmaker())
+
+
+def _lease_held(
+    db: Session, lease: BoardWorkspaceLeaseRow | None, now: datetime
+) -> bool:
+    """Whether *lease* still keeps other writers out: unexpired, and its
+    card still holds a claim. A lease left behind by a finished claim
+    (completion once never released it) does not."""
+    if lease is None or lease.expires_at <= now:
+        return False
+    return db.get(BoardClaimLeaseRow, lease.claim_card_id) is not None

@@ -7,14 +7,19 @@ existing store tests (e.g. ``test_child_task_store.py``).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.models_board import ClaimRequest, WorkCard, Workflow
+from app.models_board_records import ClaimOutcome
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
+from app.persistence.board_tables import BoardWorkspaceLeaseRow
+from app.services.board.claims import ClaimsService
+from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
+from tests.test_board_scheduling import _specialist
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -145,6 +150,87 @@ class TestWorkspaceWriteLease:
         )
         assert first.success
         assert second.success
+
+
+def _writer(store: _Stores, card_id: str) -> None:
+    store.board.create_card(
+        WorkCard(
+            id=card_id, workflow_id="wf-1", kind="implementation",
+            title="Implement", state="ready", eligible_roles=("coder",),
+            workspace_permission="write",
+        )
+    )
+
+
+def _claim_writer(store: _Stores, card_id: str) -> ClaimOutcome:
+    return store.claims.claim_card(
+        ClaimRequest(card_id, "coder", 60, workspace_repo="owner/repo")
+    )
+
+
+class TestWorkspaceLeaseRelease:
+    """A finished writer never keeps the next one out."""
+
+    def test_completing_a_writer_frees_the_repository(
+        self, tmp_path: Path
+    ) -> None:
+        store = _seeded_store(tmp_path)
+        _writer(store, "card-2")
+        _writer(store, "card-3")
+        first = _claim_writer(store, "card-2")
+        store.claims.complete_attempt(
+            "card-2", first.attempt_sequence, result="ok", new_state="review"
+        )
+
+        assert _claim_writer(store, "card-3").success
+
+    def test_a_lease_left_by_a_finished_claim_does_not_block(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensure a lease row a finished claim left behind by older code
+        is taken over rather than waited out."""
+        factory = board_session_factory(tmp_path)
+        store = _Stores(BoardStore(factory), BoardClaimsStore(factory))
+        store.board.create_workflow(_WORKFLOW)
+        _writer(store, "card-1")
+        _writer(store, "card-2")
+        with factory.begin() as db:
+            db.add(BoardWorkspaceLeaseRow(
+                repo="owner/repo", claim_card_id="card-1",
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            ))
+
+        assert _claim_writer(store, "card-2").success
+
+
+def test_a_reader_never_keeps_the_writer_out(tmp_path: Path) -> None:
+    """Ensure a read-only card claimed through the service takes no
+    repository lease, so the coder can claim while it runs."""
+    factory = board_session_factory(tmp_path)
+    store = _Stores(BoardStore(factory), BoardClaimsStore(factory))
+    store.board.create_workflow(_WORKFLOW)
+    store.board.create_card(WorkCard(
+        id="read", workflow_id="wf-1", kind="analysis", title="Read",
+        state="ready", eligible_roles=("developer",),
+        workspace_permission="read_only",
+    ))
+    _writer(store, "write")
+    developer = replace(_specialist("developer"), allowed_card_types=(
+        "analysis",
+    ))
+    coder = replace(_specialist("coder"), allowed_card_types=(
+        "implementation",
+    ))
+    service = ClaimsService(
+        store=store.board, claims_store=store.claims,
+        roster=SpecialistRoster({"developer": developer, "coder": coder}),
+        max_parallel_read_cards=4, default_lease_seconds=60,
+        default_workspace_lease_seconds=600,
+    )
+
+    service.claim_next_ready_card("wf-1", "developer")
+
+    assert service.claim_next_ready_card("wf-1", "coder").id == "write"
 
 
 class TestStaleResult:
