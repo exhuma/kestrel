@@ -51,6 +51,22 @@ function interviewGate(overrides: Parameters<typeof workCardSummary>[0] = {}) {
   })
 }
 
+/** A second persona's open gate, with its own question set. */
+function uiuxGate() {
+  return interviewGate({
+    id: 'gate-uiux',
+    title: 'uiux interview (1 question)',
+    gate: {
+      requested_decision: 'answer',
+      decision: null,
+      round: 1,
+      cap: 2,
+      target_artifact: { id: 'art-uiux', label: 'questions', revision: 1 },
+      persona: null,
+    },
+  })
+}
+
 function stubArtifacts(byArtifactId: Record<string, string[] | null>): void {
   vi.stubGlobal(
     'fetch',
@@ -87,7 +103,8 @@ beforeEach(() => {
   current.value = null
   error.value = null
   loading.value = false
-  mockSelect.mockClear()
+  mockSelect.mockReset()
+  mockSelect.mockImplementation(async () => true)
   mockStop.mockClear()
   mockApplyIntervention.mockClear()
   mockApplyIntervention.mockImplementation(async (cardId: string) =>
@@ -107,25 +124,7 @@ describe('InterviewView per-persona grouping (FR-021)', () => {
   it('groups each open gate’s questions under its own persona', async () => {
     stubArtifacts({ 'art-pm': ['Q1?', 'Q2?'], 'art-uiux': ['Q3?'] })
     current.value = boardSnapshot({
-      cards: [
-        interviewGate(),
-        interviewGate({
-          id: 'gate-uiux',
-          title: 'uiux interview (1 question)',
-          gate: {
-            requested_decision: 'answer',
-            decision: null,
-            round: 1,
-            cap: 2,
-            target_artifact: {
-              id: 'art-uiux',
-              label: 'questions',
-              revision: 1,
-            },
-            persona: null,
-          },
-        }),
-      ],
+      cards: [interviewGate(), uiuxGate()],
     })
     const wrapper = await mountInterview()
     const groups = wrapper.findAllComponents({ name: 'PersonaQuestionGroup' })
@@ -212,6 +211,32 @@ describe('InterviewView submit path (FR-046, FR-020)', () => {
 
     expect(snackbar().props('modelValue')).toBe(true)
     vi.useRealTimers()
+  })
+})
+
+describe('InterviewView submitting several personas', () => {
+  it('keeps every persona’s answers while the board refreshes between submissions', async () => {
+    stubArtifacts({ 'art-pm': ['Q1?'], 'art-uiux': ['Q2?'] })
+    const uiux = uiuxGate()
+    current.value = boardSnapshot({ cards: [interviewGate(), uiux] })
+    const wrapper = await mountInterview()
+    const fields = wrapper.findAll('[data-testid="answer-text"]')
+    await fields[0].find('textarea').setValue('OIDC')
+    await fields[1].find('textarea').setValue('Dark mode')
+    // The refresh after the first submission no longer lists its gate.
+    mockSelect.mockImplementation(async () => {
+      current.value = boardSnapshot({ cards: [uiux] })
+      return true
+    })
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockApplyIntervention.mock.calls.map((c) => c[3])).toEqual([
+      'Q: Q1?\nA: OIDC',
+      'Q: Q2?\nA: Dark mode',
+    ])
+    expect(router.currentRoute.value.name).toBe('cockpit')
   })
 })
 

@@ -123,8 +123,12 @@ watch(draftStatus, (status) => {
   if (status === 'saved') showSavedSnack.value = true
 })
 
+// Only a loaded question set is reconciled against. While one reloads
+// (after each persona's submission) there are no questions to match, and
+// reconciling then would drop every answer still to be submitted.
 watch(interviewCards, (cards) => {
-  draft.value.reconcile(cards.flatMap((c) => c.questions))
+  if (contentReady.value)
+    draft.value.reconcile(cards.flatMap((c) => c.questions))
 })
 
 function setAnswer(questionId: string, answer: QuestionAnswer): void {
@@ -153,10 +157,9 @@ const DRAFT_STATUS_LABEL: Record<DraftStatus, string> = {
 const submitting = ref(false)
 const submitError = ref<string | null>(null)
 
-async function submitCard(card: InterviewCard): Promise<boolean> {
-  const answer = serializeAnswers(card.questions, draft.value.answers)
+async function submitCard(cardId: string, answer: string): Promise<boolean> {
   const result = await applyIntervention(
-    card.cardId,
+    cardId,
     'resolve_gate',
     'approved',
     answer,
@@ -170,11 +173,20 @@ async function submit(): Promise<void> {
   if (!canSubmit.value || submitting.value) return
   submitting.value = true
   submitError.value = null
+  // Serialised up front: each submission refreshes the board, and the
+  // page must not depend on what it shows mid-way.
+  const submissions = interviewCards.value.map(
+    (card) =>
+      [
+        card.cardId,
+        serializeAnswers(card.questions, draft.value.answers),
+      ] as const,
+  )
   try {
-    for (const card of interviewCards.value) {
+    for (const [cardId, answer] of submissions) {
       // Sequential, not Promise.all: each card's revision must be fresh
       // (via the `select` in submitCard) before the next is submitted.
-      const ok = await submitCard(card)
+      const ok = await submitCard(cardId, answer)
       if (!ok) {
         submitError.value =
           boardError.value ?? 'Could not submit — please try again.'
