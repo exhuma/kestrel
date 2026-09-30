@@ -43,6 +43,8 @@ class BoardWorkflowRow(Base):
     change_request_number: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
+    #: Where that change request is, once delivery opened it (feature 043).
+    change_request_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: How many CI-triggered repair cards this workflow's current change
     #: request has gone through; reset on every fresh delivery (T052).
     ci_repair_round: Mapped[int] = mapped_column(default=0, server_default="0")

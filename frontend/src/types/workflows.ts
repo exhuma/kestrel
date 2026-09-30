@@ -82,12 +82,15 @@ export interface BoardArtifactRef {
 }
 
 /** One artifact's full content and trust level. Mirrors
- *  `app.schemas.BoardArtifactContentOut`. Render `content` as text, never
- *  HTML — it is agent output crossing into the browser — and show `trust`
- *  visibly so `agent_output` is never mistaken for `operator_approved`. */
+ *  `app.schemas.BoardArtifactContentOut`. `content` is agent output
+ *  crossing into the browser: never live markup (Markdown only through
+ *  `lib/markdown`, feature 043) — and show `trust` visibly so
+ *  `agent_output` is never mistaken for `operator_approved`. */
 export interface BoardArtifactContent {
   content: string
   trust: string
+  /** Absent from a response older than feature 043. */
+  mime_type?: string
 }
 
 /** One board-history entry, safe for the narrative feed. Mirrors
@@ -238,6 +241,9 @@ export interface BoardSnapshot {
    *  so a later edit to the source ticket is not reflected. Snapshot only;
    *  never on the collection listing. */
   task_body: string
+  /** Where delivery opened the change request (feature 043); `null`
+   *  before delivery, or for one from before feature 043. */
+  change_request_url: string | null
   /** What the request is doing right now (feature 033). */
   activity: RequestActivity | null
   /** Every spine step's status, in order (feature 034). Snapshot only. */

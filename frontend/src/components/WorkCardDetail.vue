@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '../api'
 import { useBoard } from '../composables/useBoard'
+import ArtifactText from './common/ArtifactText.vue'
 import type {
   BoardArtifactContent,
   CardAction,
@@ -175,9 +176,10 @@ const canResolveGate = computed(() =>
         <v-chip size="x-small" class="mb-1" data-testid="artifact-trust">
           {{ artifactContent.trust }}
         </v-chip>
-        <div class="artifact-content text-body-2">
-          {{ artifactContent.content }}
-        </div>
+        <ArtifactText
+          :text="artifactContent.content"
+          :mime-type="artifactContent.mime_type"
+        />
       </div>
       <div v-else-if="artifactError" class="mb-2 text-body-2 text-error">
         {{ artifactError }}
@@ -260,9 +262,3 @@ const canResolveGate = computed(() =>
     </v-card-actions>
   </v-card>
 </template>
-
-<style scoped>
-.artifact-content {
-  white-space: pre-wrap;
-}
-</style>

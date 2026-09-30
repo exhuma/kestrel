@@ -82,6 +82,7 @@ export function boardSnapshot(
     stage: 'Build & deliver',
     outcome: 'in_progress',
     task_body: '',
+    change_request_url: null,
     activity: null,
     phases: [],
     ...overrides,

@@ -169,6 +169,34 @@ class WorkspaceService:
         )
         return branch
 
+    async def committed_files(
+        self, workflow_id: str, directory: str
+    ) -> list[str]:
+        """The files committed under *directory* on a workflow's branch.
+
+        What delivery pushes is what was committed, so this reads the
+        branch, not the working tree (feature 043). Empty when the
+        directory is absent.
+        """
+        out = await self._git(
+            "-C", self.workspace_dir(workflow_id), "ls-tree", "-r",
+            "--name-only", "HEAD", "--", directory,
+        )
+        return [line for line in out.splitlines() if line]
+
+    async def committed_text(
+        self, workflow_id: str, path: str
+    ) -> str | None:
+        """*path*'s committed content on a workflow's branch, or ``None``
+        when it is not committed there (feature 043)."""
+        try:
+            return await self._git(
+                "-C", self.workspace_dir(workflow_id), "show",
+                f"HEAD:{path}",
+            )
+        except GitError:
+            return None
+
     async def teardown(self, workflow_id: str, repo: str) -> None:
         """Remove a workflow's worktree and its branch from the shared
         mirror (dev-only reset helper, T069).

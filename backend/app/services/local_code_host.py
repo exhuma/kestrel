@@ -46,6 +46,11 @@ class LocalCodeHost:
         """Report that a local repository has no pull-request mechanism."""
         return False
 
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """Where *path* lives on *branch*, as a ``git show`` spec — there is
+        no web view, and no change request to show it in (feature 043)."""
+        return f"{self._repo_path(repo)}:{branch}:{path}"
+
     async def required_ci_statuses(
         self, _repo: str, _number: int, names: list[str]
     ) -> list[RequiredCiStatus]:

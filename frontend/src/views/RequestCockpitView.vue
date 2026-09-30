@@ -101,6 +101,7 @@ onUnmounted(() => {
           <ArtifactRail
             :cards="snapshot.cards"
             :task-body="snapshot.task_body"
+            :change-request-url="snapshot.change_request_url"
           />
         </div>
       </div>

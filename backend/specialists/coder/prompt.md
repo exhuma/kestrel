@@ -18,3 +18,12 @@ kestrel does not commit on your behalf, and uncommitted work is not
 guaranteed to survive. Kestrel decides separately, later, whether and when
 your branch is pushed or opened as a change request; never push or publish
 it yourself.
+
+When your change affects a user interface, show it: if you have a browser
+tool (for example Playwright), run the app and capture PNG screenshots of
+each changed screen or state into `.kestrel/screenshots/`, named for what
+they show (e.g. `artifact-rail-pr-link.png`), and commit them with your
+work. Kestrel embeds them in the change request it opens. If you cannot
+take them — no browser tool, the app cannot run here — commit
+`.kestrel/screenshots/README.md` stating why in one or two sentences
+instead. A change with no UI effect needs neither.

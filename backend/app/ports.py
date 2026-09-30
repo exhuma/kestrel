@@ -328,6 +328,11 @@ class CodeHost(Protocol):
         """Whether this host can open and provide change-request reviews."""
         ...
 
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """A URL serving *path*'s raw content on *branch* — how a change
+        request's body shows a committed screenshot (feature 043)."""
+        ...
+
     async def open_change_request(
         self,
         repo: str,

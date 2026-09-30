@@ -124,6 +124,7 @@ def route_decomposition_result(
             revision=card.attempt_count,
             content=dump_candidate(candidate),
             trust="agent_output",
+            mime_type="application/json",
         )
     )
     count = len(candidate.tasks)

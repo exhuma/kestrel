@@ -42,7 +42,6 @@ _CONFIG_FILE_FIELDS = frozenset(
         "port",
         "database_url",
         "workspace_root",
-        "screenshots_root",
         "board_artifacts_root",
         "comment_sentinel_enabled",
         "comment_sentinel",
@@ -124,10 +123,6 @@ class Settings(BaseSettings):
     reload: bool = False
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
-    #: Durable directory holding workflow screenshots after a run's worktree
-    #: is torn down (see ``services/workflows/screenshots.py``). Keyed by run
-    #: id; in Docker point this at the ``/data`` volume so shots survive.
-    screenshots_root: str = "./.kestrel-screenshots"
     #: Durable, content-addressed store for handoff-artifact bodies
     #: (feature 026, FR-013). Keyed by content hash, so recovery after
     #: restart can always re-read a card's output.

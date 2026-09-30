@@ -24,18 +24,24 @@ function mountDialog(artifactId: string | null = 'art-1'): VueWrapper {
   return wrapper
 }
 
-function stubContent(content: string, trust: string): void {
+function stubContent(content: string, trust: string, mime_type?: string): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(
       async () =>
-        new Response(JSON.stringify({ content, trust }), { status: 200 }),
+        new Response(JSON.stringify({ content, trust, mime_type }), {
+          status: 200,
+        }),
     ),
   )
 }
 
-async function openWith(content: string, trust = 'agent_output') {
-  stubContent(content, trust)
+async function openWith(
+  content: string,
+  trust = 'agent_output',
+  mimeType?: string,
+) {
+  stubContent(content, trust, mimeType)
   const wrapper = mountDialog()
   await flushPromises()
   return wrapper
@@ -55,6 +61,23 @@ afterEach(() => {
 })
 
 describe('ArtifactDialog content safety', () => {
+  it('renders Markdown content as formatted Markdown (feature 043)', async () => {
+    await openWith('# Scope\n\n- one\n- two', 'agent_output', 'text/markdown')
+    expect(shownHtml()).toContain('<h1>Scope</h1>')
+    expect(shownHtml()).toContain('<li>one</li>')
+  })
+
+  it('never produces a javascript: link', async () => {
+    await openWith('[x](javascript:alert(1))', 'agent_output', 'text/markdown')
+    expect(shownHtml()).not.toContain('href="javascript:')
+  })
+
+  it('shows JSON content as preformatted text', async () => {
+    await openWith('{"questions": ["# not a heading"]}', 'agent_output')
+    expect(shownHtml()).not.toContain('<h1>')
+    expect(shownText()).toContain('{"questions": ["# not a heading"]}')
+  })
+
   it('renders markup in the content as literal text, never as markup', async () => {
     await openWith('<em>pwned</em>')
     expect(shownText()).toContain('<em>pwned</em>')

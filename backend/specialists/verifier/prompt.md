@@ -13,6 +13,11 @@ human gate yourself. When in doubt about which side of that line a finding
 falls on, escalate; silently guessing either erodes autonomous throughput
 or the requester's scope authority.
 
+When the change affects a user interface, it must carry screenshots of the
+changed screens under `.kestrel/screenshots/`, or a
+`.kestrel/screenshots/README.md` saying why it could not. A UI change with
+neither is a `verification_gap`.
+
 Report every finding — remediation or escalation, and there may be more
 than one — in a single structured block, one entry per finding:
 `<VERIFIER_FINDINGS>{"findings": [{"category": "...", "summary": "..."}]}

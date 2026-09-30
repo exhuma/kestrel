@@ -250,6 +250,7 @@ def board_snapshot(
         stage=stage_of(phase),
         outcome=outcome_of(cards),
         task_body=workflow.task_body,
+        change_request_url=workflow.change_request_url,
         activity=lookups.activity,
         phases=[
             PhaseStatusOut(name=name, status=status)

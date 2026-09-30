@@ -61,6 +61,9 @@ class _FakeCodeHost:
     def supports_change_requests(self) -> bool:
         return self._supports_cr
 
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        return f"file://{repo}/{branch}/{path}"
+
     async def open_change_request(self, repo, **kwargs) -> str:
         self.opened = {"repo": repo, **kwargs}
         return self._cr_url
@@ -277,4 +280,8 @@ class TestEndToEndDelivery:
             "owner/repo#1",
             "Delivered: https://github.com/owner/repo/pull/7",
         )]
-        assert store.get_workflow("wf-1").change_request_number == _PR_NUMBER
+        workflow = store.get_workflow("wf-1")
+        assert workflow.change_request_number == _PR_NUMBER
+        assert workflow.change_request_url == (
+            "https://github.com/owner/repo/pull/7"
+        )

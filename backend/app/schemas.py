@@ -173,20 +173,23 @@ class WorkCardSummaryOut(BaseModel):
 
 
 class BoardArtifactContentOut(BaseModel):
-    """One artifact's full content and trust level.
+    """One artifact's full content, trust level and media type.
 
-    The frontend must render ``content`` as text, never as HTML — it is
-    agent output crossing into the browser — and must visibly
-    distinguish ``agent_output`` from ``operator_approved`` via
-    ``trust``.
+    ``content`` is agent output crossing into the browser: the frontend
+    must never let it become live markup (Markdown only with raw HTML
+    escaped, feature 043 FR-005) and must visibly distinguish
+    ``agent_output`` from ``operator_approved`` via ``trust``.
 
     :param content: The artifact's raw stored content.
     :param trust: At least ``untrusted``, ``released``, ``agent_output``,
         or ``operator_approved`` (mirrors ``HandoffArtifact.trust``).
+    :param mime_type: The content's media type, e.g. ``text/markdown``
+        or ``application/json`` (``HandoffArtifact.mime_type``).
     """
 
     content: str
     trust: str
+    mime_type: str = "text/plain"
 
 
 class WorkCardRelationOut(BaseModel):
@@ -261,6 +264,8 @@ class BoardSnapshotOut(BaseModel):
     since — a later edit to the source ticket is not reflected. It is on
     the snapshot only, never on :class:`WorkflowSummaryOut`: every board
     row carrying a full issue body would bloat the listing for nothing.
+    ``change_request_url`` (feature 043) is where delivery opened the
+    change request, or ``None``.
     """
 
     id: str
@@ -275,6 +280,7 @@ class BoardSnapshotOut(BaseModel):
     stage: str
     outcome: Outcome = "in_progress"
     task_body: str = ""
+    change_request_url: str | None = None
     activity: RequestActivityOut | None = None
     phases: list[PhaseStatusOut] = []
 

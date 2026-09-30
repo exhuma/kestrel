@@ -127,8 +127,8 @@ async def get_artifact_content(
 ) -> BoardArtifactContentOut:
     """Return one artifact's full content and trust level.
 
-    The frontend must render this as text, never HTML — it is agent
-    output crossing into the browser.
+    It is agent output crossing into the browser: the frontend must never
+    let it become live markup (feature 043 FR-005).
 
     :raises HTTPException: 404 if the artifact, or its stored content, is
         unknown.
@@ -142,7 +142,11 @@ async def get_artifact_content(
         raise HTTPException(
             status_code=404, detail="artifact content missing"
         ) from exc
-    return BoardArtifactContentOut(content=content or "", trust=artifact.trust)
+    return BoardArtifactContentOut(
+        content=content or "",
+        trust=artifact.trust,
+        mime_type=artifact.mime_type,
+    )
 
 
 @router.get("/workflows", response_model=list[WorkflowSummaryOut])

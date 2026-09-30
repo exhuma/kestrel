@@ -1,11 +1,15 @@
 <script setup lang="ts">
 // One narrative-feed row: who, when, and what happened. The neutral
 // persona is rendered by name ("System"), never as an empty attribution
-// (FR-013).
+// (FR-013). The payload shows only what it has to say — a reason as a
+// sentence, anything else as labelled values, never raw JSON (feature 043).
 import { computed } from 'vue'
+import { parsePayload } from '../../lib/eventPayload'
 import { personaInitial, personaName, type FeedEntry } from '../../lib/personas'
 
 const props = defineProps<{ entry: FeedEntry }>()
+
+const payload = computed(() => parsePayload(props.entry.event.payload))
 
 const name = computed(() => personaName(props.entry.persona))
 const initial = computed(() => personaInitial(props.entry.persona))
@@ -32,10 +36,14 @@ const avatarColor = computed(() =>
       </div>
       <div class="text-body-2">{{ entry.summary }}</div>
       <div
-        v-if="entry.event.payload"
+        v-if="payload"
         class="feed-payload text-caption text-medium-emphasis"
+        data-testid="feed-payload"
       >
-        {{ entry.event.payload }}
+        <div v-if="payload.kind === 'detail'">{{ payload.detail }}</div>
+        <div v-for="[key, value] in payload.fields" :key="key">
+          <span class="font-weight-medium">{{ key }}:</span> {{ value }}
+        </div>
       </div>
     </div>
   </div>

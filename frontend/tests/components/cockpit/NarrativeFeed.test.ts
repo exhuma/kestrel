@@ -141,7 +141,10 @@ describe('NarrativeFeed live append', () => {
 describe('NarrativeFeed at scale', () => {
   it('renders every row of a long history rather than silently capping it', () => {
     const events = Array.from({ length: 200 }, (_, i) =>
-      boardEvent({ event_type: 'card.result_accepted', payload: `event ${i}` }),
+      boardEvent({
+        event_type: 'card.result_accepted',
+        payload: JSON.stringify({ detail: `event ${i}` }),
+      }),
     )
     const wrapper = mountFeed(events)
     expect(wrapper.findAllComponents({ name: 'VTimelineItem' })).toHaveLength(
@@ -160,5 +163,26 @@ describe('NarrativeFeed is monitoring only', () => {
     expect(wrapper.findAllComponents({ name: 'VBtn' })).toHaveLength(0)
     expect(wrapper.findAllComponents({ name: 'VTextarea' })).toHaveLength(0)
     expect(wrapper.findAllComponents({ name: 'VTextField' })).toHaveLength(0)
+  })
+})
+
+describe('NarrativeFeed payloads (feature 043)', () => {
+  it('shows nothing for an empty payload', () => {
+    const wrapper = mountFeed([
+      boardEvent({ event_type: 'workflow.created', payload: '{}' }),
+    ])
+    expect(wrapper.find('[data-testid="feed-payload"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('{}')
+  })
+
+  it('shows a detail as plain text, without JSON', () => {
+    const wrapper = mountFeed([
+      boardEvent({
+        event_type: 'coordinator.turn_failed',
+        payload: '{"detail": "see the kestrel log"}',
+      }),
+    ])
+    const payload = wrapper.find('[data-testid="feed-payload"]')
+    expect(payload.text()).toBe('see the kestrel log')
   })
 })

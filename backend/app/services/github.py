@@ -6,7 +6,6 @@ source-neutral ``task_ref`` ``"owner/name#123"``.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -19,26 +18,6 @@ from app.services import github_reviews
 from app.services.exceptions import GitHubError
 from app.services.github_ci import required_ci_statuses
 from app.services.task_source_utils import parse_iso
-
-#: Extracts a PR/MR number from the tail of a change-request URL —
-#: GitHub's ``.../pull/123`` or GitLab's ``.../merge_requests/123``.
-_CR_NUMBER_RE = re.compile(r"/(?:pull|merge_requests)/(\d+)(?:[/?#]|$)")
-
-
-def change_request_number(url: str) -> int | None:
-    """
-    Extract a pull/merge-request number from an existing ``run.pr_url``.
-
-    Used to backfill ``pr_number``-less rows persisted before that column
-    existed, with no migration data-fix (data-model.md). Never raises.
-
-    :param url: A change-request URL, or ``""``/``None``/anything malformed.
-    :returns: The trailing number, or ``None`` when ``url`` doesn't match.
-    """
-    if not url:
-        return None
-    match = _CR_NUMBER_RE.search(url)
-    return int(match.group(1)) if match else None
 
 
 def parse_github_ref(ref: str) -> tuple[str, int]:
@@ -417,6 +396,10 @@ class GitHubCodeHost:
 
     def clone_remote(self, repo: str) -> str:
         return f"{self._git_base}/{repo}.git"
+
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """The raw content of *path* on *branch* (feature 043)."""
+        return f"{self._git_base}/{repo}/raw/{quote(branch)}/{quote(path)}"
 
     def git_credential(self) -> tuple[str, str]:
         return ("x-access-token", self._client.token)

@@ -12,11 +12,8 @@ import httpx
 import pytest
 
 from app.ports import Feedback
-from app.services.github import (
-    GitHubClient,
-    GitHubCodeHost,
-    change_request_number,
-)
+from app.services.change_requests import change_request_number
+from app.services.github import GitHubClient, GitHubCodeHost
 
 _GITHUB_PR_NUMBER = 42
 _GITLAB_MR_NUMBER = 7

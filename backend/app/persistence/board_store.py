@@ -38,6 +38,7 @@ def _row_to_workflow(row: BoardWorkflowRow) -> Workflow:
         state=row.state,
         revision=row.revision,
         change_request_number=row.change_request_number,
+        change_request_url=row.change_request_url,
         ci_repair_round=row.ci_repair_round,
         ci_status=row.ci_status,
         task_body=row.task_body,
@@ -102,6 +103,7 @@ class BoardStore:
                         state=workflow.state,
                         revision=workflow.revision,
                         change_request_number=workflow.change_request_number,
+                        change_request_url=workflow.change_request_url,
                         ci_repair_round=workflow.ci_repair_round,
                         ci_status=workflow.ci_status,
                         task_body=workflow.task_body,
@@ -207,9 +209,13 @@ class BoardStore:
             return workflow.revision
 
     def record_delivery(
-        self, workflow_id: str, change_request_number: int | None
+        self,
+        workflow_id: str,
+        change_request_number: int | None,
+        change_request_url: str | None = None,
     ) -> None:
-        """Record a fresh delivery's change request (T052).
+        """Record a fresh delivery's change request (T052) and where it
+        is (feature 043).
 
         Resets ``ci_repair_round``/``ci_status`` — a new delivery, whether
         from the original coder work, an automated CI repair, or an
@@ -219,6 +225,7 @@ class BoardStore:
         with self._factory.begin() as db:
             workflow = db.get(BoardWorkflowRow, workflow_id)
             workflow.change_request_number = change_request_number
+            workflow.change_request_url = change_request_url
             workflow.ci_repair_round = 0
             workflow.ci_status = None
 

@@ -234,3 +234,74 @@ describe('railItems executive summary (feature 030)', () => {
     expect(analysis?.artifactId).not.toBe('art-sum')
   })
 })
+
+describe('railItems reviewed documents (feature 043)', () => {
+  function gateOf(
+    card_type: string,
+    target: string | null,
+    own: string | null = null,
+  ) {
+    return workCardSummary({
+      card_type,
+      state: 'done',
+      latest_artifact: own ? artifact(own) : null,
+      gate: {
+        requested_decision: 'approve',
+        decision: 'approved',
+        round: null,
+        cap: null,
+        target_artifact: target ? artifact(target) : null,
+        persona: null,
+      },
+    })
+  }
+
+  it.each([
+    ['understanding', 'understanding_gate'],
+    ['cab1', 'cab1_gate'],
+    ['prd', 'prd_gate'],
+  ])('opens the document the %s gate reviewed', (kind, cardType) => {
+    const items = railItems([gateOf(cardType, 'reviewed', 'response')])
+    const item = items.find((i) => i.kind === kind)
+    expect(item?.artifactId).toBe('reviewed')
+    expect(item?.available).toBe(true)
+  })
+
+  it('is openable when the operator approved without a note', () => {
+    const items = railItems([gateOf('understanding_gate', 'restatement')])
+    expect(items.find((i) => i.kind === 'understanding')?.available).toBe(true)
+  })
+
+  it('falls back to the gate card own artifact without a target', () => {
+    const items = railItems([gateOf('prd_gate', null, 'response')])
+    expect(items.find((i) => i.kind === 'prd')?.artifactId).toBe('response')
+  })
+
+  it('keeps the interview answers, falling back to the questions', () => {
+    const items = railItems([gateOf('refinement_gate', 'questions')])
+    expect(items.find((i) => i.kind === 'interview')?.artifactId).toBe(
+      'questions',
+    )
+  })
+})
+
+describe('railItems pull request link (feature 043)', () => {
+  const delivery = workCardSummary({ card_type: 'delivery', state: 'done' })
+
+  it('links to the change request once delivery recorded it', () => {
+    const url = 'https://github.com/o/r/pull/7'
+    const item = railItems([delivery], '', url).find(
+      (i) => i.kind === 'pull_request',
+    )
+    expect(item?.href).toBe(url)
+    expect(item?.available).toBe(true)
+    expect(item?.artifactId).toBeNull()
+  })
+
+  it('is unavailable without a recorded URL', () => {
+    const item = railItems([delivery]).find((i) => i.kind === 'pull_request')
+    expect(item?.href).toBeNull()
+    expect(item?.available).toBe(false)
+    expect(item?.state).toBe('Produced')
+  })
+})

@@ -379,6 +379,20 @@ an operator's own manual fix (a new delivery, same as an automated
 repair) earns a fresh repair budget rather than staying permanently
 excluded once escalated.
 
+**As of 2026-09-30, delivery records where the change request is and
+what it shows** (spec 043). `board_workflow.change_request_url` sits
+beside the number and is exposed on the board snapshot, and the
+cockpit's "Pull request" entry links to it. A redelivery onto the
+existing change request keeps both values: its location is a note, not
+a URL, and earlier it cleared the recorded number. When delivery opens
+the change request, `delivery_body.py` composes the body. It lists the
+PNGs the coder committed under `.kestrel/screenshots/` (or states the
+reason in the `README.md` there) as images served by
+`CodeHost.file_url` from the pushed branch. A redelivery leaves the body
+as it is. The cockpit renders Markdown artifacts through `markdown-it`
+with raw HTML disabled, so agent output never becomes live markup
+(amended 029 FR-015).
+
 **As of 2026-09-27, the refinement-interview and PRD-approval gates are
 built** (spec 026 T078) — the last of the four human gates the data
 model always had slots for (`understanding_gate`/`refinement_gate`/

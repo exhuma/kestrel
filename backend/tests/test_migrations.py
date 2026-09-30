@@ -318,3 +318,26 @@ def _insert_review(
     ), {
         "id": f"rev-{card_id}", "card": card_id, "review": review_state,
     })
+
+
+def test_0035_adds_an_unset_change_request_url(tmp_path: Path) -> None:
+    """0035 adds ``change_request_url``, unset for existing workflows."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0034")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "change_request_number, created_at) "
+            "VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', "
+            "'public', 't', 'active', 1, 7, '2026-09-30T00:00:00')"
+        ))
+    command.upgrade(cfg, "0035")
+
+    with engine.begin() as conn:
+        row = conn.execute(sa.text(
+            "SELECT change_request_number, change_request_url "
+            "FROM board_workflow WHERE id = 'wf-1'"
+        )).one()
+    assert row == (7, None)
+    command.downgrade(cfg, "0034")

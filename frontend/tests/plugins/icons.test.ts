@@ -48,6 +48,7 @@ const EXPECTED_ALIASES = [
   'helpCircleOutline',
   'inboxArrowDown',
   'minusCircleOutline',
+  'openInNew',
   'progressClock',
   'radar',
   'refresh',

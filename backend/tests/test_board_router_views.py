@@ -405,7 +405,8 @@ async def test_card_summary_gate_is_null_for_a_non_gate_card(
 
 
 def _record_artifact(
-    tmp_path: Path, *, artifact_id: str, content: str, trust: str
+    tmp_path: Path, *, artifact_id: str, content: str, trust: str,
+    mime_type: str = "text/plain",
 ) -> None:
     factory = board_session_factory(tmp_path)
     content_store = BoardArtifactContentStore(tmp_path / "artifacts")
@@ -419,6 +420,7 @@ def _record_artifact(
             content_ref=content_ref,
             content_hash=content_hash,
             trust=trust,
+            mime_type=mime_type,
         )
     )
 
@@ -431,11 +433,16 @@ async def test_get_artifact_content_round_trips(tmp_path: Path) -> None:
         artifact_id="artifact-1",
         content="the PRD body",
         trust="agent_output",
+        mime_type="text/markdown",
     )
     async with client as c:
         resp = await c.get("/api/board/artifacts/artifact-1/content")
     assert resp.status_code == httpx.codes.OK
-    assert resp.json() == {"content": "the PRD body", "trust": "agent_output"}
+    assert resp.json() == {
+        "content": "the PRD body",
+        "trust": "agent_output",
+        "mime_type": "text/markdown",
+    }
 
 
 @pytest.mark.asyncio

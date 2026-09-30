@@ -25,7 +25,7 @@ from app.services.board.delivery_readiness import (
     delivery_trigger,
 )
 from app.services.board.write_back import ProjectionRequest, post_projection
-from app.services.github import change_request_number
+from app.services.change_requests import change_request_number
 
 if TYPE_CHECKING:
     from app.services.board.dispatch_ready import DispatchServices
@@ -76,6 +76,24 @@ async def _dispatch_pending_delivery(
             await _deliver_one(workflow_id, card, services)
 
 
+def _record_delivery(
+    workflow: Workflow, location: str, services: DispatchServices
+) -> None:
+    """Record where delivery left the change request.
+
+    A freshly opened one is identified by its URL. An update to the
+    existing one reports only a note, so the recorded number and URL are
+    kept rather than cleared (feature 043, FR-008).
+    """
+    number = change_request_number(location)
+    if number is not None:
+        url: str | None = location
+    else:
+        number = workflow.change_request_number
+        url = workflow.change_request_url
+    services.claims.store.record_delivery(workflow.id, number, url)
+
+
 async def _deliver_one(
     workflow_id: str, card: WorkCard, services: DispatchServices
 ) -> None:
@@ -114,9 +132,7 @@ async def _deliver_one(
             [TransitionCardAction(card.id, CardState.FAILED.value)],
         )
         return
-    services.claims.store.record_delivery(
-        workflow_id, change_request_number(location)
-    )
+    _record_delivery(workflow, location, services)
     services.coordinator.apply_actions(
         workflow_id, f"delivery:{card.id}:review",
         [TransitionCardAction(card.id, CardState.REVIEW.value)],

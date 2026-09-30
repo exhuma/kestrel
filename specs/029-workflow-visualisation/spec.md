@@ -368,9 +368,12 @@ dependency-hygiene checks report nothing new, and the full quality gate passes.
   request, understanding check, CAB-1 decision, interview rounds, PRD, technical
   analysis, executive summary, pull request — each with its state and each
   openable to read its content.
-- **FR-015**: Artifact content MUST be rendered as text, never as markup, and
-  MUST surface the artifact's provenance so unreviewed agent output is
-  distinguishable from operator-approved content.
+- **FR-015**: Artifact content MUST never become live markup, and MUST
+  surface the artifact's provenance so unreviewed agent output is
+  distinguishable from operator-approved content. (Amended by feature 043
+  FR-005: Markdown content is rendered as formatted Markdown with raw HTML
+  escaped and unsafe link protocols dropped; other content is shown as
+  text.)
 - **FR-016**: When a request is waiting on the operator, the cockpit MUST state
   that single ask prominently and attach its actions to that statement. When it
   is waiting on nothing, no such element may be shown.

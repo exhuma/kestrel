@@ -260,17 +260,18 @@ describe('WorkCardDetail quarantine release/discard', () => {
 })
 
 describe('WorkCardDetail artifact content', () => {
-  it('fetches and renders content as text for a card with an artifact', async () => {
-    stubArtifactContent('the *raw* draft', 'agent_output')
+  it('fetches and renders Markdown content for a card with an artifact', async () => {
+    stubArtifactContent('the *styled* draft <b>raw</b>', 'agent_output')
     const wrapper = mountCard(
       card({
         latest_artifact: { id: 'artifact-1', label: 'draft', revision: 2 },
       }),
     )
     await flushPromises()
-    expect(wrapper.text()).toContain('the *raw* draft')
+    expect(wrapper.html()).toContain('<em>styled</em>')
+    expect(wrapper.text()).toContain('<b>raw</b>')
+    expect(wrapper.html()).not.toContain('<b>raw</b>')
     expect(wrapper.text()).toContain('agent_output')
-    expect(wrapper.html()).not.toContain('<em>')
   })
 
   it('shows an error instead of content when the fetch fails', async () => {

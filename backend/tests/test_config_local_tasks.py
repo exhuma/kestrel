@@ -16,7 +16,6 @@ def test_config_file_overrides_local_runtime_settings(tmp_path: Path) -> None:
         "port = 9000\n"
         'database_url = "sqlite:///./test.db"\n'
         'workspace_root = "./workspaces"\n'
-        'screenshots_root = "./screenshots"\n'
         "\n"
         "[[task_sources]]\n"
         'type = "local"\n'
@@ -28,10 +27,7 @@ def test_config_file_overrides_local_runtime_settings(tmp_path: Path) -> None:
         9000,
         "sqlite:///./test.db",
     )
-    assert (settings.workspace_root, settings.screenshots_root) == (
-        "./workspaces",
-        "./screenshots",
-    )
+    assert settings.workspace_root == "./workspaces"
     assert settings.local_sources()[0].tasks_dir == "./tasks"
 
 

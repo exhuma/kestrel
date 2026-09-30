@@ -178,6 +178,10 @@ class GitLabCodeHost:
         """The HTTPS git remote a worktree clones/fetches from."""
         return f"{self._base}/{repo}.git"
 
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """The raw content of *path* on *branch* (feature 043)."""
+        return f"{self._base}/{repo}/-/raw/{quote(branch)}/{quote(path)}"
+
     def git_credential(self) -> tuple[str, str]:
         """``oauth2`` + the PAT — GitLab's git-over-HTTPS token scheme."""
         return ("oauth2", self._token)

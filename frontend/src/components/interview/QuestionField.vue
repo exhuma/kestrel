@@ -6,6 +6,7 @@
 // each other and with any answer, and neither is ever recorded as an
 // empty answer (the two checkboxes carry `state`, not blank text).
 import { computed } from 'vue'
+import ArtifactText from '../common/ArtifactText.vue'
 import type { InterviewQuestion, QuestionAnswer } from '../../types/interview'
 
 const props = defineProps<{
@@ -62,9 +63,9 @@ function setNotRelevant(on: boolean): void {
     role="group"
     :aria-labelledby="`qp-${question.id}`"
   >
-    <p :id="`qp-${question.id}`" class="text-body-2 font-weight-medium mb-2">
-      {{ question.prompt }}
-    </p>
+    <div :id="`qp-${question.id}`" class="font-weight-medium mb-2">
+      <ArtifactText :text="question.prompt" mime-type="text/markdown" />
+    </div>
 
     <template v-if="showAnswer && isChoice">
       <div v-if="question.multiple" data-testid="answer-choices">

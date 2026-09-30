@@ -176,6 +176,9 @@ class Workflow:
     :param change_request_number: The change request delivery opened,
         once known (T052) — ``None`` before any delivery, or when the
         code host doesn't support change requests at all.
+    :param change_request_url: Where that change request is (feature
+        043) — ``None`` until delivery opens one, and for a delivery
+        from before 043, which recorded only the number.
     :param ci_repair_round: How many CI-triggered repair cards this
         workflow's current change request has gone through (T052).
         Reset to ``0`` on every fresh delivery — a new delivery earns a
@@ -207,6 +210,7 @@ class Workflow:
     state: str = "active"
     revision: int = 1
     change_request_number: int | None = None
+    change_request_url: str | None = None
     ci_repair_round: int = 0
     ci_status: str | None = None
     task_body: str = ""

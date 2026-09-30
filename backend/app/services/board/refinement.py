@@ -122,6 +122,7 @@ def route_refinement_result(
                  "satisfied": round_result.satisfied}
             ),
             trust="agent_output",
+            mime_type="application/json",
         )
     )
 
@@ -155,6 +156,7 @@ def route_strategic_interview_result(
             revision=card.attempt_count,
             content=json.dumps({"questions": questions}),
             trust="agent_output",
+            mime_type="application/json",
         )
     )
     gates.create_gate(
@@ -196,6 +198,7 @@ def route_prd_result(
             revision=card.attempt_count,
             content=draft,
             trust="agent_output",
+            mime_type="text/markdown",
         )
     )
     gates.create_gate(

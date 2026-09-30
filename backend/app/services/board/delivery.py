@@ -10,11 +10,14 @@ human review. A workflow's required CI checks (T052,
 this one — each just pushes and updates the existing change request
 rather than opening a second one, decided from ``workflow``'s own
 ``change_request_number`` (set by the caller after the first delivery).
+Only the first delivery writes the body, with the branch's screenshots
+(feature 043, ``delivery_body``); a later one leaves it as it is.
 """
 from __future__ import annotations
 
 from app.models_board import Workflow
 from app.ports import CodeHost
+from app.services.board.delivery_body import pr_body, read_screenshots
 from app.services.board.workspace import WorkspaceService
 
 
@@ -36,11 +39,17 @@ async def deliver(
     if workflow.change_request_number is not None:
         number = workflow.change_request_number
         return f"updated existing change request #{number}"
+    screenshots = await read_screenshots(workspace, workflow.id)
+    body = pr_body(
+        workflow.task_ref,
+        screenshots,
+        lambda path: code_host.file_url(workflow.repo, branch, path),
+    )
     return await code_host.open_change_request(
         workflow.repo,
         head=branch,
         base=workflow.base_branch,
         title=f"{workflow.title} ({workflow.task_ref})",
-        body=f"Implements {workflow.task_ref}\n\nOpened by kestrel.",
+        body=body,
         draft=True,
     )

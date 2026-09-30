@@ -18,8 +18,14 @@ const PIPELINE_ORDER = [
 
 let wrappers: VueWrapper[] = []
 
-function mountRail(cards: WorkCardSummary[] = []): VueWrapper {
-  const wrapper = mount(ArtifactRail, withVuetify({ props: { cards } }))
+function mountRail(
+  cards: WorkCardSummary[] = [],
+  changeRequestUrl: string | null = null,
+): VueWrapper {
+  const wrapper = mount(
+    ArtifactRail,
+    withVuetify({ props: { cards, changeRequestUrl } }),
+  )
   wrappers.push(wrapper)
   return wrapper
 }
@@ -124,5 +130,64 @@ describe('ArtifactRail opening an artifact', () => {
     expect(
       wrapper.findComponent({ name: 'ArtifactDialog' }).props('artifactId'),
     ).toBeNull()
+  })
+})
+
+describe('ArtifactRail pull request link (feature 043)', () => {
+  function prRow(wrapper: VueWrapper) {
+    return wrapper
+      .findAllComponents({ name: 'VListItem' })
+      .find((r) => r.props('title') === 'Pull request')
+  }
+
+  it('links to the change request in a new tab', async () => {
+    const url = 'https://github.com/o/r/pull/7'
+    const wrapper = mountRail(
+      [workCardSummary({ card_type: 'delivery', state: 'done' })],
+      url,
+    )
+    const row = prRow(wrapper)
+    expect(row?.props('href')).toBe(url)
+    expect(row?.attributes('target')).toBe('_blank')
+    expect(row?.attributes('rel')).toBe('noopener noreferrer')
+    await row?.trigger('click')
+    expect(
+      wrapper.findComponent({ name: 'ArtifactDialog' }).props('artifactId'),
+    ).toBeNull()
+  })
+
+  it('is disabled until a change request URL is known', () => {
+    const wrapper = mountRail([
+      workCardSummary({ card_type: 'delivery', state: 'done' }),
+    ])
+    expect(prRow(wrapper)?.props('disabled')).toBe(true)
+  })
+})
+
+describe('ArtifactRail gate decision (feature 043)', () => {
+  it('shows the gate decision alongside the reviewed document', async () => {
+    const wrapper = mountRail([
+      workCardSummary({
+        card_type: 'prd_gate',
+        state: 'done',
+        gate: {
+          requested_decision: 'approve_prd',
+          decision: 'approved',
+          round: null,
+          cap: null,
+          target_artifact: { id: 'prd-draft', label: 'draft', revision: 1 },
+          persona: null,
+        },
+      }),
+    ])
+    const prd = wrapper
+      .findAllComponents({ name: 'VListItem' })
+      .find((r) => r.props('title') === 'PRD')
+    await prd?.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findComponent({ name: 'ArtifactDialog' })
+    expect(dialog.props('artifactId')).toBe('prd-draft')
+    expect(dialog.props('decision')).toBe('Approved')
+    expect(document.body.textContent).toContain('Approved')
   })
 })

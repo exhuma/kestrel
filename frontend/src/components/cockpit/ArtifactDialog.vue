@@ -2,16 +2,17 @@
 // One artifact's content, opened from the rail.
 //
 // Two safety rules, both FR-015: the content is agent output crossing
-// into the browser, so it is rendered as *text* via interpolation and
-// never as markup; and `trust` is always shown, so `agent_output` can
-// never be mistaken for `operator_approved`.
+// into the browser, so it never becomes live markup — `ArtifactText`
+// renders Markdown with raw HTML escaped, and JSON as text (feature
+// 043); and `trust` is always shown, so `agent_output` can never be
+// mistaken for `operator_approved`.
 //
 // A second mode (feature 030) shows `directContent` handed in by the
 // caller — the original request, which is no artifact and has no trust
-// level. It fetches nothing and shows `note` where the chip would be,
-// still rendered as text.
+// level. It fetches nothing and shows `note` where the chip would be.
 import { computed, ref, watch } from 'vue'
 import { api } from '../../api'
+import ArtifactText from '../common/ArtifactText.vue'
 import type { BoardArtifactContent } from '../../types/workflows'
 
 const props = defineProps<{
@@ -23,6 +24,9 @@ const props = defineProps<{
   directContent?: string | null
   /** Shown with `directContent`, in place of the trust chip. */
   note?: string | null
+  /** The decision of the gate that reviewed it, when resolved
+   *  (feature 043, FR-007). */
+  decision?: string | null
 }>()
 
 const isDirect = computed(() => props.directContent != null)
@@ -78,6 +82,15 @@ watch(
         <v-card-title>{{ label }}</v-card-title>
         <template #append>
           <v-chip
+            v-if="decision"
+            :color="decision === 'Approved' ? 'success' : 'warning'"
+            variant="tonal"
+            class="mr-2"
+            data-testid="artifact-decision"
+          >
+            {{ decision }}
+          </v-chip>
+          <v-chip
             v-if="content && !isDirect"
             :color="trustColor(content.trust)"
             variant="tonal"
@@ -102,13 +115,15 @@ watch(
           >
             {{ note }}
           </v-alert>
-          <pre class="artifact-content text-body-2">{{ directContent }}</pre>
+          <ArtifactText :text="directContent ?? ''" />
         </template>
         <v-progress-linear v-else-if="loading" indeterminate />
         <v-alert v-else-if="error" type="error">{{ error }}</v-alert>
-        <pre v-else-if="content" class="artifact-content text-body-2">{{
-          content.content
-        }}</pre>
+        <ArtifactText
+          v-else-if="content"
+          :text="content.content"
+          :mime-type="content.mime_type"
+        />
       </v-card-text>
 
       <v-card-actions>
@@ -118,12 +133,3 @@ watch(
     </v-card>
   </v-dialog>
 </template>
-
-<style scoped>
-.artifact-content {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  margin: 0;
-}
-</style>

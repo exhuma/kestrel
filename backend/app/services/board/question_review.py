@@ -201,6 +201,7 @@ def _apply(
             producer_card_id=card.id, logical_name=QUESTIONS,
             revision=(latest.revision if latest else 0) + 1,
             content=json.dumps({"questions": kept}), trust="agent_output",
+            mime_type="application/json",
         ))
     if not kept:
         services.routing.gates.transition(
@@ -332,6 +333,7 @@ def _store_record(
     services.routing.artifacts.store_reference_artifact(ArtifactDraft(
         producer_card_id=review.id, logical_name=_RECORD, revision=1,
         content=json.dumps({"drops": record}), trust="agent_output",
+        mime_type="application/json",
     ))
 
 
