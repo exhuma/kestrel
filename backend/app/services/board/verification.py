@@ -82,7 +82,8 @@ def route_verifier_result(
         escalations = [f"Unparseable verifier result on card {card.id}"]
         actions = [
             CreateCardAction(
-                kind=CardKind.COORDINATOR_REVIEW.value, title=escalations[0]
+                kind=CardKind.COORDINATOR_REVIEW.value, title=escalations[0],
+                source_card_id=card.id,
             )
         ]
         clean = False

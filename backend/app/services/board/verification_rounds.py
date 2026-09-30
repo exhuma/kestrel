@@ -69,6 +69,7 @@ def tagged_follow_ups(
         kind=CardKind.COORDINATOR_REVIEW.value,
         title=f"Verification cap reached: {task_title(card)}",
         task_node_id=node,
+        source_card_id=card.id,
     )]
 
 

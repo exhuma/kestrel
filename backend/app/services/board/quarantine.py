@@ -19,6 +19,7 @@ from app.models_board_records import IntakeOutcome, SecurityReviewRecord
 from app.persistence.board_quarantine_store import (
     BoardQuarantineStore,
     QuarantineRequest,
+    ReviewResolution,
 )
 from app.policy import SpecialistBackendPolicy, SpecialistCapabilityError
 from app.services.board.dispatch import (
@@ -225,11 +226,11 @@ class QuarantineService:
         without the card DTO carrying anything unsafe)."""
         return self._store.find_review_for_card(card_id)
 
-    def release(self, review_id: str) -> SecurityReviewRecord | None:
+    def release(self, review_id: str) -> ReviewResolution | None:
         """Release a pending review: its content may now be trusted."""
         return self._store.resolve_review(review_id, "released")
 
-    def discard(self, review_id: str) -> SecurityReviewRecord | None:
+    def discard(self, review_id: str) -> ReviewResolution | None:
         """Discard a pending review: the original input is left unmodified."""
         return self._store.resolve_review(review_id, "discarded")
 

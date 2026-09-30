@@ -63,6 +63,7 @@ class TestMaybeRedraftPrd:
         new_cards = [c for c in store.list_cards("wf-1") if c.id != gate.id]
         assert len(new_cards) == 1
         assert new_cards[0].kind == "coordinator_review"
+        assert new_cards[0].source_card_id == gate.id
         assert gate.id in new_cards[0].title
         assert not any(c.kind == "prd" for c in new_cards)
 

@@ -191,8 +191,9 @@ class TestRouteRefinementResult:
         )
 
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "coordinator_review"
+        assert [(c.kind, c.source_card_id) for c in new_cards] == [
+            ("coordinator_review", "card-1")
+        ]
 
     def test_satisfied_with_no_questions_completes_with_no_gate(
         self, tmp_path: Path

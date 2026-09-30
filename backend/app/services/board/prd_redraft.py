@@ -85,6 +85,7 @@ def _request_triage(
                 title=f"PRD rejected on card {prd_gate.id} — decide "
                 "whether to redraft directly or return to the "
                 "interview",
+                source_card_id=prd_gate.id,
             )
         ],
     )
@@ -101,6 +102,7 @@ def _escalate_cap(prd_gate: WorkCard, coordinator: CoordinatorService) -> None:
                 kind=CardKind.COORDINATOR_REVIEW.value,
                 title="PRD redraft budget exhausted — operator "
                 "intervention required",
+                source_card_id=prd_gate.id,
             )
         ],
     )

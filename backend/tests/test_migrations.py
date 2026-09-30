@@ -273,3 +273,48 @@ def test_0033_drops_the_child_ticket_bookkeeping(tmp_path: Path) -> None:
     assert "child_task_link" in inspector.get_table_names()
     columns = {c["name"] for c in inspector.get_columns("board_workflow")}
     assert "skip_decomposition" in columns
+
+
+def test_0034_completes_released_reviews_left_open(tmp_path: Path) -> None:
+    """Ensure a released review's card stuck in ``ready`` becomes
+    ``done``; a pending review's card is left quarantined (feature 041)."""
+    cfg, engine = _cfg(tmp_path)
+    command.upgrade(cfg, "0033")
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO board_workflow (id, source, task_ref, repo, "
+            "base_branch, source_visibility, title, state, revision, "
+            "ci_repair_round, task_body, created_at) "
+            "VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', "
+            "'public', 't', 'active', 1, 0, '', '2026-09-30T00:00:00')"
+        ))
+        for card_id, state, review_state in (
+            ("released", "ready", "released"),
+            ("pending", "quarantined", "pending"),
+        ):
+            _insert_review(conn, card_id, state, review_state)
+
+    command.upgrade(cfg, "0034")
+
+    with engine.begin() as conn:
+        states = dict(conn.execute(sa.text(
+            "SELECT id, state FROM board_card"
+        )).all())
+    assert states == {"released": "done", "pending": "quarantined"}
+
+
+def _insert_review(
+    conn: sa.Connection, card_id: str, state: str, review_state: str
+) -> None:
+    conn.execute(sa.text(
+        "INSERT INTO board_card (id, workflow_id, kind, title, state, "
+        "created_at, updated_at) VALUES (:id, 'wf-1', 'security_review', "
+        "'t', :state, '2026-09-30T00:00:00', '2026-09-30T00:00:00')"
+    ), {"id": card_id, "state": state})
+    conn.execute(sa.text(
+        "INSERT INTO board_security_review (id, untrusted_input_id, "
+        "card_id, classification_category, review_state, created_at) "
+        "VALUES (:id, 'in-1', :card, 'x', :review, '2026-09-30T00:00:00')"
+    ), {
+        "id": f"rev-{card_id}", "card": card_id, "review": review_state,
+    })

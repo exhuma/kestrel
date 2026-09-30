@@ -6,40 +6,37 @@ import pytest
 
 from app.main import create_app
 from app.models_board_records import SecurityReviewRecord
+from app.persistence.board_quarantine_store import ReviewResolution
 from app.services.board.bootstrap import get_quarantine_service
 
 
 class _FakeQuarantine:
-    def __init__(self) -> None:
+    def __init__(self, *, pending: bool = True) -> None:
         self.resolved: list[tuple[str, str]] = []
+        self._pending = pending
 
-    def release(self, review_id: str) -> SecurityReviewRecord | None:
+    def release(self, review_id: str) -> ReviewResolution | None:
+        return self._resolve(review_id, "released")
+
+    def discard(self, review_id: str) -> ReviewResolution | None:
+        return self._resolve(review_id, "discarded")
+
+    def _resolve(
+        self, review_id: str, resolution: str
+    ) -> ReviewResolution | None:
         if review_id == "missing":
             return None
-        self.resolved.append((review_id, "released"))
-        return SecurityReviewRecord(
+        self.resolved.append((review_id, resolution))
+        review = SecurityReviewRecord(
             id=review_id,
             untrusted_input_id="input-1",
             card_id="card-1",
             workflow_id="wf-1",
             classification_category="prompt_injection",
-            review_state="released",
-            resolution="released",
+            review_state=resolution,
+            resolution=resolution,
         )
-
-    def discard(self, review_id: str) -> SecurityReviewRecord | None:
-        if review_id == "missing":
-            return None
-        self.resolved.append((review_id, "discarded"))
-        return SecurityReviewRecord(
-            id=review_id,
-            untrusted_input_id="input-1",
-            card_id="card-1",
-            workflow_id="wf-1",
-            classification_category="prompt_injection",
-            review_state="discarded",
-            resolution="discarded",
-        )
+        return ReviewResolution(review, changed=self._pending)
 
 
 def _client(quarantine) -> httpx.AsyncClient:
@@ -75,6 +72,26 @@ async def test_discard_resolves_the_review() -> None:
     assert resp.status_code == httpx.codes.OK
     assert resp.json()["review_state"] == "discarded"
     assert quarantine.resolved == [("review-1", "discarded")]
+
+
+@pytest.mark.asyncio
+async def test_only_a_fresh_release_continues_the_intake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure releasing an already-resolved review continues nothing
+    again (feature 041)."""
+    continued: list[str] = []
+    monkeypatch.setattr(
+        "app.routers.board.schedule_intake_continuation", continued.append
+    )
+    for pending in (True, False):
+        async with _client(_FakeQuarantine(pending=pending)) as client:
+            resp = await client.post(
+                "/api/board/security-reviews/review-1/resolve",
+                json={"action": "release_quarantine"},
+            )
+        assert resp.status_code == httpx.codes.OK
+    assert continued == ["wf-1"]
 
 
 @pytest.mark.asyncio

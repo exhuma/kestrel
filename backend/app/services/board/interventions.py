@@ -199,6 +199,7 @@ class InterventionsService:
             kind=CardKind.COORDINATOR_REVIEW,
             title=f"Review requested: {card.title}",
             state=CardState.READY,
+            source_card_id=card.id,
         )
         self._store.create_card(review)
         return review

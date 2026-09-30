@@ -16,7 +16,7 @@ from app.services.board.phases import (
 
 def _card(
     card_id: str, kind: str, state: str = "ready",
-    task_node_id: str | None = None,
+    task_node_id: str | None = None, source_card_id: str | None = None,
 ) -> WorkCard:
     return WorkCard(
         id=card_id,
@@ -25,6 +25,7 @@ def _card(
         title="a card",
         state=state,
         task_node_id=task_node_id,
+        source_card_id=source_card_id,
     )
 
 
@@ -236,3 +237,68 @@ class TestPhaseStatuses:
         assert statuses["Build"] == "active"
         assert statuses["Delivery"] == "problem"
         assert statuses["PRD"] == "skipped"
+
+
+class TestFloatingCards:
+    """An escalation or early analysis is placed by the work it serves,
+    not by its kind alone (feature 041)."""
+
+    def test_an_escalation_sits_in_its_source_phase(self) -> None:
+        """Reproduces the operator's run: an unparseable interview
+        proposal escalated to the coordinator during Discovery."""
+        cards = [
+            *_wf_36ca7a1a("done"),
+            _card("cr", "coordinator_review", source_card_id="pm"),
+        ]
+
+        assert current_phase(cards) == "Pre-assessment"
+        statuses = dict(phase_statuses(cards))
+        assert statuses["Pre-assessment"] == "active"
+        assert statuses["Build"] == "upcoming"
+
+    def test_a_chain_of_escalations_follows_its_source(self) -> None:
+        cards = [
+            _card("prd", "prd", state="done"),
+            _card("a", "coordinator_review", source_card_id="prd"),
+            _card("b", "coordinator_review", source_card_id="a"),
+        ]
+
+        assert current_phase(cards) == "PRD"
+
+    def test_an_unsourced_escalation_joins_earlier_open_work(self) -> None:
+        cards = [
+            _card("u", "understanding", state="done"),
+            _card("ip", "interview_plan"),
+            _card("cr", "coordinator_review"),
+        ]
+
+        assert dict(phase_statuses(cards))["Build"] == "upcoming"
+
+    def test_a_lone_unsourced_escalation_still_reads_build(self) -> None:
+        cards = [
+            _card("i", "implementation", state="done"),
+            _card("cr", "coordinator_review"),
+        ]
+
+        assert current_phase(cards) == "Build"
+
+    def test_early_analysis_counts_in_the_current_phase(self) -> None:
+        """Analysis the coordinator starts before the PRD is signed off
+        does not mark Technical analysis active."""
+        cards = [
+            _card("ip", "interview_plan", state="done"),
+            _card("ref", "refinement"),
+            _card("an", "analysis"),
+        ]
+
+        statuses = dict(phase_statuses(cards))
+        assert current_phase(cards) == "Pre-assessment"
+        assert statuses["Technical analysis"] == "upcoming"
+
+    def test_analysis_after_sign_off_is_technical_analysis(self) -> None:
+        cards = [
+            _card("pg", "prd_gate", state="done"),
+            _card("an", "analysis"),
+        ]
+
+        assert current_phase(cards) == "Technical analysis"

@@ -254,6 +254,9 @@ class WorkCard:
         on (feature 031): set on the cards CAB-2 approval creates and on
         the remediation/re-verification cards that follow from them;
         ``None`` for every other card.
+    :param source_card_id: The card a ``coordinator_review`` escalates
+        (feature 041), which places it in that card's phase; ``None``
+        for every other card.
     """
 
     id: str
@@ -267,6 +270,7 @@ class WorkCard:
     attempt_count: int = 0
     wait_reason: str | None = None
     task_node_id: str | None = None
+    source_card_id: str | None = None
 
 
 @dataclass(frozen=True)

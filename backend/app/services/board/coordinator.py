@@ -65,8 +65,8 @@ class CreateCardAction:
     """Propose a new card (FR-006). ``depends_on`` names existing cards.
 
     ``task_node_id`` ties the card to an approved CAB-2 task (feature
-    031). Only code sets it: ``_ACTION_FIELDS`` never parses it from a
-    coordinator's own proposal.
+    031); ``source_card_id`` to the card it escalates (041). Only code
+    sets them: ``_ACTION_FIELDS`` never parses them from a coordinator.
     """
 
     kind: str
@@ -75,6 +75,7 @@ class CreateCardAction:
     workspace_permission: str = "none"
     depends_on: tuple[str, ...] = ()
     task_node_id: str | None = None
+    source_card_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -333,6 +334,7 @@ class CoordinatorService:
             eligible_roles=action.eligible_roles,
             workspace_permission=action.workspace_permission,
             task_node_id=action.task_node_id,
+            source_card_id=action.source_card_id,
         )
         self._store.create_card(card)
         for dep in action.depends_on:

@@ -224,6 +224,7 @@ def _escalate_unparseable(
                 kind=CardKind.COORDINATOR_REVIEW.value,
                 title=f"Unparseable {label} proposal from {persona} "
                 f"on card {card.id}",
+                source_card_id=card.id,
             )
         ],
     )

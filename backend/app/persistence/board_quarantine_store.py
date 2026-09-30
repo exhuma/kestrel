@@ -26,6 +26,7 @@ from app.models_board_records import (
 )
 from app.persistence.board_tables import (
     BoardCardRow,
+    BoardEventRow,
     BoardSecurityReviewRow,
     BoardUntrustedInputRow,
     BoardWorkflowRow,
@@ -237,10 +238,18 @@ class BoardQuarantineStore:
         resolution: str,
         *,
         now: datetime | None = None,
-    ) -> SecurityReviewRecord | None:
+    ) -> ReviewResolution | None:
         """Resolve a pending review as ``"released"`` or ``"discarded"``.
 
-        :returns: The updated review, or ``None`` if it does not exist.
+        The operator's decision completes the review (feature 041): its
+        card becomes ``done`` on release — nothing else ever moves it on,
+        and an open card would hold the request in Intake — or
+        ``cancelled`` on discard. One commit bumps the request's
+        revision and, for a discard, records the event. A review that is
+        no longer pending is left as it is.
+
+        :returns: The review and whether this call resolved it, or
+            ``None`` if it does not exist.
         """
         now = now or datetime.now(timezone.utc)
         with self._factory.begin() as db:
@@ -248,19 +257,53 @@ class BoardQuarantineStore:
             if review is None:
                 return None
             card = db.get(BoardCardRow, review.card_id)
-            review.review_state = resolution
-            review.resolution = resolution
-            review.resolved_at = now
-            next_state = (
-                CardState.READY.value
-                if resolution == "released"
-                else CardState.CANCELLED.value
-            )
-            card.state = next_state
-            card.updated_at = now
+            changed = review.review_state == "pending"
+            if changed:
+                _resolve(db, review, card, resolution, now)
             db.flush()
             db.expunge(review)
-            return _row_to_review(review, card.workflow_id)
+            return ReviewResolution(
+                _row_to_review(review, card.workflow_id), changed
+            )
+
+
+@dataclass(frozen=True)
+class ReviewResolution:
+    """A review after a resolve call, and whether that call resolved it."""
+
+    review: SecurityReviewRecord
+    changed: bool
+
+
+def _resolve(
+    db: Session,
+    review: BoardSecurityReviewRow,
+    card: BoardCardRow,
+    resolution: str,
+    now: datetime,
+) -> None:
+    review.review_state = resolution
+    review.resolution = resolution
+    review.resolved_at = now
+    released = resolution == "released"
+    card.state = (
+        CardState.DONE.value if released else CardState.CANCELLED.value
+    )
+    card.updated_at = now
+    if not released:
+        # A release's own event comes with the continued intake
+        # (``screening.released``); a discard has nothing that follows.
+        db.add(
+            BoardEventRow(
+                workflow_id=card.workflow_id,
+                card_id=card.id,
+                event_type="screening.discarded",
+                created_at=now,
+            )
+        )
+    workflow = db.get(BoardWorkflowRow, card.workflow_id)
+    if workflow is not None:
+        workflow.revision += 1
 
 
 @lru_cache

@@ -86,6 +86,9 @@ class BoardCardRow(Base):
     #: The approved-decomposition task this card works on (feature 031,
     #: research R2); ``NULL`` for every other card.
     task_node_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The card a ``coordinator_review`` escalates (feature 041); ``NULL``
+    #: for every other card.
+    source_card_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 

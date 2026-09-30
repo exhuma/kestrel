@@ -209,7 +209,9 @@ class TestRouting:
         new_cards = [
             c for c in services.store.list_cards("wf-1") if c.id != "card-1"
         ]
-        assert [c.kind for c in new_cards] == ["coordinator_review"]
+        assert [(c.kind, c.source_card_id) for c in new_cards] == [
+            ("coordinator_review", "card-1")
+        ]
 
 
 class TestEndToEndDispatchRouting:

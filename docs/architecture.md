@@ -173,6 +173,13 @@ all, becomes a `coordinator_review` card that no specialist ever claims
 `CoordinatorService.apply_actions` (FR-006). See
 `tests/test_board_verification.py`.
 
+An escalation records the card it escalates (`source_card_id`, feature
+041). The display-only phase projection (`phases.py`) places it in that
+card's phase, not in Build. An escalation with no source, and an
+`analysis` card the coordinator starts before the PRD is signed off, is
+placed in the earliest phase that has other open work, and never later
+than its own kind's phase.
+
 **Deliberately still out of scope**: kestrel never pushes a coder's
 commits or opens a change request, for either an initial implementation
 or a verified remediation. Nothing currently decides "verification
@@ -430,8 +437,10 @@ classification run (`services/board/intake.py`,
 - **Safe input:** the request gets its title and body, and a `pm`
   `understanding` card. That one commit wakes the coordinator.
 - **Suspect input:** it is quarantined on the same request. A release
-  continues it (`continue_intake`), and a restart mid-screening re-screens
-  it on the next poll.
+  completes the review card and continues the request (`continue_intake`).
+  A discard cancels the card. Resolving a review that is no longer
+  pending does nothing (feature 041). A restart mid-screening re-screens
+  the request on the next poll.
 - **The understanding step:** `pm` writes a restatement
   (`<UNDERSTANDING>`). Only a readable one opens the `understanding_gate`,
   which targets it, and the cockpit shows it inline. A rejection requires a

@@ -98,6 +98,17 @@ _PHASES: tuple[_PhaseDef, ...] = (
 _PHASE_BY_KIND: dict[CardKind, str] = {
     kind: phase.name for phase in _PHASES for kind in phase.kinds
 }
+_ORDINAL: dict[str, int] = {
+    phase.name: i for i, phase in enumerate(_PHASES)
+}
+
+#: Kinds placed by the work they serve, not by kind alone (feature
+#: 041): an escalation to the coordinator, and analysis the coordinator
+#: may start before the PRD is signed off. Their kind's phase is only a
+#: ceiling — each is pulled back to earlier open work.
+_FLOATING_KINDS = frozenset(
+    {CardKind.COORDINATOR_REVIEW, CardKind.ANALYSIS}
+)
 _STAGE_BY_PHASE: dict[str, str] = {
     phase.name: phase.stage for phase in _PHASES
 } | {DONE_PHASE: "Done", CANCELLED_PHASE: "Cancelled"}
@@ -153,10 +164,10 @@ def current_phase(cards: list[WorkCard]) -> str:
         return DONE_PHASE
     if outcome == CANCELLED:
         return CANCELLED_PHASE
+    placed = _placements(cards)
     outstanding = {
-        _PHASE_BY_KIND[card.kind]
-        for card in cards
-        if card.kind in _PHASE_BY_KIND and _outstanding(card)
+        placed[card.id] for card in cards
+        if card.id in placed and _outstanding(card)
     }
     for phase in _PHASES:
         if phase.name in outstanding:
@@ -170,11 +181,63 @@ def _outstanding(card: WorkCard) -> bool:
 
 
 def _furthest_reached(cards: list[WorkCard]) -> str:
-    reached = [
-        phase.name for phase in _PHASES
-        if any(_PHASE_BY_KIND.get(c.kind) == phase.name for c in cards)
-    ]
+    placed = set(_placements(cards).values())
+    reached = [phase.name for phase in _PHASES if phase.name in placed]
     return reached[-1] if reached else _PHASES[0].name
+
+
+def _placements(cards: list[WorkCard]) -> dict[str, str]:
+    """Each card's phase, by card id (feature 041).
+
+    A card is placed by its kind, except a floating kind: an escalation
+    goes where the card it escalates is, and otherwise — like early
+    analysis — to the earliest phase with other open work, never later
+    than its kind's own phase. A kind with no phase is left out.
+    """
+    anchored = {
+        c.id: _PHASE_BY_KIND[c.kind] for c in cards
+        if c.kind in _PHASE_BY_KIND and c.kind not in _FLOATING_KINDS
+    }
+    open_phases = [
+        anchored[c.id] for c in cards if c.id in anchored and _outstanding(c)
+    ]
+    current = min(open_phases, key=_ORDINAL.__getitem__, default=None)
+    by_id = {c.id: c for c in cards}
+    floating = {
+        c.id: _floating_phase(c, by_id, anchored, current)
+        for c in cards if c.kind in _FLOATING_KINDS
+    }
+    return anchored | floating
+
+
+def _floating_phase(
+    card: WorkCard,
+    by_id: dict[str, WorkCard],
+    anchored: dict[str, str],
+    current: str | None,
+) -> str:
+    source = _anchored_source(card, by_id, anchored)
+    if source is not None:
+        return anchored[source]
+    ceiling = _PHASE_BY_KIND[card.kind]
+    if current is None:
+        return ceiling
+    return min(ceiling, current, key=_ORDINAL.__getitem__)
+
+
+def _anchored_source(
+    card: WorkCard, by_id: dict[str, WorkCard], anchored: dict[str, str]
+) -> str | None:
+    """The first anchored card up *card*'s escalation chain, if any."""
+    seen = {card.id}
+    while card.source_card_id in by_id:
+        card = by_id[card.source_card_id]
+        if card.id in anchored:
+            return card.id
+        if card.id in seen:
+            return None
+        seen.add(card.id)
+    return None
 
 
 def stage_of(phase: str) -> str:
@@ -198,9 +261,10 @@ def phase_statuses(cards: list[WorkCard]) -> list[tuple[str, str]]:
     ``cancelled``: that is where it stopped.
     """
     by_phase: dict[str, list[WorkCard]] = {p.name: [] for p in _PHASES}
+    placed = _placements(cards)
     for card in cards:
-        if card.kind in _PHASE_BY_KIND:
-            by_phase[_PHASE_BY_KIND[card.kind]].append(card)
+        if card.id in placed:
+            by_phase[placed[card.id]].append(card)
     names = [p.name for p in _PHASES]
     outcome = outcome_of(cards)
     reached = [i for i, name in enumerate(names) if by_phase[name]]

@@ -83,16 +83,17 @@ async def resolve_security_review(
 
     Release records a new decision permitting the content to be trusted;
     discard leaves the original input unmodified (FR-022). Both are
-    idempotent no-ops on an already-resolved review's terminal state —
-    the store still returns the review's current recorded state.
+    idempotent no-ops on an already-resolved review — the review's
+    current recorded state is returned, and nothing is continued again
+    (feature 041).
 
     :raises HTTPException: 404 if ``review_id`` is unknown.
     """
     if body.action == "release_quarantine":
-        review = quarantine.release(review_id)
+        resolution = quarantine.release(review_id)
     else:
-        review = quarantine.discard(review_id)
-    if review is None:
+        resolution = quarantine.discard(review_id)
+    if resolution is None:
         raise HTTPException(
             status_code=404, detail="unknown security review"
         )
@@ -100,8 +101,9 @@ async def resolve_security_review(
     # (quarantine may not have a hosting workflow's cards to route through)
     # and so never ticks the bus on its own — without this, the board and
     # card detail SSE streams would never reflect the resolved state.
+    review = resolution.review
     bus.publish(review.workflow_id)
-    if review.review_state == "released":
+    if resolution.changed and review.review_state == "released":
         schedule_intake_continuation(review.workflow_id)  # feature 032
     return SecurityReviewOut(
         id=review.id,

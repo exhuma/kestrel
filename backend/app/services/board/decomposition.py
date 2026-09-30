@@ -88,7 +88,12 @@ def escalate(
     ``coordinator_review`` card instead of acting on it."""
     coordinator.apply_actions(
         card.workflow_id, f"{trigger}:{card.id}:{card.attempt_count}",
-        [CreateCardAction(kind=CardKind.COORDINATOR_REVIEW.value, title=title)],
+        [
+            CreateCardAction(
+                kind=CardKind.COORDINATOR_REVIEW.value, title=title,
+                source_card_id=card.id,
+            )
+        ],
     )
 
 

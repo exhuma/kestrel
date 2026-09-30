@@ -47,5 +47,6 @@ def maybe_redraft_understanding(
             kind=CardKind.COORDINATOR_REVIEW.value,
             title=f"Understanding not confirmed after {drafts} drafts",
             state=CardState.READY.value,
+            source_card_id=gate.id,
         )
     )

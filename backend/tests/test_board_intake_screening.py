@@ -13,6 +13,7 @@ from app.persistence.board_quarantine_store import BoardQuarantineStore
 from app.persistence.board_store import BoardStore
 from app.persistence.dismissal_store import DismissalStore
 from app.ports import Task
+from app.services.board.phases import current_phase, phase_statuses
 from app.services.board.quarantine import QuarantineService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
@@ -164,6 +165,54 @@ async def test_releasing_the_quarantine_continues_the_request(
 
     assert ("understanding", "ready") in rig.kinds(workflow_id)
     assert rig.store.get_workflow(workflow_id).task_body == "Please add it."
+
+
+async def _quarantined(rig: _Rig) -> tuple[str, str]:
+    workflow_id = await rig.pick_up()
+    (card,) = [
+        c for c in rig.store.list_cards(workflow_id)
+        if c.state == "quarantined"
+    ]
+    return workflow_id, rig.quarantine.review_for_card(card.id).id
+
+
+@pytest.mark.asyncio
+async def test_a_released_request_leaves_intake(tmp_path: Path) -> None:
+    """Ensure the release completes the review, so the request moves on
+    to understanding instead of staying in Intake (feature 041)."""
+    rig = _Rig(tmp_path, _SUSPECT)
+    workflow_id, review_id = await _quarantined(rig)
+
+    resolution = rig.quarantine.release(review_id)
+    await rig.ingestion.continue_intake(workflow_id)
+
+    cards = rig.store.list_cards(workflow_id)
+    assert resolution.changed
+    assert rig.kinds(workflow_id) == [
+        ("security_review", "cancelled"), ("security_review", "done"),
+        ("understanding", "ready"),
+    ]
+    assert current_phase(cards) == "Understanding"
+    assert dict(phase_statuses(cards))["Intake"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_a_resolved_review_is_not_resolved_again(
+    tmp_path: Path,
+) -> None:
+    """Ensure a second release, or a release after a discard, changes
+    nothing (feature 041)."""
+    rig = _Rig(tmp_path, _SUSPECT)
+    workflow_id, review_id = await _quarantined(rig)
+    rig.quarantine.discard(review_id)
+    revision = rig.store.get_workflow(workflow_id).revision
+
+    again = rig.quarantine.release(review_id)
+
+    assert not again.changed
+    assert again.review.review_state == "discarded"
+    assert rig.kinds(workflow_id)[-1] == ("security_review", "cancelled")
+    assert rig.store.get_workflow(workflow_id).revision == revision
 
 
 @pytest.mark.asyncio
