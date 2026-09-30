@@ -34,6 +34,7 @@ function gateCard(
       round: null,
       cap: null,
       target_artifact: null,
+      persona: null,
     },
     ...overrides,
   })
@@ -338,7 +339,7 @@ describe('ActionBanner whose move (feature 035)', () => {
   it('names the hat the decision needs', () => {
     const wrapper = mountBanner([
       gateCard('approve_strategic_fit', {
-        awaiting: { actor: 'cab', ask: 'approve_strategic_fit' },
+        awaiting: { actor: 'cab', ask: 'approve_strategic_fit', role: null },
       }),
     ])
     expect(wrapper.find('[data-testid="banner-actor"]').text()).toBe(

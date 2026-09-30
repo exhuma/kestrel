@@ -1,7 +1,7 @@
 id = "dba"
 label = "Database Specialist"
 purpose = "Data model, schema changes/migrations, indexing, and retention."
-allowed_card_types = ["analysis"]
+allowed_card_types = ["analysis", "refinement"]
 required_abilities = ["text"]
 model_policy = "default"
 workspace_permission = "read_only"

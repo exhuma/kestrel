@@ -18,7 +18,6 @@ from app.models_board import (
     WorkCard,
     WorkspacePermission,
 )
-from app.persistence.board_store import BoardStore
 from app.policy import SpecialistCapabilityError
 from app.services.board.artifacts import (
     CARD_RESULT_LOGICAL_NAME,
@@ -31,10 +30,6 @@ from app.services.board.claims import (
     ReadCapacityExceededError,
 )
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.decomposition import (
-    RoutingServices,
-    route_decomposition_result,
-)
 from app.services.board.dispatch import (
     CardTurnError,
     _TurnBackend,
@@ -46,10 +41,7 @@ from app.services.board.dispatch_delivery import (
     _dispatch_pending_delivery,
     _request_delivery,
 )
-from app.services.board.estimation import (
-    estimation_context,
-    route_estimation_result,
-)
+from app.services.board.dispatch_extras import ROUTES, extra_context_for
 from app.services.board.gates import GatesService
 from app.services.board.live_activity import (
     LiveActivity,
@@ -57,21 +49,9 @@ from app.services.board.live_activity import (
     tracking,
     turn_failure,
 )
-from app.services.board.materialise import task_context
 from app.services.board.projections import ProjectionsService
-from app.services.board.refinement import (
-    gather_refinement_context,
-    route_prd_result,
-    route_refinement_result,
-    route_strategic_interview_result,
-)
-from app.services.board.refinement_rounds import round_context
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
-from app.services.board.understanding import (
-    route_understanding_result,
-    understanding_context,
-)
 from app.services.board.verification import route_verifier_result
 from app.services.board.verification_rounds import RoundContext
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
@@ -152,7 +132,7 @@ async def dispatch_ready_work(
     system action, not a specialist turn, so it isn't claimed like the
     roles above.
     """
-    for specialist_id in sorted(services.roster.ids() - {"coordinator"}):
+    for specialist_id in sorted(services.roster.ids()):
         specialist = services.roster.get(specialist_id)
         if specialist is None:
             continue
@@ -198,50 +178,6 @@ def _claim_for(
     return backend, card
 
 
-#: Envelope extras that need only the store and artifacts: the PRD
-#: card's interview answers (feature 026), and an understanding
-#: redraft's rejected restatement plus correction (feature 032).
-_STORE_CONTEXTS: dict[
-    str, Callable[[WorkCard, BoardStore, ArtifactsService], str]
-] = {
-    CardKind.PRD.value: lambda card, store, artifacts: (
-        gather_refinement_context(card.workflow_id, store, artifacts)
-    ),
-    CardKind.UNDERSTANDING.value: understanding_context,
-}
-
-
-def _extra_context_for(
-    workflow_id: str, card: WorkCard, services: DispatchServices
-) -> str:
-    """Per-card-kind envelope extras (feature 026's ``prd`` interview
-    context, feature 028's round-N-of-M text for a ``refinement`` card,
-    feature 031's approved task for any card working on one).
-    """
-    if card.task_node_id:
-        return task_context(
-            card, services.claims.store.list_cards(workflow_id),
-            services.artifacts,
-        )
-    if card.kind in _STORE_CONTEXTS:
-        return _STORE_CONTEXTS[card.kind](
-            card, services.claims.store, services.artifacts
-        )
-    if (
-        card.kind == CardKind.ESTIMATION.value
-        and services.coordinator
-        and services.gates
-    ):
-        return estimation_context(card, _routing(services))
-    if card.kind == CardKind.REFINEMENT.value and services.gates:
-        cards = services.claims.store.list_cards(workflow_id)
-        return round_context(
-            card, cards, services.gates.get_gate, services.artifacts,
-            services.gates.refinement_round_cap,
-        )
-    return ""
-
-
 async def _dispatch_one(
     workflow_id: str,
     services: DispatchServices,
@@ -260,7 +196,7 @@ async def _dispatch_one(
         return
     cwd, permission_mode = workspace
     workflow = services.claims.store.get_workflow(workflow_id)
-    extra_context = _extra_context_for(workflow_id, card, services)
+    extra_context = extra_context_for(workflow_id, card, services)
     envelope = build_card_envelope(
         specialist, workflow, card, extra_context=extra_context
     )
@@ -310,53 +246,6 @@ async def _dispatch_one(
     await _route_result(workflow_id, card, result.final_text, services)
 
 
-_Route = Callable[[str, WorkCard, "DispatchServices"], None]
-
-
-def _routing(services: DispatchServices) -> RoutingServices:
-    """Adapt :class:`DispatchServices` to the decomposition/estimation
-    routes' bundle.
-
-    :raises ValueError: If the coordinator or gates are not configured —
-        callers check both first, so this never fires in practice.
-    """
-    if services.coordinator is None or services.gates is None:
-        raise ValueError("routing needs a coordinator and gates")
-    return RoutingServices(
-        store=services.claims.store,
-        coordinator=services.coordinator,
-        gates=services.gates,
-        artifacts=services.artifacts,
-    )
-
-
-def _legacy_route(route: Callable[..., None]) -> _Route:
-    """Adapt a ``(text, card, coordinator, gates, artifacts)`` route."""
-    return lambda text, card, services: route(
-        text, card, services.coordinator, services.gates, services.artifacts
-    )
-
-
-#: Card kind -> the follow-up router for its accepted result (research
-#: R9). Every entry needs both the coordinator (to escalate) and gates
-#: (to open the next human decision); a deployment without them leaves
-#: these results generically accepted with no follow-up.
-_ROUTES: dict[str, _Route] = {
-    CardKind.DECOMPOSITION.value: lambda text, card, services: (
-        route_decomposition_result(text, card, _routing(services))
-    ),
-    CardKind.ESTIMATION.value: lambda text, card, services: (
-        route_estimation_result(text, card, _routing(services))
-    ),
-    CardKind.REFINEMENT.value: _legacy_route(route_refinement_result),
-    CardKind.PRD.value: _legacy_route(route_prd_result),
-    CardKind.STRATEGIC_INTERVIEW.value: _legacy_route(
-        route_strategic_interview_result
-    ),
-    CardKind.UNDERSTANDING.value: _legacy_route(route_understanding_result),
-}
-
-
 async def _route_result(
     workflow_id: str,
     card: WorkCard,
@@ -369,7 +258,7 @@ async def _route_result(
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
         await _route_verification(workflow_id, card, final_text, services)
         return
-    route = _ROUTES.get(card.kind)
+    route = ROUTES.get(card.kind)
     if route is not None and services.coordinator and services.gates:
         route(final_text, card, services)
 

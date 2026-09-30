@@ -36,7 +36,6 @@ from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
 
-_INTERVIEW_PERSONA_COUNT = 3
 _STRATEGIC_QUESTIONS = (
     '<REFINEMENT_QUESTIONS>{"questions": '
     '["Why does this matter to the business?"]}</REFINEMENT_QUESTIONS>'
@@ -146,10 +145,11 @@ class TestCab1EnabledFullChain:
         assert cab1_gates[0].state == "awaiting_human"
 
         gates.resolve(cab1_gates[0].id, "approved")
-        refinement_cards = [
-            c for c in store.list_cards("wf-1") if c.kind == "refinement"
+        # The coordinator now plans who is interviewed (feature 038).
+        plans = [
+            c for c in store.list_cards("wf-1") if c.kind == "interview_plan"
         ]
-        assert len(refinement_cards) == _INTERVIEW_PERSONA_COUNT
+        assert len(plans) == 1
 
     @pytest.mark.asyncio
     async def test_rejecting_cab1_leaves_prior_history_intact(
@@ -180,7 +180,7 @@ class TestCab1EnabledFullChain:
         gates.resolve(cab1_gate.id, "rejected")
 
         kinds = {c.kind for c in store.list_cards("wf-1")}
-        assert "refinement" not in kinds
+        assert "interview_plan" not in kinds
         assert {
             "understanding_gate", "strategic_interview",
             "strategic_interview_gate", "cab1_gate",
@@ -204,10 +204,5 @@ class TestCab1DisabledByDefault:
         )
         gates.resolve(understanding.id, "approved")
 
-        kinds = {c.kind for c in store.list_cards("wf-1")}
-        assert kinds == {"understanding_gate", "refinement"}
-        assert (
-            len([c for c in store.list_cards("wf-1")
-                 if c.kind == "refinement"])
-            == _INTERVIEW_PERSONA_COUNT
-        )
+        kinds = [c.kind for c in store.list_cards("wf-1")]
+        assert kinds == ["understanding_gate", "interview_plan"]

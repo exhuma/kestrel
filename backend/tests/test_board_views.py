@@ -72,6 +72,9 @@ class _StubGates:
         self.refinement_round_cap = cap
         self._rounds = rounds or {}
 
+    def interview_personas(self, _cards: list[WorkCard]) -> dict[str, str]:
+        return {}
+
     def gate_round(
         self, card: WorkCard, cards: list[WorkCard]
     ) -> int | None:

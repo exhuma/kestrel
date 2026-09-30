@@ -21,16 +21,19 @@ from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dependents import advance_ready_dependents
 from app.services.board.interview_answers import check_open
+from app.services.board.interview_batch import (
+    InterviewBoard,
+    maybe_plan_next,
+    open_plan,
+)
 from app.services.board.materialise import (
     MaterialiseTarget,
     materialise_decomposition,
 )
 from app.services.board.prd_redraft import maybe_redraft_prd
 from app.services.board.refinement_rounds import (
-    has_any_round,
-    maybe_advance_round,
+    persona_for_gate,
     round_of_gate,
-    still_pending,
 )
 from app.services.board.service import BoardService
 from app.services.board.understanding_redraft import (
@@ -41,10 +44,6 @@ _DECISION_TARGET_STATE = {
     "approved": CardState.DONE,
     "rejected": CardState.CANCELLED,
 }
-
-#: T078's three interview personas — see ``models_board.py``'s
-#: ``CardKind.REFINEMENT`` and ``specialists/{requester,pm,uiux}``.
-_REFINEMENT_PERSONAS = ("requester", "pm", "uiux")
 
 #: The one logical name a gate resolution's free-text response is stored
 #: under — see ``refinement.py``'s own copy of this constant (kept
@@ -170,20 +169,44 @@ class GatesService:
         or ``None`` if it is not a round-capped ``refinement_gate``."""
         return round_of_gate(card, cards, self.get_gate, self._artifacts)
 
+    def interview_personas(self, cards: list[WorkCard]) -> dict[str, str]:
+        """Each open or answered interview gate's profile, by gate id
+        (feature 038)."""
+        found = {}
+        for card in cards:
+            record = self.get_gate(card.id)
+            if record is None or record.requested_decision != "answer":
+                continue
+            persona = persona_for_gate(
+                card, cards, self.get_gate, self._artifacts
+            )
+            if persona is not None:
+                found[card.id] = persona
+        return found
+
     def mark_refinement_satisfied(self, card: WorkCard) -> None:
         """Complete one persona's interview directly, with no gate
         (feature 028) — the persona signaled it needs no further round.
 
-        Unlike a resolved gate, this is never triggered by an operator
-        action, so it re-runs the same "maybe every persona is now
-        done" check :meth:`resolve` runs after every gate decision —
-        otherwise a workflow whose *last* persona finishes this way
-        would never see its PRD card get created.
+        What follows — reviewing the batch, or planning the next one —
+        is up to the draft's router (``question_review.after_draft``,
+        feature 038).
         """
-        done = self._board_service.transition_card(
+        self.transition(
             card.id, CardState.DONE.value, event_type="refinement.satisfied"
         )
-        self._maybe_start_prd(done)
+
+    def transition(
+        self, card_id: str, target_state: str, *, event_type: str
+    ) -> WorkCard | None:
+        """Move a card the interview's routers own (feature 038). A card
+        its accepted result already moved there only records the event."""
+        card = self._store.get_card(card_id)
+        if card is not None and card.state == target_state:
+            return self._board_service.record_event(card_id, event_type)
+        return self._board_service.transition_card(
+            card_id, target_state, event_type=event_type
+        )
 
     def resolve(
         self, card_id: str, decision: str, *, answer: str | None = None
@@ -229,7 +252,6 @@ class GatesService:
             self._maybe_require_cab1_interview(card)
             self._maybe_require_cab1_decision(card)
             self._maybe_require_refinement(card)
-            self._maybe_advance_refinement_round(card)
             self._maybe_require_decomposition(card)
             self._maybe_approve_prd(card)
             self._maybe_materialise(card)
@@ -242,7 +264,11 @@ class GatesService:
                 card, self._store, self._required.understanding_redraft_cap
             )
             self._invalidate_dependents(card.workflow_id, card_id)
-        self._maybe_start_prd(card)
+        # An answered interview may finish its batch: plan the next one
+        # (feature 038). Rejected ones count too — never deadlock.
+        maybe_plan_next(card, InterviewBoard(
+            self._store, self.get_gate, self._artifacts,
+        ))
         return card
 
     def _decomposition_trigger_kind(self) -> str:
@@ -338,8 +364,9 @@ class GatesService:
         )
 
     def _maybe_require_refinement(self, resolved_gate: WorkCard) -> None:
-        """Deterministically create the three persona interview cards
-        right after refinement's trigger gate is approved, when enforced.
+        """Start the interview once refinement's trigger gate is
+        approved, when enforced: the coordinator plans who is asked
+        (feature 038).
 
         The trigger is ``cab1_gate`` when CAB-1 is also required (feature
         027 — refinement must wait for a strategic go), else
@@ -354,71 +381,7 @@ class GatesService:
         workflow = self._store.get_workflow(resolved_gate.workflow_id)
         if workflow is None:
             return
-        for persona in _REFINEMENT_PERSONAS:
-            self._store.create_card(
-                WorkCard(
-                    id=f"card-{uuid.uuid4().hex[:8]}",
-                    workflow_id=workflow.id,
-                    kind=CardKind.REFINEMENT.value,
-                    title=f"{persona} interview questions",
-                    state=CardState.READY,
-                    eligible_roles=(persona,),
-                )
-            )
-
-    #: Card kinds whose resolution may be the *last* thing a workflow's
-    #: refinement phase was waiting on (feature 028: a persona can now
-    #: finish via either an answered ``refinement_gate`` or a directly
-    #: satisfied ``refinement`` card — see
-    #: :meth:`mark_refinement_satisfied`).
-    _REFINEMENT_COMPLETION_TRIGGERS = frozenset(
-        {CardKind.REFINEMENT_GATE.value, CardKind.REFINEMENT.value}
-    )
-
-    def _maybe_start_prd(self, resolved_gate: WorkCard) -> None:
-        """Create `pm`'s PRD-drafting card once every persona interview
-        has reached a terminal state.
-
-        A no-op for any other card kind, if any interview is still
-        outstanding, or if a ``prd``/``prd_gate`` already exists (belt
-        and suspenders — this should only ever become true once, at the
-        moment the last interview resolves). A rejected interview counts
-        as terminal too: the workflow must not deadlock on one persona
-        never answering.
-        """
-        if resolved_gate.kind not in self._REFINEMENT_COMPLETION_TRIGGERS:
-            return
-        cards = self._store.list_cards(resolved_gate.workflow_id)
-        if not has_any_round(cards) or still_pending(
-            cards, self._gate_store.get_for_card, self._artifacts
-        ):
-            return
-        if any(
-            c.kind in (CardKind.PRD.value, CardKind.PRD_GATE.value)
-            for c in cards
-        ):
-            return
-        self._store.create_card(
-            WorkCard(
-                id=f"card-{uuid.uuid4().hex[:8]}",
-                workflow_id=resolved_gate.workflow_id,
-                kind=CardKind.PRD.value,
-                title="Draft PRD",
-                state=CardState.READY,
-                eligible_roles=("pm",),
-            )
-        )
-
-    def _maybe_advance_refinement_round(self, resolved_gate: WorkCard) -> None:
-        """Create the next interview round for one persona once their
-        ``refinement_gate`` is answered, unless they're at the round cap
-        (feature 028). Delegates to ``refinement_rounds.py`` (split out
-        to stay within the repo's module-length limit).
-        """
-        maybe_advance_round(
-            resolved_gate, self._store, self._gate_store.get_for_card,
-            self._artifacts, self._required.refinement_round_cap,
-        )
+        open_plan(self._store, workflow.id)
 
     def _maybe_approve_prd(self, prd_gate: WorkCard) -> None:
         """Record the approved PRD's content on the workflow, once its

@@ -107,6 +107,12 @@ class CardKind(StrEnum):
     #: approved decomposition; resolved only by the operator's
     #: ``complete_manual_task`` action from ``awaiting_human``.
     MANUAL_TASK = "manual_task"
+    #: The coordinator's choice of who is interviewed next (feature 038).
+    #: Created only by code: after CAB-1, and once a batch is answered.
+    INTERVIEW_PLAN = "interview_plan"
+    #: The coordinator's removal of questions asked twice, before a
+    #: batch's interviews open (feature 038). Created only by code.
+    QUESTION_REVIEW = "question_review"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves

@@ -107,6 +107,14 @@ waits. Approving an `answer` gate needs a response to every question in its
 question set (the `Q:`/`A:` answer text); otherwise it is a 422 naming the
 questions without a response.
 
+**Amendment (feature 038)**: two new card kinds, `interview_plan` and
+`question_review`, are created only by code and claimed by `coordinator`.
+The **Card Summary**'s `gate` gains `persona` (`BoardRoleRef | null`): for
+an interview gate, the profile whose human answers it. `awaiting` gains the
+actor `role`, with `role` (`BoardRoleRef`) naming that profile. New events:
+`interview.planned`, `question_review.applied`, `question_review.ignored`,
+and `refinement.deduplicated`.
+
 ## Shared Enumerations
 
 ```text

@@ -32,10 +32,19 @@ const TITLE_PERSONA = /^(\w+) interview\b/i
  *  has no such prefix because it is always the requester's
  *  (`refinement.py::route_strategic_interview_result`), so anything that
  *  does not match falls back to `'requester'` rather than guessing a
- *  persona that was never offered. */
+ *  persona that was never offered. The server now names it
+ *  (`gate.persona`, feature 038); the title is the fallback for older
+ *  servers. */
 export function personaOf(card: WorkCardSummary): string {
+  if (card.gate?.persona) return card.gate.persona.id
   const match = TITLE_PERSONA.exec(card.title)
   return match ? match[1].toLowerCase() : 'requester'
+}
+
+/** The profile's display name: the server's label (feature 038), else
+ *  the id as read from the title. */
+export function personaLabelOf(card: WorkCardSummary): string {
+  return card.gate?.persona?.label ?? personaOf(card)
 }
 
 /** One question as parsed: open (`options` null) or a choice question
@@ -103,6 +112,7 @@ export function buildInterviewCards(
     result.push({
       cardId: card.id,
       persona: personaOf(card),
+      personaLabel: personaLabelOf(card),
       questions: raw.map((q, i) => ({
         id: `${card.id}:${i}`,
         prompt: q.prompt,

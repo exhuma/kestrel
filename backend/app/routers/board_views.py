@@ -79,6 +79,8 @@ class BoardLookups:
     gate_targets: dict[str, HandoffArtifact] = field(default_factory=dict)
     #: What the request is doing right now (feature 033).
     activity: RequestActivityOut | None = None
+    #: card_id -> the profile an interview gate asks (feature 038).
+    gate_personas: dict[str, str] = field(default_factory=dict)
 
 
 #: ``BoardWorkflowRow.state`` for a synthetic quarantine-hosting workflow
@@ -146,8 +148,11 @@ def workflow_summary(
     cards: list[WorkCard],
     gates: GatesService,
     activity: RequestActivityOut | None = None,
+    *,
+    roster: SpecialistRoster | None = None,
 ) -> WorkflowSummaryOut:
     """One workflow's row in the board collection listing."""
+    personas = gates.interview_personas(cards)
     phase = current_phase(cards)
     return WorkflowSummaryOut(
         id=workflow.id,
@@ -161,12 +166,24 @@ def workflow_summary(
         cap_exhausted=_cap_exhausted(cards, gates),
         open_manual_task_count=open_manual_task_count(cards),
         activity=activity,
-        awaiting=[AwaitingOut(**asdict(a)) for a in awaiting_all(cards)],
+        awaiting=[
+            _awaiting_out(a, roster) for a in awaiting_all(cards, personas)
+        ],
     )
 
 
-def _awaiting_out(found: Awaiting | None) -> AwaitingOut | None:
-    return AwaitingOut(**asdict(found)) if found is not None else None
+def _awaiting_out(
+    found: Awaiting | None, roster: SpecialistRoster | None
+) -> AwaitingOut | None:
+    if found is None:
+        return None
+    role = None
+    if found.role is not None:
+        role = (
+            _role_ref(roster, found.role) if roster is not None
+            else BoardRoleRefOut(id=found.role, label=found.role)
+        )
+    return AwaitingOut(actor=found.actor, ask=found.ask, role=role)
 
 
 def request_activity(
@@ -266,7 +283,10 @@ def card_summary(
         allowed_actions=[a.value for a in allowed_actions_for(card)],
         security_review_id=lookups.security_review_ids.get(card.id),
         gate=_gate_detail(card.id, lookups),
-        awaiting=_awaiting_out(awaiting_of(card)),
+        awaiting=_awaiting_out(
+            awaiting_of(card, lookups.gate_personas.get(card.id)),
+            lookups.roster,
+        ),
     )
 
 
@@ -318,7 +338,13 @@ def _gate_detail(
         round=round_state[0] if round_state else None,
         cap=round_state[1] if round_state else None,
         target_artifact=_artifact_ref(lookups.gate_targets.get(card_id)),
+        persona=_persona_ref(lookups, card_id),
     )
+
+
+def _persona_ref(lookups: BoardLookups, card_id: str) -> BoardRoleRefOut | None:
+    persona = lookups.gate_personas.get(card_id)
+    return _role_ref(lookups.roster, persona) if persona else None
 
 
 def board_events(

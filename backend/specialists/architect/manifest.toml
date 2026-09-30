@@ -1,7 +1,7 @@
 id = "architect"
 label = "Solution Architect"
 purpose = "Service/module boundaries, integration, data flow, and trade-offs."
-allowed_card_types = ["analysis"]
+allowed_card_types = ["analysis", "refinement"]
 required_abilities = ["text"]
 model_policy = "default"
 workspace_permission = "read_only"

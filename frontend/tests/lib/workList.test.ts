@@ -66,7 +66,7 @@ describe('workGroups waiting cards (feature 035)', () => {
         workCardSummary({
           id: 'g',
           state: 'awaiting_human',
-          awaiting: { actor: 'cab', ask: 'approve_strategic_fit' },
+          awaiting: { actor: 'cab', ask: 'approve_strategic_fit', role: null },
         }),
       ],
       [],

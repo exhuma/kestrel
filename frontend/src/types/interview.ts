@@ -45,7 +45,10 @@ export interface InterviewQuestion {
  *  state and the card id the combined answer is submitted against. */
 export interface InterviewCard {
   cardId: string
+  /** The profile's specialist id, e.g. `uiux` (colours the form). */
   persona: string
+  /** Its display name, e.g. "Design & Usability" (feature 038). */
+  personaLabel: string
   questions: InterviewQuestion[]
   round: number | null
   cap: number | null

@@ -97,8 +97,8 @@ describe('RequestCard whose move (feature 035)', () => {
     const wrapper = mountCard(
       request('your-move', {
         awaiting: [
-          { actor: 'cab', ask: 'approve_strategic_fit' },
-          { actor: 'you', ask: 'do_task' },
+          { actor: 'cab', ask: 'approve_strategic_fit', role: null },
+          { actor: 'you', ask: 'do_task', role: null },
         ],
       }),
     )

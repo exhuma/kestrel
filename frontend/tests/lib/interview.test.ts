@@ -4,6 +4,7 @@ import {
   deriveRoundState,
   isOpenInterviewCard,
   parseQuestionSet,
+  personaLabelOf,
   personaOf,
 } from '../../src/lib/interview'
 import { workCardSummary } from '../support/board'
@@ -20,6 +21,7 @@ function interviewGate(overrides: Parameters<typeof workCardSummary>[0] = {}) {
       round: 1,
       cap: 3,
       target_artifact: null,
+      persona: null,
     },
     ...overrides,
   })
@@ -40,6 +42,7 @@ describe('isOpenInterviewCard', () => {
             round: 1,
             cap: 3,
             target_artifact: null,
+            persona: null,
           },
         }),
       ),
@@ -56,6 +59,7 @@ describe('isOpenInterviewCard', () => {
             round: null,
             cap: null,
             target_artifact: null,
+            persona: null,
           },
         }),
       ),
@@ -70,6 +74,22 @@ describe('isOpenInterviewCard', () => {
 })
 
 describe('personaOf', () => {
+  it("takes the server's profile first, with its label (feature 038)", () => {
+    const gate = interviewGate({
+      title: 'dba interview (1 question)',
+      gate: {
+        requested_decision: 'answer',
+        decision: null,
+        round: 1,
+        cap: 3,
+        target_artifact: null,
+        persona: { id: 'dba', label: 'Database Specialist' },
+      },
+    })
+    expect(personaOf(gate)).toBe('dba')
+    expect(personaLabelOf(gate)).toBe('Database Specialist')
+  })
+
   it('reads the persona off a refinement_gate title', () => {
     expect(
       personaOf(interviewGate({ title: 'pm interview (2 questions)' })),

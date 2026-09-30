@@ -137,70 +137,41 @@ describe('WorkCardDetail permitted actions', () => {
   })
 })
 
+/** An open gate asking *requested*. */
+function gateCard(requested: string) {
+  return card({
+    allowed_actions: ['resolve_gate'],
+    gate: {
+      requested_decision: requested,
+      decision: null,
+      round: null,
+      cap: null,
+      target_artifact: null,
+      persona: null,
+    },
+  })
+}
+
 describe('WorkCardDetail gate answer field visibility', () => {
   it('shows no answer field for a plain approve/reject gate', () => {
-    const wrapper = mountCard(
-      card({
-        allowed_actions: ['resolve_gate'],
-        gate: {
-          requested_decision: 'confirm_understanding',
-          decision: null,
-          round: null,
-          cap: null,
-          target_artifact: null,
-        },
-      }),
-    )
+    const wrapper = mountCard(gateCard('confirm_understanding'))
     expect(wrapper.findComponent({ name: 'VTextarea' }).exists()).toBe(false)
   })
 
   it('shows an answer field for a refinement_gate', () => {
-    const wrapper = mountCard(
-      card({
-        allowed_actions: ['resolve_gate'],
-        gate: {
-          requested_decision: 'answer',
-          decision: null,
-          round: null,
-          cap: null,
-          target_artifact: null,
-        },
-      }),
-    )
+    const wrapper = mountCard(gateCard('answer'))
     expect(wrapper.findComponent({ name: 'VTextarea' }).exists()).toBe(true)
   })
 
   it('shows an answer field for a prd_gate rejection', () => {
-    const wrapper = mountCard(
-      card({
-        allowed_actions: ['resolve_gate'],
-        gate: {
-          requested_decision: 'approve_prd',
-          decision: null,
-          round: null,
-          cap: null,
-          target_artifact: null,
-        },
-      }),
-    )
+    const wrapper = mountCard(gateCard('approve_prd'))
     expect(wrapper.findComponent({ name: 'VTextarea' }).exists()).toBe(true)
   })
 })
 
 describe('WorkCardDetail gate answer field submission', () => {
   it('disables approve for an answer gate until text is entered', async () => {
-    const wrapper = mountCard(
-      card({
-        allowed_actions: ['resolve_gate'],
-        gate: {
-          requested_decision: 'answer',
-          decision: null,
-          round: null,
-          cap: null,
-          target_artifact: null,
-        },
-      }),
-    )
+    const wrapper = mountCard(gateCard('answer'))
     const approveBtn = wrapper.findAllComponents({ name: 'VBtn' })[0]!
     expect(approveBtn.props('disabled')).toBe(true)
     await wrapper.find('textarea').setValue('Ship by Friday.')
@@ -208,18 +179,7 @@ describe('WorkCardDetail gate answer field submission', () => {
   })
 
   it('disables reject for a PRD gate until feedback is entered', async () => {
-    const wrapper = mountCard(
-      card({
-        allowed_actions: ['resolve_gate'],
-        gate: {
-          requested_decision: 'approve_prd',
-          decision: null,
-          round: null,
-          cap: null,
-          target_artifact: null,
-        },
-      }),
-    )
+    const wrapper = mountCard(gateCard('approve_prd'))
     const rejectBtn = wrapper.findAllComponents({ name: 'VBtn' })[1]!
     expect(rejectBtn.props('disabled')).toBe(true)
     await wrapper.find('textarea').setValue('Needs more detail.')
@@ -227,18 +187,7 @@ describe('WorkCardDetail gate answer field submission', () => {
   })
 
   it('sends the answer text when approving an answer gate', async () => {
-    const wrapper = mountCard(
-      card({
-        allowed_actions: ['resolve_gate'],
-        gate: {
-          requested_decision: 'answer',
-          decision: null,
-          round: null,
-          cap: null,
-          target_artifact: null,
-        },
-      }),
-    )
+    const wrapper = mountCard(gateCard('answer'))
     await wrapper.find('textarea').setValue('Ship by Friday.')
     await wrapper.findAllComponents({ name: 'VBtn' })[0]!.trigger('click')
     expect(mockApplyIntervention).toHaveBeenCalledWith(

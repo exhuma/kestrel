@@ -1,7 +1,7 @@
 id = "coordinator"
 label = "Coordinator"
 purpose = "Proposes bounded board actions in reaction to events; never mutates state directly."
-allowed_card_types = []
+allowed_card_types = ["interview_plan", "question_review"]
 required_abilities = []
 model_policy = "default"
 workspace_permission = "none"

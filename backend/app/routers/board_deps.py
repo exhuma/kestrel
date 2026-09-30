@@ -106,6 +106,7 @@ def board_lookups(cards: list[WorkCard], deps: BoardReadDeps) -> BoardLookups:
     gates: dict[str, HumanGateRecord] = {}
     gate_rounds: dict[str, tuple[int, int]] = {}
     gate_targets: dict[str, HandoffArtifact] = {}
+    gate_personas = deps.gates.interview_personas(cards)
     for card in cards:
         lease = deps.claims_store.get_active_lease(card.id)
         if lease is not None:
@@ -138,6 +139,7 @@ def board_lookups(cards: list[WorkCard], deps: BoardReadDeps) -> BoardLookups:
         gates=gates,
         gate_rounds=gate_rounds,
         gate_targets=gate_targets,
+        gate_personas=gate_personas,
     )
 
 
@@ -185,10 +187,14 @@ def board_list_deps(
 def _summary(
     workflow: Workflow, cards: list[WorkCard], deps: BoardListDeps
 ) -> WorkflowSummaryOut:
-    return workflow_summary(workflow, cards, deps.gates, request_activity(
-        cards, deps.board.list_events(workflow.id),
-        deps.core.live.current(workflow.id), deps.core.roster,
-    ))
+    return workflow_summary(
+        workflow, cards, deps.gates,
+        request_activity(
+            cards, deps.board.list_events(workflow.id),
+            deps.core.live.current(workflow.id), deps.core.roster,
+        ),
+        roster=deps.core.roster,
+    )
 
 
 def snapshot_for(workflow_id: str, deps: BoardReadDeps) -> BoardSnapshotOut:

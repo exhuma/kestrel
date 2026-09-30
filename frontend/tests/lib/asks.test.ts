@@ -21,6 +21,7 @@ function gateCard(
       round: null,
       cap: null,
       target_artifact: null,
+      persona: null,
     },
     ...overrides,
   })
@@ -50,6 +51,7 @@ describe('pendingAsk when nothing is wanted', () => {
         round: null,
         cap: null,
         target_artifact: null,
+        persona: null,
       },
     })
     expect(pendingAsk([card])).toBeNull()

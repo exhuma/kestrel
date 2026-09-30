@@ -116,3 +116,15 @@ def _response(text: str, prompt: str, next_prompt: str | None) -> str:
     if next_prompt is not None:
         end = text.find(f"\n\nQ: {next_prompt}\nA: ", start)
     return text[start:end if end != -1 else len(text)].strip()
+
+
+def answer_to(text: str, prompt: str) -> str:
+    """The trimmed response to *prompt* in an answered interview's text,
+    whatever question follows it; '' when it is absent."""
+    marker = f"Q: {prompt}\nA: "
+    start = text.find(marker)
+    if start == -1:
+        return ""
+    start += len(marker)
+    end = text.find("\n\nQ: ", start)
+    return text[start:end if end != -1 else len(text)].strip()

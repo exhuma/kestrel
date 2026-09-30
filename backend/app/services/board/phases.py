@@ -48,7 +48,10 @@ _PHASES: tuple[_PhaseDef, ...] = (
     _PhaseDef(
         "Pre-assessment",
         "Discovery",
-        frozenset({CardKind.REFINEMENT, CardKind.REFINEMENT_GATE}),
+        frozenset({
+            CardKind.REFINEMENT, CardKind.REFINEMENT_GATE,
+            CardKind.INTERVIEW_PLAN, CardKind.QUESTION_REVIEW,
+        }),
     ),
     _PhaseDef("PRD", "Definition", frozenset({CardKind.PRD})),
     _PhaseDef("PRD sign-off", "Definition", frozenset({CardKind.PRD_GATE})),

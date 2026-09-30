@@ -5,7 +5,7 @@
  */
 import type { Awaiting } from '../types/workflows'
 
-const ACTORS: Readonly<Record<Awaiting['actor'], string>> = {
+const ACTORS: Readonly<Record<Exclude<Awaiting['actor'], 'role'>, string>> = {
   requester: 'Requester',
   cab: 'CAB',
   you: 'You',
@@ -25,6 +25,7 @@ const ASKS: Readonly<Record<string, string>> = {
 }
 
 export function actorLabel(awaiting: Awaiting): string {
+  if (awaiting.actor === 'role') return awaiting.role?.label ?? 'Someone'
   return ACTORS[awaiting.actor] ?? awaiting.actor
 }
 

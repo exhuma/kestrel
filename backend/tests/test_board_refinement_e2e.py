@@ -1,120 +1,118 @@
-"""End-to-end test for the full refinement-interview → PRD → approval
-flow through the real dispatch loop (feature 026, T078).
+"""End-to-end: the coordinator-run interview, through the real dispatch
+loop, to an approved PRD (feature 026 T078; feature 038).
 
-Unlike ``test_board_refinement.py`` (unit-level parsing/routing) and
-``test_board_gates_prd.py`` (``GatesService`` in isolation), this drives
-the whole sequence the way it actually happens: ``understanding_gate``
-approval deterministically creates the three interview cards,
-``dispatch_ready_work`` claims and turns each one, an operator answers
-each ``refinement_gate``, the last answer deterministically creates
-`pm`'s ``prd`` card, another dispatch pass drafts and routes it, and
-approving the resulting ``prd_gate`` records ``Workflow.approved_prd``.
+Understanding approval starts the interview plan. The coordinator names
+pm and dba; both draft, both ask the deadline; the review keeps it with
+pm only. The operator answers; the coordinator brings in infosec for a
+second batch; an empty plan then completes the interview, pm drafts the
+PRD from every answer, and approving it records the approved scope.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from app.backends.base import TurnRequest, TurnResult
-from app.models_board import SpecialistDefinition, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
-from app.persistence.board_artifact_store import BoardArtifactStore
-from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
-from app.persistence.board_gate_store import BoardGateStore
-from app.persistence.board_store import BoardStore
-from app.services.board.artifacts import ArtifactsService
-from app.services.board.claims import ClaimsService
-from app.services.board.coordinator import CoordinatorService
-from app.services.board.dispatch_ready import (
-    DispatchServices,
-    dispatch_ready_work,
-)
-from app.services.board.gates import GateRequirements, GatesService
-from app.services.board.service import BoardService
-from app.services.board.specialists import SpecialistRoster
-from tests.board_test_support import board_session_factory
+from app.services.board.dispatch_ready import dispatch_ready_work
+from tests.interview_support import interview_stack
 
-_INTERVIEW_PERSONA_COUNT = 3
-
-_WORKFLOW = Workflow(
-    id="wf-1", source="github-issue", task_ref="owner/repo#1",
-    repo="owner/repo", base_branch="main", source_visibility="public",
-    title="Add CSV export", task_body="Users need to export data as CSV.",
-)
+_DEADLINE = "What is the deadline?"
+_STORAGE = "Where is the exported data stored?"
+_PERSONAL = "Does the export contain personal data?"
 
 
-class _KindAwareBackend:
-    """Returns a fixed result per card kind, read from the envelope
-    (the only thing distinguishing turns dispatched to the same
-    specialist across different cards in this test)."""
-
-    def __init__(self, by_kind: dict[str, str]) -> None:
-        self._by_kind = by_kind
-
-    async def run_turn(self, req: TurnRequest) -> TurnResult:
-        for kind, text in self._by_kind.items():
-            if f"Kind: {kind}" in req.prompt:
-                return TurnResult(session_id="turn-1", final_text=text)
-        raise AssertionError(f"unexpected envelope: {req.prompt!r}")
-
-
-def _persona(role_id: str, *card_types: str) -> SpecialistDefinition:
-    return SpecialistDefinition(
-        id=role_id, label=role_id, purpose="test role",
-        allowed_card_types=card_types, required_abilities=(),
-        model_policy="default", workspace_permission="read_only",
-        retry_limit=1, prompt=f"You are {role_id}.",
+def _questions(*prompts: str) -> str:
+    return (
+        "<REFINEMENT_QUESTIONS>"
+        + json.dumps({"questions": list(prompts)})
+        + "</REFINEMENT_QUESTIONS>"
     )
 
 
-class TestFullRefinementToPrdFlow:
+def _plan(*ids: str) -> str:
+    entries = [{"specialist": sid, "reason": "test"} for sid in ids]
+    body = json.dumps({"interviewers": entries})
+    return f"<INTERVIEWERS>{body}</INTERVIEWERS>"
+
+
+class _Scripted:
+    """Answers each turn by card kind and specialist; records prompts."""
+
+    def __init__(self) -> None:
+        self.plans = [_plan("pm", "dba", "nobody"), _plan("infosec"), _plan()]
+        self.reviews = [
+            '<QUESTION_REVIEW>{"drop": [{"question": "dba-1", '
+            '"duplicate_of": "pm-1"}]}</QUESTION_REVIEW>',
+            '<QUESTION_REVIEW>{"drop": []}</QUESTION_REVIEW>',
+        ]
+        self.drafts = {
+            "pm": _questions(_DEADLINE),
+            "dba": _questions(_DEADLINE, _STORAGE),
+            "infosec": _questions(_PERSONAL),
+        }
+        self.prompts: list[str] = []
+
+    async def run_turn(self, req: TurnRequest) -> TurnResult:
+        self.prompts.append(req.prompt)
+        text = self._answer(req.prompt)
+        return TurnResult(session_id="turn", final_text=text)
+
+    def _answer(self, prompt: str) -> str:
+        if "Kind: interview_plan" in prompt:
+            return self.plans.pop(0)
+        if "Kind: question_review" in prompt:
+            return self.reviews.pop(0)
+        if "Kind: prd" in prompt:
+            return "<PRD>Implement CSV export behind a feature flag.</PRD>"
+        persona = prompt.split("You are ", 1)[1].split(".", 1)[0]
+        return self.drafts[persona]
+
+
+def _open_interviews(store, gates, artifacts) -> dict[str, list[str]]:
+    """Open interview gates: persona -> the prompts it is asked."""
+    cards = store.list_cards("wf-1")
+    personas = gates.interview_personas(cards)
+    found = {}
+    for card in cards:
+        if card.kind == "refinement_gate" and card.state == "awaiting_human":
+            target = gates.get_gate(card.id).target_artifact_id
+            found[personas[card.id]] = (
+                json.loads(artifacts.read_content(target))["questions"]
+            )
+    return found
+
+
+def _answer_all(store, gates, answers: dict[str, str]) -> None:
+    for card in store.list_cards("wf-1"):
+        if card.kind == "refinement_gate" and card.state == "awaiting_human":
+            record = gates.get_gate(card.id)
+            prompts = json.loads(
+                gates._artifacts.read_content(record.target_artifact_id)
+            )["questions"]
+            gates.resolve(card.id, "approved", answer="\n\n".join(
+                f"Q: {p}\nA: {answers[p]}" for p in prompts
+            ))
+
+
+_ANSWERS = {
+    _DEADLINE: "Ship by Friday.",
+    _STORAGE: "In the reporting database.",
+    _PERSONAL: "Yes: customer names.",
+}
+
+
+class TestCoordinatedInterviewToPrd:
     @pytest.mark.asyncio
-    async def test_understanding_to_approved_prd(
-        self, tmp_path: Path
-    ) -> None:
-        factory = board_session_factory(tmp_path)
-        store = BoardStore(factory)
-        claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
-        gate_store = BoardGateStore(factory)
-        artifact_store = BoardArtifactStore(factory)
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
-        board_service = BoardService(store)
-        artifacts = ArtifactsService(
-            store, artifact_store, board_service, content_store
-        )
-        coordinator = CoordinatorService(
-            store, coordinator_store, board_service
-        )
-        gates = GatesService(
-            store, gate_store, board_service, artifacts,
-            required=GateRequirements(prd=True),
-        )
-        roster = SpecialistRoster({
-            "requester": _persona("requester", "refinement"),
-            "pm": _persona("pm", "refinement", "prd"),
-            "uiux": _persona("uiux", "refinement"),
-        })
-        store.create_workflow(_WORKFLOW)
-        claims = ClaimsService(
-            store=store, claims_store=claims_store, roster=roster,
-            max_parallel_read_cards=4, default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
-        )
-        services = DispatchServices(
-            claims, roster, artifacts, coordinator=coordinator, gates=gates,
-        )
-        backend = _KindAwareBackend({
-            "refinement": (
-                '<REFINEMENT_QUESTIONS>{"questions": '
-                '["What is the deadline?"]}</REFINEMENT_QUESTIONS>'
-            ),
-            "prd": "<PRD>Implement CSV export behind a feature flag.</PRD>",
-        })
+    async def test_plan_dedup_loop_in_and_prd(self, tmp_path: Path) -> None:
+        services, store, gates, artifacts = interview_stack(tmp_path)
+        backend = _Scripted()
+
+        async def run() -> None:
+            await dispatch_ready_work(
+                "wf-1", services, lambda _s: backend, timeout_seconds=5
+            )
 
         understanding = gates.create_gate(
             "wf-1", kind="understanding_gate", title="Confirm understanding",
@@ -122,38 +120,29 @@ class TestFullRefinementToPrdFlow:
         )
         gates.resolve(understanding.id, "approved")
 
-        # Pass 1: each persona's refinement card is claimed and turned,
-        # creating one refinement_gate per persona.
-        await dispatch_ready_work(
-            "wf-1", services, lambda _s: backend, timeout_seconds=5
-        )
-        interview_gates = [
-            c for c in store.list_cards("wf-1") if c.kind == "refinement_gate"
-        ]
-        assert len(interview_gates) == _INTERVIEW_PERSONA_COUNT
+        await run()  # the plan names pm and dba; both draft
+        await run()  # the review keeps the deadline with pm only
+        assert _open_interviews(store, gates, artifacts) == {
+            "pm": [_DEADLINE], "dba": [_STORAGE],
+        }
 
-        # An operator answers each interview; the last answer
-        # deterministically creates pm's prd card.
-        for gate in interview_gates:
-            gates.resolve(
-                gate.id, "approved",
-                answer="Q: What is the deadline?\nA: Ship by Friday.",
-            )
-        assert any(c.kind == "prd" for c in store.list_cards("wf-1"))
+        _answer_all(store, gates, _ANSWERS)
+        await run()  # the next plan brings in infosec, who drafts
+        await run()  # its review (against the answers so far) keeps it
+        assert _open_interviews(store, gates, artifacts) == {
+            "infosec": [_PERSONAL],
+        }
 
-        # Pass 2: pm's prd card is claimed and turned, creating prd_gate.
-        await dispatch_ready_work(
-            "wf-1", services, lambda _s: backend, timeout_seconds=5
-        )
-        prd_gates = [
+        _answer_all(store, gates, _ANSWERS)
+        await run()  # an empty plan completes the interview; pm drafts
+        (prd_gate,) = [
             c for c in store.list_cards("wf-1") if c.kind == "prd_gate"
         ]
-        assert len(prd_gates) == 1
+        prd_prompt = next(p for p in backend.prompts if "Kind: prd" in p)
+        for answer in _ANSWERS.values():
+            assert answer in prd_prompt
 
-        gates.resolve(prd_gates[0].id, "approved")
-
-        workflow = store.get_workflow("wf-1")
-        assert (
-            workflow.approved_prd
-            == "Implement CSV export behind a feature flag."
+        gates.resolve(prd_gate.id, "approved")
+        assert store.get_workflow("wf-1").approved_prd == (
+            "Implement CSV export behind a feature flag."
         )

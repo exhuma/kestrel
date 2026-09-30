@@ -181,6 +181,12 @@ class BoardService:
         self._after_mutation(card.workflow_id, card_id, event_type)
         return card
 
+    def record_event(self, card_id: str, event_type: str) -> WorkCard | None:
+        """Record *event_type* for a card that is already where it
+        belongs — e.g. an interview card its result already completed
+        (feature 038). Same effects as :meth:`record_recovery_event`."""
+        return self.record_recovery_event(card_id, event_type)
+
     def open_screening(
         self, intake: AcceptedTaskIntake
     ) -> tuple[Workflow, WorkCard]:

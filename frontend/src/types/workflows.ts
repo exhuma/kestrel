@@ -117,6 +117,9 @@ export interface WorkCardGate {
    *  produced it, so it is never the gate card's own `latest_artifact`.
    *  `null` when the gate has no target. */
   target_artifact: BoardArtifactRef | null
+  /** For an interview gate: the profile whose human answers it
+   *  (feature 038). */
+  persona: BoardRoleRef | null
 }
 
 /** One card's board-visible state. Mirrors `app.schemas.WorkCardSummaryOut`. */
@@ -149,8 +152,10 @@ export interface WorkCardSummary {
  *  phrases them. `ask` is a gate's `requested_decision`, or `do_task`,
  *  `review_input`, `retry_or_cancel` or `review`. */
 export interface Awaiting {
-  actor: 'requester' | 'cab' | 'you' | 'operator'
+  actor: 'requester' | 'cab' | 'you' | 'operator' | 'role'
   ask: string
+  /** For `role`: the profile whose human answers (feature 038). */
+  role: BoardRoleRef | null
 }
 
 /** One directed edge in a workflow's card graph. Mirrors

@@ -1,11 +1,12 @@
 """Refinement-interview and PRD-draft parsing and routing (feature 026,
 T078).
 
-A `requester`/`pm`/`uiux` ``refinement`` card proposes its own persona-
-scoped question set; this module turns it into a ``refinement_gate`` card
-holding it for the operator to answer. Once every persona's gate is
-answered, `pm`'s ``prd`` card drafts a PRD folding in all three answers;
-this module turns that into a ``prd_gate`` card holding it for approval.
+A ``refinement`` card — for whichever specialist the coordinator chose —
+proposes its own question set; this module stores it. The batch's review
+opens the ``refinement_gate`` (``question_review.py``, feature 038). Once
+the interview is complete, `pm`'s ``prd`` card drafts a PRD folding in
+every answer; this module turns that into a ``prd_gate`` card holding it
+for approval.
 An unparseable proposal is routed as an escalation too (fail closed),
 the same convention ``decomposition.py``/``verification.py`` use.
 """
@@ -98,10 +99,10 @@ def route_refinement_result(
     gates: GatesService,
     artifacts: ArtifactsService,
 ) -> None:
-    """Parse *card*'s persona question set and hold it behind a gate.
-
-    *card* is eligible for exactly one persona
-    (``requester``/``pm``/``uiux``); that persona names the gate.
+    """Parse and store *card*'s question set (feature 038: its gate
+    opens only once the batch's questions are reviewed for duplicates —
+    see ``question_review.after_draft``). *card* is eligible for exactly
+    one persona.
     """
     persona = card.eligible_roles[0] if card.eligible_roles else "unknown"
     try:
@@ -112,27 +113,18 @@ def route_refinement_result(
     if round_result.satisfied and not round_result.questions:
         gates.mark_refinement_satisfied(card)
         return
-    questions = round_result.questions
-    artifact = artifacts.store_reference_artifact(
+    artifacts.store_reference_artifact(
         ArtifactDraft(
             producer_card_id=card.id,
             logical_name="questions",
             revision=card.attempt_count,
             # Normalised, so the interview reads one shape (feature 034).
             content=json.dumps(
-                {"questions": questions,
+                {"questions": round_result.questions,
                  "satisfied": round_result.satisfied}
             ),
             trust="agent_output",
         )
-    )
-    gates.create_gate(
-        card.workflow_id,
-        kind=CardKind.REFINEMENT_GATE.value,
-        title=f"{persona} interview ({len(questions)} question"
-        f"{'s' if len(questions) != 1 else ''})",
-        requested_decision="answer",
-        target_artifact_id=artifact.id,
     )
 
 

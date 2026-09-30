@@ -1,7 +1,7 @@
 id = "ops"
 label = "Operations"
 purpose = "Deployment, configuration, observability, capacity, and runbooks."
-allowed_card_types = ["analysis"]
+allowed_card_types = ["analysis", "refinement"]
 required_abilities = ["text"]
 model_policy = "default"
 workspace_permission = "read_only"

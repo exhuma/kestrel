@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.models_board import WorkCard
+from app.models_board import CardRelation, WorkCard
 from app.services.board.artifacts import ArtifactDraft
+from app.services.board.interview_batch import (
+    InterviewBoard,
+    maybe_plan_next,
+)
 from tests.test_board_gates import _service
-
-_INTERVIEW_PERSONA_COUNT = 3
 
 
 class TestPrdDecompositionOrdering:
@@ -35,7 +37,7 @@ class TestPrdDecompositionOrdering:
 
         kinds = {c.kind for c in store.list_cards("wf-1")}
         assert "decomposition" not in kinds
-        assert "refinement" in kinds
+        assert "interview_plan" in kinds
 
 
 class TestCab1RefinementOrdering:
@@ -58,7 +60,7 @@ class TestCab1RefinementOrdering:
         kinds = {c.kind for c in store.list_cards("wf-1")}
         assert "refinement" not in kinds
 
-    def test_approving_cab1_gate_creates_three_interview_cards(
+    def test_approving_cab1_gate_starts_the_interview_plan(
         self, tmp_path: Path
     ) -> None:
         service, store = _service(
@@ -72,16 +74,15 @@ class TestCab1RefinementOrdering:
         service.resolve(cab1.id, "approved")
 
         new_cards = [c for c in store.list_cards("wf-1") if c.id != cab1.id]
-        assert len(new_cards) == _INTERVIEW_PERSONA_COUNT
-        assert {c.kind for c in new_cards} == {"refinement"}
+        assert [c.kind for c in new_cards] == ["interview_plan"]
 
 
 class TestRefinementEnforcement:
-    """T078: approving understanding_gate can deterministically create the
-    three persona interview cards, independent of the coordinator's own
-    judgment."""
+    """T078, feature 038: approving understanding_gate deterministically
+    starts the interview — with the coordinator's plan of who is asked,
+    not a fixed list of personas."""
 
-    def test_required_and_not_skipped_creates_three_interview_cards(
+    def test_required_and_not_skipped_starts_the_interview_plan(
         self, tmp_path: Path
     ) -> None:
         service, store = _service(tmp_path, prd_gate_required=True)
@@ -92,13 +93,10 @@ class TestRefinementEnforcement:
 
         service.resolve(gate.id, "approved")
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != gate.id]
-        assert len(new_cards) == _INTERVIEW_PERSONA_COUNT
-        assert {c.kind for c in new_cards} == {"refinement"}
-        assert {c.eligible_roles for c in new_cards} == {
-            ("requester",), ("pm",), ("uiux",),
-        }
-        assert all(c.state == "ready" for c in new_cards)
+        (plan,) = [c for c in store.list_cards("wf-1") if c.id != gate.id]
+        assert (plan.kind, plan.eligible_roles, plan.state) == (
+            "interview_plan", ("coordinator",), "ready",
+        )
 
     def test_not_required_creates_nothing(self, tmp_path: Path) -> None:
         service, store = _service(tmp_path, prd_gate_required=False)
@@ -111,63 +109,46 @@ class TestRefinementEnforcement:
 
         assert store.list_cards("wf-1") == [store.get_card(gate.id)]
 
-class TestPrdDraftTrigger:
-    """T078: once every interview is terminal, pm's PRD-drafting card
-    appears — regardless of whether each interview was answered or
-    rejected, so the workflow never deadlocks on one persona."""
+class TestNextInterviewPlan:
+    """Feature 038: once every interview of a batch is answered —
+    answered or rejected, so the workflow never deadlocks — the
+    coordinator plans the next batch."""
 
-    def test_appears_once_all_three_interviews_are_answered(
+    def test_the_last_answer_of_a_batch_plans_the_next(
         self, tmp_path: Path
     ) -> None:
         service, store = _service(tmp_path, prd_gate_required=True)
-        understanding = service.create_gate(
-            "wf-1", kind="understanding_gate", title="Confirm understanding",
-            requested_decision="Approve?",
-        )
-        service.resolve(understanding.id, "approved")
-        interviews = [
-            c for c in store.list_cards("wf-1") if c.kind == "refinement"
-        ]
-        gates = [
-            service.create_gate(
-                "wf-1", kind="refinement_gate", title=f"{c.eligible_roles[0]}",
-                requested_decision="answer",
-                target_artifact_id=service._artifacts.store_reference_artifact(
-                    _questions_artifact(c.id)
-                ).id,
-            )
-            for c in interviews
-        ]
+        plan, gates = _batch(service, store, ("pm", "dba"))
 
         service.resolve(gates[0].id, "approved", answer="Q: q?\nA: a")
-        assert not any(c.kind == "prd" for c in store.list_cards("wf-1"))
-        service.resolve(gates[1].id, "approved", answer="Q: q?\nA: b")
-        assert not any(c.kind == "prd" for c in store.list_cards("wf-1"))
-        service.resolve(gates[2].id, "approved", answer="Q: q?\nA: c")
+        assert len(_plans(store)) == 1
+        service.resolve(gates[1].id, "rejected")
 
-        prd_cards = [c for c in store.list_cards("wf-1") if c.kind == "prd"]
-        assert len(prd_cards) == 1
-        assert prd_cards[0].eligible_roles == ("pm",)
-        assert prd_cards[0].state == "ready"
+        plans = _plans(store)
+        assert [p.title for p in plans] == [
+            "Plan interview round 1", "Plan interview round 2",
+        ]
+        (after,) = [
+            r for r in store.list_relations("wf-1")
+            if r.card_id == plans[1].id
+        ]
+        assert after.depends_on_card_id == plan.id
 
-    def test_a_rejected_interview_still_counts_as_terminal(
+    def test_a_batch_is_planned_after_only_once(
         self, tmp_path: Path
     ) -> None:
-        service, store = _service(tmp_path)
-        gates = [
-            service.create_gate(
-                "wf-1", kind="refinement_gate", title=f"interview {i}",
-                requested_decision="answer",
-            )
-            for i in range(_INTERVIEW_PERSONA_COUNT)
+        service, store = _service(tmp_path, prd_gate_required=True)
+        _plan, gates = _batch(service, store, ("pm",))
+        service.resolve(gates[0].id, "approved", answer="Q: q?\nA: a")
+        answered = store.get_card(gates[0].id)
+
+        maybe_plan_next(answered, InterviewBoard(
+            store, service.get_gate, service._artifacts,
+        ))
+
+        assert [c.title for c in _plans(store)] == [
+            "Plan interview round 1", "Plan interview round 2",
         ]
-
-        service.resolve(gates[0].id, "rejected")
-        service.resolve(gates[1].id, "approved", answer="Q: q?\nA: a")
-        service.resolve(gates[2].id, "approved", answer="Q: q?\nA: c")
-
-        prd_cards = [c for c in store.list_cards("wf-1") if c.kind == "prd"]
-        assert len(prd_cards) == 1
 
     def test_never_duplicates_once_a_prd_card_already_exists(
         self, tmp_path: Path
@@ -263,6 +244,37 @@ def _draft_artifact(card_id: str, content: str) -> ArtifactDraft:
         producer_card_id=card_id, logical_name="draft", revision=1,
         content=content, trust="agent_output",
     )
+
+
+def _plans(store) -> list[WorkCard]:
+    return [c for c in store.list_cards("wf-1") if c.kind == "interview_plan"]
+
+
+def _batch(service, store, personas: tuple[str, ...]):
+    """A plan and one drafted, gated interview per persona."""
+    plan = WorkCard(
+        id="plan-1", workflow_id="wf-1", kind="interview_plan",
+        title="Plan interview round 1", state="done",
+        eligible_roles=("coordinator",),
+    )
+    store.create_card(plan)
+    gates = []
+    for persona in personas:
+        card = WorkCard(
+            id=f"ref-{persona}", workflow_id="wf-1", kind="refinement",
+            title=f"{persona} interview questions", state="done",
+            eligible_roles=(persona,),
+        )
+        store.create_card(card)
+        store.add_relation(CardRelation(card.id, plan.id))
+        target = service._artifacts.store_reference_artifact(
+            _questions_artifact(card.id)
+        )
+        gates.append(service.create_gate(
+            "wf-1", kind="refinement_gate", title=f"{persona} interview",
+            requested_decision="answer", target_artifact_id=target.id,
+        ))
+    return plan, gates
 
 
 def _questions_artifact(card_id: str) -> ArtifactDraft:

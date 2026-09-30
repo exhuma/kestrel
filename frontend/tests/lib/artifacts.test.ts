@@ -90,6 +90,7 @@ describe('railItems states', () => {
           round: null,
           cap: null,
           target_artifact: null,
+          persona: null,
         },
       }),
     ])
@@ -105,6 +106,7 @@ describe('railItems states', () => {
           round: null,
           cap: null,
           target_artifact: null,
+          persona: null,
         },
       }),
     ])

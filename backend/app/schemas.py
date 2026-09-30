@@ -117,6 +117,8 @@ class WorkCardGateOut(BaseModel):
         the card that produced it, never to the gate card itself, so it
         is not the gate's ``latest_artifact``. ``None`` when the gate
         has no target.
+    :param persona: For an interview gate, the profile whose human
+        answers it (feature 038).
     """
 
     requested_decision: str
@@ -124,14 +126,17 @@ class WorkCardGateOut(BaseModel):
     round: int | None = None
     cap: int | None = None
     target_artifact: BoardArtifactRefOut | None = None
+    persona: BoardRoleRefOut | None = None
 
 
 class AwaitingOut(BaseModel):
     """Who a card waits on, and for what (feature 035), as codes the
-    frontend phrases (``app.services.board.awaiting``)."""
+    frontend phrases (``app.services.board.awaiting``). ``role`` names
+    the profile whose human answers an interview (feature 038)."""
 
-    actor: Literal["requester", "cab", "you", "operator"]
+    actor: Literal["requester", "cab", "you", "operator", "role"]
     ask: str
+    role: BoardRoleRefOut | None = None
 
 
 class WorkCardSummaryOut(BaseModel):

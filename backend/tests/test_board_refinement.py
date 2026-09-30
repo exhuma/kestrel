@@ -153,9 +153,11 @@ def _setup(tmp_path: Path):
 
 
 class TestRouteRefinementResult:
-    def test_creates_a_refinement_gate_named_for_the_persona(
+    def test_stores_the_questions_without_opening_a_gate(
         self, tmp_path: Path
     ) -> None:
+        """Feature 038: the gate opens only once the batch is reviewed
+        for questions asked twice (see test_board_question_review)."""
         store, coordinator, gates, artifacts = _setup(tmp_path)
         card = WorkCard(
             id="card-1", workflow_id="wf-1", kind="refinement",
@@ -169,11 +171,9 @@ class TestRouteRefinementResult:
             gates, artifacts,
         )
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "refinement_gate"
-        assert new_cards[0].state == "awaiting_human"
-        assert "requester interview" in new_cards[0].title
+        assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
+        stored = artifacts.latest_content_for_card("card-1", "questions")
+        assert json.loads(stored)["questions"] == ["What's the deadline?"]
 
     def test_unparseable_result_escalates_fail_closed(
         self, tmp_path: Path
@@ -219,11 +219,6 @@ class TestRouteRefinementResult:
         assert not any(
             c.kind == "refinement_gate" for c in store.list_cards("wf-1")
         )
-        # This is the only persona in the test, so satisfying it directly
-        # (no gate) still triggers the same "every persona done -> start
-        # PRD" check an answered gate would (see GatesService.
-        # mark_refinement_satisfied).
-        assert any(c.kind == "prd" for c in store.list_cards("wf-1"))
 
 
 class TestRouteStrategicInterviewResult:

@@ -1,54 +1,48 @@
-# Mission Control design palette
+# Design palette
 
-Source of truth: `frontend/src/styles/theme.css`. Components reference these
-CSS custom properties and introduce no new color literals of their own.
+kestrel uses Vuetify's built-in `light` and `dark` themes. The only colours
+it adds are one semantic colour per specialist. Everything is configured in
+`frontend/src/plugins/vuetify.ts`, which `main.ts` and the component tests
+both use.
 
-## Surfaces (layered navy "ink", each step lighter)
+## Rules
 
-| Token | Hex | Use |
-|---|---|---|
-| `--ink-900` | `#0B1220` | app background |
-| `--ink-850` | `#0E1626` | header / recessed |
-| `--ink-800` | `#111A2B` | dispatch rail |
-| `--ink-750` | `#14203A` | input wells |
-| `--ink-700` | `#16213A` | cards / stage surface |
-| `--ink-650` | `#1B2942` | hover |
-| `--line` | `#223049` | hairline borders |
-| `--line-soft` | `#1A2438` | softer dividers |
+- **No colour literals in components.** Use a theme colour: a Vuetify
+  `color` prop (`color="warning"`), a class (`text-error`), or the CSS
+  variable `rgb(var(--v-theme-<name>))`.
+- **Colour is never the only signal.** Anything coloured also says what it
+  means in words or with an icon. For example, the phase spine pairs each
+  status with an icon and a word (feature 034).
+- **Readable in both themes.** A colour you add needs a light-theme value
+  dark enough to read on white, and a dark-theme value light enough to read
+  on the dark surface.
 
-## Text
+## Specialist colours (feature 039)
 
-| Token | Hex |
-|---|---|
-| `--text-hi` | `#E6EDF7` |
-| `--text-mid` | `#9FB0C7` |
-| `--text-dim` | `#62748C` |
+Each built-in specialist has a theme colour `specialist-<id>`. The palette
+is `frontend/src/lib/specialistColor.ts`:
 
-## Signal + status
+| Specialist | Light | Dark |
+| --- | --- | --- |
+| requester (Product Owner) | `#B45309` | `#FCD34D` |
+| pm | `#1D4ED8` | `#93C5FD` |
+| uiux | `#BE185D` | `#F9A8D4` |
+| developer | `#047857` | `#6EE7B7` |
+| infosec | `#B91C1C` | `#FCA5A5` |
+| dba | `#6D28D9` | `#C4B5FD` |
+| architect | `#0E7490` | `#67E8F9` |
+| ops | `#4D7C0F` | `#BEF264` |
+| qa | `#C2410C` | `#FDBA74` |
+| coordinator | `#334155` | `#CBD5E1` |
+| coder | `#0F766E` | `#5EEAD4` |
+| verifier | `#4338CA` | `#A5B4FC` |
+| input-security | `#A16207` | `#FDE047` |
 
-| Token | Hex | Meaning |
-|---|---|---|
-| `--signal` / `--run` | `#35E6C9` | primary action, live/running (mint-teal) |
-| `--signal-ink` | `#04231F` | text on signal-color fills |
-| `--idle` | `#7C8CA5` | idle status |
-| `--ok` | `#5BD98A` | success |
-| `--warn` | `#F5B14C` | tool activity / warning |
-| `--err` | `#F2727F` | error |
-| `--user` | `#6EA8FF` | user-authored events |
+Use `specialistColor(id)` to get the theme colour name. It returns `null`
+for a specialist an operator added, which is then shown neutrally.
 
-## Other literals (not tokens)
+The interview uses these colours as a faint tint (6%) with a thin border on
+each profile's questionnaire, next to the profile's name.
 
-- `#4FF0D6` — hover shade for the primary button (`.btn--primary:hover`).
-- `rgba(53, 230, 201, 0.16)` (`--signal-glow`) — focus-ring / glow, derived
-  from `--signal`.
-
-Everything else in `theme.css` is either a `var(--token)` reference or plain
-grayscale (`transparent`, black in shadows). No other hex/rgb literals are
-used.
-
-## Type
-
-| Token | Value |
-|---|---|
-| `--font-sans` | `'IBM Plex Sans', system-ui, -apple-system, sans-serif` |
-| `--font-mono` | `'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace` |
+To add a specialist colour, add its id to `SPECIALIST_PALETTE` with a light
+and a dark value. The theme picks it up automatically.

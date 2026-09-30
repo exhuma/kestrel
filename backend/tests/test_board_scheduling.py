@@ -391,9 +391,11 @@ class TestDispatchReadyWork:
         assert card.state == "done"
 
     @pytest.mark.asyncio
-    async def test_coordinator_role_is_never_dispatched(
+    async def test_the_coordinator_claims_only_its_own_card_kinds(
         self, tmp_path: Path
     ) -> None:
+        """Ensure the coordinator is dispatched for its interview cards
+        (feature 038) and nothing else."""
         roster = SpecialistRoster(
             {
                 "developer": _specialist(),
@@ -401,18 +403,18 @@ class TestDispatchReadyWork:
             }
         )
         services, store = _dispatch_services(tmp_path, roster)
-        seen: list[str] = []
-
-        def _backend_for(specialist: SpecialistDefinition) -> _FakeBackend:
-            seen.append(specialist.id)
-            return _FakeBackend("<RESULT>ok</RESULT>")
+        store.create_card(WorkCard(
+            id="card-1", workflow_id="wf-1", kind="analysis",
+            title="Not the coordinator's", state="ready",
+            eligible_roles=("coordinator",),
+        ))
 
         await dispatch_ready_work(
-            "wf-1", services, _backend_for, timeout_seconds=5
+            "wf-1", services, lambda _s: _FakeBackend("<RESULT>ok</RESULT>"),
+            timeout_seconds=5,
         )
 
-        assert "coordinator" not in seen
-        assert store.list_cards("wf-1") == []
+        assert store.get_card("card-1").state == "ready"
 
     @pytest.mark.asyncio
     async def test_one_specialists_capability_error_does_not_block_others(

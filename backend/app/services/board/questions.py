@@ -59,3 +59,35 @@ def _options(raw: object) -> list[str]:
             f"a choice question needs {MIN_OPTIONS}-{MAX_OPTIONS} options"
         )
     return list(raw)
+
+
+def prompt_of(question: object) -> str | None:
+    """A question's prompt, or ``None`` for something that is not one."""
+    if isinstance(question, dict):
+        question = question.get("prompt")
+    return question if isinstance(question, str) else None
+
+
+#: How every interviewer answers (feature 038): one block, in this shape.
+#: Given by the card, not by each specialist's prompt, so every
+#: specialist the coordinator brings in asks the same way.
+QUESTION_FORMAT = """\
+Answer with a single block:
+<REFINEMENT_QUESTIONS>{"questions": [...], "satisfied": false}
+</REFINEMENT_QUESTIONS>
+Each question is either a plain string, for an open question, or
+`{"prompt": "...", "options": ["...", "..."], "multiple": false}` when it
+has a clear set of answers. Prefer options whenever you can: 2 to 8 short,
+distinct ones, with `"multiple": true` when several may apply. The human
+can always add a comment, so do not add an "Other" option. Set
+`"satisfied": true` with an empty list only when you need nothing more
+from this human."""
+
+#: What an interviewer is doing, whoever it is (feature 038).
+INTERVIEWER_BRIEF = """\
+You are preparing interview questions for the human who holds your role
+on this request. Ask only what that human can answer from your area of
+expertise, and only what you need to know: the coordinator chose you
+because this request touches your area. Other specialists interview their
+own humans; the coordinator removes questions asked twice. Never replace a
+question with an assumption — ask it."""

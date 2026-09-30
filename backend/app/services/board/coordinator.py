@@ -39,6 +39,8 @@ _CODE_ONLY_CARD_KINDS = frozenset(
         CardKind.ESTIMATION.value,
         CardKind.MANUAL_TASK.value,
         CardKind.UNDERSTANDING.value,
+        CardKind.INTERVIEW_PLAN.value,
+        CardKind.QUESTION_REVIEW.value,
     }
 )
 _VALID_CARD_KINDS = (
