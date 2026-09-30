@@ -121,3 +121,11 @@ describe('describeActivity tool use (feature 036)', () => {
     expect(view.text).toBe('Coder is working… · calling read · 2 min')
   })
 })
+
+describe('describeActivity for a cancelled request (feature 040)', () => {
+  it('says it was cancelled, never done', () => {
+    const view = describeActivity(activity({ state: 'cancelled' }), NOW)
+    expect(view.text).toBe('Cancelled before it was finished')
+    expect(view.busy).toBe(false)
+  })
+})

@@ -27,6 +27,7 @@ from app.services.board.interview_batch import (
     drafts,
     maybe_plan_next,
     plan_id_of,
+    plans,
     questions_of,
 )
 from app.services.board.interview_plan import InterviewServices
@@ -57,6 +58,31 @@ def after_draft(card: WorkCard, services: InterviewServices) -> None:
         _open_gate(pending[0], services)
         return
     _create_review(card.workflow_id, plan_id, services)
+
+
+def reconcile_interviews(
+    workflow_id: str, services: InterviewServices
+) -> None:
+    """Move every interview batch on as far as it can go (feature 040).
+
+    A batch moves on when a draft is routed or a gate is answered, but a
+    card can also leave its batch another way — recovery failing it, the
+    operator cancelling it. Run on every dispatch so the batch still
+    moves on. Idempotent; a no-op once the PRD exists, so an interview
+    that already ended is never reopened.
+    """
+    cards = services.routing.store.list_cards(workflow_id)
+    if any(c.kind in _AFTER_INTERVIEW for c in cards):
+        return
+    board = services.board
+    for plan_id in [None, *(c.id for c in plans(cards))]:
+        members = batch(board, workflow_id, plan_id)
+        if members:
+            after_draft(members[0], services)
+
+
+#: Once one of these exists, the interview is over.
+_AFTER_INTERVIEW = frozenset({CardKind.PRD.value, CardKind.PRD_GATE.value})
 
 
 def review_context(card: WorkCard, services: InterviewServices) -> str:

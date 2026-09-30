@@ -197,17 +197,23 @@ class WorkCardRelationOut(BaseModel):
     kind: str
 
 
+#: How a request stands overall (feature 040; ``phases.outcome_of``).
+Outcome = Literal["in_progress", "done", "failed", "cancelled"]
+
+
 class PhaseStatusOut(BaseModel):
     """One spine step and its status (feature 034) — display-only, like
     the phase projection itself.
 
     :param status: ``done``, ``active``, ``waiting``, ``problem``,
-        ``skipped`` or ``upcoming``.
+        ``skipped``, ``cancelled`` (where a cancelled request stopped;
+        feature 040) or ``upcoming``.
     """
 
     name: str
     status: Literal[
-        "done", "active", "waiting", "problem", "skipped", "upcoming"
+        "done", "active", "waiting", "problem", "skipped", "cancelled",
+        "upcoming",
     ]
 
 
@@ -230,7 +236,8 @@ class RequestActivityOut(BaseModel):
     """
 
     state: Literal[
-        "working", "problem", "waiting", "queued", "done", "stalled"
+        "working", "problem", "waiting", "queued", "done", "cancelled",
+        "stalled",
     ]
     actor: str | None = None
     subject: str | None = None
@@ -266,6 +273,7 @@ class BoardSnapshotOut(BaseModel):
     state_counts: dict[str, int]
     phase: str
     stage: str
+    outcome: Outcome = "in_progress"
     task_body: str = ""
     activity: RequestActivityOut | None = None
     phases: list[PhaseStatusOut] = []
@@ -294,6 +302,7 @@ class WorkflowSummaryOut(BaseModel):
     action_required_count: int
     phase: str
     stage: str
+    outcome: Outcome = "in_progress"
     cap_exhausted: bool = False
     open_manual_task_count: int = 0
     activity: RequestActivityOut | None = None

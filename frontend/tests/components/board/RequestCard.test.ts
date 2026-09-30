@@ -112,3 +112,17 @@ describe('RequestCard whose move (feature 035)', () => {
     expect(wrapper.find('[data-testid="moves"]').exists()).toBe(false)
   })
 })
+
+describe('RequestCard outcome treatments (feature 040)', () => {
+  const cases: [AttentionState, string, string][] = [
+    ['failed', 'Failed', '$alertCircle'],
+    ['cancelled', 'Cancelled', '$close'],
+  ]
+
+  it.each(cases)('shows %s in words, with an icon', (state, text, icon) => {
+    const wrapper = mountCard(request(state))
+    expect(wrapper.find('.v-chip').text()).toContain(text)
+    const icons = wrapper.findAllComponents({ name: 'VIcon' })
+    expect(icons.map((i) => i.props('icon'))).toContain(icon)
+  })
+})

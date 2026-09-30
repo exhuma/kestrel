@@ -175,7 +175,14 @@ export interface WorkCardRelation {
  *  `app.schemas.RequestActivityOut`: the backend decides the state; the
  *  frontend phrases it (`lib/activity.ts`). */
 export interface RequestActivity {
-  state: 'working' | 'problem' | 'waiting' | 'queued' | 'done' | 'stalled'
+  state:
+    | 'working'
+    | 'problem'
+    | 'waiting'
+    | 'queued'
+    | 'done'
+    | 'cancelled'
+    | 'stalled'
   /** Who is working, or who queued work is for. */
   actor: string | null
   /** The card concerned, by title. */
@@ -192,6 +199,11 @@ export interface RequestActivity {
   tool_calls: number | null
 }
 
+/** How a request stands overall (feature 040). Mirrors
+ *  `app.schemas.Outcome`: the server decides; `done` only for a request
+ *  that reached its end, never merely "every card is terminal". */
+export type Outcome = 'in_progress' | 'done' | 'failed' | 'cancelled'
+
 /** How one spine step stands (feature 034). Mirrors
  *  `app.schemas.PhaseStatusOut`; the server decides, the spine shows it. */
 export type PhaseStatusValue =
@@ -200,6 +212,7 @@ export type PhaseStatusValue =
   | 'waiting'
   | 'problem'
   | 'skipped'
+  | 'cancelled'
   | 'upcoming'
 
 export interface PhaseStatus {
@@ -220,6 +233,7 @@ export interface BoardSnapshot {
   state_counts: Partial<Record<CardState, number>>
   phase: string
   stage: string
+  outcome: Outcome
   /** The request as screened once at intake (feature 030) — frozen since,
    *  so a later edit to the source ticket is not reflected. Snapshot only;
    *  never on the collection listing. */
@@ -244,6 +258,7 @@ export interface BoardWorkflowSummary {
   action_required_count: number
   phase: string
   stage: string
+  outcome: Outcome
   /** Whether an interview round cap was hit without a usable answer
    *  (feature 029 A4) — the board's `cap-reached` treatment. */
   cap_exhausted: boolean

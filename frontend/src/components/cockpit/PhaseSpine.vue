@@ -45,8 +45,9 @@ const LOOK: Record<
     color: 'warning',
     label: 'Waiting for you',
   },
-  problem: { icon: '$alertCircle', color: 'error', label: 'Problem' },
+  problem: { icon: '$alertCircle', color: 'error', label: 'Failed' },
   skipped: { icon: '$minusCircleOutline', color: 'grey', label: 'Skipped' },
+  cancelled: { icon: '$close', color: 'grey', label: 'Cancelled' },
   upcoming: { icon: '$circleOutline', color: undefined, label: 'Not reached' },
 }
 

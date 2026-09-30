@@ -50,9 +50,13 @@ _VALID_WORKSPACE_PERMISSIONS = frozenset(p.value for p in WorkspacePermission)
 #: What is waiting on a human never times out and is never resolved on
 #: their behalf — not even by the coordinator deciding they took too
 #: long: a gate, a manual task, a quarantine.
-_WAITS_ON_THE_OPERATOR = frozenset(
-    {CardState.AWAITING_HUMAN.value, CardState.QUARANTINED.value}
-)
+#: Cards only the operator resolves. A failed card is theirs too: they
+#: retry or cancel it (feature 040) — a coordinator cancelling it would
+#: erase the failure the board must show.
+_WAITS_ON_THE_OPERATOR = frozenset({
+    CardState.AWAITING_HUMAN.value, CardState.QUARANTINED.value,
+    CardState.FAILED.value,
+})
 _MIN_RECONCILIATION_CARDS = 2
 
 

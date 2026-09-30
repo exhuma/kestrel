@@ -268,6 +268,21 @@ of finished implementation cards, so each set delivers once. Manual tasks
 never hold back delivery, but they keep the request out of Done, and the
 stage board counts them ("N manual tasks assigned to you").
 
+**How a request ends (feature 040).** The board derives each request's
+`outcome` from its cards (`phases.outcome_of`); nothing is stored:
+
+- `failed`: any card failed. The request stays in the column where it
+  failed, flagged. Only the operator retries or cancels a failed card; the
+  coordinator may not.
+- `in_progress`: anything is still open.
+- `done`: it reached its end, meaning a done delivery, or CAB-2 approving
+  only manual tasks and all of them done.
+- `cancelled`: it stopped before its end with nothing failed (a gate
+  rejected, work cancelled). It goes to the trailing Cancelled column.
+
+Every card being terminal is not enough to count as done. The default
+listing hides only done and cancelled requests.
+
 **Accepted trade-off:** per-task tickets in GitHub/Jira are gone for now.
 The task source was the only place people without kestrel access could
 follow per-task progress. Mirroring cards back as sub-tasks, and resolving

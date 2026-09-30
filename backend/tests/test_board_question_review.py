@@ -13,6 +13,7 @@ from app.services.board.question_review import (
     after_draft,
     answered_elsewhere,
     parse_drops,
+    reconcile_interviews,
     route_review_result,
 )
 from tests.interview_support import interview_stack
@@ -221,3 +222,65 @@ def test_an_interview_begun_before_038_continues_with_a_plan(
     gates.resolve(gate.id, "approved", answer="Q: Mobile?\nA: Yes.")
 
     assert "interview_plan" in [c.kind for c in store.list_cards("wf-1")]
+
+
+def test_a_failed_interviewer_holds_its_batch(tmp_path: Path) -> None:
+    """Feature 040: the batch waits for the operator to retry or cancel."""
+    interview, store, _gates, artifacts = _stack(tmp_path)
+    ux = _drafted(store, artifacts, "uiux", "Which devices?")
+    store.create_card(WorkCard(
+        id="ref-pm", workflow_id="wf-1", kind="refinement",
+        title="pm interview questions (round 1)", state="failed",
+        eligible_roles=("pm",),
+    ))
+    store.add_relation(CardRelation("ref-pm", "plan-1"))
+
+    after_draft(ux, interview)
+
+    kinds = [c.kind for c in store.list_cards("wf-1")]
+    assert "question_review" not in kinds
+    assert "refinement_gate" not in kinds
+
+
+def test_a_cancelled_interviewer_lets_the_batch_move_on(
+    tmp_path: Path,
+) -> None:
+    """Feature 040: once the operator cancels it, the next dispatch
+    reviews and asks the rest — however the card left its batch."""
+    interview, store, _gates, artifacts = _stack(tmp_path)
+    _drafted(store, artifacts, "uiux", "Which devices?")
+    _drafted(store, artifacts, "developer", "Which API?")
+    store.create_card(WorkCard(
+        id="ref-pm", workflow_id="wf-1", kind="refinement",
+        title="pm interview questions (round 1)", state="cancelled",
+        eligible_roles=("pm",),
+    ))
+    store.add_relation(CardRelation("ref-pm", "plan-1"))
+
+    reconcile_interviews("wf-1", interview)
+    reconcile_interviews("wf-1", interview)  # idempotent
+
+    assert [
+        c.kind for c in store.list_cards("wf-1")
+    ].count("question_review") == 1
+
+
+def test_an_ended_interview_is_never_reopened(tmp_path: Path) -> None:
+    """Ensure a pre-038 interview that already reached its PRD gets no
+    new plan from the dispatch-time reconciliation."""
+    interview, store, _gates, _artifacts = _stack(tmp_path)
+    store.create_card(WorkCard(
+        id="old", workflow_id="wf-1", kind="refinement",
+        title="uiux interview questions", state="done",
+        eligible_roles=("uiux",),
+    ))
+    store.create_card(WorkCard(
+        id="prd", workflow_id="wf-1", kind="prd", title="Draft PRD",
+        state="done", eligible_roles=("pm",),
+    ))
+
+    reconcile_interviews("wf-1", interview)
+
+    assert [c.kind for c in store.list_cards("wf-1")].count(
+        "interview_plan"
+    ) == 1  # only the fixture's own plan

@@ -9,7 +9,7 @@ import {
 import { boardWorkflowSummary as summary } from '../support/board'
 
 describe('STAGE_ORDER / PHASE_ORDER', () => {
-  it('lists the six stages in FR-001 order', () => {
+  it('lists the six stages in FR-001 order, then Cancelled (040)', () => {
     expect(STAGE_ORDER).toEqual([
       'Intake & alignment',
       'Discovery',
@@ -17,6 +17,7 @@ describe('STAGE_ORDER / PHASE_ORDER', () => {
       'Planning',
       'Build & deliver',
       'Done',
+      'Cancelled',
     ])
   })
 
@@ -43,6 +44,13 @@ describe('phasePosition', () => {
   it('marks the synthetic done phase terminal, with no ordinal', () => {
     expect(phasePosition('done')).toEqual({ ordinal: null, isTerminal: true })
   })
+
+  it('marks the synthetic cancelled phase terminal too (feature 040)', () => {
+    expect(phasePosition('cancelled')).toEqual({
+      ordinal: null,
+      isTerminal: true,
+    })
+  })
 })
 
 describe('attentionOf precedence', () => {
@@ -51,7 +59,7 @@ describe('attentionOf precedence', () => {
       state_counts: { quarantined: 1 },
       cap_exhausted: true,
       action_required_count: 1,
-      phase: 'done',
+      outcome: 'failed',
     })
     expect(attentionOf(s)).toBe('quarantined')
   })
@@ -60,18 +68,33 @@ describe('attentionOf precedence', () => {
     const s = summary({
       cap_exhausted: true,
       action_required_count: 1,
-      phase: 'done',
+      outcome: 'done',
     })
     expect(attentionOf(s)).toBe('cap-reached')
   })
 
   it('ranks your-move above done', () => {
-    const s = summary({ action_required_count: 1, phase: 'done' })
+    const s = summary({ action_required_count: 1, outcome: 'done' })
     expect(attentionOf(s)).toBe('your-move')
   })
 
-  it('reports done when the phase is terminal and nothing else applies', () => {
-    expect(attentionOf(summary({ phase: 'done' }))).toBe('done')
+  it("reports done from the server's outcome, never from the phase", () => {
+    expect(attentionOf(summary({ outcome: 'done' }))).toBe('done')
+    // Feature 040: a "done" phase string alone does not make it done.
+    expect(attentionOf(summary({ phase: 'done' }))).toBe('none')
+  })
+
+  it('reports a failed request as failed, above cap-reached and your-move', () => {
+    const s = summary({
+      outcome: 'failed',
+      cap_exhausted: true,
+      action_required_count: 1,
+    })
+    expect(attentionOf(s)).toBe('failed')
+  })
+
+  it('reports a cancelled request as cancelled, never done', () => {
+    expect(attentionOf(summary({ outcome: 'cancelled' }))).toBe('cancelled')
   })
 
   it('reports none otherwise', () => {

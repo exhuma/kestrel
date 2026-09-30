@@ -97,6 +97,11 @@ const PHRASES: Readonly<Record<RequestActivity['state'], Phrase>> = {
     busy: false,
   }),
   done: () => ({ text: 'Done', tone: 'success', busy: false }),
+  cancelled: () => ({
+    text: 'Cancelled before it was finished',
+    tone: 'default',
+    busy: false,
+  }),
   stalled: (a) => ({ text: stalled(a), tone: 'error', busy: false }),
 }
 
@@ -111,6 +116,7 @@ export function describeActivity(
   now: number,
 ): ActivityView {
   const view = PHRASES[a.state](a, isLate(a, now))
-  const age = a.state === 'done' ? '' : elapsed(a.since, now)
+  const over = a.state === 'done' || a.state === 'cancelled'
+  const age = over ? '' : elapsed(a.since, now)
   return age ? { ...view, text: `${view.text} · ${age}` } : view
 }

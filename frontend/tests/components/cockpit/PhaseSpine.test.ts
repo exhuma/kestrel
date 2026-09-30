@@ -53,7 +53,7 @@ describe('PhaseSpine step status (feature 034)', () => {
       '$progressClock',
       '$circleOutline',
     ])
-    for (const word of ['Done', 'Problem', 'Waiting for you', 'In progress'])
+    for (const word of ['Done', 'Failed', 'Waiting for you', 'In progress'])
       expect(wrapper.text()).toContain(word)
   })
 
@@ -91,6 +91,33 @@ describe('PhaseSpine unrecognised phase', () => {
 
   it('does not show that notice for the synthetic terminal phase', () => {
     const wrapper = mountSpine('done')
+    expect(wrapper.text()).not.toContain('not part of the standard sequence')
+  })
+})
+
+describe('PhaseSpine for a request that did not finish (feature 040)', () => {
+  it('says a failed step failed and later steps were not reached', () => {
+    const phases: PhaseStatus[] = PHASE_ORDER.map((name, i) => ({
+      name,
+      status: i < 3 ? 'done' : i === 3 ? 'problem' : 'upcoming',
+    }))
+    const wrapper = mountSpine('Pre-assessment', phases)
+    const failed = items(wrapper)[3]
+    expect(failed.props('icon')).toBe('$alertCircle')
+    expect(failed.text()).toContain('Failed')
+    expect(wrapper.text()).not.toContain('Skipped')
+    expect(items(wrapper)[9].text()).toContain('Not reached')
+  })
+
+  it('says where a cancelled request stopped, in words', () => {
+    const phases: PhaseStatus[] = [
+      { name: 'Intake', status: 'done' },
+      { name: 'Understanding', status: 'cancelled' },
+    ]
+    const wrapper = mountSpine('cancelled', phases)
+    const stopped = items(wrapper)[1]
+    expect(stopped.props('icon')).toBe('$close')
+    expect(stopped.text()).toContain('Cancelled')
     expect(wrapper.text()).not.toContain('not part of the standard sequence')
   })
 })

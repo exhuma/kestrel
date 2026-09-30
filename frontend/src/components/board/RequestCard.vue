@@ -21,7 +21,9 @@ const ATTENTION_COLOR: Record<AttentionState, string | undefined> = {
   'your-move': 'warning',
   'cap-reached': 'error',
   quarantined: 'error',
+  failed: 'error',
   done: 'success',
+  cancelled: undefined,
 }
 
 const ATTENTION_LABEL: Record<AttentionState, string> = {
@@ -29,14 +31,18 @@ const ATTENTION_LABEL: Record<AttentionState, string> = {
   'your-move': 'Your move',
   'cap-reached': 'Round cap reached',
   quarantined: 'Quarantined',
+  failed: 'Failed',
   done: 'Done',
+  cancelled: 'Cancelled',
 }
 
 const ATTENTION_ICON: Partial<Record<AttentionState, string>> = {
   'your-move': '$alertCircle',
   'cap-reached': '$alertCircle',
   quarantined: '$shieldAlert',
+  failed: '$alertCircle',
   done: '$checkCircle',
+  cancelled: '$close',
 }
 
 const manualTasks = computed(() => {

@@ -5,7 +5,9 @@ is anything happening, and if not, why not? This derives it, purely,
 from the request's cards, its latest events, and the live work this
 process is running for it (``live_activity.py``). Precedence (FR-002):
 working > a failed card > waiting for you > a failed turn > queued >
-done > stalled. A failed *card* needs the operator; a failed *turn* is
+done or cancelled > stalled. Done and cancelled are the request's derived
+outcome (``phases.outcome_of``, feature 040), never "every card is
+terminal". A failed *card* needs the operator; a failed *turn* is
 retried on its own and must not hide a decision that is waiting on them.
 
 The result names *who* and *what*; it never phrases a sentence — the
@@ -26,6 +28,9 @@ from app.services.board.live_activity import LiveTurn
 #: Event types recording a failed agent turn (``BoardService.record_problem``).
 PROBLEM_EVENTS = frozenset({"card.turn_failed", "coordinator.turn_failed"})
 
+#: Outcomes that end a request: it reports them as its activity.
+_FINISHED = frozenset({"done", "cancelled"})
+
 _WAITING_STATES = frozenset(
     {CardState.AWAITING_HUMAN.value, CardState.QUARANTINED.value}
 )
@@ -36,7 +41,7 @@ class RequestActivity:
     """One request's activity.
 
     :param state: ``working``, ``problem``, ``waiting``, ``queued``,
-        ``done`` or ``stalled``.
+        ``done``, ``cancelled`` or ``stalled``.
     :param actor: Who is working, or who the queued work is for.
     :param subject: The card concerned, by title.
     :param detail: For ``problem``: the recorded, safe reason.
@@ -63,13 +68,14 @@ class ActivityInputs:
     """Everything :func:`activity_of` reads, bundled to stay within the
     repo's argument-count limit.
 
+    :param outcome: The request's outcome (``phases.outcome_of``).
     :param labels: Specialist id -> display label.
     """
 
     cards: list[WorkCard]
     events: list[BoardEventRecord]
     live: LiveTurn | None
-    done: bool
+    outcome: str
     labels: dict[str, str]
 
 
@@ -86,8 +92,10 @@ def activity_of(inputs: ActivityInputs) -> RequestActivity:
         found = derive(inputs)
         if found is not None:
             return found
-    if inputs.done:
-        return RequestActivity("done", since=_latest_time(inputs.events))
+    if inputs.outcome in _FINISHED:
+        return RequestActivity(
+            inputs.outcome, since=_latest_time(inputs.events)
+        )
     return _stalled(inputs)
 
 

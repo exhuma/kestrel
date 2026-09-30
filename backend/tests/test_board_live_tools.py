@@ -78,7 +78,7 @@ def test_working_activity_carries_the_last_tool() -> None:
     with live.track("wf-1", "Project Manager", "Draft PRD") as note_tool:
         note_tool("grep")
         activity = activity_of(
-            ActivityInputs([], [], live.current("wf-1"), False, {})
+            ActivityInputs([], [], live.current("wf-1"), "in_progress", {})
         )
 
     assert (activity.state, activity.tool, activity.tool_calls) == (

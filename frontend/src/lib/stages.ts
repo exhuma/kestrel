@@ -7,12 +7,13 @@
  * Mirrors `app.services.board.phases` (stage/phase names) and
  * data-model.md §"AttentionState"/"BoardRequest". Pure and
  * display-only — never re-derives what the backend already decided
- * (Principle II): `stage`/`phase`/`cap_exhausted` are read verbatim off
+ * (Principle II): `stage`/`phase`/`outcome`/`cap_exhausted` are read verbatim off
  * `BoardWorkflowSummary`.
  */
 import type { BoardWorkflowSummary } from '../types/workflows'
 
-/** The six stages, in FR-001's order. */
+/** The six stages, in FR-001's order, then where cancelled requests go
+ *  (feature 040): finished, but not done. */
 export const STAGE_ORDER = [
   'Intake & alignment',
   'Discovery',
@@ -20,6 +21,7 @@ export const STAGE_ORDER = [
   'Planning',
   'Build & deliver',
   'Done',
+  'Cancelled',
 ] as const
 
 /** The ten phases, in sequence order (mirrors `app.services.board.phases`). */
@@ -49,12 +51,16 @@ export interface PhasePosition {
   isTerminal: boolean
 }
 
+/** The server's phase names for a request that is over (mirrors
+ *  `app.services.board.phases`: `DONE_PHASE`, `CANCELLED_PHASE`). */
+const TERMINAL_PHASES: ReadonlySet<string> = new Set(['done', 'cancelled'])
+
 /** A request's position in the ten-phase sequence (FR-004). */
 export function phasePosition(phase: string): PhasePosition {
   const index = PHASE_ORDER.findIndex((p) => p === phase)
   return {
     ordinal: index === -1 ? null : index + 1,
-    isTerminal: phase === 'done',
+    isTerminal: TERMINAL_PHASES.has(phase),
   }
 }
 
@@ -63,16 +69,22 @@ export type AttentionState =
   | 'your-move'
   | 'cap-reached'
   | 'quarantined'
+  | 'failed'
   | 'done'
+  | 'cancelled'
 
-/** FR-005's three non-interchangeable treatments, plus the two
- *  non-attention states. Precedence: `quarantined` > `cap-reached` >
- *  `your-move` > `done` > `none` (data-model.md "AttentionState"). */
+/** FR-005's non-interchangeable treatments, plus the non-attention
+ *  states. Precedence: `quarantined` > `failed` > `cap-reached` >
+ *  `your-move` > `done` > `cancelled` > `none`. Done, failed and
+ *  cancelled are the server's `outcome` (feature 040), read verbatim —
+ *  never inferred from the phase or the card states. */
 export function attentionOf(summary: BoardWorkflowSummary): AttentionState {
   if ((summary.state_counts.quarantined ?? 0) > 0) return 'quarantined'
+  if (summary.outcome === 'failed') return 'failed'
   if (summary.cap_exhausted) return 'cap-reached'
   if (summary.action_required_count > 0) return 'your-move'
-  if (summary.phase === 'done') return 'done'
+  if (summary.outcome === 'done') return 'done'
+  if (summary.outcome === 'cancelled') return 'cancelled'
   return 'none'
 }
 

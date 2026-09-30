@@ -115,6 +115,16 @@ actor `role`, with `role` (`BoardRoleRef`) naming that profile. New events:
 `interview.planned`, `question_review.applied`, `question_review.ignored`,
 and `refinement.deduplicated`.
 
+**Amendment (feature 040)**: the **Workflow Collection** and the **Board
+Snapshot** carry `outcome` (`in_progress | done | failed | cancelled`),
+derived from the cards. `phase` is `done` only for a `done` outcome and
+`cancelled` (stage `Cancelled`) for a `cancelled` one; a failed request's
+phase is its failed card's phase. Without `include_completed`, the listing
+hides `done` and `cancelled` requests, never `failed` ones. Phase statuses
+gain `cancelled`: where a cancelled request stopped. `skipped` appears only
+on the way to a `done` outcome. `activity.state` gains `cancelled`. The
+coordinator may no longer transition a `failed` card.
+
 ## Shared Enumerations
 
 ```text

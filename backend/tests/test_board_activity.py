@@ -41,10 +41,10 @@ def _of(
     events: list[BoardEventRecord] | None = None,
     *,
     live: LiveTurn | None = None,
-    done: bool = False,
+    outcome: str = "in_progress",
 ):
     return activity_of(
-        ActivityInputs(cards, events or [], live, done, _LABELS)
+        ActivityInputs(cards, events or [], live, outcome, _LABELS)
     )
 
 
@@ -103,7 +103,14 @@ def test_unclaimed_ready_work_is_queued_for_its_role() -> None:
 
 
 def test_a_finished_request_is_done() -> None:
-    assert _of([_card("c", "done")], done=True).state == "done"
+    assert _of([_card("c", "done")], outcome="done").state == "done"
+
+
+def test_a_stopped_request_is_cancelled_never_done() -> None:
+    """Feature 040: terminal is not done."""
+    activity = _of([_card("c", "cancelled")], outcome="cancelled")
+
+    assert activity.state == "cancelled"
 
 
 @pytest.mark.parametrize(

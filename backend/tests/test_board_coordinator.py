@@ -150,12 +150,15 @@ class TestValidationAndApplication:
         assert records[0].validation_decision == "rejected"
         assert store.get_card("card-t1").state == "ready"
 
-    @pytest.mark.parametrize("state", ["awaiting_human", "quarantined"])
+    @pytest.mark.parametrize(
+        "state", ["awaiting_human", "quarantined", "failed"]
+    )
     def test_what_waits_on_the_operator_is_never_resolved_for_them(
         self, tmp_path: Path, state: str
     ) -> None:
         """Ensure a gate, manual task or quarantine never "times out" at
-        the coordinator's hand, however long it has waited."""
+        the coordinator's hand, however long it has waited — nor is a
+        failed card cancelled, erasing the failure (feature 040)."""
         coordinator, store = _coordinator(tmp_path)
         store.create_card(
             WorkCard(

@@ -124,10 +124,13 @@ def draft_of(
     completes it, so a done card with questions and no gate yet is
     waiting for its batch's review; a round with nothing to ask (or
     whose questions were all asked elsewhere) is settled."""
-    if card.state not in TERMINAL_STATES:
+    # A failed card holds its batch: the operator retries or cancels it
+    # (feature 040), and the batch must not move on without it till then.
+    failed = card.state == CardState.FAILED.value
+    if card.state not in TERMINAL_STATES or failed:
         return Draft.DRAFTING
     if card.state != CardState.DONE.value:
-        return Draft.SETTLED  # failed or cancelled: nothing to ask
+        return Draft.SETTLED  # cancelled: nothing to ask
     if gate is not None:
         settled = gate.state in TERMINAL_STATES
         return Draft.SETTLED if settled else Draft.ASKING

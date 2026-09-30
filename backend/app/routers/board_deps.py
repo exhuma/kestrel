@@ -43,11 +43,13 @@ from app.services.board.bootstrap import (
 )
 from app.services.board.gates import GatesService
 from app.services.board.live_activity import LiveActivity, get_live_activity
-from app.services.board.phases import DONE_PHASE
+from app.services.board.phases import CANCELLED, DONE
 from app.services.board.quarantine import QuarantineService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 
+#: Outcomes the default listing hides: over, and nothing to act on.
+_FINISHED = frozenset({DONE, CANCELLED})
 
 @dataclass(frozen=True)
 class BoardReadDeps:
@@ -162,7 +164,8 @@ def all_workflow_summaries(
     ]
     if include_completed:
         return summaries
-    return [s for s in summaries if s.phase != DONE_PHASE]
+    # A failed request is never hidden as finished (feature 040).
+    return [s for s in summaries if s.outcome not in _FINISHED]
 
 
 @dataclass(frozen=True)

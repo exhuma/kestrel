@@ -43,8 +43,8 @@ from app.services.board.gates import GatesService
 from app.services.board.interventions import allowed_actions_for
 from app.services.board.live_activity import LiveTurn
 from app.services.board.phases import (
-    DONE_PHASE,
     current_phase,
+    outcome_of,
     phase_statuses,
     stage_of,
 )
@@ -163,6 +163,7 @@ def workflow_summary(
         action_required_count=action_required_count(cards),
         phase=phase,
         stage=stage_of(phase),
+        outcome=outcome_of(cards),
         cap_exhausted=_cap_exhausted(cards, gates),
         open_manual_task_count=open_manual_task_count(cards),
         activity=activity,
@@ -199,9 +200,7 @@ def request_activity(
         for card in cards for role in card.eligible_roles
     }
     activity = activity_of(
-        ActivityInputs(
-            cards, events, live, current_phase(cards) == DONE_PHASE, labels
-        )
+        ActivityInputs(cards, events, live, outcome_of(cards), labels)
     )
     return RequestActivityOut(**asdict(activity))
 
@@ -249,6 +248,7 @@ def board_snapshot(
         state_counts=state_counts(cards),
         phase=phase,
         stage=stage_of(phase),
+        outcome=outcome_of(cards),
         task_body=workflow.task_body,
         activity=lookups.activity,
         phases=[

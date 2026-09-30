@@ -41,7 +41,11 @@ from app.services.board.dispatch_delivery import (
     _dispatch_pending_delivery,
     _request_delivery,
 )
-from app.services.board.dispatch_extras import ROUTES, extra_context_for
+from app.services.board.dispatch_extras import (
+    ROUTES,
+    extra_context_for,
+    interview_of,
+)
 from app.services.board.gates import GatesService
 from app.services.board.live_activity import (
     LiveActivity,
@@ -50,6 +54,7 @@ from app.services.board.live_activity import (
     turn_failure,
 )
 from app.services.board.projections import ProjectionsService
+from app.services.board.question_review import reconcile_interviews
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
@@ -132,6 +137,8 @@ async def dispatch_ready_work(
     system action, not a specialist turn, so it isn't claimed like the
     roles above.
     """
+    if services.coordinator and services.gates:
+        reconcile_interviews(workflow_id, interview_of(services))
     for specialist_id in sorted(services.roster.ids()):
         specialist = services.roster.get(specialist_id)
         if specialist is None:

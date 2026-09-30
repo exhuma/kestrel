@@ -6,31 +6,112 @@ A pure, display-only label over card kinds — no store, no writes. See
 from __future__ import annotations
 
 from app.models_board import WorkCard
-from app.services.board.phases import current_phase, phase_statuses, stage_of
+from app.services.board.phases import (
+    current_phase,
+    outcome_of,
+    phase_statuses,
+    stage_of,
+)
 
 
-def _card(card_id: str, kind: str, state: str = "ready") -> WorkCard:
+def _card(
+    card_id: str, kind: str, state: str = "ready",
+    task_node_id: str | None = None,
+) -> WorkCard:
     return WorkCard(
         id=card_id,
         workflow_id="wf-1",
         kind=kind,
         title="a card",
         state=state,
+        task_node_id=task_node_id,
     )
+
+
+def _wf_36ca7a1a(pm_state: str) -> list[WorkCard]:
+    """The operator's run (handover, 2026-09-30): intake, understanding
+    and CAB-1 done, then a first interview batch whose pm card failed."""
+    return [
+        _card("s", "security_review", state="done"),
+        _card("u", "understanding", state="done"),
+        _card("ug", "understanding_gate", state="done"),
+        _card("si", "strategic_interview", state="done"),
+        _card("sg", "strategic_interview_gate", state="done"),
+        _card("c1", "cab1_gate", state="done"),
+        _card("ip", "interview_plan", state="done"),
+        _card("dev", "refinement", state="done"),
+        _card("ux", "refinement", state="done"),
+        _card("pm", "refinement", state=pm_state),
+    ]
+
+
+class TestOutcome:
+    """A request is done only when it reached its end (feature 040)."""
+
+    def test_a_failed_card_makes_the_request_failed_not_done(self) -> None:
+        """Reproduces wf-36ca7a1a: every other card terminal, one failed."""
+        cards = _wf_36ca7a1a("failed")
+
+        assert outcome_of(cards) == "failed"
+        assert current_phase(cards) == "Pre-assessment"
+        assert stage_of(current_phase(cards)) == "Discovery"
+
+    def test_a_failure_wins_over_open_work(self) -> None:
+        cards = [
+            _card("a", "implementation", state="claimed"),
+            _card("b", "verification", state="failed"),
+        ]
+        assert outcome_of(cards) == "failed"
+
+    def test_stopping_before_the_end_is_cancelled_not_done(self) -> None:
+        """wf-36ca7a1a after the coordinator cancelled the failed card."""
+        cards = _wf_36ca7a1a("cancelled")
+
+        assert outcome_of(cards) == "cancelled"
+        assert current_phase(cards) == "cancelled"
+        assert stage_of("cancelled") == "Cancelled"
+
+    def test_a_done_delivery_is_done(self) -> None:
+        cards = [
+            _card("g", "decomposition_gate", state="done"),
+            _card("i", "implementation", state="done", task_node_id="t1"),
+            _card("d", "delivery", state="done"),
+            _card("r", "prd_gate", state="cancelled"),  # an earlier redraft
+        ]
+        assert outcome_of(cards) == "done"
+        assert current_phase(cards) == "done"
+
+    def test_manual_only_work_is_done_once_every_task_is(self) -> None:
+        cards = [
+            _card("g", "decomposition_gate", state="done"),
+            _card("m", "manual_task", state="done", task_node_id="t1"),
+        ]
+        assert outcome_of(cards) == "done"
+
+    def test_approved_coding_work_without_a_delivery_is_not_done(
+        self,
+    ) -> None:
+        cards = [
+            _card("g", "decomposition_gate", state="done"),
+            _card("i", "implementation", state="cancelled", task_node_id="t1"),
+        ]
+        assert outcome_of(cards) == "cancelled"
+
+    def test_an_empty_board_is_in_progress(self) -> None:
+        assert outcome_of([]) == "in_progress"
+        assert current_phase([]) == "Intake"
 
 
 class TestCurrentPhase:
     """The lowest-ordinal phase with a non-terminal card wins."""
 
-    def test_empty_board_is_done(self) -> None:
-        assert current_phase([]) == "done"
-
-    def test_all_terminal_cards_is_done(self) -> None:
+    def test_all_terminal_cards_are_not_done_by_themselves(self) -> None:
+        """The old rule (feature 040): terminal is not the same as done."""
         cards = [
             _card("a", "security_review", state="done"),
             _card("b", "prd_gate", state="cancelled"),
         ]
-        assert current_phase(cards) == "done"
+        assert current_phase(cards) == "cancelled"
 
     def test_an_open_manual_task_keeps_the_request_unfinished(
         self,
@@ -67,7 +148,7 @@ class TestCurrentPhase:
         self,
     ) -> None:
         cards = [_card("a", "some_future_kind", state="ready")]
-        assert current_phase(cards) == "done"
+        assert current_phase(cards) == "Intake"  # open work: not done
 
     def test_unknown_card_kind_alongside_a_known_one_is_ignored(
         self,
@@ -108,14 +189,32 @@ class TestPhaseStatuses:
             _card("s", "security_review", state="done"),
             _card("u", "understanding_gate", state="done"),
             _card("p", "prd_gate", state="cancelled"),
+            _card("d", "delivery", state="done"),
         ]
         statuses = dict(phase_statuses(cards))
 
         assert statuses["Intake"] == "done"
         assert statuses["Understanding"] == "done"
         assert statuses["PRD sign-off"] == "skipped"
-        assert statuses["Delivery"] == "skipped"
+        assert statuses["Delivery"] == "done"
         assert "upcoming" not in statuses.values()
+
+    def test_a_failed_request_never_reads_as_a_finished_path(self) -> None:
+        """Reproduces wf-36ca7a1a's spine: no later step is skipped."""
+        statuses = dict(phase_statuses(_wf_36ca7a1a("failed")))
+
+        assert statuses["Pre-assessment"] == "problem"
+        later = ["PRD", "PRD sign-off", "Technical analysis",
+                 "CAB-2 - go/no-go", "Build", "Delivery"]
+        assert {statuses[p] for p in later} == {"upcoming"}
+
+    def test_a_cancelled_request_says_where_it_stopped(self) -> None:
+        statuses = dict(phase_statuses(_wf_36ca7a1a("cancelled")))
+
+        assert statuses["CAB-1 - strategic fit"] == "done"
+        assert statuses["Pre-assessment"] == "cancelled"
+        assert statuses["PRD"] == "upcoming"
+        assert "skipped" not in statuses.values()
 
     def test_a_request_in_progress(self) -> None:
         cards = [

@@ -18,7 +18,8 @@ of these cards, and do not try to change them. You may still add work of
 your own when a result shows it is needed.
 
 Never cancel or move a card that is waiting on the operator: a gate, a
-manual task, or quarantined content. Such a card waits for as long as the
+manual task, quarantined content, or a failed card (the operator retries or
+cancels it). Such a card waits for as long as the
 operator takes, and only the operator resolves it.
 
 When two valid specialist outputs conflict, or a result fails its downstream
