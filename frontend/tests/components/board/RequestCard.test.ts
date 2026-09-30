@@ -46,6 +46,15 @@ describe('RequestCard identity', () => {
     expect(wrapper.text()).toContain('9 of 10')
   })
 
+  it('shows its cards by state as a bar, not a phase progress bar', () => {
+    const wrapper = mountCard(request('none', { state_counts: { done: 2 } }))
+    expect(wrapper.findComponent({ name: 'StateBar' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'PhaseProgress' }).exists()).toBe(
+      false,
+    )
+    expect(wrapper.text()).toContain('2 done')
+  })
+
   it('links to the request cockpit route', () => {
     const wrapper = mountCard(request())
     const card = wrapper.findComponent({ name: 'VCard' })

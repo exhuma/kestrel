@@ -1,13 +1,13 @@
 <script setup lang="ts">
 // One request's board card (FR-003/FR-004/FR-005): source ref + human
 // title (never a bare workflow id), exact phase in words with its
-// position in the ten-phase sequence, and the attention treatment.
+// position in the ten-phase sequence, its cards by state as a colour bar,
+// and the attention treatment.
 // `v-card`'s own `to` prop makes the whole card a router link — keyboard
 // reachable and openable via Enter for free (FR-007), no custom
 // keydown handling needed.
 import { computed } from 'vue'
-import PhaseProgress from '../common/PhaseProgress.vue'
-import RequestSubItems from './RequestSubItems.vue'
+import StateBar from './StateBar.vue'
 import ActivityLine from '../common/ActivityLine.vue'
 import type { AttentionState, BoardRequest } from '../../lib/stages'
 import { describeMoves } from '../../lib/awaiting'
@@ -82,7 +82,7 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
           ({{ request.position.ordinal }} of {{ PHASE_COUNT }})
         </span>
       </div>
-      <PhaseProgress :count="PHASE_COUNT" :ordinal="request.position.ordinal" />
+      <StateBar :state-counts="request.summary.state_counts" />
 
       <v-chip
         v-if="request.attention !== 'none'"
@@ -108,8 +108,6 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
       >
         {{ moves }}
       </div>
-
-      <RequestSubItems :state-counts="request.summary.state_counts" />
     </v-card-text>
   </v-card>
 </template>
