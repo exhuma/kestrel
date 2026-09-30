@@ -16,6 +16,7 @@ from app.services.board.interview_plan import (
     plan_context,
     route_plan_result,
 )
+from app.services.board.retries import UnreadableResultError
 from tests.interview_support import interview_stack
 
 
@@ -127,6 +128,7 @@ def test_an_unreadable_plan_fails_closed(tmp_path: Path) -> None:
     services, store, _gates, _artifacts = interview_stack(tmp_path)
     plan = _accepted_plan(store)
 
-    route_plan_result("I think pm", plan, interview_of(services))
+    with pytest.raises(UnreadableResultError):
+        route_plan_result("I think pm", plan, interview_of(services))
 
-    assert "coordinator_review" in _kinds(store)
+    assert "refinement" not in _kinds(store)

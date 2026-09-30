@@ -71,6 +71,7 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'screening.discarded': 'warning',
   'coordinator.transition_card': 'info',
   'card.recovery_retry': 'warning',
+  'card.unreadable_retry': 'warning',
   'card.recovery_escalated': 'error',
   'dev_reset.cleanup': 'warning',
   'dev_reset.rerun': 'warning',
@@ -98,6 +99,8 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'screening.discarded': 'You discarded the quarantined input',
   'coordinator.transition_card': 'Coordinator moved this card on',
   'card.recovery_retry': 'Recovery retried a stalled card',
+  'card.unreadable_retry':
+    'The result could not be read; the work is being tried again',
   'card.recovery_escalated': 'Recovery escalated a failed card',
   'dev_reset.cleanup': 'Developer reset: workflow cleaned up',
   'dev_reset.rerun': 'Developer reset: workflow rerun',

@@ -173,6 +173,16 @@ all, becomes a `coordinator_review` card that no specialist ever claims
 `CoordinatorService.apply_actions` (FR-006). See
 `tests/test_board_verification.py`.
 
+A result that cannot be read at all (malformed JSON, a missing block) is
+not escalated straight away (feature 042, `retries.py`). The work runs
+again as a fresh card of the same kind, which records the attempt it
+replaces (`source_card_id`) and is told why that attempt could not be
+used. This happens up to `board_unreadable_retry_cap` times (default 1).
+After that the result is escalated, and the operator can **Retry** from
+the escalation: the work runs again as a fresh card, and the escalation
+closes. A replaced attempt does not count as an interview round or an
+understanding draft.
+
 An escalation records the card it escalates (`source_card_id`, feature
 041). The display-only phase projection (`phases.py`) places it in that
 card's phase, not in Build. An escalation with no source, and an

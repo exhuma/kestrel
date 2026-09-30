@@ -18,13 +18,13 @@ from dataclasses import dataclass
 from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
-from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.board.gates import GatesService
 from app.services.board.questions import (
     Question,
     QuestionError,
     normalise_questions,
 )
+from app.services.board.retries import UnreadableResultError
 from app.text_extract import extract_tag
 
 #: The one logical name every gate resolution's free-text response is
@@ -95,7 +95,6 @@ def parse_refinement_questions(text: str) -> list[Question]:
 def route_refinement_result(
     text: str,
     card: WorkCard,
-    coordinator: CoordinatorService,
     gates: GatesService,
     artifacts: ArtifactsService,
 ) -> None:
@@ -107,9 +106,8 @@ def route_refinement_result(
     persona = card.eligible_roles[0] if card.eligible_roles else "unknown"
     try:
         round_result = parse_refinement_round(text)
-    except RefinementResultError:
-        _escalate_unparseable(coordinator, card, "refinement", persona)
-        return
+    except RefinementResultError as exc:
+        raise _unreadable(card, "refinement", persona, exc) from exc
     if round_result.satisfied and not round_result.questions:
         gates.mark_refinement_satisfied(card)
         return
@@ -131,7 +129,6 @@ def route_refinement_result(
 def route_strategic_interview_result(
     text: str,
     card: WorkCard,
-    coordinator: CoordinatorService,
     gates: GatesService,
     artifacts: ArtifactsService,
 ) -> None:
@@ -146,11 +143,10 @@ def route_strategic_interview_result(
     """
     try:
         questions = parse_refinement_questions(text)
-    except RefinementResultError:
-        _escalate_unparseable(
-            coordinator, card, "strategic interview", "requester"
-        )
-        return
+    except RefinementResultError as exc:
+        raise _unreadable(
+            card, "strategic interview", "requester", exc
+        ) from exc
     questions = questions[: gates.cab1_interview_max_questions]
     artifact = artifacts.store_reference_artifact(
         ArtifactDraft(
@@ -185,16 +181,14 @@ def parse_prd_draft(text: str) -> str:
 def route_prd_result(
     text: str,
     card: WorkCard,
-    coordinator: CoordinatorService,
     gates: GatesService,
     artifacts: ArtifactsService,
 ) -> None:
     """Parse *card*'s PRD draft and hold it behind a gate."""
     try:
         draft = parse_prd_draft(text)
-    except RefinementResultError:
-        _escalate_unparseable(coordinator, card, "PRD", "pm")
-        return
+    except RefinementResultError as exc:
+        raise _unreadable(card, "PRD", "pm", exc) from exc
     artifact = artifacts.store_reference_artifact(
         ArtifactDraft(
             producer_card_id=card.id,
@@ -213,20 +207,12 @@ def route_prd_result(
     )
 
 
-def _escalate_unparseable(
-    coordinator: CoordinatorService, card: WorkCard, label: str, persona: str
-) -> None:
-    trigger = f"{card.kind}:{card.id}:{card.attempt_count}"
-    coordinator.apply_actions(
-        card.workflow_id, trigger,
-        [
-            CreateCardAction(
-                kind=CardKind.COORDINATOR_REVIEW.value,
-                title=f"Unparseable {label} proposal from {persona} "
-                f"on card {card.id}",
-                source_card_id=card.id,
-            )
-        ],
+def _unreadable(
+    card: WorkCard, label: str, persona: str, exc: Exception
+) -> UnreadableResultError:
+    return UnreadableResultError(
+        f"Unparseable {label} proposal from {persona} on card {card.id}",
+        str(exc),
     )
 
 

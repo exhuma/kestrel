@@ -14,7 +14,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from app.models_board import CardAction, CardKind, CardState, WorkCard
+from app.models_board import (
+    TERMINAL_STATES,
+    CardAction,
+    CardKind,
+    CardState,
+    WorkCard,
+)
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board.dependents import advance_ready_dependents
@@ -23,6 +29,7 @@ from app.services.board.interview_answers import (
     GateNotOpenError,
     IncompleteAnswerError,
 )
+from app.services.board.retries import BY_OPERATOR, detail_of, retry_card
 from app.services.board.service import BoardService
 
 #: DONE and CANCELLED are hard-terminal; FAILED may still be cancelled
@@ -130,6 +137,8 @@ class InterventionsService:
         return handler(card)
 
     def _retry(self, card: WorkCard) -> WorkCard:
+        if _escalates_work(card):
+            return self._retry_escalated(card)
         if card.state != CardState.FAILED.value:
             raise InvalidInterventionError(
                 f"cannot retry card in state {card.state}"
@@ -137,6 +146,21 @@ class InterventionsService:
         return self._board_service.transition_card(
             card.id, CardState.READY.value, event_type="intervention.retry"
         )
+
+    def _retry_escalated(self, review: WorkCard) -> WorkCard:
+        """Try the work *review* escalates again, as a fresh card, and
+        close the escalation: the operator has decided (feature 042)."""
+        source = self._store.get_card(review.source_card_id or "")
+        if source is None or source.state not in TERMINAL_STATES:
+            raise InvalidInterventionError(
+                f"the work {review.id} escalates cannot be retried"
+            )
+        attempt = retry_card(self._store, source)
+        self._store.set_card_state(review.id, CardState.DONE.value)
+        self._board_service.record_attempt(
+            attempt, BY_OPERATOR, detail_of(review.title)
+        )
+        return self._store.get_card(review.id)
 
     def _cancel(self, card: WorkCard) -> WorkCard:
         if card.state in _CANCEL_BLOCKED_STATES:
@@ -213,7 +237,7 @@ def allowed_actions_for(card: WorkCard) -> list[CardAction]:
     card in a listing without risking a mutation.
     """
     actions: list[CardAction] = []
-    if card.state == CardState.FAILED.value:
+    if card.state == CardState.FAILED.value or _escalates_work(card):
         actions.append(CardAction.RETRY)
     if card.state not in _CANCEL_BLOCKED_STATES:
         actions.append(CardAction.CANCEL)
@@ -226,6 +250,16 @@ def allowed_actions_for(card: WorkCard) -> list[CardAction]:
     if card.state not in _CANCEL_BLOCKED_STATES:
         actions.append(CardAction.REQUEST_COORDINATOR_REVIEW)
     return actions
+
+
+def _escalates_work(card: WorkCard) -> bool:
+    """An open escalation of a specific card's work, which the operator
+    may have tried again (feature 042)."""
+    return (
+        card.kind == CardKind.COORDINATOR_REVIEW.value
+        and card.source_card_id is not None
+        and card.state not in TERMINAL_STATES
+    )
 
 
 def _is_open_manual_task(card: WorkCard) -> bool:

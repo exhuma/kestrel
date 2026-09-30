@@ -220,6 +220,7 @@ def get_dispatch_services() -> DispatchServices:
         verify_round_cap=get_settings().max_verify_iterations,
         board=get_board_service(),
         live=get_live_activity(),
+        unreadable_retry_cap=get_settings().board_unreadable_retry_cap,
     )
 
 

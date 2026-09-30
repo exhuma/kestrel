@@ -187,6 +187,14 @@ class BoardService:
         (feature 038). Same effects as :meth:`record_recovery_event`."""
         return self.record_recovery_event(card_id, event_type)
 
+    def record_attempt(
+        self, card: WorkCard, event_type: str, payload: str
+    ) -> None:
+        """Record *card*, another attempt at unreadable work (feature
+        042), with why: one commit that wakes the coordinator and
+        dispatch."""
+        self._after_mutation(card.workflow_id, card.id, event_type, payload)
+
     def open_screening(
         self, intake: AcceptedTaskIntake
     ) -> tuple[Workflow, WorkCard]:
@@ -286,7 +294,11 @@ class BoardService:
         self.announce(workflow_id)
 
     def _after_mutation(
-        self, workflow_id: str, card_id: str | None, event_type: str
+        self,
+        workflow_id: str,
+        card_id: str | None,
+        event_type: str,
+        payload: str = "{}",
     ) -> None:
         """Append the event, bump the revision, and notify subscribers."""
         self._store.append_event(
@@ -294,6 +306,7 @@ class BoardService:
                 workflow_id=workflow_id,
                 card_id=card_id,
                 event_type=event_type,
+                payload=payload,
             )
         )
         self._store.bump_workflow_revision(workflow_id)

@@ -26,13 +26,11 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.persistence.dismissal_store import DismissalStore
 from app.ports import Task
 from app.services.board.artifacts import ArtifactsService
-from app.services.board.coordinator import CoordinatorService
 from app.services.board.gates import GatesService
 from app.services.board.interventions import (
     GateResolution,
@@ -117,9 +115,6 @@ async def test_intake_gate_resolves_through_interventions(
     store.set_card_state(draft.id, "done")
     route_understanding_result(
         "<UNDERSTANDING>You want a thing.</UNDERSTANDING>", draft,
-        CoordinatorService(
-            store, BoardCoordinatorStore(factory), board_service
-        ),
         gates, artifacts,
     )
     cards = store.list_cards(workflow_id)

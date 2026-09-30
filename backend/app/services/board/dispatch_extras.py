@@ -10,8 +10,10 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from app.models_board import CardKind, WorkCard
+from app.models_board_records import BoardEventRecord
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
+from app.services.board.coordinator import CreateCardAction
 from app.services.board.decomposition import (
     RoutingServices,
     route_decomposition_result,
@@ -40,6 +42,14 @@ from app.services.board.refinement import (
     route_strategic_interview_result,
 )
 from app.services.board.refinement_rounds import round_context
+from app.services.board.retries import (
+    AUTOMATIC,
+    UnreadableResultError,
+    detail_of,
+    retries_of,
+    retry_card,
+    retry_context,
+)
 from app.services.board.understanding import (
     route_understanding_result,
     understanding_context,
@@ -93,6 +103,14 @@ def extra_context_for(
     context, feature 038's interview cards, feature 031's approved task
     for any card working on one).
     """
+    retry = retry_context(card, services.claims.store)
+    base = _context_for(workflow_id, card, services)
+    return "\n\n".join(part for part in (retry, base) if part)
+
+
+def _context_for(
+    workflow_id: str, card: WorkCard, services: DispatchServices
+) -> str:
     if card.task_node_id:
         return task_context(
             card, services.claims.store.list_cards(workflow_id),
@@ -144,19 +162,23 @@ _Route = Callable[[str, WorkCard, "DispatchServices"], None]
 
 
 def _legacy_route(route: Callable[..., None]) -> _Route:
-    """Adapt a ``(text, card, coordinator, gates, artifacts)`` route."""
+    """Adapt a ``(text, card, gates, artifacts)`` route."""
     return lambda text, card, services: route(
-        text, card, services.coordinator, services.gates, services.artifacts
+        text, card, services.gates, services.artifacts
     )
 
 
 def _route_draft(text: str, card: WorkCard, services: DispatchServices) -> None:
     """Store an interviewer's questions, then review its batch once the
     whole batch has drafted (feature 038)."""
-    route_refinement_result(
-        text, card, services.coordinator, services.gates, services.artifacts
-    )
-    after_draft(card, interview_of(services))
+    try:
+        route_refinement_result(
+            text, card, services.gates, services.artifacts
+        )
+    finally:
+        # An unreadable draft is retried or escalated, and its batch
+        # must still move on without it once that is decided.
+        after_draft(card, interview_of(services))
 
 
 #: Card kind -> the follow-up router for its accepted result (research
@@ -183,3 +205,43 @@ ROUTES: dict[str, _Route] = {
         route_review_result(text, card, interview_of(services))
     ),
 }
+
+
+def retry_or_escalate(
+    card: WorkCard, error: UnreadableResultError, services: DispatchServices
+) -> None:
+    """Try *card*'s unreadable work again, or — once its automatic
+    attempts are used up — escalate it to the coordinator, where the
+    operator can retry it (feature 042)."""
+    store = services.claims.store
+    cards = store.list_cards(card.workflow_id)
+    if retries_of(card, cards) < services.unreadable_retry_cap:
+        attempt = retry_card(store, card)
+        note_attempt(services, attempt, detail_of(error.reason))
+        return
+    if services.coordinator is not None:
+        services.coordinator.apply_actions(
+            card.workflow_id, f"unreadable:{card.id}:{card.attempt_count}",
+            [
+                CreateCardAction(
+                    kind=CardKind.COORDINATOR_REVIEW.value,
+                    title=error.title, source_card_id=card.id,
+                )
+            ],
+        )
+
+
+def note_attempt(
+    services: DispatchServices, attempt: WorkCard, payload: str
+) -> None:
+    """Record an automatic attempt and why — waking dispatch when the
+    board can."""
+    if services.board is not None:
+        services.board.record_attempt(attempt, AUTOMATIC, payload)
+        return
+    services.claims.store.append_event(
+        BoardEventRecord(
+            workflow_id=attempt.workflow_id, card_id=attempt.id,
+            event_type=AUTOMATIC, payload=payload,
+        )
+    )

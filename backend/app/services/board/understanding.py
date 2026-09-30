@@ -19,8 +19,7 @@ from typing import TYPE_CHECKING
 from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
-from app.services.board.coordinator import CoordinatorService
-from app.services.board.decomposition import escalate
+from app.services.board.retries import UnreadableResultError, live_attempts
 from app.text_extract import extract_tag
 
 if TYPE_CHECKING:
@@ -37,7 +36,6 @@ _RESPONSE_LOGICAL_NAME = "response"
 def route_understanding_result(
     text: str,
     card: WorkCard,
-    coordinator: CoordinatorService,
     gates: "GatesService",
     artifacts: ArtifactsService,
 ) -> None:
@@ -45,11 +43,10 @@ def route_understanding_result(
     when there is none to show (fail closed, FR-010)."""
     restatement = (extract_tag(text, "UNDERSTANDING") or "").strip()
     if not restatement:
-        escalate(
-            coordinator, card, "understanding",
+        raise UnreadableResultError(
             f"Unreadable restatement on card {card.id}",
+            "no <UNDERSTANDING> block with a restatement",
         )
-        return
     artifact = artifacts.store_reference_artifact(
         ArtifactDraft(
             producer_card_id=card.id,
@@ -81,7 +78,7 @@ def understanding_context(
         and c.state == CardState.CANCELLED.value
     ]
     drafts = [
-        c for c in cards
+        c for c in live_attempts(cards)
         if c.kind == CardKind.UNDERSTANDING.value and c.id != card.id
     ]
     if not rejected or not drafts:

@@ -20,6 +20,7 @@ from typing import Callable
 from app.models_board import CardKind, CardState, WorkCard
 from app.models_board_records import HumanGateRecord
 from app.services.board.artifacts import ArtifactsService
+from app.services.board.retries import live_attempts
 
 GetGate = Callable[[str], HumanGateRecord | None]
 
@@ -45,7 +46,7 @@ def round_context(
     """
     persona = card.eligible_roles[0] if card.eligible_roles else ""
     round_number = sum(
-        1 for c in cards
+        1 for c in live_attempts(cards)
         if c.kind == CardKind.REFINEMENT.value and persona in c.eligible_roles
     )
     lines = [
@@ -81,7 +82,7 @@ def round_of_gate(
     if persona is None:
         return None
     return sum(
-        1 for c in cards
+        1 for c in live_attempts(cards)
         if c.kind == CardKind.REFINEMENT.value and persona in c.eligible_roles
     )
 

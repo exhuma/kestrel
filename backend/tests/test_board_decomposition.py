@@ -33,6 +33,7 @@ from app.services.board.dispatch_ready import (
     dispatch_ready_work,
 )
 from app.services.board.gates import GatesService
+from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
@@ -199,18 +200,16 @@ class TestRouting:
         ],
         ids=["no-block", "unclassified", "no-summary", "duplicate-id"],
     )
-    def test_an_invalid_proposal_escalates_fail_closed(
+    def test_an_invalid_proposal_is_unreadable(
         self, tmp_path: Path, text: str
     ) -> None:
         services, card = _routing(tmp_path)
 
-        route_decomposition_result(text, card, services)
+        with pytest.raises(UnreadableResultError):
+            route_decomposition_result(text, card, services)
 
-        new_cards = [
-            c for c in services.store.list_cards("wf-1") if c.id != "card-1"
-        ]
-        assert [(c.kind, c.source_card_id) for c in new_cards] == [
-            ("coordinator_review", "card-1")
+        assert [c.id for c in services.store.list_cards("wf-1")] == [
+            "card-1"
         ]
 
 

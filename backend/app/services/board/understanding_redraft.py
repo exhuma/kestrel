@@ -10,6 +10,7 @@ import uuid
 
 from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
+from app.services.board.retries import live_attempts
 
 
 def understanding_card(workflow_id: str, *, redraft: bool = False) -> WorkCard:
@@ -34,7 +35,7 @@ def maybe_redraft_understanding(
     if gate.kind != CardKind.UNDERSTANDING_GATE.value:
         return
     drafts = sum(
-        1 for c in store.list_cards(gate.workflow_id)
+        1 for c in live_attempts(store.list_cards(gate.workflow_id))
         if c.kind == CardKind.UNDERSTANDING.value
     )
     if drafts <= cap:

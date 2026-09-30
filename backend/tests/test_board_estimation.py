@@ -22,6 +22,7 @@ from app.services.board.estimation import (
     route_estimation_result,
 )
 from app.services.board.exec_summary import HEADER
+from app.services.board.retries import UnreadableResultError
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.workspace import WorkspaceService
 from tests.board_test_support import board_session_factory
@@ -198,14 +199,15 @@ class TestInvalidEstimates:
             "zero-man-hours", "bad-size",
         ],
     )
-    def test_an_invalid_estimate_escalates_and_opens_no_gate(
+    def test_an_invalid_estimate_is_unreadable_and_opens_no_gate(
         self, tmp_path: Path, text: str
     ) -> None:
         services, estimation = _estimation_setup(tmp_path)
 
-        route_estimation_result(text, estimation, services)
+        with pytest.raises(UnreadableResultError):
+            route_estimation_result(text, estimation, services)
 
-        assert _new_kinds(services) == ["coordinator_review"]
+        assert _new_kinds(services) == []
 
     def test_no_second_gate_while_one_is_awaiting(
         self, tmp_path: Path

@@ -29,6 +29,7 @@ from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.questions import Question, prompt_of
 from app.services.board.refinement_rounds import GetGate
+from app.services.board.retries import live_attempts
 
 QUESTIONS = "questions"
 RESPONSE = "response"
@@ -219,9 +220,10 @@ def maybe_plan_next(card: WorkCard, board: InterviewBoard) -> None:
 
 
 def rounds_used(cards: list[WorkCard], persona: str) -> int:
-    """How many interview rounds *persona* has had."""
+    """How many interview rounds *persona* has had; an attempt another
+    replaced is not a round (feature 042)."""
     return sum(
-        1 for c in cards
+        1 for c in live_attempts(cards)
         if c.kind == CardKind.REFINEMENT.value and persona in c.eligible_roles
     )
 

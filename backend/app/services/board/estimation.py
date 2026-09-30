@@ -34,6 +34,7 @@ from app.services.board.decomposition import (
     escalate,
 )
 from app.services.board.exec_summary import render_executive_summary
+from app.services.board.retries import UnreadableResultError
 from app.text_extract import extract_tag
 
 PROPOSAL_LOGICAL_NAME = "cab2_proposal"
@@ -164,11 +165,9 @@ def route_estimation_result(
     try:
         proposal = parse_estimates(text, candidate)
     except DecompositionResultError as exc:
-        escalate(
-            services.coordinator, card, "estimation",
-            f"Invalid estimates on card {card.id}: {exc}",
-        )
-        return
+        raise UnreadableResultError(
+            f"Invalid estimates on card {card.id}: {exc}", str(exc)
+        ) from exc
     if _gate_awaiting(card.workflow_id, services):
         escalate(
             services.coordinator, card, "estimation",

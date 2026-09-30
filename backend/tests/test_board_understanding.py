@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.models_board import WorkCard
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.board.gates import GatesService
+from app.services.board.retries import UnreadableResultError
 from app.services.board.understanding import (
     RESTATEMENT_LOGICAL_NAME,
     route_understanding_result,
@@ -39,7 +42,7 @@ class _Flow:
         self.store.create_card(card)
         self.store.set_card_state(card.id, "done")  # its result accepted
         route_understanding_result(
-            text, card, self.coordinator, self.gates, self.artifacts
+            text, card, self.gates, self.artifacts
         )
         return card
 
@@ -68,15 +71,15 @@ def test_the_gate_opens_on_the_restatement(tmp_path: Path) -> None:
     )
 
 
-def test_an_unreadable_restatement_opens_a_review_not_a_gate(
-    tmp_path: Path,
-) -> None:
-    """Ensure no empty understanding gate is ever shown (FR-010)."""
+def test_an_unreadable_restatement_opens_no_gate(tmp_path: Path) -> None:
+    """Ensure no empty understanding gate is ever shown (FR-010): the
+    result is reported unreadable, to be tried again (feature 042)."""
     flow = _Flow(tmp_path)
-    flow.draft("I think it is about exports.")
+
+    with pytest.raises(UnreadableResultError):
+        flow.draft("I think it is about exports.")
 
     assert "understanding_gate" not in flow.kinds()
-    assert "coordinator_review" in flow.kinds()
 
 
 def test_a_rejection_redrafts_with_the_correction(tmp_path: Path) -> None:
@@ -121,8 +124,7 @@ def test_past_the_cap_a_rejection_opens_a_review(tmp_path: Path) -> None:
             break
         flow.store.set_card_state(pending[0].id, "done")
         route_understanding_result(
-            _RESTATEMENT, pending[0], flow.coordinator, flow.gates,
-            flow.artifacts,
+            _RESTATEMENT, pending[0], flow.gates, flow.artifacts,
         )
 
     drafts_allowed = 3

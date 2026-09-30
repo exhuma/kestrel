@@ -21,6 +21,7 @@ from app.services.board.interview_batch import (
     answered_interviews,
     rounds_used,
 )
+from app.services.board.retries import UnreadableResultError
 from app.services.board.specialists import SpecialistRoster
 from app.text_extract import extract_tag
 
@@ -89,10 +90,10 @@ def route_plan_result(
     first = not any(c.kind == CardKind.REFINEMENT.value for c in cards)
     try:
         named = parse_plan(text)
-    except PlanError:
-        escalate(routing.coordinator, card, "interview_plan",
-                 "Unreadable interview plan")
-        return
+    except PlanError as exc:
+        raise UnreadableResultError(
+            "Unreadable interview plan", str(exc)
+        ) from exc
     chosen = _valid(named, services, cards)
     if chosen:
         _start_batch(card, chosen, routing)

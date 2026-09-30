@@ -56,6 +56,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_recovery_interval_seconds",
         "board_ci_poll_interval_seconds",
         "board_cab1_interview_max_questions",
+        "board_unreadable_retry_cap",
         "health_check_interval_seconds",
         "health_check_timeout_seconds",
         "board_dev_actions_enabled",
@@ -298,6 +299,11 @@ class Settings(BaseSettings):
     #: active at once across the whole process (feature 026,
     #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).
     board_max_parallel_read_cards: int = Field(default=4, gt=0)
+    #: How many times a card whose result cannot be read (malformed
+    #: JSON, a missing block) is tried again on its own before it is
+    #: escalated to the coordinator (feature 042,
+    #: ``KESTREL_BOARD_UNREADABLE_RETRY_CAP``). ``0`` escalates at once.
+    board_unreadable_retry_cap: int = Field(default=1, ge=0)
     #: How often the recovery sweep checks for expired claim leases
     #: (feature 026, ``KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS``).
     board_recovery_interval_seconds: float = Field(default=60.0, gt=0)

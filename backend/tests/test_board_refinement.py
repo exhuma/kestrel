@@ -29,6 +29,7 @@ from app.services.board.refinement import (
     route_refinement_result,
     route_strategic_interview_result,
 )
+from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
 from tests.board_test_support import board_session_factory
 
@@ -167,15 +168,15 @@ class TestRouteRefinementResult:
         store.create_card(card)
 
         route_refinement_result(
-            _refinement_block("What's the deadline?"), card, coordinator,
-            gates, artifacts,
+            _refinement_block("What's the deadline?"), card, gates,
+            artifacts,
         )
 
         assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
         stored = artifacts.latest_content_for_card("card-1", "questions")
         assert json.loads(stored)["questions"] == ["What's the deadline?"]
 
-    def test_unparseable_result_escalates_fail_closed(
+    def test_an_unparseable_result_is_reported_unreadable(
         self, tmp_path: Path
     ) -> None:
         store, coordinator, gates, artifacts = _setup(tmp_path)
@@ -186,14 +187,12 @@ class TestRouteRefinementResult:
         )
         store.create_card(card)
 
-        route_refinement_result(
-            "no structured block", card, coordinator, gates, artifacts,
-        )
+        with pytest.raises(UnreadableResultError):
+            route_refinement_result(
+                "no structured block", card, gates, artifacts,
+            )
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert [(c.kind, c.source_card_id) for c in new_cards] == [
-            ("coordinator_review", "card-1")
-        ]
+        assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
 
     def test_satisfied_with_no_questions_completes_with_no_gate(
         self, tmp_path: Path
@@ -213,7 +212,7 @@ class TestRouteRefinementResult:
         )
 
         route_refinement_result(
-            satisfied_block, card, coordinator, gates, artifacts,
+            satisfied_block, card, gates, artifacts,
         )
 
         assert store.get_card("card-1").state == "done"
@@ -233,8 +232,8 @@ class TestRouteStrategicInterviewResult:
         store.create_card(card)
 
         route_strategic_interview_result(
-            _refinement_block("Why does this matter?"), card, coordinator,
-            gates, artifacts,
+            _refinement_block("Why does this matter?"), card, gates,
+            artifacts,
         )
 
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
@@ -256,7 +255,7 @@ class TestRouteStrategicInterviewResult:
 
         route_strategic_interview_result(
             _refinement_block("Q1?", "Q2?", "Q3?", "Q4?", "Q5?"), card,
-            coordinator, gates, artifacts,
+            gates, artifacts,
         )
 
         gate_card = next(
@@ -267,7 +266,7 @@ class TestRouteStrategicInterviewResult:
         content = json.loads(artifacts.read_content(record.target_artifact_id))
         assert content["questions"] == ["Q1?", "Q2?", "Q3?"]
 
-    def test_unparseable_result_escalates_fail_closed(
+    def test_an_unparseable_result_is_reported_unreadable(
         self, tmp_path: Path
     ) -> None:
         store, coordinator, gates, artifacts = _setup(tmp_path)
@@ -278,13 +277,12 @@ class TestRouteStrategicInterviewResult:
         )
         store.create_card(card)
 
-        route_strategic_interview_result(
-            "no structured block", card, coordinator, gates, artifacts,
-        )
+        with pytest.raises(UnreadableResultError):
+            route_strategic_interview_result(
+                "no structured block", card, gates, artifacts,
+            )
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "coordinator_review"
+        assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
 
 
 class TestRoutePrdResult:
@@ -297,7 +295,7 @@ class TestRoutePrdResult:
         store.create_card(card)
 
         route_prd_result(
-            "<PRD>the full plan</PRD>", card, coordinator, gates, artifacts,
+            "<PRD>the full plan</PRD>", card, gates, artifacts,
         )
 
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
@@ -305,7 +303,7 @@ class TestRoutePrdResult:
         assert new_cards[0].kind == "prd_gate"
         assert new_cards[0].state == "awaiting_human"
 
-    def test_unparseable_result_escalates_fail_closed(
+    def test_an_unparseable_result_is_reported_unreadable(
         self, tmp_path: Path
     ) -> None:
         store, coordinator, gates, artifacts = _setup(tmp_path)
@@ -315,11 +313,10 @@ class TestRoutePrdResult:
         )
         store.create_card(card)
 
-        route_prd_result("no tag here", card, coordinator, gates, artifacts)
+        with pytest.raises(UnreadableResultError):
+            route_prd_result("no tag here", card, gates, artifacts)
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "coordinator_review"
+        assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
 
 
 class TestGatherRefinementContext:

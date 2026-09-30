@@ -45,6 +45,7 @@ from app.services.board.dispatch_extras import (
     ROUTES,
     extra_context_for,
     interview_of,
+    retry_or_escalate,
 )
 from app.services.board.gates import GatesService
 from app.services.board.live_activity import (
@@ -55,6 +56,7 @@ from app.services.board.live_activity import (
 )
 from app.services.board.projections import ProjectionsService
 from app.services.board.question_review import reconcile_interviews
+from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
@@ -97,6 +99,9 @@ class DispatchServices:
     :param verify_round_cap: The most verification rounds one approved
         CAB-2 task may have before a non-clean result escalates instead
         (feature 031, ``Settings.max_verify_iterations``).
+    :param unreadable_retry_cap: How many times a card's unreadable
+        result is tried again on its own before it is escalated (feature
+        042, ``Settings.board_unreadable_retry_cap``).
     """
 
     claims: ClaimsService
@@ -109,6 +114,7 @@ class DispatchServices:
     gates: GatesService | None = None
     verify_round_cap: int = 3
     board: BoardService | None = None
+    unreadable_retry_cap: int = 1
     live: LiveActivity | None = None
 
 
@@ -266,8 +272,12 @@ async def _route_result(
         await _route_verification(workflow_id, card, final_text, services)
         return
     route = ROUTES.get(card.kind)
-    if route is not None and services.coordinator and services.gates:
+    if route is None or not (services.coordinator and services.gates):
+        return
+    try:
         route(final_text, card, services)
+    except UnreadableResultError as exc:
+        retry_or_escalate(card, exc, services)
 
 
 async def _route_verification(

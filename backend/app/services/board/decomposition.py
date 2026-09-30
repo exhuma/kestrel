@@ -37,6 +37,7 @@ from app.services.board.candidate import (
 )
 from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.board.gates import GatesService
+from app.services.board.retries import UnreadableResultError
 from app.text_extract import extract_tag
 
 __all__ = [
@@ -112,11 +113,10 @@ def route_decomposition_result(
     try:
         candidate = _candidate_from(text, strict=True)
     except DecompositionResultError as exc:
-        escalate(
-            services.coordinator, card, "decomposition",
+        raise UnreadableResultError(
             f"Unparseable decomposition proposal on card {card.id}: {exc}",
-        )
-        return
+            str(exc),
+        ) from exc
     services.artifacts.store_reference_artifact(
         ArtifactDraft(
             producer_card_id=card.id,
