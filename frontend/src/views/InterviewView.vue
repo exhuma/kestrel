@@ -44,7 +44,7 @@ const snapshot = computed(() =>
 const isUnknown = computed(() => boardError.value?.includes('404') === true)
 const staleMessage = computed(() =>
   boardError.value?.includes('409')
-    ? 'This request moved on while you were answering — the page has newer information now. Take another look before submitting again.'
+    ? 'These questions were already answered, perhaps in another tab. The page now shows what is still open.'
     : null,
 )
 

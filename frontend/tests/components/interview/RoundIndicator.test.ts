@@ -27,9 +27,11 @@ describe('RoundIndicator', () => {
     expect(wrapper.find('[data-testid="round-chip"]').text()).toBe(
       'Round 3 of 3',
     )
-    expect(wrapper.find('[data-testid="final-round-notice"]').exists()).toBe(
-      true,
-    )
+    const notice = wrapper.find('[data-testid="final-round-notice"]')
+    expect(notice.exists()).toBe(true)
+    // Nothing is ever assumed on the operator's behalf (feature 037).
+    expect(notice.text()).not.toMatch(/assumption/i)
+    expect(notice.text()).toContain('waits for your response')
   })
 
   it('does not state finality mid-sequence', () => {

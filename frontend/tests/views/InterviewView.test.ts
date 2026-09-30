@@ -225,7 +225,7 @@ describe('InterviewView failure paths', () => {
     ).toHaveLength(0)
   })
 
-  it('surfaces a 409 on submit as a human "moved on" message', async () => {
+  it('surfaces a 409 on submit as "already answered", in words', async () => {
     stubArtifacts({ 'art-pm': ['Q1?'] })
     current.value = boardSnapshot({ cards: [interviewGate()] })
     mockApplyIntervention.mockImplementation(async () => {
@@ -239,7 +239,7 @@ describe('InterviewView failure paths', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="stale-message"]').text()).toContain(
-      'moved on',
+      'already answered',
     )
     expect(router.currentRoute.value.name).toBe('interview')
   })

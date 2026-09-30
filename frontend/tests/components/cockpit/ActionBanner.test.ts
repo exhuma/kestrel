@@ -214,7 +214,7 @@ describe('ActionBanner stale decisions', () => {
     await flushPromises()
     const message = wrapper.find('[data-testid="stale-message"]')
     expect(message.exists()).toBe(true)
-    expect(message.text()).toContain('moved on')
+    expect(message.text()).toContain('already made')
     expect(message.text()).not.toContain('409')
   })
 

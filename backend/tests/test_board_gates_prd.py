@@ -139,11 +139,11 @@ class TestPrdDraftTrigger:
             for c in interviews
         ]
 
-        service.resolve(gates[0].id, "approved", answer="a")
+        service.resolve(gates[0].id, "approved", answer="Q: q?\nA: a")
         assert not any(c.kind == "prd" for c in store.list_cards("wf-1"))
-        service.resolve(gates[1].id, "approved", answer="b")
+        service.resolve(gates[1].id, "approved", answer="Q: q?\nA: b")
         assert not any(c.kind == "prd" for c in store.list_cards("wf-1"))
-        service.resolve(gates[2].id, "approved", answer="c")
+        service.resolve(gates[2].id, "approved", answer="Q: q?\nA: c")
 
         prd_cards = [c for c in store.list_cards("wf-1") if c.kind == "prd"]
         assert len(prd_cards) == 1
@@ -163,8 +163,8 @@ class TestPrdDraftTrigger:
         ]
 
         service.resolve(gates[0].id, "rejected")
-        service.resolve(gates[1].id, "approved", answer="a")
-        service.resolve(gates[2].id, "approved", answer="c")
+        service.resolve(gates[1].id, "approved", answer="Q: q?\nA: a")
+        service.resolve(gates[2].id, "approved", answer="Q: q?\nA: c")
 
         prd_cards = [c for c in store.list_cards("wf-1") if c.kind == "prd"]
         assert len(prd_cards) == 1
@@ -184,7 +184,7 @@ class TestPrdDraftTrigger:
             )
         )
 
-        service.resolve(gate.id, "approved", answer="a")
+        service.resolve(gate.id, "approved", answer="Q: q?\nA: a")
 
         prd_cards = [c for c in store.list_cards("wf-1") if c.kind == "prd"]
         assert len(prd_cards) == 1

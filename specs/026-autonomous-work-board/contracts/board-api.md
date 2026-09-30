@@ -100,6 +100,13 @@ card turn calls tools, live views receive fresh frames at most every 2 s
 per turn. A turn kestrel stops itself is recorded as `card.turn_failed`,
 with a `detail` of the form "<role>'s turn was stopped: <reason>".
 
+**Amendment (feature 037)**: `resolve_gate` is checked against the gate, not
+the workflow revision. It succeeds while the gate waits undecided, whatever
+`expected_revision` says, and is a 409 once the gate is decided or no longer
+waits. Approving an `answer` gate needs a response to every question in its
+question set (the `Q:`/`A:` answer text); otherwise it is a 422 naming the
+questions without a response.
+
 ## Shared Enumerations
 
 ```text

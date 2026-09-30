@@ -19,6 +19,10 @@ from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board.dependents import advance_ready_dependents
 from app.services.board.gates import GatesService, UnknownGateError
+from app.services.board.interview_answers import (
+    GateNotOpenError,
+    IncompleteAnswerError,
+)
 from app.services.board.service import BoardService
 
 #: DONE and CANCELLED are hard-terminal; FAILED may still be cancelled
@@ -80,14 +84,20 @@ class InterventionsService:
             free-text answer/feedback) for a ``resolve_gate`` action.
             Ignored for every other action.
         :raises StaleInterventionError: If ``expected_revision`` no
-            longer matches the workflow's current revision.
+            longer matches the workflow's current revision — or, for
+            ``resolve_gate``, if the gate is no longer open. A gate's
+            question or decision does not change while it waits, so
+            unrelated work moving the request on must not reject the
+            operator's answer (feature 037); the gate being open is the
+            check that matters.
         :raises InvalidInterventionError: If the workflow/card is unknown
             or *action* is not permitted for the card's current state.
         """
         workflow = self._store.get_workflow(workflow_id)
         if workflow is None:
             raise InvalidInterventionError(f"unknown workflow: {workflow_id}")
-        if workflow.revision != expected_revision:
+        gate_scoped = action == CardAction.RESOLVE_GATE
+        if not gate_scoped and workflow.revision != expected_revision:
             raise StaleInterventionError(
                 f"expected revision {expected_revision}, "
                 f"board is at {workflow.revision}"
@@ -162,7 +172,9 @@ class InterventionsService:
             return self._gates_service.resolve(
                 card.id, resolution.decision, answer=resolution.answer
             )
-        except UnknownGateError as exc:
+        except GateNotOpenError as exc:
+            raise StaleInterventionError(str(exc)) from exc
+        except (UnknownGateError, IncompleteAnswerError) as exc:
             raise InvalidInterventionError(str(exc)) from exc
 
     def _complete_manual_task(self, card: WorkCard) -> WorkCard:

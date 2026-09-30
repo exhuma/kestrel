@@ -135,7 +135,10 @@ class TestFullRefinementToPrdFlow:
         # An operator answers each interview; the last answer
         # deterministically creates pm's prd card.
         for gate in interview_gates:
-            gates.resolve(gate.id, "approved", answer="Ship by Friday.")
+            gates.resolve(
+                gate.id, "approved",
+                answer="Q: What is the deadline?\nA: Ship by Friday.",
+            )
         assert any(c.kind == "prd" for c in store.list_cards("wf-1"))
 
         # Pass 2: pm's prd card is claimed and turned, creating prd_gate.

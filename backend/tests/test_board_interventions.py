@@ -244,6 +244,46 @@ class TestResolveGate:
 
         assert card.state == "done"
 
+    def test_other_work_moving_on_never_rejects_an_open_gate(
+        self, tmp_path: Path
+    ) -> None:
+        """Ensure an answer to a still-open gate is not refused because
+        unrelated cards changed meanwhile (feature 037)."""
+        service, store, _claims, gates = _service(tmp_path)
+        gate = gates.create_gate(
+            "wf-1", kind="understanding_gate", title="Confirm",
+            requested_decision="confirm_understanding",
+        )
+        read_at = _revision(store)
+        store.create_card(_card("other"))  # the request moves on
+
+        card = service.apply(
+            "wf-1", gate.id, CardAction.RESOLVE_GATE,
+            expected_revision=read_at,
+            resolution=GateResolution(decision="approved"),
+        )
+
+        assert card.state == "done"
+
+    def test_a_gate_is_resolved_once(self, tmp_path: Path) -> None:
+        """Ensure a second answer (another tab, a double click) is stale."""
+        service, store, _claims, gates = _service(tmp_path)
+        gate = gates.create_gate(
+            "wf-1", kind="understanding_gate", title="Confirm",
+            requested_decision="confirm_understanding",
+        )
+        approve = GateResolution(decision="approved")
+        service.apply(
+            "wf-1", gate.id, CardAction.RESOLVE_GATE,
+            expected_revision=_revision(store), resolution=approve,
+        )
+
+        with pytest.raises(StaleInterventionError):
+            service.apply(
+                "wf-1", gate.id, CardAction.RESOLVE_GATE,
+                expected_revision=_revision(store), resolution=approve,
+            )
+
     def test_resolve_gate_requires_a_decision_kwarg(
         self, tmp_path: Path
     ) -> None:

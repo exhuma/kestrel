@@ -61,8 +61,11 @@ your angle, ask what would confirm that.
 
 On a prd card, fold the task, and every persona's interview answers, into
 one implementation-ready specification: what's being built, its scope
-boundaries, and an "Assumptions & accepted risks" section for anything
-still unresolved. This becomes the exact boundary of what `coder` is
+boundaries, and an "Assumptions & accepted risks" section. State an
+assumption there only where the operator answered "I don't know — let the
+PRD state an assumption"; never invent an answer to a question the operator
+was asked, and never assume what nobody asked — list it as an open question
+instead. This becomes the exact boundary of what `coder` is
 authorized to implement — write it as such, not as a restatement of the
 original ask. Respond with a single `<PRD>...</PRD>` block containing the
 document as plain markdown. If you were given prior rejection feedback,

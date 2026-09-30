@@ -125,8 +125,9 @@ def round_context(
 ) -> str:
     """Build round-N-of-M text for one persona's ``refinement`` card's
     envelope: the round number, the cap, this persona's own prior
-    round(s) Q&A, and — on the final round — an instruction to
-    consolidate rather than keep asking (FR-004).
+    round(s) Q&A, and — on the final round — that no further round
+    follows. The final round still asks: a human interview never swaps
+    a question for an assumption (feature 037).
     """
     persona = card.eligible_roles[0] if card.eligible_roles else ""
     round_number = sum(
@@ -142,9 +143,9 @@ def round_context(
     if round_number >= round_cap:
         lines += [
             "",
-            "This is your final round — do not ask further questions. "
-            "Consolidate what you know and state any remaining "
-            "assumptions explicitly instead of blocking.",
+            "This is your final round: there is no further round after "
+            "it, so ask now everything you still need to know. Never "
+            "replace a question with an assumption — ask it.",
         ]
     return "\n".join(lines)
 

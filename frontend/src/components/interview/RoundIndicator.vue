@@ -48,7 +48,8 @@ const label = computed(() =>
       class="text-caption text-warning"
       data-testid="final-round-notice"
     >
-      Last chance to answer before assumptions are recorded in the PRD.
+      Final round: no further questions will follow. Nothing is assumed — every
+      question waits for your response.
     </span>
   </div>
 </template>

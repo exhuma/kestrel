@@ -20,6 +20,7 @@ from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dependents import advance_ready_dependents
+from app.services.board.interview_answers import check_open
 from app.services.board.materialise import (
     MaterialiseTarget,
     materialise_decomposition,
@@ -196,12 +197,20 @@ class GatesService:
             when given; ignored for any other gate kind/decision.
         :raises UnknownGateError: If *card_id* has no gate record.
         :raises ValueError: If *decision* is not a recognized value.
+        :raises GateNotOpenError: If the gate is already decided.
+        :raises IncompleteAnswerError: If an interview answer leaves a
+            question without a response (feature 037).
         """
-        if self._gate_store.get_for_card(card_id) is None:
+        record = self._gate_store.get_for_card(card_id)
+        if record is None:
             raise UnknownGateError(f"no gate for card: {card_id}")
         target = _DECISION_TARGET_STATE.get(decision)
         if target is None:
             raise ValueError(f"unrecognized gate decision: {decision}")
+        check_open(
+            record, self._store.get_card(card_id), self._artifacts,
+            decision, answer,
+        )
         if answer is not None:
             self._artifacts.store_reference_artifact(
                 ArtifactDraft(

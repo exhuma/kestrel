@@ -134,7 +134,10 @@ class TestCab1EnabledFullChain:
 
         gates.resolve(
             interview_gates[0].id, "approved",
-            answer="It unblocks Q3 reporting for finance.",
+            answer=(
+                "Q: Why does this matter to the business?\n"
+                "A: It unblocks Q3 reporting for finance."
+            ),
         )
         cab1_gates = [
             c for c in store.list_cards("wf-1") if c.kind == "cab1_gate"
@@ -166,7 +169,10 @@ class TestCab1EnabledFullChain:
             c for c in store.list_cards("wf-1")
             if c.kind == "strategic_interview_gate"
         )
-        gates.resolve(interview_gate.id, "approved", answer="Because X.")
+        gates.resolve(
+            interview_gate.id, "approved",
+            answer="Q: Why does this matter to the business?\nA: Because X.",
+        )
         cab1_gate = next(
             c for c in store.list_cards("wf-1") if c.kind == "cab1_gate"
         )

@@ -138,11 +138,12 @@ function discard(a: PendingAsk): void {
   })
 }
 
-/** A 409 means the board moved on under the operator — say that in
- *  words rather than leaving a bare status code on screen (FR-046). */
+/** A 409 means this decision was already made (feature 037: a gate is
+ *  checked on its own, so other work moving on never causes one) — say
+ *  that in words rather than a bare status code (FR-046). */
 const staleMessage = computed(() =>
   error.value?.includes('409')
-    ? 'This request moved on while you were deciding — the page has newer information now. Take another look before deciding again.'
+    ? 'This decision was already made, perhaps in another tab. The page now shows what is still open.'
     : null,
 )
 </script>

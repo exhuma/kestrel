@@ -231,6 +231,10 @@ class TestRoundContext:
         )
 
         assert "final round" in context.lower()
+        # The final round still asks; it never swaps a question for an
+        # assumption (feature 037).
+        assert "ask now everything" in context
+        assert "do not ask" not in context.lower()
 
     def test_includes_the_personas_own_prior_round_answer(
         self, tmp_path: Path
