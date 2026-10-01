@@ -202,6 +202,29 @@ password = "changeme"                      # inline (gitignored file), or:
 > Names are opencode's own, and wildcards work (`"gitlab_*"`). opencode checks
 > `write` and `apply_patch` under `edit`, so list `edit` to allow any file
 > change. Read-only turns stay read-only whatever the list says.
+>
+> **Allowing an MCP server.** opencode names an MCP server's tools
+> `<server>_<tool>`, where `<server>` is the server's key in *your opencode
+> config* (not anything kestrel defines). A server registered as
+> `"playwright"` offers `playwright_browser_navigate`,
+> `playwright_browser_click`, and so on. Allow the whole server with a
+> wildcard, or only some of its tools by name:
+>
+> ```toml
+> # every tool of the "playwright" MCP server
+> allowed_tools = ["read", "grep", "glob", "list", "bash", "edit", "todowrite",
+>                  "playwright_*"]
+> # or just two of them
+> # allowed_tools = [..., "playwright_browser_navigate",
+> #                  "playwright_browser_take_screenshot"]
+> ```
+>
+> kestrel only allows or hides what the opencode server already offers: the
+> MCP server itself must be configured in opencode. Without `allowed_tools`
+> every MCP tool is available already, so the entry matters only once you
+> set an allowlist. MCP tools are not file-writing tools, so read-only turns
+> can use them too. Browser-driving turns make many calls; raise
+> `max_tool_calls` if they hit the budget.
 > `allowed_tools` is rejected on other backend types. Both limits apply with
 > or without an allowlist. A stopped turn fails like any other: the request
 > says why, naming the tool, and recovery retries it. While a turn runs, the

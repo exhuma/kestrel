@@ -234,6 +234,8 @@ model = "anthropic/claude-sonnet-4"
 # no kestrel specialist needs: the ticket is already in its prompt. List the
 # tools turns may use; everything else is hidden from the model. opencode
 # tool names, wildcards allowed. Read-only turns still cannot write.
+# An MCP server's tools are named "<server>_<tool>", <server> being its key
+# in your opencode config: "playwright_*" allows a "playwright" server.
 # allowed_tools = ["read", "grep", "glob", "list", "bash", "edit", "todowrite"]
 # A turn is aborted, and the request says why, once it calls one tool with
 # the same input this many times, or makes this many tool calls in total.
