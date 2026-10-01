@@ -16,10 +16,23 @@ const props = defineProps<{ request: BoardRequest }>()
 
 const PHASE_COUNT = 10
 
-const ATTENTION_COLOR: Record<AttentionState, string | undefined> = {
+// Only a real problem, or a finished request, tints the whole card. A
+// request waiting on its human is the normal flow, so only its chip is
+// coloured.
+const CARD_TINT: Record<AttentionState, string | undefined> = {
   none: undefined,
-  'your-move': 'warning',
-  'cap-reached': 'error',
+  'your-move': undefined,
+  'cap-reached': undefined,
+  quarantined: 'error',
+  failed: 'error',
+  done: 'success',
+  cancelled: undefined,
+}
+
+const CHIP_COLOR: Record<AttentionState, string | undefined> = {
+  none: undefined,
+  'your-move': 'primary',
+  'cap-reached': 'info',
   quarantined: 'error',
   failed: 'error',
   done: 'success',
@@ -54,7 +67,8 @@ const manualTasks = computed(() => {
 /** Whose move it is, and what: "CAB: decide strategic fit" (feature 035). */
 const moves = computed(() => describeMoves(props.request.summary.awaiting))
 
-const color = computed(() => ATTENTION_COLOR[props.request.attention])
+const tint = computed(() => CARD_TINT[props.request.attention])
+const chipColor = computed(() => CHIP_COLOR[props.request.attention])
 const label = computed(() => ATTENTION_LABEL[props.request.attention])
 const icon = computed(() => ATTENTION_ICON[props.request.attention])
 </script>
@@ -62,7 +76,7 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
 <template>
   <v-card
     :to="{ name: 'cockpit', params: { id: request.summary.id } }"
-    :color="color"
+    :color="tint"
     variant="tonal"
     class="mb-2"
   >
@@ -86,7 +100,7 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
 
       <v-chip
         v-if="request.attention !== 'none'"
-        :color="color"
+        :color="chipColor"
         size="small"
         class="mt-2"
       >

@@ -78,6 +78,22 @@ describe('RequestCard attention treatments', () => {
     expect(wrapper.text()).toContain(text)
   })
 
+  const colours: [AttentionState, string | undefined, string][] = [
+    ['your-move', undefined, 'primary'],
+    ['cap-reached', undefined, 'info'],
+    ['failed', 'error', 'error'],
+  ]
+
+  it.each(colours)(
+    'tints %s only when it is a problem, and colours its chip',
+    (state, tint, chip) => {
+      const wrapper = mountCard(request(state))
+      const card = wrapper.findComponent({ name: 'VCard' })
+      expect(card.props('color')).toBe(tint)
+      expect(wrapper.findComponent({ name: 'VChip' }).props('color')).toBe(chip)
+    },
+  )
+
   it('shows no chip when nothing is wanted', () => {
     const wrapper = mountCard(request('none'))
     expect(wrapper.findComponent({ name: 'VChip' }).exists()).toBe(false)
