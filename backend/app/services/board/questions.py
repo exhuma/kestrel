@@ -61,6 +61,11 @@ def _options(raw: object) -> list[str]:
     return list(raw)
 
 
+def is_open(question: object) -> bool:
+    """Whether *question* is asked in free text (feature 045)."""
+    return isinstance(question, str)
+
+
 def prompt_of(question: object) -> str | None:
     """A question's prompt, or ``None`` for something that is not one."""
     if isinstance(question, dict):
@@ -77,9 +82,18 @@ Answer with a single block:
 </REFINEMENT_QUESTIONS>
 Each question is either a plain string, for an open question, or
 `{"prompt": "...", "options": ["...", "..."], "multiple": false}` when it
-has a clear set of answers. Prefer options whenever you can: 2 to 8 short,
-distinct ones, with `"multiple": true` when several may apply. The human
-can always add a comment, so do not add an "Other" option. Set
+has a clear set of answers: 2 to 8 short, distinct options, with
+`"multiple": true` when several may apply.
+A question MUST have options when it names its own alternatives ("X or
+Y?"), can be answered yes or no, or picks from a known set. Use a plain
+string only when the answer is genuinely open: a name, a number, a
+description, a reason. For example:
+- `{"prompt": "Will it need server-side storage or be ephemeral?",
+  "options": ["Server-side storage", "Ephemeral"], "multiple": false}`
+- `{"prompt": "Which formats must the export support?",
+  "options": ["CSV", "Excel", "PDF"], "multiple": true}`
+- `"What should the exported file be called?"`
+The human can always add a comment, so do not add an "Other" option. Set
 `"satisfied": true` with an empty list only when you need nothing more
 from this human."""
 

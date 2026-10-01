@@ -4,7 +4,9 @@ Once every interview card of a batch has drafted its questions, and
 before any human sees them, a ``question_review`` card shows the
 coordinator the batch next to everything already asked. It may only drop
 a new question as a duplicate of one that is kept, or of one asked
-earlier — choosing which profile keeps it — never reword or merge.
+earlier — choosing which profile keeps it — never reword or merge. It
+may also give a kept open question its options (feature 045, see
+:mod:`question_shaping`).
 
 Code enforces that. A reply it cannot read, or one breaking a rule, is
 ignored as a whole and every question set opens unchanged, so no
@@ -31,7 +33,12 @@ from app.services.board.interview_batch import (
     questions_of,
 )
 from app.services.board.interview_plan import InterviewServices
-from app.services.board.questions import prompt_of
+from app.services.board.question_shaping import (
+    CHOICE_INSTRUCTIONS,
+    converted,
+    parse_choices,
+)
+from app.services.board.questions import Question, is_open, prompt_of
 from app.text_extract import extract_tag
 
 REVIEW_TAG = "QUESTION_REVIEW"
@@ -40,7 +47,8 @@ _RECORD = "review"
 
 def after_draft(card: WorkCard, services: InterviewServices) -> None:
     """Once *card*'s whole batch has drafted: review it, or — with one
-    question set and nothing asked before — open its gate directly."""
+    question set of choices only and nothing asked before — open its gate
+    directly."""
     board = services.board
     plan_id = plan_id_of(board, card)
     members = drafts(
@@ -54,10 +62,19 @@ def after_draft(card: WorkCard, services: InterviewServices) -> None:
         return
     if _review_exists(services, card.workflow_id, plan_id):
         return
-    if len(pending) == 1 and not answered_interviews(board, card.workflow_id):
+    if len(pending) == 1 and not _needs_review(pending[0], services):
         _open_gate(pending[0], services)
         return
     _create_review(card.workflow_id, plan_id, services)
+
+
+def _needs_review(card: WorkCard, services: InterviewServices) -> bool:
+    """A lone set is reviewed when something was asked before, or when an
+    open question of it might deserve options (feature 045)."""
+    board = services.board
+    return bool(answered_interviews(board, card.workflow_id)) or any(
+        is_open(q) for q in questions_of(board, card)
+    )
 
 
 def reconcile_interviews(
@@ -94,25 +111,38 @@ def review_context(card: WorkCard, services: InterviewServices) -> str:
         for qid, (persona, prompt, answer) in earlier.items()
     ] or ["(nothing)"]
     lines += ["", "New questions, by specialist:"]
-    lines += [f"- {qid}: {prompt}" for qid, (_c, prompt) in new.items()]
+    lines += [
+        f"- {qid} ({'open' if is_open(q) else 'choice'}): {prompt_of(q)}"
+        for qid, (_c, q) in new.items()
+    ]
     return "\n".join(lines)
 
 
 def route_review_result(
     text: str, card: WorkCard, services: InterviewServices
 ) -> None:
-    """Apply the review: drop the duplicates it names, open the gates."""
+    """Apply the review: drop the duplicates it names, give options to
+    the open questions it names, open the gates."""
     new, earlier = _catalogue(card, services)
     drops = parse_drops(text, set(new), set(earlier))
-    record = []
+    choices = parse_choices(
+        text, REVIEW_TAG, {qid: q for qid, (_c, q) in new.items()},
+        set(drops or {}),
+    )
+    if drops is None or choices is None:  # one bad part voids the review
+        drops, choices = None, None
+    record: _Record = {"drops": [], "choices": []}
     for pending in _pending(card, services):
         persona = pending.eligible_roles[0]
         questions = questions_of(services.board, pending)
         kept = [
-            q for index, q in enumerate(questions, 1)
+            (choices or {}).get(f"{persona}-{index}", q)
+            for index, q in enumerate(questions, 1)
             if f"{persona}-{index}" not in (drops or {})
         ]
-        record += _dropped(persona, questions, drops or {}, new, earlier)
+        if drops is not None:
+            record["drops"] += _dropped(persona, questions, drops, new, earlier)
+            record["choices"] += converted(persona, questions, choices or {})
         _apply(pending, questions, kept, services)
     _store_record(card, record, services)
     services.routing.gates.transition(
@@ -195,7 +225,7 @@ def _apply(
 ) -> None:
     """Open *card*'s gate on *kept*; with nothing kept, its round ends —
     the reduced, empty set is what marks it settled."""
-    if len(kept) != len(questions):
+    if kept != questions:
         latest = services.routing.artifacts.latest_for_card(card.id, QUESTIONS)
         services.routing.artifacts.store_reference_artifact(ArtifactDraft(
             producer_card_id=card.id, logical_name=QUESTIONS,
@@ -233,7 +263,7 @@ def _create_review(
         id=f"card-{uuid.uuid4().hex[:8]}",
         workflow_id=workflow_id,
         kind=CardKind.QUESTION_REVIEW.value,
-        title="Remove questions asked twice",
+        title="Review the questions",
         state=CardState.READY,
         eligible_roles=("coordinator",),
     )
@@ -282,18 +312,22 @@ def _pending(review: WorkCard, services: InterviewServices) -> list[WorkCard]:
 
 #: ``earlier-3`` -> (persona, prompt, answer).
 _Earlier = dict[str, tuple[str, str, str]]
+#: ``uiux-2`` -> (its card, the question as drafted).
+_New = dict[str, tuple[WorkCard, Question]]
+#: What a review did: the drops, and the questions it made choices.
+_Record = dict[str, list[dict[str, object]]]
 
 
 def _catalogue(
     review: WorkCard, services: InterviewServices
-) -> tuple[dict[str, tuple[WorkCard, str]], _Earlier]:
+) -> tuple[_New, _Earlier]:
     """Ids for the batch's new questions (``uiux-2``) and for everything
     asked before (``earlier-3``, with its answer)."""
-    new: dict[str, tuple[WorkCard, str]] = {}
+    new: _New = {}
     for card in _pending(review, services):
         persona = card.eligible_roles[0]
         for index, question in enumerate(questions_of(services.board, card), 1):
-            new[f"{persona}-{index}"] = (card, prompt_of(question) or "")
+            new[f"{persona}-{index}"] = (card, question)
     earlier: _Earlier = {}
     for answered in answered_interviews(services.board, review.workflow_id):
         for prompt in answered.prompts:
@@ -306,8 +340,8 @@ def _catalogue(
 
 def _dropped(
     persona: str, questions: list, drops: dict[str, str],
-    new: dict[str, tuple[WorkCard, str]], earlier: _Earlier,
-) -> list[dict[str, str]]:
+    new: _New, earlier: _Earlier,
+) -> list[dict[str, object]]:
     """What was dropped from *persona*'s set, and who keeps it."""
     entries = []
     for index, question in enumerate(questions, 1):
@@ -315,8 +349,9 @@ def _dropped(
         if original is None:
             continue
         if original in new:
-            owner, kept = new[original]
+            owner, question_kept = new[original]
             kept_by = owner.eligible_roles[0]
+            kept = prompt_of(question_kept) or ""
         else:
             kept_by, kept, _answer = earlier[original]
         entries.append({
@@ -327,12 +362,11 @@ def _dropped(
 
 
 def _store_record(
-    review: WorkCard, record: list[dict[str, str]],
-    services: InterviewServices,
+    review: WorkCard, record: _Record, services: InterviewServices,
 ) -> None:
     services.routing.artifacts.store_reference_artifact(ArtifactDraft(
         producer_card_id=review.id, logical_name=_RECORD, revision=1,
-        content=json.dumps({"drops": record}), trust="agent_output",
+        content=json.dumps(record), trust="agent_output",
         mime_type="application/json",
     ))
 
@@ -359,10 +393,13 @@ Every specialist in this round has drafted its questions for its own
 human. Before anyone sees them, remove the questions asked twice: a new
 question that asks the same thing as another new question, or as one
 asked before. Keep each duplicated question with the profile whose human
-is best placed to answer it, and drop the others. Only drop — never
-reword, merge, or add a question; anything you do not drop is asked as
-written. Respond with a single block (an empty list when nothing is
-asked twice):
+is best placed to answer it, and drop the others. Never reword, merge,
+or add a question; anything you do not drop is asked as written.
+""" + CHOICE_INSTRUCTIONS + """
+Respond with a single block (empty lists when there is nothing to drop
+or to give options to):
 <QUESTION_REVIEW>{"drop": [
   {"question": "<id to drop>", "duplicate_of": "<id it repeats>"}
+], "options": [
+  {"question": "<open id>", "options": ["...", "..."], "multiple": false}
 ]}</QUESTION_REVIEW>"""

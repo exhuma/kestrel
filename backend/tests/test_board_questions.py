@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.board.questions import QuestionError, normalise_questions
+from app.services.board.questions import (
+    QUESTION_FORMAT,
+    QuestionError,
+    normalise_questions,
+)
 from app.services.board.refinement import (
     RefinementResultError,
     parse_refinement_round,
@@ -55,3 +59,12 @@ def test_a_round_with_a_malformed_question_fails_closed() -> None:
 
     with pytest.raises(RefinementResultError, match="malformed question"):
         parse_refinement_round(text)
+
+
+def test_every_interviewer_is_told_when_a_question_needs_options() -> None:
+    """Feature 045: a closed question is drafted as a choice."""
+    assert "MUST have options when it names its own alternatives" in (
+        " ".join(QUESTION_FORMAT.split())
+    )
+    assert '"multiple": true}' in QUESTION_FORMAT
+    assert '"multiple": false}' in QUESTION_FORMAT

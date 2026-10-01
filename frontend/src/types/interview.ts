@@ -3,12 +3,12 @@
  *
  * Recovered from `3fc281c^:frontend/src/types/questionnaire.ts` per
  * research R5, then re-pointed at the current backend rather than restored
- * verbatim: a refinement round now emits a flat list of question strings
- * (`app/services/board/refinement.py::parse_refinement_round`), with no
- * `id`, `type`, `options` or `required` — every open question is required,
- * and `single_select`/`multi_select`/waiver/custom answers have no backend
- * counterpart any more. FR-023 keeps only the two escape hatches the issue
- * actually asks for.
+ * verbatim: a refinement round emits a list of questions
+ * (`app/services/board/questions.py`), each a plain string (open) or a
+ * `{prompt, options, multiple}` choice (feature 034), with no `id`, `type`
+ * or `required` — every question is required, and waiver/custom answers
+ * have no backend counterpart any more. FR-023 keeps only the two escape
+ * hatches the issue actually asks for.
  */
 
 /** The four answer states FR-023 requires stay distinguishable.

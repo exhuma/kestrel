@@ -14,6 +14,7 @@ from app.services.board.question_review import (
     answered_elsewhere,
     parse_drops,
     reconcile_interviews,
+    review_context,
     route_review_result,
 )
 from tests.interview_support import interview_stack
@@ -21,10 +22,15 @@ from tests.interview_support import interview_stack
 _NEW = {"pm-1", "pm-2", "dba-1"}
 
 
-def _reply(*drops: tuple[str, str]) -> str:
+def _reply(*drops: tuple[str, str], choices: object = None) -> str:
     body = [{"question": q, "duplicate_of": o} for q, o in drops]
-    text = json.dumps({"drop": body})
+    options = [] if choices is None else choices
+    text = json.dumps({"drop": body, "options": options})
     return f"<QUESTION_REVIEW>{text}</QUESTION_REVIEW>"
+
+
+def _choice(question: str, *options: str) -> dict[str, object]:
+    return {"question": question, "options": list(options)}
 
 
 def test_a_duplicate_is_dropped_in_favour_of_the_kept_question() -> None:
@@ -57,7 +63,7 @@ def test_a_reply_breaking_a_rule_drops_nothing(reply: str) -> None:
     assert parse_drops(reply, _NEW, set()) is None
 
 
-def _drafted(store, artifacts, persona: str, *prompts: str) -> WorkCard:
+def _drafted(store, artifacts, persona: str, *prompts: object) -> WorkCard:
     """A batch member whose accepted draft holds *prompts*."""
     card = WorkCard(
         id=f"ref-{persona}", workflow_id="wf-1", kind="refinement",
@@ -186,16 +192,121 @@ def test_the_answer_given_elsewhere_reaches_the_asker(tmp_path: Path) -> None:
     )
 
 
-def test_a_lone_first_set_opens_its_gate_without_a_review(
+_WHEN = {"prompt": "When?", "options": ["Now", "Later"], "multiple": False}
+
+
+def test_a_lone_first_set_of_choices_opens_its_gate_without_a_review(
     tmp_path: Path,
 ) -> None:
     interview, store, gates, artifacts = _stack(tmp_path)
-    pm = _drafted(store, artifacts, "pm", "When?")
+    pm = _drafted(store, artifacts, "pm", _WHEN)
 
     after_draft(pm, interview)
 
-    assert _asked(store, gates, artifacts) == {"pm": ["When?"]}
+    assert _asked(store, gates, artifacts) == {"pm": [_WHEN]}
     assert "question_review" not in [c.kind for c in store.list_cards("wf-1")]
+
+
+def test_a_lone_first_set_with_an_open_question_is_reviewed(
+    tmp_path: Path,
+) -> None:
+    """Feature 045: the review may give it options before it is asked."""
+    interview, store, gates, artifacts = _stack(tmp_path)
+    pm = _drafted(store, artifacts, "pm", _WHEN, "Stored or ephemeral?")
+
+    after_draft(pm, interview)
+
+    assert _asked(store, gates, artifacts) == {}
+    assert "question_review" in [c.kind for c in store.list_cards("wf-1")]
+
+
+def test_the_review_is_told_which_questions_are_open(tmp_path: Path) -> None:
+    interview, store, _gates, artifacts = _stack(tmp_path)
+    pm = _drafted(store, artifacts, "pm", _WHEN, "Stored or ephemeral?")
+    after_draft(pm, interview)
+
+    context = review_context(_review(store), interview)
+
+    assert "- pm-1 (choice): When?" in context
+    assert "- pm-2 (open): Stored or ephemeral?" in context
+
+
+def test_an_open_question_is_asked_as_a_choice_word_for_word(
+    tmp_path: Path,
+) -> None:
+    interview, store, gates, artifacts = _stack(tmp_path)
+    pm = _drafted(store, artifacts, "pm", "Stored or ephemeral?", "Why?")
+    after_draft(pm, interview)
+    review = _review(store)
+
+    route_review_result(
+        _reply(choices=[_choice("pm-1", "Stored", "Ephemeral")]), review,
+        interview,
+    )
+
+    assert _asked(store, gates, artifacts) == {"pm": [
+        {"prompt": "Stored or ephemeral?", "options": ["Stored", "Ephemeral"],
+         "multiple": False},
+        "Why?",
+    ]}
+    record = json.loads(
+        artifacts.latest_content_for_card(review.id, "review") or ""
+    )
+    assert record["choices"] == [{
+        "persona": "pm", "prompt": "Stored or ephemeral?",
+        "options": ["Stored", "Ephemeral"], "multiple": False,
+    }]
+
+
+def test_a_bad_drop_also_voids_the_choices(tmp_path: Path) -> None:
+    interview, store, gates, artifacts = _stack(tmp_path)
+    pm = _drafted(store, artifacts, "pm", "Stored or ephemeral?", _WHEN)
+    after_draft(pm, interview)
+
+    route_review_result(
+        _reply(("pm-1", "pm-1"), choices=[_choice("pm-1", "A", "B")]),
+        _review(store), interview,
+    )
+
+    assert _asked(store, gates, artifacts) == {
+        "pm": ["Stored or ephemeral?", _WHEN],
+    }
+
+
+@pytest.mark.parametrize(
+    "choices",
+    [
+        [_choice("pm-2", "A", "B")],                       # a choice already
+        [_choice("dba-1", "A", "B")],                      # dropped
+        [_choice("xx-1", "A", "B")],                       # unknown
+        [_choice("pm-1", "A")],                            # one option
+        [_choice("pm-1", *"ABCDEFGHI")],                   # nine options
+        [_choice("pm-1", "A", "A")],                       # repeated
+        [_choice("pm-1", "A", "B"), _choice("pm-1", "C", "D")],  # twice
+        "pm-1",                                            # not a list
+    ],
+    ids=["choice", "dropped", "unknown", "one", "nine", "repeated", "twice",
+         "not-a-list"],
+)
+def test_a_bad_choice_ignores_the_whole_review(
+    tmp_path: Path, choices: object,
+) -> None:
+    """Ensure no question is lost or altered by a bad review (FR-003)."""
+    interview, store, gates, artifacts = _stack(tmp_path)
+    _drafted(store, artifacts, "pm", "Stored or ephemeral?", _WHEN)
+    dba = _drafted(store, artifacts, "dba", "Stored or ephemeral?")
+    after_draft(dba, interview)
+
+    route_review_result(
+        _reply(("dba-1", "pm-1"), choices=choices), _review(store), interview
+    )
+
+    assert _asked(store, gates, artifacts) == {
+        "pm": ["Stored or ephemeral?", _WHEN], "dba": ["Stored or ephemeral?"],
+    }
+    assert store.list_events("wf-1")[-1].event_type == (
+        "question_review.ignored"
+    )
 
 
 def test_an_interview_begun_before_038_continues_with_a_plan(
