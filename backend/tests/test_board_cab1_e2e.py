@@ -52,6 +52,8 @@ class _FixedBackend:
     """Always returns the same strategic-interview question set."""
 
     async def run_turn(self, req: TurnRequest) -> TurnResult:
+        assert "strategic-fit questions for the human" in req.prompt
+        assert "word for word" in req.prompt
         assert "Kind: strategic_interview" in req.prompt
         return TurnResult(session_id="turn-1", final_text=_STRATEGIC_QUESTIONS)
 

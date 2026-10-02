@@ -68,3 +68,24 @@ def test_every_interviewer_is_told_when_a_question_needs_options() -> None:
     )
     assert '"multiple": true}' in QUESTION_FORMAT
     assert '"multiple": false}' in QUESTION_FORMAT
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "This is on a strategic_interview card -- what should I ask instead?",
+        {"prompt": "Answer in REFINEMENT_QUESTIONS?", "options": ["A", "B"]},
+    ],
+    ids=["open", "choice"],
+)
+def test_a_question_about_the_system_fails_closed(entry: object) -> None:
+    """Ensure internal instructions never reach the human as a question;
+    the round is retried instead."""
+    with pytest.raises(QuestionError, match="addressed to the human"):
+        normalise_questions([entry])
+
+
+def test_ordinary_words_that_are_card_kinds_stay_askable() -> None:
+    assert normalise_questions(["Is there a design to follow?"]) == [
+        "Is there a design to follow?"
+    ]

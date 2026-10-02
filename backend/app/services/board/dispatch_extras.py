@@ -34,7 +34,11 @@ from app.services.board.question_review import (
     review_context,
     route_review_result,
 )
-from app.services.board.questions import INTERVIEWER_BRIEF, QUESTION_FORMAT
+from app.services.board.questions import (
+    INTERVIEWER_BRIEF,
+    QUESTION_FORMAT,
+    STRATEGIC_BRIEF,
+)
 from app.services.board.refinement import (
     gather_refinement_context,
     route_prd_result,
@@ -69,7 +73,7 @@ _STORE_CONTEXTS: dict[
     ),
     CardKind.UNDERSTANDING.value: understanding_context,
     CardKind.STRATEGIC_INTERVIEW.value: lambda _card, _store, _artifacts: (
-        QUESTION_FORMAT
+        f"{STRATEGIC_BRIEF}\n\n{QUESTION_FORMAT}"
     ),
 }
 
