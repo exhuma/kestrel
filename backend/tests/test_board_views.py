@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.documents import Text, document, paragraph
 from app.models_board import (
     CardRelation,
     ClaimLease,
@@ -341,7 +342,8 @@ class TestBoardSnapshot:
     ) -> None:
         """Ensure the body stays off the listing (feature 030, FR-020)."""
         workflow = Workflow(
-            **{**_WORKFLOW.__dict__, "task_body": "Please add CSV export."}
+            **{**_WORKFLOW.__dict__,
+               "task_body": document(paragraph(Text("Please add CSV export.")))}
         )
         snapshot = board_snapshot(workflow, [], [], _empty_lookups())
         summary = workflow_summary(

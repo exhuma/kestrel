@@ -5,15 +5,14 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from app.documents import Document, as_document, render_markdown
-from app.markers import Marker, apply_markers
-from app.ports import Feedback, LifecycleEvent, Task
-from app.services.task_source_utils import append_comment_sentinel, parse_iso
+from app.document_formats.markdown import parse_markdown, render_markdown
+from app.documents import Document
+from app.ports import CommentPage, Feedback, LifecycleEvent, Person, Task
+from app.services.task_source_utils import as_posted, parse_iso
 
 _PREFIX = "local:"
 _STAMP_FORMAT = "%Y-%m-%dT%H.%M.%S"
@@ -36,11 +35,9 @@ class LocalTaskSource:
         self,
         tasks_dir: str,
         comment_sentinel_enabled: bool = True,
-        comment_sentinel: str = "[kestrel:posted]",
     ) -> None:
         self._root = Path(tasks_dir).resolve()
         self._comment_sentinel_enabled = comment_sentinel_enabled
-        self._comment_sentinel = comment_sentinel
 
     def _task_dir(self, ref: str) -> Path:
         """Return a validated, root-contained directory for ``ref``."""
@@ -78,24 +75,22 @@ class LocalTaskSource:
     async def get_task(self, ref: str) -> Task:
         """Return the current title and body for a local task."""
         data = self._load(ref)
-        return Task(ref=ref, title=data["title"], body=data["body"])
+        return Task(
+            ref=ref, title=data["title"], body=parse_markdown(data["body"])
+        )
 
     async def check_health(self) -> bool:
         """Report local tasks healthy without an external probe."""
         return True
 
-    async def post_comment(self, ref: str, body: Document | str) -> str:
+    async def post_comment(self, ref: str, body: Document) -> str:
         """Write a timestamped reply excluded from local task feedback."""
         directory = self._task_dir(ref) / "comments"
         directory.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime(_STAMP_FORMAT)
         path = self._unique_comment_path(directory, f"{stamp}-kestrel")
         path.write_text(
-            append_comment_sentinel(
-                render_markdown(as_document(body)),
-                self._comment_sentinel_enabled,
-                self._comment_sentinel,
-            ),
+            render_markdown(as_posted(body, self._comment_sentinel_enabled)),
             encoding="utf-8",
         )
         return str(path)
@@ -115,28 +110,19 @@ class LocalTaskSource:
         """Write an attachment under the task's ``attachments`` directory."""
         self._contained_path(ref, "attachments", name).write_bytes(data)
 
-    async def publish_refined(
-        self, ref: str, content: "Document | str"
-    ) -> None:
+    async def publish_refined(self, ref: str, content: Document) -> None:
         """Replace the task body with approved refined content."""
-        text = (
-            render_markdown(content)
-            if isinstance(content, Document)
-            else content
-        )
         data = self._load(ref)
-        data["body"] = text
+        data["body"] = render_markdown(content)
         self._task_path(ref).write_text(json.dumps(data), encoding="utf-8")
 
     async def create_subtask(
         self,
         parent_ref: str,
         title: str,
-        body: str,
-        markers: Sequence[Marker] = (),
+        body: Document,
     ) -> str:
         """Create a child task below its root-contained parent folder."""
-        body = apply_markers(body, markers)
         parent = self._task_dir(parent_ref)
         children = parent / "children"
         number = 1
@@ -147,7 +133,7 @@ class LocalTaskSource:
         parent_data = self._load(parent_ref)
         data = {
             "title": title,
-            "body": body,
+            "body": render_markdown(body),
             "parent": parent_ref,
             "code_repo": parent_data.get("code_repo"),
             "base_branch": parent_data.get("base_branch"),
@@ -180,18 +166,20 @@ class LocalTaskSource:
 
     async def list_comments(
         self, ref: str, since: str | None = None
-    ) -> list[Feedback]:
+    ) -> CommentPage:
         """Read human Markdown comments and exclude Kestrel reply files."""
         directory = self._task_dir(ref) / "comments"
         if not directory.is_dir():
-            return []
+            return CommentPage([], since)
         cutoff = parse_iso(since) if since else None
-        return [
+        comments = [
             feedback
             for path in sorted(directory.glob("*.md"))
             if (feedback := self._read_human_comment(ref, path, cutoff))
             is not None
         ]
+        cursor = comments[-1].created_at.isoformat() if comments else since
+        return CommentPage(comments, cursor)
 
     def _read_human_comment(
         self, ref: str, path: Path, cutoff: datetime | None
@@ -213,8 +201,8 @@ class LocalTaskSource:
         return Feedback(
             external_id=f"{ref}:{path.name}",
             origin="ticket",
-            author="",
-            body=path.read_text(encoding="utf-8"),
+            author=Person(""),
+            body=parse_markdown(path.read_text(encoding="utf-8")),
             created_at=created,
         )
 

@@ -11,8 +11,9 @@ from urllib.parse import quote
 
 import httpx
 
-from app.documents import Document, render_markdown
-from app.ports import ChangeRequest, Feedback, RequiredCiStatus
+from app.document_formats.markdown import parse_markdown, render_markdown
+from app.documents import Document
+from app.ports import ChangeRequest, Feedback, Person, RequiredCiStatus
 from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
 from app.services.task_source_utils import parse_iso
@@ -82,8 +83,8 @@ def _note_feedback(
     return Feedback(
         external_id=f"{prefix}{repo}#{number}{location}#{note['id']}",
         origin="review",
-        author=author.get("username", ""),
-        body=note.get("body") or "",
+        author=Person(author.get("username", ""), author.get("name", "")),
+        body=parse_markdown(note.get("body") or ""),
         created_at=parse_iso(note["created_at"]),
     )
 
@@ -193,7 +194,7 @@ class GitLabCodeHost:
         head: str,
         base: str,
         title: str,
-        body: "Document | str",
+        body: Document,
         draft: bool = True,
     ) -> str:
         """Open a merge request and return its ``web_url``.
@@ -201,11 +202,7 @@ class GitLabCodeHost:
         GitLab signals a draft MR with a ``Draft:`` title prefix.
         """
         mr_title = f"Draft: {title}" if draft else title
-        description = (
-            render_markdown(body)
-            if isinstance(body, Document)
-            else body
-        )
+        description = render_markdown(body)
         resp = await self._request(
             "POST",
             f"/projects/{self._pid(repo)}/merge_requests",

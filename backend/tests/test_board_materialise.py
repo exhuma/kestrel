@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from app.document_formats.markdown import render_markdown
 from app.models_board import WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
@@ -147,9 +148,9 @@ def test_task_spec_carries_the_approved_text_and_estimate(
     )
 
     head = board.one("implementation", "t2")
-    spec = board.artifacts.latest_content_for_card(
+    spec = render_markdown(board.artifacts.latest_document_for_card(
         head.id, TASK_SPEC_LOGICAL_NAME
-    )
+    ))
     assert spec.startswith("# Client\n")
     assert "Prerequisites: Schema" in spec
     assert "Client body" in spec
@@ -218,7 +219,7 @@ def test_the_breakdown_comment_lists_every_task_and_its_kind() -> None:
         strict=False,
     )
 
-    text = render_breakdown(candidate)
+    text = render_markdown(render_breakdown(candidate))
 
     assert "1. Schema (coding)" in text
     assert "2. API key (manual, for a human)" in text
@@ -256,9 +257,9 @@ def test_the_estimate_reads_as_it_did_on_a_child_ticket(
     board = _Board(tmp_path)
     board.approve(_task("t1", "Schema", estimate=_ESTIMATE))
 
-    spec = board.artifacts.latest_content_for_card(
+    spec = render_markdown(board.artifacts.latest_document_for_card(
         board.one("implementation", "t1").id, TASK_SPEC_LOGICAL_NAME
-    )
+    ))
     assert (
         "Size M · confidence low · ~6.0 man-hours · "
         "~400,000 agent tokens · ~1.5 review hours"
@@ -273,7 +274,7 @@ async def test_approval_posts_one_breakdown_comment_and_no_ticket(
     """Ensure the ticket gets one idempotent comment (FR-006, FR-021)."""
     board = _Board(tmp_path)
     gate = board.approve(_task("t1", "Schema"))
-    posted: list[tuple[str, str, str, str]] = []
+    posted: list[tuple] = []
 
     async def _record(*args: str) -> None:
         posted.append(args)
@@ -286,7 +287,8 @@ async def test_approval_posts_one_breakdown_comment_and_no_ticket(
 
     await bootstrap._project_breakdown("wf-1", gate)
 
-    ((workflow_id, kind, key, text),) = posted
+    ((workflow_id, kind, key, payload),) = posted
+    text = render_markdown(payload)
     assert (workflow_id, kind) == ("wf-1", "approved_artifact")
     assert key == f"approved_artifact:{gate.id}"
     assert "1. Schema (coding)" in text

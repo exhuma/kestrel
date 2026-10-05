@@ -45,3 +45,41 @@ forbidden_modules =
     app.backends.claude_cli
     app.backends.opencode
     app.backends.openai_compat
+
+# Constitution Principle VI: documents are modelled, never strings. Parsing and
+# rendering a platform format happen only in the adapter at a system boundary.
+# Every allowed edge is listed by name below — a new one is a design decision
+# (which boundary is this?), never a way to make an import pass.
+[importlinter:contract:documents-at-the-boundary]
+name = Only boundary adapters parse or render documents (Principle VI)
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    app.services
+    app.routers
+    app.persistence
+    app.storage
+    app.models_board
+    app.models_board_records
+    app.backends
+forbidden_modules =
+    app.document_formats
+ignore_imports =
+    # Task sources and code hosts.
+    app.services.github -> app.document_formats.markdown
+    app.services.github_reviews -> app.document_formats.markdown
+    app.services.github_tasksource -> app.document_formats.markdown
+    app.services.gitlab -> app.document_formats.markdown
+    app.services.jira -> app.document_formats.adf
+    app.services.jira -> app.document_formats.markdown
+    app.services.jira_client -> app.document_formats.adf
+    app.services.jira_client -> app.document_formats.markdown
+    app.services.local_task_source -> app.document_formats.markdown
+    # Agents: prompts out, results in; and input screening.
+    app.services.board.agent_text -> app.document_formats.markdown
+    app.services.board.quarantine -> app.document_formats.markdown
+    # Persistence.
+    app.persistence.document_column -> app.document_formats.document_json
+    app.persistence.document_column -> app.document_formats.markdown
+    # The HTTP API.
+    app.routers.document_out -> app.document_formats.markdown

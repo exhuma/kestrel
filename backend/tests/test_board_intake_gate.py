@@ -19,6 +19,7 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
+from app.documents import Text, document, paragraph
 from app.models_board import CardAction
 from app.models_board_records import IntakeOutcome
 from app.persistence.board_artifact_content_store import (
@@ -48,7 +49,10 @@ class _FakeTaskSource:
     exercised elsewhere (``test_board_input_intake.py``)."""
 
     async def get_task(self, ref: str) -> Task:
-        return Task(ref=ref, title="Add a thing", body="Do the thing.")
+        return Task(
+            ref=ref, title="Add a thing",
+            body=document(paragraph(Text("Do the thing."))),
+        )
 
     def visibility(self) -> str:
         return "public"

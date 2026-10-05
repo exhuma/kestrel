@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from app.document_formats.markdown import render_markdown
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
@@ -141,12 +142,15 @@ class TestDeliver:
         location = await deliver(_workflow(), code_host, svc)
 
         assert location == "https://cr/1"
+        body = code_host.opened.pop("body")
         assert code_host.opened == {
             "repo": "owner/repo", "head": "kestrel/board/wf-1",
             "base": "main", "title": "Add a thing (owner/repo#1)",
-            "body": "Implements owner/repo#1\n\nOpened by kestrel.",
             "draft": True,
         }
+        assert render_markdown(body) == (
+            "Implements owner/repo#1\n\nOpened by kestrel."
+        )
 
     @pytest.mark.asyncio
     async def test_deliver_reports_a_local_branch_when_unsupported(
@@ -184,8 +188,8 @@ class _FakeTaskSource:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    async def post_comment(self, ref: str, body: str) -> str:
-        self.calls.append((ref, body))
+    async def post_comment(self, ref: str, body) -> str:
+        self.calls.append((ref, body.plain_text()))
         return "comment-1"
 
 

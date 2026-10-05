@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.documents import Document
 from app.ports import TaskSource
 from app.services.board.projections import ProjectionsService
 
@@ -23,14 +24,14 @@ class ProjectionRequest:
     :param idempotency_key: Unique per real-world event (FR-033) — a
         second request for the same key is a no-op once the first
         completes.
-    :param payload: The safe comment body to post.
+    :param payload: The safe comment body to post, as a document.
     """
 
     workflow_id: str
     task_ref: str
     kind: str
     idempotency_key: str
-    payload: str
+    payload: Document
 
 
 async def post_projection(

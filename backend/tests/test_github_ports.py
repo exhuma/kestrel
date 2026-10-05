@@ -8,10 +8,11 @@ import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
-from app.ports import Feedback, LifecycleEvent, Task
+from app.documents import Marker, Text, document, paragraph
+from app.ports import Feedback, LifecycleEvent, Person, Task
 from app.services.github import GitHubClient, GitHubCodeHost, parse_github_ref
 from app.services.github_tasksource import GitHubTaskSource
-from app.services.task_source_utils import has_sentinel
+from tests.document_helpers import doc
 
 
 def _client(handler) -> GitHubClient:
@@ -69,8 +70,8 @@ async def test_task_source_get_task_and_comment() -> None:
 
     src = GitHubTaskSource(_client(handler))
     task = await src.get_task("o/r#7")
-    assert task == Task(ref="o/r#7", title="Bug", body="b")
-    assert await src.post_comment("o/r#7", "hi") == "https://c/1"
+    assert task == Task(ref="o/r#7", title="Bug", body=doc("b"))
+    assert await src.post_comment("o/r#7", doc("hi")) == "https://c/1"
     assert seen["GET"].endswith("/repos/o/r/issues/7")
     assert seen["POST"].endswith("/repos/o/r/issues/7/comments")
 
@@ -82,9 +83,11 @@ async def test_task_source_comment_carries_self_sentinel() -> None:
         httpx.Response(201, json={"html_url": "https://c/1"})
     )
 
-    await GitHubTaskSource(_client(handler)).post_comment("o/r#7", "hello")
+    await GitHubTaskSource(_client(handler)).post_comment(
+        "o/r#7", doc("hello")
+    )
 
-    assert "hello\\n\\n[kestrel:posted]" in seen["body"]
+    assert "hello\\n\\n<!-- kestrel:posted -->" in seen["body"]
 
 
 def test_task_source_display_label_and_deep_link() -> None:
@@ -101,14 +104,15 @@ async def test_publish_refined_updates_issue_with_sentinel() -> None:
     seen, handler = _recording_handler(httpx.Response(200, json={}))
 
     src = GitHubTaskSource(_client(handler))
-    await src.publish_refined("o/r#7", "PRD text")
+    await src.publish_refined("o/r#7", doc("PRD text"))
     assert seen["method"] == "PATCH"
     assert seen["url"].endswith("/repos/o/r/issues/7")
     assert "PRD text" in seen["body"]
-    # The persisted body carries the refined sentinel.
+    # The persisted body carries the refined marker.
     import json
 
-    assert has_sentinel(json.loads(seen["body"])["body"])
+    body = json.loads(seen["body"])["body"]
+    assert body.endswith("<!-- kestrel:refined -->")
 
 
 @pytest.mark.asyncio
@@ -122,7 +126,8 @@ async def test_create_subtask_creates_issue_without_trigger_label() -> None:
 
     src = GitHubTaskSource(_client(handler))
     ref = await src.create_subtask(
-        "o/r#7", "Do the thing", "Self-contained body <!-- kestrel:subtask -->"
+        "o/r#7", "Do the thing",
+        document(paragraph(Text("Self-contained body")), Marker("subtask")),
     )
     assert ref == "o/r#99"
     assert seen["method"] == "POST"
@@ -252,7 +257,8 @@ async def test_code_host_open_change_request_opens_draft_pr() -> None:
 
     host = GitHubCodeHost(_client(handler), "https://github.com")
     url = await host.open_change_request(
-        "o/r", head="kestrel/x", base="main", title="T", body="Closes #7"
+        "o/r", head="kestrel/x", base="main", title="T",
+        body=doc("Closes #7"),
     )
     assert url == "https://pr/9"
     assert seen["url"].endswith("/repos/o/r/pulls")
@@ -307,13 +313,13 @@ async def test_list_comments_maps_fields_and_mints_external_id() -> None:
         return httpx.Response(200, json=[_comment(comment_id=8812)])
 
     src = GitHubTaskSource(_client(handler))
-    items = await src.list_comments("o/r#7")
+    items = (await src.list_comments("o/r#7")).comments
     assert items == [
         Feedback(
             external_id="gh-issue-comment:o/r#8812",
             origin="ticket",
-            author="octocat",
-            body="hi",
+            author=Person("octocat", "octocat"),
+            body=doc("hi"),
             created_at=items[0].created_at,
         )
     ]
@@ -333,7 +339,7 @@ async def test_list_comments_excludes_bot_authors() -> None:
         )
 
     src = GitHubTaskSource(_client(handler))
-    items = await src.list_comments("o/r#7")
+    items = (await src.list_comments("o/r#7")).comments
     assert [i.external_id for i in items] == ["gh-issue-comment:o/r#2"]
 
 
@@ -353,9 +359,9 @@ async def test_list_comments_since_cursor_includes_same_time_items() -> None:
 
     src = GitHubTaskSource(_client(handler))
     first = await src.list_comments("o/r#7")
-    cursor = first[-1].created_at.isoformat()
+    cursor = first.cursor
 
-    second = await src.list_comments("o/r#7", since=cursor)
+    second = (await src.list_comments("o/r#7", since=cursor)).comments
 
     assert [i.external_id for i in second] == [
         "gh-issue-comment:o/r#2", "gh-issue-comment:o/r#3",
@@ -376,7 +382,7 @@ async def test_acknowledge_reacts_to_the_comment() -> None:
     src = GitHubTaskSource(_client(handler))
     feedback = Feedback(
         external_id="gh-issue-comment:o/r#8812", origin="ticket",
-        author="octocat", body="hi",
+        author=Person("octocat"), body=doc("hi"),
         created_at=datetime.now(timezone.utc),
     )
     ok = await src.acknowledge(feedback)
@@ -395,7 +401,7 @@ async def test_acknowledge_returns_false_for_unparseable_external_id() -> None:
     src = GitHubTaskSource(_client(handler))
     feedback = Feedback(
         external_id="jira-comment:RFC-1:5", origin="ticket",
-        author="octocat", body="hi",
+        author=Person("octocat"), body=doc("hi"),
         created_at=datetime.now(timezone.utc),
     )
     assert await src.acknowledge(feedback) is False
@@ -411,7 +417,7 @@ async def test_acknowledge_swallows_errors_and_returns_false() -> None:
     src = GitHubTaskSource(_client(handler))
     feedback = Feedback(
         external_id="gh-issue-comment:o/r#1", origin="ticket",
-        author="octocat", body="hi",
+        author=Person("octocat"), body=doc("hi"),
         created_at=datetime.now(timezone.utc),
     )
     assert await src.acknowledge(feedback) is False

@@ -5,9 +5,28 @@ is quoted verbatim, and every figure beneath it is a plain sum or count
 of the per-task estimates (SC-002) — the arithmetic is trustworthy even
 though its inputs are untrusted agent output, which the header says in
 so many words. kestrel itself recommends nothing (FR-014).
+
+It is a :class:`~app.documents.Document` built from constructs, never
+Markdown text (constitution Principle VI); the pm's prose is agent
+Markdown, parsed at the agent boundary.
 """
 from dataclasses import dataclass
 
+from app.documents import (
+    BulletList,
+    Cell,
+    Document,
+    Emphasis,
+    Heading,
+    Inline,
+    ListItem,
+    Strong,
+    Table,
+    Text,
+    document,
+    paragraph,
+)
+from app.services.board.agent_text import from_agent
 from app.services.board.candidate import (
     MANUAL,
     SIZES,
@@ -17,8 +36,12 @@ from app.services.board.candidate import (
 )
 
 HEADER = (
-    "_Agent estimates — unverified. kestrel makes no go/no-go "
-    "recommendation._"
+    "Agent estimates — unverified. kestrel makes no go/no-go "
+    "recommendation."
+)
+_TASK_COLUMNS = (
+    "Id", "Task", "Kind", "Size", "Confidence", "Man-hours", "Tokens",
+    "Review h", "Rationale",
 )
 
 
@@ -65,20 +88,20 @@ def summary_totals(candidate: Candidate) -> SummaryTotals:
     )
 
 
-def render_executive_summary(candidate: Candidate) -> str:
-    """The Markdown executive summary CAB-2 is decided on."""
+def render_executive_summary(candidate: Candidate) -> Document:
+    """The executive summary CAB-2 is decided on."""
     totals = summary_totals(candidate)
-    sections = [
-        "# Executive summary",
-        HEADER,
-        candidate.summary,
-        "## Totals",
+    blocks = [
+        Heading(1, (Text("Executive summary"),)),
+        paragraph(Emphasis(HEADER)),
+        *from_agent(candidate.summary).blocks,
+        Heading(2, (Text("Totals"),)),
         _totals_block(totals),
     ]
     if totals.risks:
-        sections += ["## Risks", _risks_block(totals)]
-    sections += ["## Tasks", _task_table(candidate.tasks)]
-    return "\n\n".join(sections) + "\n"
+        blocks += [Heading(2, (Text("Risks"),)), _risks_block(totals)]
+    blocks += [Heading(2, (Text("Tasks"),)), _task_table(candidate.tasks)]
+    return document(*blocks)
 
 
 def size_label(totals: SummaryTotals) -> str:
@@ -103,42 +126,42 @@ def _risk_index(
     return tuple((risk, tuple(ids)) for risk, ids in index.items())
 
 
-def _totals_block(totals: SummaryTotals) -> str:
-    return "\n".join(
-        [
-            f"- **Tasks**: {totals.task_count} "
-            f"({totals.coding} coding, {totals.manual} manual)",
-            f"- **Size**: {size_label(totals)}",
-            f"- **Human effort**: {totals.man_hours:.1f} man-hours "
-            "(by hand, without an agent)",
-            f"- **Agent tokens**: {totals.agent_tokens:,}",
-            f"- **Review effort**: {totals.review_hours:.1f} hours",
-            f"- **Low-confidence estimates**: {totals.low_confidence} "
-            f"of {totals.task_count}",
-        ]
+def _labelled(label: str, value: str) -> ListItem:
+    return ListItem((paragraph(Strong(label), Text(f": {value}")),))
+
+
+def _totals_block(totals: SummaryTotals) -> BulletList:
+    return BulletList((
+        _labelled("Tasks", f"{totals.task_count} "
+                  f"({totals.coding} coding, {totals.manual} manual)"),
+        _labelled("Size", size_label(totals)),
+        _labelled("Human effort", f"{totals.man_hours:.1f} man-hours "
+                  "(by hand, without an agent)"),
+        _labelled("Agent tokens", f"{totals.agent_tokens:,}"),
+        _labelled("Review effort", f"{totals.review_hours:.1f} hours"),
+        _labelled("Low-confidence estimates",
+                  f"{totals.low_confidence} of {totals.task_count}"),
+    ))
+
+
+def _risks_block(totals: SummaryTotals) -> BulletList:
+    return BulletList(tuple(
+        ListItem((paragraph(Text(f"{risk} — {', '.join(ids)}")),))
+        for risk, ids in totals.risks
+    ))
+
+
+def _task_table(tasks: tuple[DecompositionTask, ...]) -> Table:
+    return Table(
+        tuple(_cell(column) for column in _TASK_COLUMNS),
+        tuple(_task_row(task) for task in tasks),
     )
 
 
-def _risks_block(totals: SummaryTotals) -> str:
-    return "\n".join(
-        f"- {risk} — {', '.join(ids)}" for risk, ids in totals.risks
-    )
-
-
-def _task_table(tasks: tuple[DecompositionTask, ...]) -> str:
-    rows = [
-        "| Id | Task | Kind | Size | Confidence | Man-hours | Tokens "
-        "| Review h | Rationale |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    rows += [_task_row(task) for task in tasks]
-    return "\n".join(rows)
-
-
-def _task_row(task: DecompositionTask) -> str:
+def _task_row(task: DecompositionTask) -> tuple[Cell, ...]:
     estimate = _estimate_of(task)
     kind = "manual" if task.classification == MANUAL else "coding"
-    cells = [
+    return tuple(_cell(text) for text in (
         task.task_node_id,
         task.title,
         kind,
@@ -148,10 +171,12 @@ def _task_row(task: DecompositionTask) -> str:
         f"{estimate.agent_tokens:,}",
         f"{estimate.review_hours:.1f}",
         estimate.rationale,
-    ]
-    return "| " + " | ".join(_cell(c) for c in cells) + " |"
+    ))
 
 
-def _cell(text: str) -> str:
-    """Keep agent text from breaking the table's row structure."""
-    return " ".join(text.split()).replace("|", "\\|")
+def _cell(text: str) -> Cell:
+    """One cell of plain text, on one line (agent text cannot break rows:
+    a cell is a value, not markup)."""
+    flat = " ".join(text.split())
+    inline: tuple[Inline, ...] = (Text(flat),) if flat else ()
+    return inline

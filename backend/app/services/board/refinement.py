@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
+from app.services.board.agent_text import from_agent
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.gates import GatesService
 from app.services.board.questions import (
@@ -31,6 +32,8 @@ from app.text_extract import extract_tag
 #: stored under, regardless of gate kind or decision — each gate
 #: resolves exactly once, so there is no collision to disambiguate.
 RESPONSE_LOGICAL_NAME = "response"
+#: The PRD a ``prd`` card drafted, held behind its gate (a document).
+PRD_DRAFT_LOGICAL_NAME = "draft"
 
 
 class RefinementResultError(Exception):
@@ -191,15 +194,8 @@ def route_prd_result(
         draft = parse_prd_draft(text)
     except RefinementResultError as exc:
         raise _unreadable(card, "PRD", "pm", exc) from exc
-    artifact = artifacts.store_reference_artifact(
-        ArtifactDraft(
-            producer_card_id=card.id,
-            logical_name="draft",
-            revision=card.attempt_count,
-            content=draft,
-            trust="agent_output",
-            mime_type="text/markdown",
-        )
+    artifact = artifacts.store_document(
+        card.id, PRD_DRAFT_LOGICAL_NAME, card.attempt_count, from_agent(draft)
     )
     gates.create_gate(
         card.workflow_id,

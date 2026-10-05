@@ -9,6 +9,7 @@ import pytest
 from app.backends.base import TurnRequest, TurnResult
 from app.config import Settings
 from app.config_models import TaskSourceConfig
+from app.documents import EMPTY_DOCUMENT, Text, document, paragraph
 from app.persistence.board_quarantine_store import BoardQuarantineStore
 from app.persistence.board_store import BoardStore
 from app.persistence.dismissal_store import DismissalStore
@@ -51,7 +52,10 @@ class _Classifier:
 
 class _Source:
     async def get_task(self, ref: str) -> Task:
-        return Task(ref=ref, title="Add CSV export", body="Please add it.")
+        return Task(
+            ref=ref, title="Add CSV export",
+            body=document(paragraph(Text("Please add it."))),
+        )
 
     def visibility(self) -> str:
         return "public"
@@ -121,7 +125,7 @@ async def test_passing_screening_starts_understanding(tmp_path: Path) -> None:
 
     workflow = rig.store.get_workflow(workflow_id)
     assert (workflow.title, workflow.task_body) == (
-        "Add CSV export", "Please add it."
+        "Add CSV export", document(paragraph(Text("Please add it.")))
     )
     assert rig.kinds(workflow_id) == [
         ("security_review", "done"), ("understanding", "ready"),
@@ -143,7 +147,7 @@ async def test_a_suspect_ticket_is_quarantined_on_the_same_request(
     assert rig.kinds(workflow_id) == [
         ("security_review", "cancelled"), ("security_review", "quarantined"),
     ]
-    assert rig.store.get_workflow(workflow_id).task_body == ""
+    assert rig.store.get_workflow(workflow_id).task_body == EMPTY_DOCUMENT
     assert rig.wakes == []
 
 
@@ -164,7 +168,9 @@ async def test_releasing_the_quarantine_continues_the_request(
     await rig.ingestion.continue_intake(workflow_id)
 
     assert ("understanding", "ready") in rig.kinds(workflow_id)
-    assert rig.store.get_workflow(workflow_id).task_body == "Please add it."
+    assert rig.store.get_workflow(workflow_id).task_body == (
+        document(paragraph(Text("Please add it.")))
+    )
 
 
 async def _quarantined(rig: _Rig) -> tuple[str, str]:

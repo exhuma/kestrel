@@ -15,6 +15,8 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
+from app.document_formats.markdown import parse_markdown
+from app.documents import EMPTY_DOCUMENT
 from app.ports import Task
 from app.services.ingestion import BoardIntake, IngestionService
 from tests.intake_doubles import FakeIntakeBoard, fake_board_intake
@@ -27,7 +29,7 @@ class _FakeTaskSource:
         self._body = body
 
     async def get_task(self, ref: str) -> Task:
-        return Task(ref=ref, title="t", body=self._body)
+        return Task(ref=ref, title="t", body=parse_markdown(self._body))
 
     def visibility(self) -> str:
         return "public"
@@ -186,10 +188,10 @@ async def test_the_request_is_shown_before_it_is_screened() -> None:
     await svc.maybe_start_run(**_gh("o/r#5", "o/r"))
 
     (intake,) = board_intake.board.calls
-    assert (intake.title, intake.body) == ("o/r#5", "")
+    assert (intake.title, intake.body) == ("o/r#5", EMPTY_DOCUMENT)
     (screened,) = board_intake.quarantine.calls
     assert screened.workflow.id == "wf-0"
-    assert board_intake.board.passed == [("wf-0", "t", "b")]
+    assert board_intake.board.passed == [("wf-0", "t", parse_markdown("b"))]
 
 
 @pytest.mark.asyncio
@@ -225,7 +227,7 @@ async def test_an_interrupted_screening_is_redone() -> None:
     )
 
     assert len(board.calls) == 1  # no second request
-    assert board.passed == [("wf-0", "t", "b")]
+    assert board.passed == [("wf-0", "t", parse_markdown("b"))]
 
 
 @pytest.mark.asyncio
@@ -245,4 +247,4 @@ async def test_a_released_intake_continues() -> None:
     await svc.continue_intake("wf-0")
     await svc.continue_intake("wf-missing")
 
-    assert board.passed == [("wf-0", "t", "b")]
+    assert board.passed == [("wf-0", "t", parse_markdown("b"))]

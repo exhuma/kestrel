@@ -12,7 +12,8 @@ from urllib.parse import quote
 
 import httpx
 
-from app.documents import Document, render_markdown
+from app.document_formats.markdown import render_markdown
+from app.documents import Document
 from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services import github_reviews
 from app.services.exceptions import GitHubError
@@ -43,6 +44,8 @@ class Issue:
     body: str
     state: Literal["open", "closed"] = "open"
     labels: frozenset[str] = frozenset()
+    #: The login of whoever opened the issue ("" when unknown).
+    author: str = ""
 
 
 class GitHubClient:
@@ -134,6 +137,7 @@ class GitHubClient:
             labels=frozenset(
                 label["name"] for label in data.get("labels", [])
             ),
+            author=(data.get("user") or {}).get("login", ""),
         )
 
     async def create_issue_comment(
@@ -411,10 +415,10 @@ class GitHubCodeHost:
         head: str,
         base: str,
         title: str,
-        body: "Document | str",
+        body: Document,
         draft: bool = True,
     ) -> str:
-        rendered = render_markdown(body) if isinstance(body, Document) else body
+        rendered = render_markdown(body)
         return await self._client.create_pull_request(
             repo, head=head, base=base, title=title, body=rendered, draft=draft
         )

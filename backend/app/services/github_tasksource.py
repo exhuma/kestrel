@@ -8,19 +8,19 @@ mirrors ``ports.py``'s own ``TaskSource``/``CodeHost`` role split.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Callable, Literal
 
 from app.config_models import TaskSourceConfig
-from app.documents import Document, as_document, render_markdown
-from app.markers import Marker, apply_markers
-from app.ports import Feedback, LifecycleEvent, Task
+from app.document_formats.markdown import parse_markdown, render_markdown
+from app.documents import Document, Text, paragraph
+from app.ports import CommentPage, Feedback, LifecycleEvent, Person, Task
 from app.services.github import GitHubClient, parse_github_ref
 from app.services.github_cleanup import close_issue, delete_issue_comment
 from app.services.task_source_utils import (
-    append_comment_sentinel,
-    append_sentinel,
+    REFINED,
+    as_posted,
     parse_iso,
+    with_marker,
 )
 
 #: Prefix minted onto every issue-comment ``Feedback.external_id`` (feature
@@ -45,7 +45,6 @@ class GitHubTaskSource:
         public_base_url: str = "",
         config_for: "Callable[[str], TaskSourceConfig | None] | None" = None,
         comment_sentinel_enabled: bool = True,
-        comment_sentinel: str = "[kestrel:posted]",
     ) -> None:
         """
         :param config_for: Resolves a repo (``owner/name``) to the
@@ -57,28 +56,28 @@ class GitHubTaskSource:
         self._public_base_url = public_base_url.rstrip("/")
         self._config_for = config_for
         self._comment_sentinel_enabled = comment_sentinel_enabled
-        self._comment_sentinel = comment_sentinel
 
     async def get_task(self, ref: str) -> Task:
         repo, number = parse_github_ref(ref)
         issue = await self._client.get_issue(repo, number)
-        return Task(ref=ref, title=issue.title, body=issue.body)
+        reporter = Person(issue.author, issue.author) if issue.author else None
+        return Task(
+            ref=ref, title=issue.title, body=parse_markdown(issue.body),
+            reporter=reporter,
+        )
 
     async def check_health(self) -> bool:
         """Delegates to the shared client — same connection/credential
         as this profile's code host, when GitHub plays both roles."""
         return await self._client.check_health()
 
-    async def post_comment(self, ref: str, body: Document | str) -> str:
+    async def post_comment(self, ref: str, body: Document) -> str:
+        """Post a comment carrying kestrel's ownership marker."""
         repo, number = parse_github_ref(ref)
         return await self._client.create_issue_comment(
             repo,
             number,
-            append_comment_sentinel(
-                render_markdown(as_document(body)),
-                self._comment_sentinel_enabled,
-                self._comment_sentinel,
-            ),
+            render_markdown(as_posted(body, self._comment_sentinel_enabled)),
         )
 
     async def attach(
@@ -88,24 +87,18 @@ class GitHubTaskSource:
         issue body; screenshots ride along committed in the PR's ``.kestrel``
         folder."""
 
-    async def publish_refined(
-        self, ref: str, content: "Document | str"
-    ) -> None:
-        """Write the approved PRD back to the issue body with the sentinel."""
+    async def publish_refined(self, ref: str, content: Document) -> None:
+        """Write the approved PRD back to the issue body, marked refined."""
         repo, number = parse_github_ref(ref)
-        text = (
-            render_markdown(content)
-            if isinstance(content, Document)
-            else content
+        await self._client.update_issue(
+            repo, number, render_markdown(with_marker(content, REFINED))
         )
-        await self._client.update_issue(repo, number, append_sentinel(text))
 
     async def create_subtask(
         self,
         parent_ref: str,
         title: str,
-        body: str,
-        markers: Sequence[Marker] = (),
+        body: Document,
     ) -> str:
         """Create a follow-up issue in the same repo (feature 012).
 
@@ -113,10 +106,13 @@ class GitHubTaskSource:
         issues have no native sub-issue type at this API layer); created
         with no labels at all, so it can never carry the trigger label.
         """
-        body = apply_markers(body, markers)
         repo, parent_number = parse_github_ref(parent_ref)
-        full_body = f"Sub-task of #{parent_number}\n\n{body}"
-        number = await self._client.create_issue(repo, title, full_body)
+        full_body = Document((
+            paragraph(Text(f"Sub-task of #{parent_number}")), *body.blocks,
+        ))
+        number = await self._client.create_issue(
+            repo, title, render_markdown(full_body)
+        )
         return f"{repo}#{number}"
 
     async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
@@ -174,7 +170,7 @@ class GitHubTaskSource:
 
     async def list_comments(
         self, ref: str, since: str | None = None
-    ) -> list[Feedback]:
+    ) -> CommentPage:
         """List an issue's comments as ``Feedback`` (feature 013).
 
         Bot-authored comments (``user.type == "Bot"``) are excluded here,
@@ -188,12 +184,14 @@ class GitHubTaskSource:
         repo, number = parse_github_ref(ref)
         raw = await self._client.list_issue_comments(repo, number, since=since)
         cutoff = parse_iso(since) if since else None
-        return [
+        comments = [
             item
             for item in (self._to_feedback(repo, c) for c in raw)
             if item is not None
             and (cutoff is None or item.created_at >= cutoff)
         ]
+        cursor = raw[-1]["created_at"] if raw else since
+        return CommentPage(comments, cursor)
 
     def _to_feedback(self, repo: str, comment: dict) -> Feedback | None:
         user = comment.get("user") or {}
@@ -202,8 +200,8 @@ class GitHubTaskSource:
         return Feedback(
             external_id=f"{_COMMENT_ID_PREFIX}{repo}#{comment['id']}",
             origin="ticket",
-            author=user.get("login", ""),
-            body=comment.get("body") or "",
+            author=Person(user.get("login", ""), user.get("login", "")),
+            body=parse_markdown(comment.get("body") or ""),
             created_at=parse_iso(comment["created_at"]),
         )
 

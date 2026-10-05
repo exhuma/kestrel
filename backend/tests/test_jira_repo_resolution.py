@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
+from app.documents import Text, document, paragraph
 from app.ports import SubtaskContextError
 from app.services.jira import JiraClient, JiraTaskSource
 from app.services.jira_poll import JiraPollService, _repo_from_url
@@ -162,7 +163,9 @@ async def test_subtask_link_failure_exposes_created_child_for_repair() -> None:
     src = JiraTaskSource(_client(handler), config=config)
 
     with pytest.raises(SubtaskContextError) as exc:
-        await src.create_subtask("RFC-1", "Child", "body")
+        await src.create_subtask(
+            "RFC-1", "Child", document(paragraph(Text("body")))
+        )
     await src.complete_subtask("RFC-1", exc.value.task_ref)
 
     assert exc.value.task_ref == "RFC-2"

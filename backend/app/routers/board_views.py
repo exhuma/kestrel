@@ -22,6 +22,7 @@ from app.models_board_records import (
     HandoffArtifact,
     HumanGateRecord,
 )
+from app.routers.document_out import api_markdown
 from app.schemas import (
     AwaitingOut,
     BoardArtifactRefOut,
@@ -249,7 +250,7 @@ def board_snapshot(
         phase=phase,
         stage=stage_of(phase),
         outcome=outcome_of(cards),
-        task_body=workflow.task_body,
+        task_body=api_markdown(workflow.task_body),
         change_request_url=workflow.change_request_url,
         activity=lookups.activity,
         phases=[

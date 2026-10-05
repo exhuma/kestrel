@@ -49,7 +49,7 @@ def awaits_release(workflow: Workflow, cards: list[WorkCard]) -> bool:
     passed, and not yet continued (FR-005). A pre-032 quarantine
     placeholder (state ``"quarantined"``) never is — its ticket is
     screened again by the next poll instead."""
-    if workflow.state == "quarantined" or workflow.task_body:
+    if workflow.state == "quarantined" or workflow.task_body.blocks:
         return False
     if open_screening_card(cards) is not None:
         return False

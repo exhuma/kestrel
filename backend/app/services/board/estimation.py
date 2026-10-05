@@ -207,13 +207,6 @@ def _open_cab2(
         requested_decision="approve_decomposition",
         target_artifact_id=target.id,
     )
-    services.artifacts.store_reference_artifact(
-        ArtifactDraft(
-            producer_card_id=gate.id,
-            logical_name=SUMMARY_LOGICAL_NAME,
-            revision=1,
-            content=render_executive_summary(proposal),
-            trust="agent_output",
-            mime_type="text/markdown",
-        )
+    services.artifacts.store_document(
+        gate.id, SUMMARY_LOGICAL_NAME, 1, render_executive_summary(proposal)
     )

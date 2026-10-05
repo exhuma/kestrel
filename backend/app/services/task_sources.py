@@ -39,7 +39,6 @@ def build_task_source_registry(settings: Settings) -> TaskSourceRegistry:
         settings.public_base_url,
         config_for=settings.github_source_for,
         comment_sentinel_enabled=settings.comment_sentinel_enabled,
-        comment_sentinel=settings.comment_sentinel,
     )
     gh_host = GitHubCodeHost(github, settings.git_base)
     sources: dict[str, TaskSource] = {"github-issue": gh_source}
@@ -71,7 +70,6 @@ def _register_jira(
         settings.public_base_url,
         config=entry,
         comment_sentinel_enabled=settings.comment_sentinel_enabled,
-        comment_sentinel=settings.comment_sentinel,
     )
     jira_github = GitHubClient(
         settings.github_api_base, settings.github_token, verify=entry.verify_ssl
@@ -93,7 +91,6 @@ def _register_local(
     sources["local-task"] = LocalTaskSource(
         entry.tasks_dir,
         settings.comment_sentinel_enabled,
-        settings.comment_sentinel,
     )
     code_hosts["local-task"] = LocalCodeHost()
 

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.ports import Feedback
+from app.document_formats.markdown import parse_markdown
+from app.ports import Feedback, Person
 from app.services.task_source_utils import parse_iso
 
 #: A PR-conversation comment lives on the very same issues endpoint a
@@ -35,8 +36,8 @@ def _conversation_feedback(repo: str, comment: dict) -> Feedback | None:
     return Feedback(
         external_id=f"{_PR_COMMENT_PREFIX}{repo}#{comment['id']}",
         origin="review",
-        author=user.get("login", ""),
-        body=comment.get("body") or "",
+        author=Person(user.get("login", ""), user.get("login", "")),
+        body=parse_markdown(comment.get("body") or ""),
         created_at=parse_iso(comment["created_at"]),
     )
 
@@ -52,8 +53,8 @@ def _review_feedback(repo: str, review: dict) -> Feedback | None:
     return Feedback(
         external_id=f"{_PR_REVIEW_PREFIX}{repo}#{review['id']}",
         origin="review",
-        author=user.get("login", ""),
-        body=body,
+        author=Person(user.get("login", ""), user.get("login", "")),
+        body=parse_markdown(body),
         created_at=parse_iso(submitted),
     )
 
@@ -65,8 +66,8 @@ def _review_comment_feedback(repo: str, comment: dict) -> Feedback | None:
     return Feedback(
         external_id=f"{_PR_REVIEW_COMMENT_PREFIX}{repo}#{comment['id']}",
         origin="review",
-        author=user.get("login", ""),
-        body=comment.get("body") or "",
+        author=Person(user.get("login", ""), user.get("login", "")),
+        body=parse_markdown(comment.get("body") or ""),
         created_at=parse_iso(comment["created_at"]),
     )
 

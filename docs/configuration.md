@@ -48,7 +48,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 `Settings` fields survive from the deleted fixed driver purely because
 nobody has removed them yet from `backend/app/config.py`:
 `workflow_debug`,
-`feedback_marker`, `feedback_ignore_authors`, `feedback_window_days`,
 `refine_samples`, `refine_critic`,
 `reconcile_mode`, `allow_incomplete_answers`, and `mockups_enabled`. Setting
 their `KESTREL_*` env var or `config.toml` key is accepted at startup but has

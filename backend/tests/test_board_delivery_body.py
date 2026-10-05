@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.document_formats.markdown import render_markdown
 from app.persistence.board_store import BoardStore
 from app.services.board.delivery import deliver
 from app.services.board.delivery_body import (
@@ -49,6 +50,11 @@ def _commit(dest: str, files: dict[str, str | bytes]) -> None:
     )
 
 
+
+def _md_body(*args) -> str:
+    """The body as the code host receives it (Markdown)."""
+    return render_markdown(pr_body(*args))
+
 class TestPrBody:
     def test_embeds_each_screenshot_as_an_image(self) -> None:
         shots = Screenshots(images=(
@@ -56,7 +62,7 @@ class TestPrBody:
             ".kestrel/screenshots/b-feed.png",
         ))
 
-        body = pr_body("o/r#1", shots, _url)
+        body = _md_body("o/r#1", shots, _url)
 
         assert body == (
             "Implements o/r#1\n\n## Screenshots\n\n"
@@ -66,12 +72,12 @@ class TestPrBody:
         )
 
     def test_states_the_reason_when_there_are_none(self) -> None:
-        body = pr_body("o/r#1", Screenshots(note="No browser here."), _url)
+        body = _md_body("o/r#1", Screenshots(note="No browser here."), _url)
 
         assert "## Screenshots\n\nNo screenshots: No browser here." in body
 
     def test_has_no_section_without_either(self) -> None:
-        body = pr_body("o/r#1", Screenshots(), _url)
+        body = _md_body("o/r#1", Screenshots(), _url)
 
         assert body == "Implements o/r#1\n\nOpened by kestrel."
 
@@ -118,7 +124,7 @@ class TestDeliverBody:
 
         await deliver(_workflow(), code_host, svc)
 
-        assert code_host.opened["body"] == (
+        assert render_markdown(code_host.opened["body"]) == (
             "Implements owner/repo#1\n\n## Screenshots\n\n"
             "![rail](file://owner/repo/kestrel/board/wf-1/"
             ".kestrel/screenshots/rail.png)\n\nOpened by kestrel."

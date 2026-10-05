@@ -5,6 +5,14 @@ repo's 500-line ceiling.
 """
 from __future__ import annotations
 
+from app.documents import (
+    BulletList,
+    Heading,
+    ListItem,
+    Text,
+    document,
+    paragraph,
+)
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
 from app.services.board.dispatch import (
     build_card_envelope,
@@ -73,7 +81,9 @@ class TestCardEnvelope:
             id="wf-1", source="github-issue", task_ref="owner/repo#1",
             repo="owner/repo", base_branch="main",
             source_visibility="public", title="Add a thing",
-            task_body="Users need to export their data as CSV.",
+            task_body=document(
+                paragraph(Text("Users need to export their data as CSV."))
+            ),
         )
         card = WorkCard(
             id="card-1", workflow_id="wf-1", kind="analysis",
@@ -84,13 +94,53 @@ class TestCardEnvelope:
 
         assert "Users need to export their data as CSV." in envelope
 
+    def test_a_structured_task_body_reaches_the_agent_as_markdown(
+        self,
+    ) -> None:
+        """Ensure the agent boundary renders the document, structure and
+        all (feature 046, Principle VI)."""
+        workflow = Workflow(
+            id="wf-1", source="jira-issue", task_ref="RFC-1",
+            repo="owner/repo", base_branch="main",
+            source_visibility="public", title="Add a thing",
+            task_body=document(
+                Heading(2, (Text("Why"),)),
+                BulletList((ListItem((paragraph(Text("one")),)),)),
+            ),
+        )
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="analysis",
+            title="Investigate", state="claimed",
+        )
+
+        envelope = build_card_envelope(_specialist(), workflow, card)
+
+        assert "## Why\n\n- one" in envelope
+
+    def test_an_empty_task_body_says_so(self) -> None:
+        card = WorkCard(
+            id="card-1", workflow_id="wf-1", kind="analysis",
+            title="Investigate", state="claimed",
+        )
+        workflow = Workflow(
+            id="wf-1", source="github-issue", task_ref="owner/repo#1",
+            repo="owner/repo", base_branch="main",
+            source_visibility="public", title="Add a thing",
+        )
+
+        envelope = build_card_envelope(_specialist(), workflow, card)
+
+        assert "(no task body recorded)" in envelope
+
     def test_envelope_includes_the_approved_prd_once_set(self) -> None:
         specialist = _specialist()
         workflow = Workflow(
             id="wf-1", source="github-issue", task_ref="owner/repo#1",
             repo="owner/repo", base_branch="main",
             source_visibility="public", title="Add a thing",
-            approved_prd="Implement CSV export behind a feature flag.",
+            approved_prd=document(
+                paragraph(Text("Implement CSV export behind a feature flag."))
+            ),
         )
         card = WorkCard(
             id="card-1", workflow_id="wf-1", kind="implementation",
@@ -142,7 +192,9 @@ class TestCoordinatorEnvelope:
             id="wf-1", source="github-issue", task_ref="owner/repo#1",
             repo="owner/repo", base_branch="main",
             source_visibility="public", title="Add a thing",
-            task_body="Users need to export their data as CSV.",
+            task_body=document(
+                paragraph(Text("Users need to export their data as CSV."))
+            ),
         )
 
         envelope = build_coordinator_envelope(specialist, workflow, [])

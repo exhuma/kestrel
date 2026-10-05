@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from app.ports import Feedback
+from app.documents import Text, document, paragraph
+from app.ports import Feedback, Person
 from app.services.gitlab import GitLabCodeHost, GitLabError
 
 _MR_NUMBER = 12
@@ -81,7 +82,7 @@ async def test_open_change_request_opens_draft_merge_request() -> None:
         head="kestrel/RFC-1",
         base="main",
         title="Implement RFC-1",
-        body="Ref RFC-1",
+        body=document(paragraph(Text("Ref RFC-1"))),
     )
     assert url == "https://gitlab.internal/mr/3"
     assert "/projects/group%2Fsvc/merge_requests" in seen["url"]
@@ -102,7 +103,7 @@ async def test_non_draft_merge_request_has_plain_title() -> None:
 
     await _host(handler).open_change_request(
         "group/svc", head="h", base="main", title="Implement RFC-1",
-        body="", draft=False,
+        body=document(), draft=False,
     )
 
 
@@ -171,7 +172,8 @@ async def test_list_review_comments_maps_notes_to_feedback() -> None:
     assert items == [
         Feedback(
             external_id="gl-note:group/svc#12#9",
-            origin="review", author="alice", body="please fix this",
+            origin="review", author=Person("alice"),
+            body=document(paragraph(Text("please fix this"))),
             created_at=items[0].created_at,
         )
     ]
@@ -321,7 +323,8 @@ async def test_acknowledge_awards_the_eyes_emoji() -> None:
 
     feedback = Feedback(
         external_id="gl-note:group/svc#12#9", origin="review",
-        author="alice", body="hi", created_at=_NOW,
+        author=Person("alice"), body=document(paragraph(Text("hi"))),
+        created_at=_NOW,
     )
     ok = await _host(handler).acknowledge(feedback)
     assert ok is True
@@ -342,7 +345,8 @@ async def test_acknowledge_awards_inline_discussion_note() -> None:
 
     feedback = Feedback(
         external_id="gl-discussion-note:group/svc#12#diff-1#9",
-        origin="review", author="alice", body="hi", created_at=_NOW,
+        origin="review", author=Person("alice"),
+        body=document(paragraph(Text("hi"))), created_at=_NOW,
     )
 
     assert await _host(handler).acknowledge(feedback) is True
@@ -360,7 +364,8 @@ async def test_acknowledge_returns_false_for_unparseable_external_id() -> None:
 
     feedback = Feedback(
         external_id="gh-issue-comment:o/r#5", origin="review",
-        author="alice", body="hi", created_at=_NOW,
+        author=Person("alice"), body=document(paragraph(Text("hi"))),
+        created_at=_NOW,
     )
     assert await _host(handler).acknowledge(feedback) is False
 
@@ -375,7 +380,8 @@ async def test_acknowledge_returns_false_for_gitea() -> None:
 
     feedback = Feedback(
         external_id="gl-note:group/svc#12#9", origin="review",
-        author="alice", body="hi", created_at=_NOW,
+        author=Person("alice"), body=document(paragraph(Text("hi"))),
+        created_at=_NOW,
     )
     assert await _host(handler, is_gitea=True).acknowledge(feedback) is False
 

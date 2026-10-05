@@ -191,7 +191,8 @@ class TestPrdApproval:
 
         service.resolve(gate.id, "approved")
 
-        assert store.get_workflow("wf-1").approved_prd == "the full plan"
+        prd = store.get_workflow("wf-1").approved_prd
+        assert prd.plain_text() == "the full plan"
 
     def test_a_gate_with_no_target_artifact_is_a_no_op(
         self, tmp_path: Path

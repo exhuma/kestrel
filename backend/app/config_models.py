@@ -148,6 +148,11 @@ class TaskSourceConfig(BaseModel):
     #: repo is resolved from a web link titled ``repo_link_text``.
     repo_field: str = ""
     repo_link_text: str = "Repository"
+    #: Jira: the user-picker custom field naming the issue's change owner
+    #: (e.g. ``customfield_10050``; feature 046). The change owner is told
+    #: when the issue is ready for CAB or should move on, and relays CAB
+    #: decisions. Unset ⇒ no change owner; CAB decisions go through the UI.
+    change_owner_field: str = ""
     #: Jira: code host for resolved repos and its (self-hosted) URL + token env.
     code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""

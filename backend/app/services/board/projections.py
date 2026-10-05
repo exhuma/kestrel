@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 
+from app.documents import Document
 from app.models_board_records import ExternalProjectionRecord
 from app.persistence.board_projection_store import BoardProjectionStore
 
@@ -39,7 +40,7 @@ class ProjectionsService:
         workflow_id: str,
         kind: str,
         idempotency_key: str,
-        payload: str,
+        payload: Document,
     ) -> ExternalProjectionRecord:
         """Plan one projection, or return the already-recorded one.
 
@@ -52,7 +53,9 @@ class ProjectionsService:
             raise UnsupportedProjectionKindError(
                 f"unsupported projection kind: {kind}"
             )
-        payload_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        payload_hash = hashlib.sha256(
+            repr(payload).encode("utf-8")
+        ).hexdigest()
         return self._store.plan(
             ExternalProjectionRecord(
                 id=f"projection-{uuid.uuid4().hex[:8]}",

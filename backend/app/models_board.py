@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from app.documents import EMPTY_DOCUMENT, Document
+
 
 class CardState(StrEnum):
     """Universal card states (FR-002). See data-model.md's allowed-origins
@@ -213,8 +215,8 @@ class Workflow:
     change_request_url: str | None = None
     ci_repair_round: int = 0
     ci_status: str | None = None
-    task_body: str = ""
-    approved_prd: str | None = None
+    task_body: Document = EMPTY_DOCUMENT
+    approved_prd: Document | None = None
 
 
 @dataclass(frozen=True)

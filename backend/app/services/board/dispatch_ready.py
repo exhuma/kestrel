@@ -12,6 +12,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from app.documents import Text, document, paragraph
 from app.models_board import (
     CardKind,
     SpecialistDefinition,
@@ -330,7 +331,7 @@ async def _project_escalation(
                 idempotency_key=(
                     f"escalation:{card.id}:{card.attempt_count}:{index}"
                 ),
-                payload=f"Escalation: {summary}",
+                payload=document(paragraph(Text(f"Escalation: {summary}"))),
             ),
             task_source,
             services.projections,

@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from app.ports import Feedback
+from app.documents import Text, document, paragraph
+from app.ports import Feedback, Person
 from app.services.change_requests import change_request_number
 from app.services.github import GitHubClient, GitHubCodeHost
 
@@ -124,7 +125,9 @@ async def test_list_review_comments_merges_and_tags_origin() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     items = await host.list_review_comments("o/r", _PR_NUMBER)
     assert {i.origin for i in items} == {"review"}
-    assert [i.body for i in items] == ["conv", "review summary", "inline"]
+    assert [i.body.plain_text() for i in items] == [
+        "conv", "review summary", "inline",
+    ]
     assert items[0].external_id == "gh-pr-comment:o/r#1"
     assert items[1].external_id == "gh-pr-review:o/r#55"
     assert items[2].external_id == "gh-pr-review-comment:o/r#2"
@@ -189,7 +192,8 @@ async def test_codehost_acknowledge_reacts_to_pr_conversation_comment() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     feedback = Feedback(
         external_id="gh-pr-comment:o/r#3", origin="review",
-        author="octocat", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("octocat"), body=document(paragraph(Text("hi"))),
+        created_at=datetime.now(timezone.utc),
     )
     assert await host.acknowledge(feedback) is True
     assert seen["url"].endswith("/repos/o/r/issues/comments/3/reactions")
@@ -207,7 +211,8 @@ async def test_codehost_acknowledge_reacts_to_inline_review_comment() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     feedback = Feedback(
         external_id="gh-pr-review-comment:o/r#4", origin="review",
-        author="octocat", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("octocat"), body=document(paragraph(Text("hi"))),
+        created_at=datetime.now(timezone.utc),
     )
     assert await host.acknowledge(feedback) is True
     assert seen["url"].endswith("/repos/o/r/pulls/comments/4/reactions")
@@ -224,6 +229,7 @@ async def test_codehost_acknowledge_review_summary_has_no_endpoint() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     feedback = Feedback(
         external_id="gh-pr-review:o/r#55", origin="review",
-        author="octocat", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("octocat"), body=document(paragraph(Text("hi"))),
+        created_at=datetime.now(timezone.utc),
     )
     assert await host.acknowledge(feedback) is False

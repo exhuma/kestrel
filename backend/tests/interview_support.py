@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.documents import Text, document, paragraph
 from app.models_board import SpecialistDefinition, Workflow
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
@@ -24,7 +25,8 @@ from tests.board_test_support import board_session_factory
 WORKFLOW = Workflow(
     id="wf-1", source="github-issue", task_ref="owner/repo#1",
     repo="owner/repo", base_branch="main", source_visibility="public",
-    title="Add CSV export", task_body="Users need to export data as CSV.",
+    title="Add CSV export",
+    task_body=document(paragraph(Text("Users need to export data as CSV."))),
 )
 
 

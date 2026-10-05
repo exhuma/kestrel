@@ -213,7 +213,7 @@ class IngestionService:
         if outcome.released:
             board.pass_screening(
                 workflow.id, title=task.title,
-                body=outcome.safe_content or "", card_id=card_id,
+                body=outcome.safe_content or task.body, card_id=card_id,
             )
             _log.info("ingest outcome=started %s", workflow.task_ref)
             return

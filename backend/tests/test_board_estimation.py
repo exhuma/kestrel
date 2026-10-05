@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.document_formats.markdown import render_markdown
 from app.models_board import SpecialistDefinition, WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.services.board.claims import ClaimsService
@@ -167,9 +168,9 @@ class TestValidEstimates:
             _estimates(_CODING, _MANUAL), estimation, services
         )
 
-        summary = services.artifacts.latest_content_for_card(
+        summary = render_markdown(services.artifacts.latest_document_for_card(
             _gate(services).id, SUMMARY_LOGICAL_NAME
-        )
+        ))
         assert summary is not None
         assert HEADER in summary
         assert "Add an audit table" in summary

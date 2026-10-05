@@ -12,6 +12,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from app.documents import (
+    Block,
+    Document,
+    Heading,
+    Image,
+    Text,
+    document,
+    paragraph,
+)
 from app.services.board.workspace import WorkspaceService
 
 #: Where the coder commits screenshots on the workflow's branch.
@@ -51,31 +60,31 @@ async def read_screenshots(
 
 def _screenshots_section(
     screenshots: Screenshots, file_url: Callable[[str], str]
-) -> str | None:
+) -> list[Block]:
+    heading = Heading(2, (Text("Screenshots"),))
     if screenshots.images:
-        lines = [
-            f"![{PurePosixPath(path).stem}]({file_url(path)})"
+        return [heading, *(
+            Image(file_url(path), PurePosixPath(path).stem)
             for path in screenshots.images
-        ]
-        return "## Screenshots\n\n" + "\n\n".join(lines)
+        )]
     if screenshots.note:
-        return f"## Screenshots\n\nNo screenshots: {screenshots.note}"
-    return None
+        return [heading,
+                paragraph(Text(f"No screenshots: {screenshots.note}"))]
+    return []
 
 
 def pr_body(
     task_ref: str,
     screenshots: Screenshots,
     file_url: Callable[[str], str],
-) -> str:
+) -> Document:
     """Compose the change request's body.
 
     :param file_url: Maps a committed path to the URL the code host
         serves it at on the pushed branch.
     """
-    parts = [f"Implements {task_ref}"]
-    section = _screenshots_section(screenshots, file_url)
-    if section:
-        parts.append(section)
-    parts.append("Opened by kestrel.")
-    return "\n\n".join(parts)
+    return document(
+        paragraph(Text(f"Implements {task_ref}")),
+        *_screenshots_section(screenshots, file_url),
+        paragraph(Text("Opened by kestrel.")),
+    )

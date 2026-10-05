@@ -7,6 +7,10 @@ transition, or a task-source write. Oversized content, a missing/
 incapable input-security specialist, and any malformed or timed-out
 classification all fail closed into quarantine (FR-020); nothing here
 ever treats an unclear result as safe.
+
+This is a system boundary (constitution Principle VI): untrusted content
+arrives as a ``Document`` and is rendered to Markdown here, once, to be
+bounded, hashed and classified by the input-security agent.
 """
 from __future__ import annotations
 
@@ -14,6 +18,8 @@ import hashlib
 import logging
 from dataclasses import dataclass
 
+from app.document_formats.markdown import render_markdown
+from app.documents import Document
 from app.models_board import Workflow
 from app.models_board_records import IntakeOutcome, SecurityReviewRecord
 from app.persistence.board_quarantine_store import (
@@ -49,7 +55,7 @@ class NewTaskIntake:
 
     source: str
     task_ref: str
-    body: str
+    body: Document
 
 
 @dataclass(frozen=True)
@@ -70,7 +76,7 @@ class ExistingWorkflowIntake:
 
     identity_ref: str
     category: str
-    content: str
+    content: Document
     workflow: Workflow | None = None
 
 
@@ -121,18 +127,19 @@ class QuarantineService:
         *,
         workflow: Workflow | None,
         source_identity: str,
-        content: str,
+        content: Document,
         card_title: str,
     ) -> IntakeOutcome:
+        text = render_markdown(content)
         content_hash = hashlib.sha256(
-            content.encode("utf-8", "replace")
+            text.encode("utf-8", "replace")
         ).hexdigest()
         existing = self._existing_outcome(
             source_identity, content_hash, content
         )
         if existing is not None:
             return existing
-        classification = await self._screen(content, source_identity)
+        classification = await self._screen(text, source_identity)
         if classification.safe:
             return IntakeOutcome(released=True, safe_content=content)
         review = self._store.quarantine(
@@ -152,7 +159,7 @@ class QuarantineService:
         return _outcome_for(review, safe_content=None)
 
     def _existing_outcome(
-        self, source_identity: str, content_hash: str, content: str
+        self, source_identity: str, content_hash: str, content: Document
     ) -> IntakeOutcome | None:
         """Return the prior outcome for identical content, if any (FR-021)."""
         existing_input = self._store.find_untrusted_input(
@@ -236,7 +243,7 @@ class QuarantineService:
 
 
 def _outcome_for(
-    review: SecurityReviewRecord, *, safe_content: str | None
+    review: SecurityReviewRecord, *, safe_content: Document | None
 ) -> IntakeOutcome:
     return IntakeOutcome(
         released=False,

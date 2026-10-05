@@ -386,31 +386,33 @@ class GatesService:
     def _maybe_approve_prd(self, prd_gate: WorkCard) -> None:
         """Record the approved PRD's content on the workflow, once its
         gate is approved. A no-op for any other gate kind."""
-        content = self._approved_target(prd_gate, CardKind.PRD_GATE)
-        if content is not None:
-            self._store.record_approved_prd(prd_gate.workflow_id, content)
+        target = self._approved_target_id(prd_gate, CardKind.PRD_GATE)
+        prd = self._artifacts.read_document(target) if target else None
+        if prd is not None:
+            self._store.record_approved_prd(prd_gate.workflow_id, prd)
 
     def _maybe_materialise(self, gate: WorkCard) -> None:
         """Turn an approved CAB-2 decomposition into cards in the same
         workflow (feature 031) — never child tickets. A no-op for any
         other gate kind; see ``materialise.py``."""
-        content = self._approved_target(gate, CardKind.DECOMPOSITION_GATE)
+        target = self._approved_target_id(gate, CardKind.DECOMPOSITION_GATE)
+        content = self._artifacts.read_content(target) if target else None
         if content is not None:
             materialise_decomposition(
                 gate.workflow_id, content,
                 MaterialiseTarget(self._store, self._artifacts),
             )
 
-    def _approved_target(self, gate: WorkCard, kind: CardKind) -> str | None:
-        """The content an approved *kind* gate targets, or ``None`` for
+    def _approved_target_id(
+        self, gate: WorkCard, kind: CardKind
+    ) -> str | None:
+        """The artifact an approved *kind* gate targets, or ``None`` for
         another kind or a gate with no target (should not happen — both
         gate kinds are always created with one)."""
         if gate.kind != kind.value:
             return None
         record = self._gate_store.get_for_card(gate.id)
-        if record is None or record.target_artifact_id is None:
-            return None
-        return self._artifacts.read_content(record.target_artifact_id)
+        return record.target_artifact_id if record is not None else None
 
     def _maybe_redraft_prd(self, prd_gate: WorkCard) -> None:
         """Route a ``prd_gate`` rejection to the coordinator for

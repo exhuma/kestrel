@@ -9,6 +9,7 @@ import pytest
 
 from app.ports import Task
 from app.services.local_task_source import LocalTaskSource
+from tests.document_helpers import doc
 from tests.local_task_helpers import write_local_task as _write_task
 
 
@@ -21,7 +22,7 @@ async def test_get_task_reads_nested_folder(tmp_path) -> None:
 
     assert task == Task(
         ref="local:area/hello", title="Add a hello endpoint",
-        body="Add GET /hello.",
+        body=doc("Add GET /hello."),
     )
 
 
@@ -34,11 +35,11 @@ async def test_posted_comments_are_excluded_without_author(tmp_path) -> None:
     (comments / "2026-01-01T12.00.00.md").write_text("@kestrel human")
     source = LocalTaskSource(str(tmp_path))
 
-    await source.post_comment("local:hello", "@kestrel own reply")
-    feedback = await source.list_comments("local:hello")
+    await source.post_comment("local:hello", doc("@kestrel own reply"))
+    feedback = (await source.list_comments("local:hello")).comments
 
     assert len(feedback) == 1
-    assert feedback[0].body == "@kestrel human"
+    assert feedback[0].body == doc("@kestrel human")
     assert feedback[0].created_at == datetime(
         2026, 1, 1, 12, tzinfo=timezone.utc
     )
@@ -56,9 +57,10 @@ async def test_human_author_suffix_is_accepted_and_kestrel_is_excluded(
     (comments / "2026-09-10T12.28.00-kestrel.md").write_text("reply")
     (comments / "2026-09-10T12.29.00-kestrel-2.md").write_text("reply")
 
-    feedback = await LocalTaskSource(str(tmp_path)).list_comments("local:hello")
+    page = await LocalTaskSource(str(tmp_path)).list_comments("local:hello")
+    feedback = page.comments
 
-    assert [item.body for item in feedback] == ["human"]
+    assert [item.body for item in feedback] == [doc("human")]
     assert feedback[0].external_id.endswith("12.27.00-malbert.md")
 
 
@@ -74,9 +76,9 @@ async def test_comment_filenames_require_a_valid_markdown_file(
     (comments / "2026-09-10T12.27.00-.md").write_text("bad suffix")
     (comments / "2026-09-10T12.27.00-note.md").mkdir()
 
-    feedback = await LocalTaskSource(str(tmp_path)).list_comments("local:hello")
+    page = await LocalTaskSource(str(tmp_path)).list_comments("local:hello")
 
-    assert feedback == []
+    assert page.comments == []
 
 
 @pytest.mark.asyncio
@@ -86,7 +88,7 @@ async def test_attachments_and_children_stay_inside_task(tmp_path) -> None:
     source = LocalTaskSource(str(tmp_path))
 
     await source.attach("local:hello", "note.txt", b"hi", "text/plain")
-    child = await source.create_subtask("local:hello", "Child", "body")
+    child = await source.create_subtask("local:hello", "Child", doc("body"))
 
     attachment = tmp_path / "hello" / "attachments" / "note.txt"
     assert attachment.read_bytes() == b"hi"

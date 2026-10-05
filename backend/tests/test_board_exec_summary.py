@@ -1,6 +1,7 @@
 """Tests for the code-built CAB-2 executive summary (feature 030)."""
 import pytest
 
+from app.document_formats.markdown import render_markdown
 from app.services.board.candidate import (
     Candidate,
     DecompositionTask,
@@ -12,6 +13,11 @@ from app.services.board.exec_summary import (
     size_label,
     summary_totals,
 )
+
+
+def _md(candidate: Candidate) -> str:
+    """The summary as Markdown, the way the API hands it to the UI."""
+    return render_markdown(render_executive_summary(candidate))
 
 
 def _task(
@@ -76,11 +82,11 @@ class TestTotals:
 
 class TestRendering:
     def test_the_summary_leads_with_the_unverified_header(self) -> None:
-        text = render_executive_summary(_CANDIDATE)
+        text = _md(_CANDIDATE)
         assert text.index(HEADER) < text.index("We add a table")
 
     def test_the_summary_shows_totals_split_and_rows(self) -> None:
-        text = render_executive_summary(_CANDIDATE)
+        text = _md(_CANDIDATE)
         assert "- **Tasks**: 3 (2 coding, 1 manual)" in text
         assert "- **Size**: 2×S, 1×L" in text
         assert "- **Human effort**: 21.0 man-hours" in text
@@ -94,7 +100,7 @@ class TestRendering:
 
     def test_the_risks_section_is_omitted_when_there_are_none(self) -> None:
         candidate = Candidate(summary="s", tasks=(_task("t1", "M", 5),))
-        assert "## Risks" not in render_executive_summary(candidate)
+        assert "## Risks" not in _md(candidate)
 
     def test_agent_text_cannot_break_the_table(self) -> None:
         task = _task("t1", "M", 5)
@@ -102,5 +108,5 @@ class TestRendering:
             title="a | b\nc", body="b", task_node_id="t1",
             estimate=task.estimate,
         )
-        text = render_executive_summary(Candidate(summary="s", tasks=(piped,)))
+        text = _md(Candidate(summary="s", tasks=(piped,)))
         assert "| a \\| b c |" in text

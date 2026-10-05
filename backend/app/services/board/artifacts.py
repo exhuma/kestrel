@@ -16,6 +16,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from app.documents import Document
 from app.models_board import (
     CardKind,
     CardRelation,
@@ -29,6 +30,11 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_store import BoardStore
+from app.persistence.document_column import (
+    DOCUMENT_MIME,
+    decode_document,
+    encode_document,
+)
 from app.services.board.dependents import advance_ready_dependents
 from app.services.board.service import BoardService
 
@@ -101,6 +107,33 @@ class ArtifactsService:
         """
         artifact = self._write(draft)
         return self._artifact_store.record(artifact)
+
+    def store_document(
+        self, producer_card_id: str, logical_name: str, revision: int,
+        value: Document, *, trust: str = "agent_output",
+    ) -> HandoffArtifact:
+        """Store a document as a reference artifact (feature 046)."""
+        return self.store_reference_artifact(ArtifactDraft(
+            producer_card_id=producer_card_id, logical_name=logical_name,
+            revision=revision, content=encode_document(value), trust=trust,
+            mime_type=DOCUMENT_MIME,
+        ))
+
+    def read_document(self, artifact_id: str) -> Document | None:
+        """One artifact as a document, or ``None`` if unknown."""
+        artifact = self._artifact_store.get(artifact_id)
+        content = self.read_content(artifact_id)
+        if artifact is None or content is None:
+            return None
+        return decode_document(content, artifact.mime_type)
+
+    def latest_document_for_card(
+        self, card_id: str, logical_name: str
+    ) -> Document | None:
+        """The newest ``logical_name`` artifact of *card_id* as a
+        document, or ``None`` if there is none."""
+        latest = self.latest_for_card(card_id, logical_name)
+        return self.read_document(latest.id) if latest is not None else None
 
     def read_content(self, artifact_id: str) -> str | None:
         """Return one artifact's content by id, or ``None`` if unknown.

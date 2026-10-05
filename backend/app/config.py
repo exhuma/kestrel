@@ -44,7 +44,7 @@ _CONFIG_FILE_FIELDS = frozenset(
         "workspace_root",
         "board_artifacts_root",
         "comment_sentinel_enabled",
-        "comment_sentinel",
+        "feedback_marker",
         "specialists_root",
         "board_input_max_bytes",
         "board_input_security_timeout_seconds",
@@ -54,6 +54,8 @@ _CONFIG_FILE_FIELDS = frozenset(
         "board_max_parallel_read_cards",
         "board_recovery_interval_seconds",
         "board_ci_poll_interval_seconds",
+        "board_comment_poll_interval_seconds",
+        "board_projection_retry_interval_seconds",
         "board_cab1_interview_max_questions",
         "board_unreadable_retry_cap",
         "health_check_interval_seconds",
@@ -232,31 +234,17 @@ class Settings(BaseSettings):
     #: stay inspectable — only an explicit abandon still removes them. Off
     #: by default: a personal tool should not silently accumulate worktrees.
     workflow_debug: bool = False
-    #: Trigger token a ticket comment or PR review must contain, whole-token
-    #: and case-insensitive, for kestrel to act on it at all (feature 013,
-    #: ``KESTREL_FEEDBACK_MARKER``). Unmarked feedback is never even
-    #: recorded — the primary self-triggering-loop guard (constitution's
-    #: recorded self-feedback-loop risk).
+    #: The plain-text marker a ticket reply must contain, as a whole word
+    #: and case-insensitive, for kestrel to act on it (feature 046,
+    #: ``KESTREL_FEEDBACK_MARKER``). Plain text, not a Jira mention: kestrel
+    #: has no service account yet and posts as the operator.
     feedback_marker: str = "@kestrel"
-    #: Mark every Kestrel-authored comment (``KESTREL_COMMENT_SENTINEL``).
-    #: Intake rejects a marked comment before it can affect a gate, which is
-    #: necessary while Kestrel posts through an operator's personal account.
-    comment_sentinel: str = "[kestrel:posted]"
-    #: Disable comment marking only for an explicitly incompatible source.
-    #: ``False`` also disables sentinel-based intake filtering.
+    #: Mark every Kestrel-authored comment with its ownership marker
+    #: (``KESTREL_COMMENT_SENTINEL_ENABLED``). Kestrel recognises its own
+    #: comments by that marker, not by author, because it posts through the
+    #: operator's account; disable only for an incompatible source. How the
+    #: marker looks is each source adapter's concern (feature 046).
     comment_sentinel_enabled: bool = True
-    #: Authors whose marked feedback is still discarded before it reaches
-    #: persistence (feature 013) — the second independent self-loop guard,
-    #: alongside GitHub's ``user.type == "Bot"`` detection. Empty by
-    #: default; an operator adds kestrel's own configured identity here if
-    #: it ever posts comments as an authenticated user rather than a bot.
-    feedback_ignore_authors: list[str] = []
-    #: How many days after a run goes terminal (done/failed/rejected/
-    #: escalated/decomposed) ``FeedbackPollService`` keeps re-polling it
-    #: for review/ticket feedback (feature 013), rather than polling every
-    #: finished run forever. A run still non-terminal is always polled
-    #: regardless of this setting.
-    feedback_window_days: int = 14
     #: Root directory of file-backed specialist definitions (feature 026,
     #: ``KESTREL_SPECIALISTS_ROOT``): one subdirectory per named role, each
     #: holding a manifest and prompt file. Relative paths resolve against the
@@ -308,6 +296,14 @@ class Settings(BaseSettings):
     #: source/repo with ``required_ci_statuses`` configured — a workflow
     #: with none configured is never polled regardless.
     board_ci_poll_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often ticket comments of active requests are read for replies
+    #: (feature 046, ``KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS``).
+    board_comment_poll_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often comments that failed to post are retried (feature 046,
+    #: ``KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS``).
+    board_projection_retry_interval_seconds: float = Field(
+        default=120.0, gt=0
+    )
     #: The strategic-fit interview's hard question cap (feature 027,
     #: ``KESTREL_BOARD_CAB1_INTERVIEW_MAX_QUESTIONS``) — keeps the
     #: pre-CAB-1 interview light, unlike the deeper post-approval

@@ -19,6 +19,18 @@ import logging
 import uuid
 from dataclasses import dataclass, replace
 
+from app.documents import (
+    Block,
+    Document,
+    Heading,
+    ListItem,
+    OrderedList,
+    Paragraph,
+    Strong,
+    Text,
+    document,
+    paragraph,
+)
 from app.models_board import (
     CardKind,
     CardRelation,
@@ -28,7 +40,8 @@ from app.models_board import (
     WorkspacePermission,
 )
 from app.persistence.board_store import BoardStore
-from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.agent_text import from_agent, to_prompt
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.candidate import (
     MANUAL,
     Candidate,
@@ -206,52 +219,55 @@ def _write_task_spec(
     titles: dict[str, str],
     target: MaterialiseTarget,
 ) -> None:
-    target.artifacts.store_reference_artifact(
-        ArtifactDraft(
-            producer_card_id=card_id,
-            logical_name=TASK_SPEC_LOGICAL_NAME,
-            revision=1,
-            content=render_task_spec(task, titles),
-            trust="operator_approved",
-            mime_type="text/markdown",
-        )
+    target.artifacts.store_document(
+        card_id, TASK_SPEC_LOGICAL_NAME, 1, render_task_spec(task, titles),
+        trust="operator_approved",
     )
 
 
-def render_task_spec(task: DecompositionTask, titles: dict[str, str]) -> str:
+def render_task_spec(
+    task: DecompositionTask, titles: dict[str, str]
+) -> Document:
     """*task* as approved at CAB-2, for its cards' envelopes and the
-    cockpit (data-model.md ``task_spec``)."""
-    lines = [f"# {task.title}", "", _classification_line(task)]
+    cockpit (data-model.md ``task_spec``). The task body is the agent's
+    Markdown, parsed at the agent boundary."""
+    blocks: list[Block] = [
+        Heading(1, (Text(task.title),)), _classification_line(task),
+    ]
     if task.prerequisites:
         names = ", ".join(titles.get(p, p) for p in task.prerequisites)
-        lines.append(f"Prerequisites: {names}")
-    lines += ["", task.body.rstrip()]
+        blocks.append(paragraph(Text(f"Prerequisites: {names}")))
+    blocks += from_agent(task.body).blocks
     if task.estimate is not None:
-        lines += ["", _estimate_section(task.estimate)]
-    return "\n".join(lines) + "\n"
+        blocks += _estimate_section(task.estimate)
+    return document(*blocks)
 
 
-def _classification_line(task: DecompositionTask) -> str:
+def _classification_line(task: DecompositionTask) -> Paragraph:
     if task.classification == MANUAL:
-        return (
-            "**Manual task**: for a human. kestrel will not assign this "
-            "to an agent."
+        return paragraph(
+            Strong("Manual task"),
+            Text(": for a human. kestrel will not assign this to an agent."),
         )
-    return "**Coding task**: implemented and verified by agents."
+    return paragraph(
+        Strong("Coding task"), Text(": implemented and verified by agents.")
+    )
 
 
-def _estimate_section(estimate: TaskEstimate) -> str:
-    lines = [
-        "## Estimate (agent, unverified)",
-        f"Size {estimate.size} · confidence {estimate.confidence} · "
-        f"~{estimate.man_hours:.1f} man-hours · "
-        f"~{estimate.agent_tokens:,} agent tokens · "
-        f"~{estimate.review_hours:.1f} review hours",
+def _estimate_section(estimate: TaskEstimate) -> list[Block]:
+    blocks: list[Block] = [
+        Heading(2, (Text("Estimate (agent, unverified)"),)),
+        paragraph(Text(
+            f"Size {estimate.size} · confidence {estimate.confidence} · "
+            f"~{estimate.man_hours:.1f} man-hours · "
+            f"~{estimate.agent_tokens:,} agent tokens · "
+            f"~{estimate.review_hours:.1f} review hours"
+        )),
     ]
     if estimate.risks:
-        lines.append(f"Risks: {', '.join(estimate.risks)}")
-    lines.append(f"Rationale: {estimate.rationale}")
-    return "\n".join(lines)
+        blocks.append(paragraph(Text(f"Risks: {', '.join(estimate.risks)}")))
+    blocks.append(paragraph(Text(f"Rationale: {estimate.rationale}")))
+    return blocks
 
 
 def task_context(
@@ -271,23 +287,27 @@ def task_context(
     )
     if head is None:
         return ""
-    spec = artifacts.latest_content_for_card(head.id, TASK_SPEC_LOGICAL_NAME)
-    return f"Approved task:\n{spec}" if spec else ""
+    spec = artifacts.latest_document_for_card(head.id, TASK_SPEC_LOGICAL_NAME)
+    return f"Approved task:\n{to_prompt(spec)}" if spec else ""
 
 
-def render_breakdown(candidate: Candidate) -> str:
+def render_breakdown(candidate: Candidate) -> Document:
     """The one comment posted to the request's ticket on approval
     (FR-006), in place of one child ticket per task."""
-    lines = [
+    intro = paragraph(Text(
         "Approved task breakdown (CAB-2). kestrel works these tasks inside "
         "this request and delivers them as one change; no separate "
-        "tickets are created.",
-        "",
-    ]
-    for index, task in enumerate(candidate.tasks, start=1):
-        who = "manual, for a human" if task.classification == MANUAL else (
-            "coding"
-        )
-        lines.append(f"{index}. {task.title} ({who})")
-    return "\n".join(lines)
+        "tickets are created."
+    ))
+    if not candidate.tasks:
+        return document(intro)
+    items = tuple(
+        ListItem((paragraph(Text(f"{task.title} ({_who(task)})")),))
+        for task in candidate.tasks
+    )
+    return document(intro, OrderedList(1, items))
+
+
+def _who(task: DecompositionTask) -> str:
+    return "manual, for a human" if task.classification == MANUAL else "coding"
 

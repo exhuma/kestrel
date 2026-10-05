@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING
 
 from app.models_board import CardKind, CardState, WorkCard
 from app.persistence.board_store import BoardStore
-from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.agent_text import from_agent, to_prompt
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.retries import UnreadableResultError, live_attempts
 from app.text_extract import extract_tag
 
@@ -47,15 +48,9 @@ def route_understanding_result(
             f"Unreadable restatement on card {card.id}",
             "no <UNDERSTANDING> block with a restatement",
         )
-    artifact = artifacts.store_reference_artifact(
-        ArtifactDraft(
-            producer_card_id=card.id,
-            logical_name=RESTATEMENT_LOGICAL_NAME,
-            revision=card.attempt_count,
-            content=restatement,
-            trust="agent_output",
-            mime_type="text/markdown",
-        )
+    artifact = artifacts.store_document(
+        card.id, RESTATEMENT_LOGICAL_NAME, card.attempt_count,
+        from_agent(restatement),
     )
     gates.create_gate(
         card.workflow_id,
@@ -83,7 +78,7 @@ def understanding_context(
     ]
     if not rejected or not drafts:
         return ""
-    previous = artifacts.latest_content_for_card(
+    previous = artifacts.latest_document_for_card(
         drafts[-1].id, RESTATEMENT_LOGICAL_NAME
     )
     correction = artifacts.latest_content_for_card(
@@ -92,6 +87,7 @@ def understanding_context(
     return (
         "This is a redraft: the operator rejected your previous "
         "restatement. Take their correction into account.\n\n"
-        f"Previous restatement:\n{previous or '(not recorded)'}\n\n"
+        "Previous restatement:\n"
+        f"{to_prompt(previous) if previous else '(not recorded)'}\n\n"
         f"Operator's correction:\n{correction or '(none given)'}"
     )

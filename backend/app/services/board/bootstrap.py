@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from app.backends.base import Backend
 from app.config import get_settings
+from app.documents import Document, Strong, Text, document, paragraph
 from app.models_board import WorkCard
 from app.persistence.board_artifact_content_store import (
     get_board_artifact_content_store,
@@ -313,7 +314,7 @@ async def _project_gate(
 ) -> None:
     await _project(
         workflow_id, "gate", f"gate:{card.id}",
-        f"Gate {decision}: {card.title}",
+        document(paragraph(Text(f"Gate {decision}: {card.title}"))),
     )
 
 
@@ -334,12 +335,12 @@ def schedule_escalation_projection(workflow_id: str, card: WorkCard) -> None:
 async def _project_escalation(workflow_id: str, card: WorkCard) -> None:
     await _project(
         workflow_id, "escalation", f"escalation:{card.id}",
-        f"Escalation: {card.title}",
+        document(paragraph(Text(f"Escalation: {card.title}"))),
     )
 
 
 async def _project(
-    workflow_id: str, kind: str, idempotency_key: str, payload: str
+    workflow_id: str, kind: str, idempotency_key: str, payload: Document
 ) -> None:
     workflow = get_board_store().get_workflow(workflow_id)
     task_source = get_task_source_registry().sources.get(workflow.source)
@@ -411,7 +412,7 @@ def schedule_prd_approval_projection(workflow_id: str, card: WorkCard) -> None:
 
 async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
     workflow = get_board_store().get_workflow(workflow_id)
-    if workflow is None or not workflow.approved_prd:
+    if workflow is None or workflow.approved_prd is None:
         _logger.warning(
             "workflow %s: prd_gate %s approved but no approved_prd "
             "recorded; nothing projected", workflow_id, card.id,
@@ -419,5 +420,7 @@ async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
         return
     await _project(
         workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
-        f"Approved PRD:\n\n{workflow.approved_prd}",
+        document(
+            paragraph(Strong("Approved PRD")), *workflow.approved_prd.blocks
+        ),
     )

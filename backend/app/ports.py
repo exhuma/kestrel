@@ -18,25 +18,39 @@ re-measures.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import Literal, Protocol
 
-if TYPE_CHECKING:
-    from app.documents import Document
-    from app.markers import Marker
+from app.documents import Document
+
+
+@dataclass(frozen=True)
+class Person:
+    """Someone on a task source, by their account there (feature 046).
+
+    ``account_id`` is what the source identifies them by (a Jira
+    ``accountId``, a GitHub login); ``display_name`` is for people to read.
+    """
+
+    account_id: str
+    display_name: str = ""
 
 
 @dataclass
 class Task:
-    """A source ticket: its native ref plus title/body text."""
+    """A source ticket: its native ref, title, body and people."""
 
     #: Source-native ticket id (also the run's ``task_ref``): GitHub
     #: ``"owner/name#123"``, Jira the issue key ``"RFC-123"``.
     ref: str
     title: str
-    body: str
+    body: Document
+    #: Who filed the ticket, when the source says (feature 046).
+    reporter: Person | None = None
+    #: The ticket's change owner, from a configured field (Jira, feature
+    #: 046); ``None`` when unset or the source has no such notion.
+    change_owner: Person | None = None
 
 
 @dataclass
@@ -67,9 +81,22 @@ class Feedback:
 
     external_id: str
     origin: Literal["ticket", "review"]
-    author: str
-    body: str
+    author: Person
+    body: Document
     created_at: datetime
+
+
+@dataclass
+class CommentPage:
+    """Comments read from a ticket, and where to continue next time.
+
+    ``cursor`` is opaque and owned by the adapter (feature 046): the caller
+    stores it and passes it back. Reading may repeat the last comment;
+    callers deduplicate by ``Feedback.external_id``.
+    """
+
+    comments: list[Feedback]
+    cursor: str | None
 
 
 class SubtaskContextError(Exception):
@@ -145,8 +172,12 @@ class TaskSource(Protocol):
         """Fetch the ticket's current title/body."""
         ...
 
-    async def post_comment(self, ref: str, body: "Document | str") -> str:
-        """Post a comment; return its URL (best-effort caller)."""
+    async def post_comment(self, ref: str, body: Document) -> str:
+        """Post a comment marked as kestrel's own; return its URL.
+
+        The adapter adds the ownership marker (``Marker("posted")``)
+        unless comment marking is disabled for this source.
+        """
         ...
 
     async def attach(
@@ -160,9 +191,7 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def publish_refined(
-        self, ref: str, content: "Document | str"
-    ) -> None:
+    async def publish_refined(self, ref: str, content: Document) -> None:
         """Record the approved PRD on the ticket (update body / attach)."""
         ...
 
@@ -170,8 +199,7 @@ class TaskSource(Protocol):
         self,
         parent_ref: str,
         title: str,
-        body: str,
-        markers: "Sequence[Marker]" = (),
+        body: Document,
     ) -> str:
         """Create a follow-up task linked to ``parent_ref`` (feature 012).
 
@@ -180,11 +208,10 @@ class TaskSource(Protocol):
         published. Kept, with every adapter, for mirroring those cards
         back to the task source as sub-tasks (GitHub #64).
 
-        ``body`` is already final and self-contained. ``markers`` are
-        trailing decorations the implementation must preserve through its
-        source-native write/read round trip; the caller decides *which*
-        markers, the adapter only decides *how*; an empty tuple appends
-        nothing. Implementations MUST create the ticket without satisfying this
+        ``body`` is final and self-contained; any ``Marker`` blocks in it
+        are preserved through the source's own write/read round trip (the
+        caller decides *which* markers, the adapter *how* they look).
+        Implementations MUST create the ticket without satisfying this
         source's own ingestion-trigger condition (e.g. GitHub: no
         ``trigger_label``), so publishing a follow-up task never itself
         starts a new run.
@@ -222,6 +249,10 @@ class TaskSource(Protocol):
     async def transition(self, ref: str, event: LifecycleEvent) -> bool:
         """Best-effort native lifecycle-status transition (feature 006).
 
+        **Only for sub-tasks kestrel created itself.** Kestrel MUST NOT
+        change the status of an ingested task (constitution, access model,
+        fourth recorded constraint); it asks the owner in a comment instead.
+
         Attempts the platform's native status mechanism for
         ``event.kind`` (e.g. a label, a workflow transition). When
         ``event.active_seconds`` is set and this source supports a native
@@ -258,14 +289,13 @@ class TaskSource(Protocol):
 
     async def list_comments(
         self, ref: str, since: str | None = None
-    ) -> list[Feedback]:
-        """Comments on ``ref``, newest-cursor-forward (feature 013).
+    ) -> CommentPage:
+        """Comments on ``ref``, oldest first, from cursor ``since``.
 
-        ``since`` is this adapter's own opaque cursor (from a prior call's
-        ``Feedback`` items, or a persisted ``feedback_cursor`` row), or
-        ``None`` to read from the beginning. The port stays ignorant of
-        each source's own pagination scheme (GitHub's ``since=``
-        timestamp, Jira's ``startAt``, local task's comment timestamp).
+        ``since`` is the ``cursor`` of a previous page, or ``None`` to read
+        from the beginning. The port stays ignorant of each source's own
+        pagination scheme; comments carrying kestrel's ownership marker
+        are included and left to the caller to skip (feature 046).
         """
         ...
 
@@ -340,7 +370,7 @@ class CodeHost(Protocol):
         head: str,
         base: str,
         title: str,
-        body: "Document | str",
+        body: Document,
         draft: bool = True,
     ) -> str:
         """Open a pull/merge request; return its URL."""

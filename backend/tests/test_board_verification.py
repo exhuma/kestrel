@@ -332,8 +332,8 @@ class _FakeTaskSource:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    async def post_comment(self, ref: str, body: str) -> str:
-        self.calls.append((ref, body))
+    async def post_comment(self, ref: str, body) -> str:
+        self.calls.append((ref, body.plain_text()))
         return "comment-1"
 
 

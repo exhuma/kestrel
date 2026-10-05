@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.documents import EMPTY_DOCUMENT, Document
+
 
 @dataclass(frozen=True)
 class BoardEventRecord:
@@ -90,7 +92,7 @@ class AcceptedTaskIntake:
     base_branch: str
     source_visibility: str
     title: str
-    body: str = ""
+    body: Document = EMPTY_DOCUMENT
 
 
 @dataclass(frozen=True)
@@ -153,7 +155,7 @@ class IntakeOutcome:
     """
 
     released: bool
-    safe_content: str | None = None
+    safe_content: Document | None = None
     security_review_id: str | None = None
     workflow_id: str | None = None
     card_id: str | None = None

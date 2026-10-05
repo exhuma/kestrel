@@ -9,8 +9,10 @@ import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
-from app.ports import Feedback, LifecycleEvent, Task
+from app.documents import Marker, Text, document, paragraph
+from app.ports import Feedback, LifecycleEvent, Person, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
+from tests.document_helpers import doc
 
 
 def _client(handler, **kw) -> JiraClient:
@@ -70,8 +72,8 @@ async def test_search_parses_issues_and_paginates() -> None:
         max_results=page_size,
     )
     assert tasks == [
-        Task(ref="RFC-1", title="One", body="d1"),
-        Task(ref="RFC-2", title="Two", body=""),
+        Task(ref="RFC-1", title="One", body=doc("d1")),
+        Task(ref="RFC-2", title="Two", body=document()),
     ]
     assert [s["method"] for s in seen] == ["POST", "POST"]
     assert seen[0]["path"].endswith("/search/jql")
@@ -109,7 +111,9 @@ async def test_add_comment_and_attachment() -> None:
         return httpx.Response(200, json=[{"id": "1"}])
 
     client = _client(handler, auth="basic", email="e", token="t")
-    assert await client.add_comment("RFC-1", "hi") == "https://jira/c/1"
+    assert await client.add_comment("RFC-1", doc("hi")) == (
+        "https://jira/c/1"
+    )
     await client.add_attachment(
         "RFC-1", "shot.png", b"\x89PNGbytes", "image/png"
     )
@@ -158,7 +162,7 @@ async def test_task_source_publishes_prd_as_attachment() -> None:
         return httpx.Response(200, json=[{"id": "1"}])
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
-    await src.publish_refined("RFC-1", "the PRD")
+    await src.publish_refined("RFC-1", doc("the PRD"))
     assert seen["path"].endswith("/issue/RFC-1/attachments")
     assert src.deep_link_ref("RFC-1") == "https://jira.example/browse/RFC-1"
 
@@ -182,7 +186,9 @@ async def test_client_create_subtask_posts_native_subtask_issue() -> None:
         return httpx.Response(201, json={"key": "RFC-2"})
 
     client = _client(handler, auth="basic", email="e", token="t")
-    key = await client.create_subtask("RFC-1", "RFC", "Do the thing", "body")
+    key = await client.create_subtask(
+        "RFC-1", "RFC", "Do the thing", doc("body")
+    )
     assert key == "RFC-2"
     assert seen["method"] == "POST"
     assert seen["path"].endswith("/issue")
@@ -191,7 +197,7 @@ async def test_client_create_subtask_posts_native_subtask_issue() -> None:
     assert fields["parent"] == {"key": "RFC-1"}
     assert fields["project"] == {"key": "RFC"}
     assert fields["summary"] == "Do the thing"
-    assert fields["description"] == "body"
+    assert fields["description"] == "body"  # Server: Markdown text
 
 
 @pytest.mark.asyncio
@@ -206,7 +212,8 @@ async def test_task_source_create_subtask_derives_project_key() -> None:
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
     ref = await src.create_subtask(
-        "RFC-1", "Do the thing", "Self-contained body <!-- kestrel:subtask -->"
+        "RFC-1", "Do the thing",
+        document(paragraph(Text("Self-contained body")), Marker("subtask")),
     )
     assert ref == "RFC-2"
     assert seen["body"]["fields"]["project"] == {"key": "RFC"}
@@ -232,7 +239,9 @@ async def test_task_source_subtask_inherits_parent_repo_field() -> None:
         config=_config(repo_field="customfield_1"),
     )
 
-    assert await src.create_subtask("RFC-1", "Child", "body") == "RFC-2"
+    assert await src.create_subtask("RFC-1", "Child", doc("body")) == (
+        "RFC-2"
+    )
     assert [(method, path) for method, path, _, _ in seen] == [
         ("GET", "/rest/api/2/issue/RFC-1"),
         ("POST", "/rest/api/2/issue"),
@@ -265,7 +274,9 @@ async def test_task_source_subtask_inherits_parent_repository_link() -> None:
         config=_config(repo_field=""),
     )
 
-    assert await src.create_subtask("RFC-1", "Child", "body") == "RFC-2"
+    assert await src.create_subtask("RFC-1", "Child", doc("body")) == (
+        "RFC-2"
+    )
     assert [(method, path) for method, path, _ in seen] == [
         ("POST", "/rest/api/2/issue"),
         ("GET", "/rest/api/2/issue/RFC-1/remotelink"),
@@ -395,13 +406,13 @@ async def test_jira_list_comments_maps_fields_and_mints_external_id() -> None:
         )
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
-    items = await src.list_comments("RFC-1")
+    items = (await src.list_comments("RFC-1")).comments
     assert items == [
         Feedback(
             external_id="jira-comment:RFC-1:42",
             origin="ticket",
-            author="Jane Reviewer",
-            body="hi",
+            author=Person("", "Jane Reviewer"),
+            body=doc("hi"),
             created_at=items[0].created_at,
         )
     ]
@@ -433,9 +444,9 @@ async def test_jira_list_comments_since_cursor_includes_same_time_items(
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
     first = await src.list_comments("RFC-1")
-    cursor = first[-1].created_at.isoformat()
+    cursor = first.cursor
 
-    second = await src.list_comments("RFC-1", since=cursor)
+    second = (await src.list_comments("RFC-1", since=cursor)).comments
 
     assert [i.external_id for i in second] == [
         "jira-comment:RFC-1:2", "jira-comment:RFC-1:3",
@@ -483,6 +494,7 @@ async def test_jira_acknowledge_always_returns_false() -> None:
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
     feedback = Feedback(
         external_id="jira-comment:RFC-1:1", origin="ticket",
-        author="Jane", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("", "Jane"), body=doc("hi"),
+        created_at=datetime.now(timezone.utc),
     )
     assert await src.acknowledge(feedback) is False

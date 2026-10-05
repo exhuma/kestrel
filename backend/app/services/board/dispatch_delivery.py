@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.documents import Document, Link, Text, document, paragraph
 from app.models_board import CardKind, CardState, WorkCard, Workflow
 from app.services.board.coordinator import (
     CreateCardAction,
@@ -163,7 +164,7 @@ async def _project_delivery(
                 task_ref=workflow.task_ref,
                 kind="delivery",
                 idempotency_key=f"delivery:{card.id}",
-                payload=f"Delivered: {location}",
+                payload=_delivered(location),
             ),
             task_source,
             services.projections,
@@ -173,3 +174,11 @@ async def _project_delivery(
             "workflow %s: delivery projection failed for card %s",
             workflow.id, card.id,
         )
+
+
+def _delivered(location: str) -> Document:
+    """Where the work was delivered: a link to the change request, or the
+    local branch it was published to."""
+    if location.startswith(("https://", "http://")):
+        return document(paragraph(Text("Delivered: "), Link(location)))
+    return document(paragraph(Text(f"Delivered: {location}")))

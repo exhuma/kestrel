@@ -17,8 +17,9 @@ no board-domain replacement, so nothing currently reads ticket comments back
 into kestrel.)
 
 Keep `comment_sentinel_enabled = true` in `config.toml` unless the connected
-source cannot preserve the marker. Change `comment_sentinel` only to a stable,
-distinct literal that users will not normally type.
+source cannot preserve the marker. Kestrel posts through your account, so the
+ownership marker on its comments is how it tells them apart from yours; how
+the marker looks is decided by each source adapter (feature 046).
 
 ## 1. Create a token
 

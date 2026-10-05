@@ -11,6 +11,8 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.documents import EMPTY_DOCUMENT, Document
+from app.persistence.document_column import DocumentText
 from app.persistence.tables import Base
 
 
@@ -51,9 +53,13 @@ class BoardWorkflowRow(Base):
     #: The most recently observed required-CI verdict, or ``None`` (T052).
     ci_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: The task source's own body, safe-screened once at intake (T078).
-    task_body: Mapped[str] = mapped_column(Text, default="", server_default="")
+    task_body: Mapped[Document] = mapped_column(
+        DocumentText, default=EMPTY_DOCUMENT, server_default=""
+    )
     #: The PRD content a ``prd_gate`` approved, or ``None`` (T078).
-    approved_prd: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_prd: Mapped[Document | None] = mapped_column(
+        DocumentText, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

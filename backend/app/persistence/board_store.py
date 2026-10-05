@@ -13,6 +13,7 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.documents import Document
 from app.models_board import CardRelation, WorkCard, Workflow
 from app.models_board_records import BoardEventRecord
 from app.persistence.board_tables import (
@@ -245,7 +246,9 @@ class BoardStore:
                 workflow.ci_repair_round += 1
             return workflow.ci_repair_round
 
-    def record_approved_prd(self, workflow_id: str, content: str) -> None:
+    def record_approved_prd(
+        self, workflow_id: str, content: Document
+    ) -> None:
         """Record a ``prd_gate``'s approved content (T078).
 
         The durable "approved scope" every later card's envelope reads
@@ -257,7 +260,7 @@ class BoardStore:
             workflow.approved_prd = content
 
     def record_intake(
-        self, workflow_id: str, *, title: str, task_body: str
+        self, workflow_id: str, *, title: str, task_body: Document
     ) -> None:
         """Record a screened request's title and body (feature 032):
         a request exists before screening, showing only its ticket ref,

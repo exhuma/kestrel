@@ -1,19 +1,23 @@
-"""Source-neutral documents and pure renderers for task-source content.
+"""Source-neutral documents: the closed set of constructs (Principle VI).
 
-The document model is a small, closed set of inline and block constructs.
-``parse_markdown`` turns arbitrary Markdown (including LLM-authored free-form
-content) into that model via ``markdown-it-py``; the three renderers then map
-the model back onto each platform's native format (Markdown, plain text, or
-Jira ADF). Core code builds documents from explicit constructs and never
-emits raw Markdown syntax itself.
+Every document kestrel handles — ticket bodies, comments, change-request
+bodies, artifacts, agent-authored text — is a :class:`Document` built from
+the constructs below. This module knows no platform format: parsing into a
+document and rendering out of one live in ``app.document_formats``, used
+only by the adapter at each system boundary (constitution Principle VI).
+
+Core code builds documents with :func:`document` and :func:`paragraph`,
+which validate; a parser that builds constructs directly validates its
+result with :func:`validate_document`. A consumer that needs plain text
+asks the document (:meth:`Document.plain_text`).
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any, TypeAlias
-
-from app.documents_parser import parse_markdown_blocks
+from typing import TypeAlias
 
 
 @dataclass(frozen=True)
@@ -46,14 +50,31 @@ class Code:
 
 @dataclass(frozen=True)
 class Link:
-    """A hyperlink wrapping inline text, carrying its target URL."""
+    """A hyperlink; ``value`` is its text, or the target when empty."""
 
     href: str
     value: str = ""
 
 
-Inline: TypeAlias = Text | Strong | Emphasis | Code | Link
+@dataclass(frozen=True)
+class Mention:
+    """A person, by their account on the target system (feature 046)."""
+
+    account_id: str
+    display_name: str = ""
+
+
+@dataclass(frozen=True)
+class HardBreak:
+    """A line break inside a paragraph."""
+
+
+Inline: TypeAlias = Text | Strong | Emphasis | Code | Link | Mention | HardBreak
+#: One table cell: its inline content, which may be empty.
+Cell: TypeAlias = tuple[Inline, ...]
+
 _MAX_HEADING_LEVEL = 6
+_MARKER_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 @dataclass(frozen=True)
@@ -81,24 +102,40 @@ class CodeBlock:
 
 @dataclass(frozen=True)
 class ListItem:
-    """A single list item holding one or more paragraphs."""
+    """One list item: paragraphs, and lists nested in it."""
 
-    content: tuple[Paragraph, ...]
+    content: tuple[Paragraph | BulletList | OrderedList, ...]
 
 
 @dataclass(frozen=True)
 class BulletList:
-    """A flat sequence of list items."""
+    """A sequence of list items."""
 
     items: tuple[ListItem, ...]
 
 
 @dataclass(frozen=True)
 class OrderedList:
-    """A flat sequence of list items with ordinal presentation."""
+    """A sequence of list items numbered from ``start``."""
 
     start: int = 1
     items: tuple[ListItem, ...] = ()
+
+
+@dataclass(frozen=True)
+class Image:
+    """An image by its URL, with alternative text."""
+
+    src: str
+    alt: str = ""
+
+
+@dataclass(frozen=True)
+class Table:
+    """A table: one header row and body rows of the same width."""
+
+    header: tuple[Cell, ...]
+    rows: tuple[tuple[Cell, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,8 +143,20 @@ class Rule:
     """A thematic break between document sections."""
 
 
+@dataclass(frozen=True)
+class Marker:
+    """Machine-readable ownership or correlation mark, e.g. ``posted``.
+
+    Each adapter decides how it looks on its platform; core code only
+    adds and checks markers by name.
+    """
+
+    name: str
+
+
 Block: TypeAlias = (
-    Heading | Paragraph | CodeBlock | BulletList | OrderedList | Rule
+    Heading | Paragraph | CodeBlock | BulletList | OrderedList | Image
+    | Table | Rule | Marker
 )
 
 
@@ -117,12 +166,34 @@ class Document:
 
     blocks: tuple[Block, ...]
 
+    def plain_text(self) -> str:
+        """The visible text, one line per block or list item; no markers."""
+        return "\n".join(
+            line for block in self.blocks for line in _text_lines(block)
+        )
+
+    def markers(self) -> frozenset[str]:
+        """The names of the markers this document carries."""
+        return frozenset(
+            block.name for block in self.blocks if isinstance(block, Marker)
+        )
+
+    def mentions(self) -> frozenset[str]:
+        """The account ids of everyone this document mentions."""
+        return frozenset(
+            inline.account_id
+            for inline in _all_inlines(self.blocks)
+            if isinstance(inline, Mention)
+        )
+
+
+#: The document with nothing in it.
+EMPTY_DOCUMENT = Document(())
+
 
 def document(*blocks: Block) -> Document:
     """Build and validate a document from the supplied content blocks."""
-    for block in blocks:
-        _validate_block(block)
-    return Document(blocks)
+    return validate_document(Document(blocks))
 
 
 def paragraph(*content: Inline) -> Paragraph:
@@ -131,264 +202,141 @@ def paragraph(*content: Inline) -> Paragraph:
     return Paragraph(content)
 
 
-def parse_markdown(text: str) -> Document:
-    """Parse a Markdown string into a canonical document.
+def validate_document(value: Document) -> Document:
+    """Return *value* if every block is valid.
 
-    Uses ``markdown-it-py`` (CommonMark reference implementation) to convert
-    arbitrary Markdown — including LLM-authored free-form content — into the
-    closed construct set defined in this module. The result is renderable by
-    every supported renderer without loss of structure.
-
-    :param text: A Markdown string; may be empty, yielding an empty document.
-    :returns: A ``Document`` whose blocks mirror the parsed structure.
+    :raises ValueError: On the first invalid construct.
     """
-    blocks = tuple(_block_from_dict(d) for d in parse_markdown_blocks(text))
-    return Document(blocks)
-
-
-def _inlines_from_dicts(raw: list[dict[str, str]]) -> tuple[Inline, ...]:
-    """Convert raw inline dicts from the parser into Inline constructs."""
-    result: list[Inline] = []
-    for item in raw:
-        kind = item["kind"]
-        if kind == "text":
-            result.append(Text(value=item["text"]))
-        elif kind == "strong":
-            result.append(Strong(value=item["text"]))
-        elif kind == "emphasis":
-            result.append(Emphasis(value=item["text"]))
-        elif kind == "code":
-            result.append(Code(value=item["text"]))
-        elif kind == "link":
-            result.append(Link(href=item["href"], value=item["text"]))
-    return tuple(result)
-
-
-def _simple_block(d: dict[str, Any]) -> Block | None:
-    """Convert a non-list block dict; returns None for list types."""
-    btype = str(d["type"])
-    if btype == "heading":
-        return Heading(int(d["level"]), _inlines_from_dicts(d["inlines"]))
-    if btype == "paragraph":
-        return Paragraph(_inlines_from_dicts(d["inlines"]))
-    if btype == "code_block":
-        return CodeBlock(language=str(d["language"]), text=str(d["text"]))
-    if btype == "rule":
-        return Rule()
-    return None
-
-
-def _block_from_dict(
-    d: dict[str, Any],
-) -> Block:
-    """Convert one raw block dict from the parser into a Block construct."""
-    simple = _simple_block(d)
-    if simple is not None:
-        return simple
-    items = [
-        ListItem(tuple(
-            Paragraph(_inlines_from_dicts(p["inlines"]))
-            for p in item["paragraphs"]
-        ))
-        for item in d["items"]
-    ]
-    if str(d["type"]) == "bullet_list":
-        return BulletList(items=tuple(items))
-    return OrderedList(start=int(d["start"]), items=tuple(items))
-
-
-def render_markdown(value: Document) -> str:
-    """Render a canonical document as Markdown for text-native task sources."""
-    return "\n\n".join(_markdown_block(block) for block in value.blocks)
-
-
-def render_text(value: Document) -> str:
-    """Render visible document text for diagnostics and plain-text consumers."""
-    return "\n".join(_text_block(block) for block in value.blocks)
-
-
-def render_adf(value: Document) -> dict[str, object]:
-    """Render a canonical document directly as a Jira Cloud ADF document."""
-    return {
-        "version": 1,
-        "type": "doc",
-        "content": [_adf_block(block) for block in value.blocks],
-    }
-
-
-def as_document(value: Document | str) -> Document:
-    """Return a document, parsing a string into its canonical blocks."""
-    if isinstance(value, Document):
-        return value
-    return parse_markdown(value)
+    for block in value.blocks:
+        _validate_block(block)
+    return value
 
 
 def _validate_block(block: Block) -> None:
-    """Reject blocks that cannot be represented by every supported renderer."""
-    if isinstance(block, Heading) and not _heading_level_is_valid(block):
-        raise ValueError("heading level must be between 1 and 6")
-    if isinstance(block, (Heading, Paragraph)):
+    """Reject a block that not every renderer can represent."""
+    if isinstance(block, Heading):
+        if not 1 <= block.level <= _MAX_HEADING_LEVEL:
+            raise ValueError("heading level must be between 1 and 6")
         _validate_inlines(block.content)
-    if isinstance(block, (BulletList, OrderedList)):
-        if not block.items:
-            raise ValueError("lists require at least one item")
-        for item in block.items:
-            if not item.content:
-                raise ValueError("list items require content")
+    elif isinstance(block, Paragraph):
+        _validate_inlines(block.content)
+    elif isinstance(block, (BulletList, OrderedList)):
+        _validate_list(block)
+    elif isinstance(block, Table):
+        _validate_table(block)
+    elif isinstance(block, Image) and not block.src:
+        raise ValueError("an image needs a source")
+    elif isinstance(block, Marker) and not _MARKER_NAME.match(block.name):
+        raise ValueError(f"invalid marker name: {block.name!r}")
 
 
-def _heading_level_is_valid(heading: Heading) -> bool:
-    """Return whether a heading level is supported by all document renderers."""
-    return 1 <= heading.level <= _MAX_HEADING_LEVEL
+def _validate_list(block: BulletList | OrderedList) -> None:
+    if not block.items:
+        raise ValueError("lists require at least one item")
+    for item in block.items:
+        if not item.content:
+            raise ValueError("list items require content")
+        for part in item.content:
+            _validate_block(part)
+
+
+def _validate_table(block: Table) -> None:
+    if not block.header:
+        raise ValueError("a table needs a header")
+    if any(len(row) != len(block.header) for row in block.rows):
+        raise ValueError("every table row needs one cell per header")
+    for cell in (*block.header, *(c for row in block.rows for c in row)):
+        for inline in cell:
+            _validate_inline(inline)
 
 
 def _validate_inlines(content: tuple[Inline, ...]) -> None:
-    """Reject empty inline sequences and values before rendering starts."""
-    if not content or any(not inline.value for inline in content):
+    if not content:
+        raise ValueError("text content must be nonempty")
+    for inline in content:
+        _validate_inline(inline)
+
+
+def _validate_inline(inline: Inline) -> None:
+    if isinstance(inline, Link):
+        valid = bool(inline.href)
+    elif isinstance(inline, Mention):
+        valid = bool(inline.account_id)
+    elif isinstance(inline, HardBreak):
+        valid = True
+    else:
+        valid = bool(inline.value)
+    if not valid:
         raise ValueError("text content must be nonempty")
 
 
-def _markdown_block(block: Block) -> str:
-    """Render one block as controlled Markdown without parsing any text."""
-    if isinstance(block, Heading):
-        return f"{'#' * block.level} {_markdown_inlines(block.content)}"
-    if isinstance(block, Paragraph):
-        return _markdown_inlines(block.content)
-    if isinstance(block, (CodeBlock, Rule)):
-        return _markdown_atomic_block(block)
-    if isinstance(block, BulletList):
-        return "\n".join(
-            _markdown_list_item("-", item) for item in block.items
-        )
-    start = block.start
-    return "\n".join(
-        _markdown_list_item(f"{start + offset}.", item)
-        for offset, item in enumerate(block.items)
-    )
+def normalise_inlines(pieces: Iterable[Inline]) -> tuple[Inline, ...]:
+    """*pieces* as valid inline content: adjacent plain text joined, empty
+    text dropped, a link without a target kept as its text. For parsers."""
+    merged: list[Inline] = []
+    for inline in (_valid_inline(piece) for piece in pieces):
+        if inline is None:
+            continue
+        if isinstance(inline, Text) and merged and isinstance(merged[-1], Text):
+            merged[-1] = Text(merged[-1].value + inline.value)
+        else:
+            merged.append(inline)
+    return tuple(merged)
 
 
-def _markdown_atomic_block(block: CodeBlock | Rule) -> str:
-    """Render a code block or horizontal rule as Markdown."""
-    if isinstance(block, CodeBlock):
-        fence = "```"
-        lang = block.language or ""
-        return f"{fence}{lang}\n{block.text.rstrip()}\n{fence}"
-    return "---"
+def _valid_inline(inline: Inline) -> Inline | None:
+    if isinstance(inline, Link) and not inline.href:
+        inline = Text(inline.value)
+    if isinstance(inline, (Text, Strong, Emphasis, Code)) and not inline.value:
+        return None
+    if isinstance(inline, Mention) and not inline.account_id:
+        return None
+    return inline
 
 
-def _markdown_list_item(prefix: str, item: ListItem) -> str:
-    """Render one explicit list item as controlled Markdown."""
-    first = f"{prefix} {_markdown_inlines(item.content[0].content)}"
-    rest = [
-        f"\n\n{_markdown_inlines(p.content)}"
-        for p in item.content[1:]
-    ]
-    return first + "".join(rest)
-
-
-def _markdown_inlines(content: tuple[Inline, ...]) -> str:
-    """Render a flat inline sequence as controlled Markdown."""
-    parts: list[str] = []
-    for inline in content:
-        if isinstance(inline, Text):
-            parts.append(inline.value)
-        elif isinstance(inline, Strong):
-            parts.append(f"**{inline.value}**")
-        elif isinstance(inline, Emphasis):
-            parts.append(f"*{inline.value}*")
-        elif isinstance(inline, Code):
-            parts.append(f"`{inline.value}`")
-        elif isinstance(inline, Link):
-            text = inline.value or inline.href
-            parts.append(f"[{text}]({inline.href})")
-    return "".join(parts)
-
-
-def _text_block(block: Block) -> str:
-    """Render one block's visible content without presentation marks."""
-    if isinstance(block, Rule):
-        return "---"
-    if isinstance(block, CodeBlock):
-        return block.text.rstrip()
-    if isinstance(block, (Heading, Paragraph)):
-        return "".join(inline.value for inline in block.content)
-    return "\n".join(_text_list_item(item) for item in block.items)
-
-
-def _text_list_item(item: ListItem) -> str:
-    """Return the visible text in one list item."""
-    return " ".join(
-        "".join(inline.value for inline in p.content)
-        for p in item.content
-    )
-
-
-def _adf_block(block: Block) -> dict[str, object]:
-    """Render one canonical block as a valid ADF top-level node."""
-    if isinstance(block, Heading):
-        return _adf_text_block("heading", block.content, {"level": block.level})
-    if isinstance(block, Paragraph):
-        return _adf_text_block("paragraph", block.content)
-    if isinstance(block, CodeBlock):
-        return {
-            "type": "codeBlock",
-            "attrs": {"language": block.language or None},
-            "content": [{"type": "text", "text": block.text.rstrip()}],
-        }
-    if isinstance(block, Rule):
-        return {"type": "rule"}
-    kind = "bulletList" if isinstance(block, BulletList) else "orderedList"
-    return {
-        "type": kind,
-        "content": [_adf_list_item(item) for item in block.items],
-    }
-
-
-def _adf_list_item(item: ListItem) -> dict[str, object]:
-    """Render one list item (one or more paragraphs) in ADF structure."""
-    return {
-        "type": "listItem",
-        "content": [
-            _adf_text_block("paragraph", p.content) for p in item.content
-        ],
-    }
-
-
-def _adf_text_block(
-    kind: str, content: tuple[Inline, ...], attrs: dict[str, int] | None = None
-) -> dict[str, object]:
-    """Render a heading or paragraph with optional node attributes."""
-    node: dict[str, object] = {
-        "type": kind,
-        "content": [_adf_inline(inline) for inline in content],
-    }
-    if attrs:
-        node["attrs"] = attrs
-    return node
-
-
-def _adf_inline(inline: Inline) -> dict[str, object]:
-    """Render one explicit inline value as an ADF text node and mark."""
+def inline_text(inline: Inline) -> str:
+    """One inline's visible text."""
     if isinstance(inline, Link):
-        text = inline.value or inline.href
-        return {
-            "type": "text",
-            "text": text,
-            "marks": [{"type": "link", "attrs": {"href": inline.href}}],
-        }
-    node: dict[str, object] = {"type": "text", "text": inline.value}
-    mark = _adf_mark(inline)
-    if mark:
-        node["marks"] = [{"type": mark}]
-    return node
+        return inline.value or inline.href
+    if isinstance(inline, Mention):
+        return f"@{inline.display_name or inline.account_id}"
+    if isinstance(inline, HardBreak):
+        return "\n"
+    return inline.value
 
 
-def _adf_mark(inline: Inline) -> str:
-    """Return the ADF mark corresponding to one explicit inline value."""
-    if isinstance(inline, Strong):
-        return "strong"
-    if isinstance(inline, Emphasis):
-        return "em"
-    if isinstance(inline, Code):
-        return "code"
-    return ""
+def _inlines_text(content: tuple[Inline, ...]) -> str:
+    return "".join(inline_text(inline) for inline in content)
+
+
+def _text_lines(block: Block) -> Iterator[str]:
+    """The visible lines of one block."""
+    if isinstance(block, (Heading, Paragraph)):
+        yield from _inlines_text(block.content).splitlines()
+    elif isinstance(block, CodeBlock):
+        yield from block.text.rstrip().splitlines()
+    elif isinstance(block, (BulletList, OrderedList)):
+        for item in block.items:
+            for part in item.content:
+                yield from _text_lines(part)
+    elif isinstance(block, Table):
+        for row in (block.header, *block.rows):
+            yield from (_inlines_text(cell) for cell in row if cell)
+    elif isinstance(block, Image) and block.alt:
+        yield block.alt
+    elif isinstance(block, Rule):
+        yield "---"
+
+
+def _all_inlines(blocks: tuple[Block, ...]) -> Iterator[Inline]:
+    """Every inline in *blocks*, nested lists and table cells included."""
+    for block in blocks:
+        if isinstance(block, (Heading, Paragraph)):
+            yield from block.content
+        elif isinstance(block, (BulletList, OrderedList)):
+            for item in block.items:
+                yield from _all_inlines(item.content)
+        elif isinstance(block, Table):
+            for row in (block.header, *block.rows):
+                for cell in row:
+                    yield from cell

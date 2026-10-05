@@ -23,6 +23,7 @@ from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,
 )
+from app.persistence.document_column import DOCUMENT_MIME
 from app.routers.board_deps import (
     BoardListDeps,
     BoardReadDeps,
@@ -36,6 +37,7 @@ from app.routers.board_views import (
     board_events,
     card_summary,
 )
+from app.routers.document_out import MARKDOWN_MIME, api_markdown
 from app.schemas import (
     BoardArtifactContentOut,
     BoardEventOut,
@@ -137,6 +139,12 @@ async def get_artifact_content(
     if artifact is None:
         raise HTTPException(status_code=404, detail="unknown artifact")
     try:
+        if artifact.mime_type == DOCUMENT_MIME:
+            return BoardArtifactContentOut(
+                content=api_markdown(artifacts.read_document(artifact_id)),
+                trust=artifact.trust,
+                mime_type=MARKDOWN_MIME,
+            )
         content = artifacts.read_content(artifact_id)
     except ContentNotFoundError as exc:
         raise HTTPException(

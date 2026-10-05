@@ -143,6 +143,6 @@ class TestCoordinatedInterviewToPrd:
             assert answer in prd_prompt
 
         gates.resolve(prd_gate.id, "approved")
-        assert store.get_workflow("wf-1").approved_prd == (
+        assert store.get_workflow("wf-1").approved_prd.plain_text() == (
             "Implement CSV export behind a feature flag."
         )

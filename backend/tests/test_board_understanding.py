@@ -64,7 +64,9 @@ def test_the_gate_opens_on_the_restatement(tmp_path: Path) -> None:
 
     gate = flow.open_gate()
     target = flow.gate_store.get_for_card(gate.id).target_artifact_id
-    assert flow.artifacts.read_content(target) == "You want a CSV export."
+    assert flow.artifacts.read_document(target).plain_text() == (
+        "You want a CSV export."
+    )
     assert flow.artifacts.producer_card_id(target) == draft.id
     assert flow.gate_store.get_for_card(gate.id).requested_decision == (
         "confirm_understanding"
@@ -156,7 +158,7 @@ def test_the_restatement_is_stored_under_its_own_name(
     flow = _Flow(tmp_path)
     draft = flow.draft()
 
-    content = flow.artifacts.latest_content_for_card(
+    content = flow.artifacts.latest_document_for_card(
         draft.id, RESTATEMENT_LOGICAL_NAME
     )
-    assert content == "You want a CSV export."
+    assert content.plain_text() == "You want a CSV export."

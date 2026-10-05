@@ -12,6 +12,7 @@ import json
 import uuid
 from typing import Callable
 
+from app.documents import Document
 from app.models_board import (
     CardRelation,
     CardState,
@@ -216,7 +217,7 @@ class BoardService:
         workflow_id: str,
         *,
         title: str,
-        body: str,
+        body: Document,
         card_id: str | None,
     ) -> None:
         """Give a screened request its content and start understanding

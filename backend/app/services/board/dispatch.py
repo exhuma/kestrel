@@ -22,6 +22,7 @@ from app.models_board import (
     Workflow,
 )
 from app.persistence.board_store import BoardStore
+from app.services.board.agent_text import to_prompt
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import (
     ClaimsService,
@@ -214,10 +215,10 @@ def build_card_envelope(
         f"Kind: {card.kind}",
         f"Title: {card.title}", "",
         "Task:",
-        workflow.task_body or "(no task body recorded)",
+        _task_text(workflow),
     ]
-    if workflow.approved_prd:
-        sections += ["", "Approved PRD:", workflow.approved_prd]
+    if workflow.approved_prd is not None:
+        sections += ["", "Approved PRD:", to_prompt(workflow.approved_prd)]
     if extra_context:
         sections += ["", extra_context]
     sections.append(
@@ -323,7 +324,7 @@ def build_coordinator_envelope(
     sections = [
         specialist.prompt, "",
         f"Workflow: {workflow.title}",
-        f"Task: {workflow.task_body or '(no task body recorded)'}", "",
+        f"Task: {_task_text(workflow)}", "",
         "Current cards:",
         lines,
     ]
@@ -413,3 +414,10 @@ class SchedulingService:
             return
         trigger = f"revision:{workflow.revision}"
         self._coordinator.apply_actions(workflow_id, trigger, actions)
+
+
+def _task_text(workflow: Workflow) -> str:
+    """The ticket's body as the agent reads it."""
+    if not workflow.task_body.blocks:
+        return "(no task body recorded)"
+    return to_prompt(workflow.task_body)

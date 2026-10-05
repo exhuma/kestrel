@@ -1,43 +1,38 @@
 """Small utilities shared by the GitHub/Jira/local task-source and
-code-host adapters.
+code-host adapters: ownership markers on what kestrel writes, and tolerant
+timestamp parsing.
 
-Extracted from the old feedback-dispatch subsystem (retired at the
-Phase 10 clean break) — these two functions are genuinely adapter-level
-concerns (self-authored comment marking, tolerant timestamp parsing),
-not feedback-dispatch-specific, so they moved here rather than being
-deleted with the rest of that package.
+Markers are :class:`~app.documents.Marker` blocks (constitution Principle
+VI): adapters add them to the ``Document`` they were given and render the
+result once, never by appending text after rendering.
 """
 from __future__ import annotations
 
 from datetime import datetime
 
-from app.markers import SENTINEL
+from app.documents import Document, Marker
+
+#: Every comment kestrel posts carries it, so kestrel never acts on its own
+#: comments while it posts through the operator's account (feature 046).
+POSTED = "posted"
+#: Marks a ticket body kestrel has refined (feature 001).
+REFINED = "refined"
 
 #: Length of a bare numeric UTC-offset suffix, e.g. "+0000" or "-0500".
 _OFFSET_LEN = 5
 
 
-def has_sentinel(body: str) -> bool:
-    """Return True if the issue body was already refined."""
-    return SENTINEL in body
+def with_marker(value: Document, name: str) -> Document:
+    """*value* ending with the marker *name*, added at most once."""
+    if name in value.markers():
+        return value
+    return Document((*value.blocks, Marker(name)))
 
 
-def append_sentinel(body: str) -> str:
-    """Append the sentinel to a body, at most once."""
-    if has_sentinel(body):
-        return body
-    return f"{body.rstrip()}\n\n{SENTINEL}\n"
-
-
-def append_comment_sentinel(body: str, enabled: bool, sentinel: str) -> str:
-    """Append one self-identifying sentinel to an outbound Kestrel comment.
-
-    An empty sentinel is never emitted. Repeated decoration is idempotent so
-    composed comment paths cannot produce multiple ownership markers.
-    """
-    if not enabled or not sentinel or sentinel in body:
-        return body
-    return f"{body.rstrip()}\n\n{sentinel}"
+def as_posted(value: Document, enabled: bool) -> Document:
+    """A comment as kestrel posts it: with its ownership marker, unless
+    comment marking is disabled for the source."""
+    return with_marker(value, POSTED) if enabled else value
 
 
 def parse_iso(value: str) -> datetime:

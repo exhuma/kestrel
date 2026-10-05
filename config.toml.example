@@ -41,10 +41,12 @@ health_check_timeout_seconds = 10
 max_verify_iterations = 3
 # Max CI-triggered repair attempts. This does not consume verify iterations.
 max_ci_repair_iterations = 2
-# Mark Kestrel-generated comments and ignore them during feedback intake. This
-# protects personal-token installations until Kestrel has its own account.
+# Mark Kestrel-generated comments so kestrel never acts on its own. Needed
+# while kestrel posts through the operator's account (no service account yet).
 comment_sentinel_enabled = true
-comment_sentinel = "[kestrel:posted]"
+# A ticket reply must contain this plain-text marker (whole word, any case)
+# for kestrel to act on it (feature 046).
+feedback_marker = "@kestrel"
 
 # --- work board (feature 026) -----------------------------------------------
 # Root of file-backed specialist definitions: one subdirectory per named role
@@ -79,6 +81,10 @@ board_recovery_interval_seconds = 60.0
 # CI status (T052). Only matters where required_ci_statuses (below) is
 # configured for a source; otherwise this sweep is a no-op.
 board_ci_poll_interval_seconds = 60.0
+# How often ticket comments of active requests are read for replies, and how
+# often comments that failed to post are retried (feature 046).
+board_comment_poll_interval_seconds = 60.0
+board_projection_retry_interval_seconds = 120.0
 # Durable, content-addressed store for handoff-artifact bodies, keyed by
 # content hash. In Docker, point this at a persistent volume.
 board_artifacts_root = "./.kestrel-board-artifacts"
@@ -152,6 +158,10 @@ trigger_label = "kestrel"
 #                                       # REST calls (self-signed/internal CA)
 # repo_field = "customfield_10050"      # optional; else a titled web link is used
 # repo_link_text = "Repository"         # web-link title to match (default)
+# change_owner_field = "customfield_10051"  # user field naming the change
+#                                       # owner: told when the issue is ready
+#                                       # for CAB or should move on, relays CAB
+#                                       # decisions (feature 046)
 # code_host = "github"                  # "github" | "gitlab" | "gitea"
 # code_host_base_url = ""               # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
