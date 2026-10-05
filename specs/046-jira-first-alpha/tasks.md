@@ -474,6 +474,22 @@ expected decision, refusal, question back and confirmations.
   `specs/046-jira-first-alpha/quickstart.md`, then close #65 with a link
   to the commits.
 
+- [X] T048 [US3] What the ticket says when a gate is resolved (added after
+  Michel's review 2026-10-05): answer gates (`strategic_interview_gate`,
+  `refinement_gate`) post nothing on resolution, the next announcement is
+  the acknowledgement; decision gates read as one plain sentence per kind
+  and outcome (understanding, CAB-1, PRD, CAB-2), with a neutral fallback
+  for any other kind. One mapping in
+  `announcements/decisions.py`, built as Documents; the link stays at the
+  end. Track 03's reply confirmations reuse the same sentence after a
+  "thank you". Tests in `tests/test_board_gate_decisions.py`.
+- [ ] T049 [US3] Old replies don't count (added after Michel's review
+  2026-10-05): a reply may only decide or act on a gate if it was written
+  after kestrel's announcement comment for that gate completed (ledger
+  keys `gate_opened:{card}` / `gate_opened:batch:{plan}`). Earlier
+  comments, and every comment while the announcement is unposted, are
+  recorded as `ignored` and get no answer.
+
 ---
 
 ## Dependencies & execution order

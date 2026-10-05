@@ -203,7 +203,8 @@ T067-T069, which also covers the rest of task-source write-back below).
 plans (via `projections.py`), posts via `TaskSource.post_comment()`, and
 resolves exactly one projection, idempotent by key and never raising on a
 post failure (recorded as retryable instead). Wired for **gate decisions**
-(resolving a human gate posts `"Gate approved: <title>"` or `rejected`),
+(resolving a decision gate posts one plain sentence for its kind and
+outcome, such as `"PRD signed off."`; an interview gate posts nothing),
 **escalations** (a `coordinator_review` card — created either by a
 verifier's routed finding, T051, or an operator's own "request
 coordinator review" — posts `"Escalation: <summary/title>"`), and an

@@ -16,6 +16,7 @@ from app.services.board.announcements.common import (
     addressed,
     finish,
 )
+from app.services.board.announcements.decisions import decision_sentence
 from app.services.board.gate_decision import channel_name
 
 _NOTHING_CHANGED = "Nothing was changed."
@@ -26,16 +27,12 @@ _WHO = {
 
 
 def confirmed(
-    ctx: Context, author: Person, decision: str, approved: bool
+    ctx: Context, author: Person, kind: str, approved: bool
 ) -> Document:
-    """The reply decided: what was recorded."""
-    verb = "approved" if approved else "rejected"
-    return finish(ctx, (
-        addressed(
-            author,
-            f'thank you, kestrel has recorded that you {verb} "{decision}".',
-        ),
-    ))
+    """The reply decided: the same sentence the UI's decision gets (one
+    mapping, ``decisions.py``), after a thank-you to the author."""
+    sentence = decision_sentence(kind, approved, "this decision")
+    return finish(ctx, (addressed(author, f"thank you. {sentence}"),))
 
 
 def refused(ctx: Context, author: Person, role: str | None) -> Document:

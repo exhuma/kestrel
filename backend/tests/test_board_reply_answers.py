@@ -93,8 +93,8 @@ def test_an_interview_points_only_at_the_form(build) -> None:
 
 
 _ANSWERS = [
-    lambda ctx, who: answers.confirmed(ctx, who, "sign off the PRD", True),
-    lambda ctx, who: answers.confirmed(ctx, who, "sign off the PRD", False),
+    lambda ctx, who: answers.confirmed(ctx, who, "prd_gate", True),
+    lambda ctx, who: answers.confirmed(ctx, who, "prd_gate", False),
     lambda ctx, who: answers.refused(ctx, who, "reporter"),
     lambda ctx, who: answers.refused(ctx, who, "change_owner"),
     lambda ctx, who: answers.asked_back(
@@ -145,3 +145,18 @@ def test_already_decided_says_by_whom() -> None:
 
     assert "already decided (approved) by Rita Reporter via Jira" in via_jira
     assert "already decided (rejected) in kestrel" in in_kestrel
+
+
+def test_a_confirmation_reuses_the_decision_sentence() -> None:
+    """Ensure a decision from the ticket reads like one from the UI, after
+    a thank-you."""
+    approved = answers.confirmed(_ctx(), _AUTHOR, "prd_gate", True)
+    rejected = answers.confirmed(_ctx(), _AUTHOR, "cab1_gate", False)
+
+    assert approved.plain_text().startswith(
+        f"@{_AUTHOR.display_name}, thank you. PRD signed off."
+    )
+    assert (
+        "thank you. CAB declined the strategic fit; this request stops here."
+        in rejected.plain_text()
+    )

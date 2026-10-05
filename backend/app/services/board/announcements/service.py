@@ -31,6 +31,7 @@ from app.services.board.announcements.common import (
     named,
 )
 from app.services.board.announcements.content import GateContent, Plan
+from app.services.board.announcements.decisions import announces_decision
 from app.services.board.phases import CANCELLED, FAILED, outcome_of
 from app.services.board.projections import (
     ProjectionRequest,
@@ -112,10 +113,15 @@ class AnnouncementService:
     async def gate_decided(
         self, workflow_id: str, card: WorkCard, decision: str
     ) -> None:
-        """Say a gate was decided in kestrel."""
+        """Say a gate was decided in kestrel; an answer gate (an interview)
+        says nothing, the next announcement is its acknowledgement."""
+        if not announces_decision(card.kind):
+            return
         await self.post(
             workflow_id, "gate", f"gate:{card.id}",
-            lambda ctx: status.gate_decided(ctx, decision, card.title),
+            lambda ctx: status.gate_decided(
+                ctx, card.kind, decision, card.title
+            ),
         )
 
     async def ci_changed(

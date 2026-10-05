@@ -111,11 +111,11 @@ def _asked_back(
 def _confirmed(
     card: WorkCard, reading: Reading, decision: str, intent: str
 ) -> Settled:
-    author, words = reading.author, reading.ask.decision
+    author, kind = reading.author, card.kind
     return Settled(
         Outcome("decided", gate_card_id=card.id, intent=intent),
         lambda ctx: answers.confirmed(
-            ctx, author, words, decision == "approved"
+            ctx, author, kind, decision == "approved"
         ),
         decided=(card, decision),
     )

@@ -36,6 +36,13 @@ _REQUESTER_GATES = [
     (CardKind.UNDERSTANDING_GATE, "confirm_understanding"),
     (CardKind.PRD_GATE, "approve_prd"),
 ]
+_CONFIRMATIONS = {
+    CardKind.UNDERSTANDING_GATE: "thank you. Understanding confirmed.",
+    CardKind.PRD_GATE: "thank you. PRD signed off.",
+    CardKind.CAB1_GATE: "thank you. CAB approved the strategic fit.",
+    CardKind.DECOMPOSITION_GATE: "thank you. CAB approved the plan; work "
+    "starts.",
+}
 _CAB_GATES = [
     (CardKind.CAB1_GATE, "approve_strategic_fit"),
     (CardKind.DECOMPOSITION_GATE, "approve_decomposition"),
@@ -77,7 +84,7 @@ async def test_the_reporter_decides_a_requester_gate(
     assert _state(stack, gate.id) == "done"
     assert stack.decided == [(gate.id, "approved")]
     assert answer.mentions() == {REPORTER.account_id}
-    assert "recorded that you approved" in answer.plain_text()
+    assert _CONFIRMATIONS[kind] in answer.plain_text()
     (event,) = [
         e for e in stack.board.store.list_events(WORKFLOW_ID)
         if e.event_type == "gate.approved"
@@ -99,6 +106,7 @@ async def test_the_change_owner_relays_a_cab_decision(
 
     assert _state(stack, gate.id) == "done"
     assert answer.mentions() == {CHANGE_OWNER.account_id}
+    assert _CONFIRMATIONS[kind] in answer.plain_text()
 
 
 @pytest.mark.parametrize("kind, decision, author", [

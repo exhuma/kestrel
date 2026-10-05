@@ -113,7 +113,7 @@ async def test_the_first_reply_decides_and_the_rest_are_already_decided(
 
     assert _state(stack, gate.id) == "done"
     first, second = stack.ticket.answers()
-    assert "recorded that you approved" in first
+    assert "thank you. Understanding confirmed." in first
     assert "already decided (approved) by Rita Reporter via Jira" in second
 
 
@@ -170,7 +170,7 @@ async def test_a_reasoned_rejection_passes_its_reason_on(
     assert stack.board.artifacts.read_content(response.id) == (
         "it must also cover exports"
     )
-    assert "recorded that you rejected" in stack.ticket.answers()[0]
+    assert "thank you. Understanding corrected" in stack.ticket.answers()[0]
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -217,7 +217,7 @@ async def test_a_held_reply_decides_nothing_until_released(
 
     assert _state(stack, gate.id) == "done"
     assert len(stack.liaison_backend.prompts) == 1
-    assert "recorded that you approved" in stack.ticket.answers()[1]
+    assert "thank you. Understanding confirmed." in stack.ticket.answers()[1]
     assert len(stack.ticket.answers()) == _TWO
 
 

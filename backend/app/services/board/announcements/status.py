@@ -13,6 +13,7 @@ from app.services.board.announcements.common import (
     addressed,
     finish,
 )
+from app.services.board.announcements.decisions import decision_sentence
 
 _MOVE_ON = (
     "kestrel does not change this ticket's status, so it is yours to move "
@@ -75,6 +76,10 @@ def escalation(ctx: Context, summary: str) -> Document:
     return finish(ctx, (paragraph(Text(f"Escalation: {summary}")),))
 
 
-def gate_decided(ctx: Context, decision: str, title: str) -> Document:
-    """A gate was decided in kestrel."""
-    return finish(ctx, (paragraph(Text(f"Gate {decision}: {title}")),))
+def gate_decided(
+    ctx: Context, kind: str, decision: str, title: str
+) -> Document:
+    """A gate was decided in kestrel: one plain sentence for its kind and
+    outcome (``decisions.py``)."""
+    sentence = decision_sentence(kind, decision == "approved", title)
+    return finish(ctx, (paragraph(Text(sentence)),))
