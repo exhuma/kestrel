@@ -18,11 +18,11 @@ an unfinished task.
 
 ## Phase 1: Setup
 
-- [ ] T001 Alembic migration `alembic/versions/0036_jira_channel.py`:
+- [X] T001 Alembic migration `alembic/versions/0036_jira_channel.py`:
   - add `task_ref`, `payload`, `attempts` to `board_external_projection`;
   - create `board_comment_cursor` and `board_inbound_comment` (data-model.md);
   - leave the `board_workflow` document-column conversion for T013.
-- [ ] T002 [P] Config in `app/config.py`, `app/config_models.py` and
+- [X] T002 [P] Config in `app/config.py`, `app/config_models.py` and
   `config.toml.example`:
   - add `change_owner_field: str = ""` to the Jira `TaskSourceConfig`;
   - add `board_comment_poll_interval_seconds` (60) and
@@ -31,6 +31,8 @@ an unfinished task.
   - keep `feedback_marker` (`@kestrel`) and document it as the reply marker;
   - delete `feedback_ignore_authors` and `feedback_window_days`;
   - tests in `tests/test_config.py`.
+  - *Done (track 01):* the configurable `comment_sentinel` text was removed
+    (the marker's look is now each adapter's); `comment_sentinel_enabled` stays.
 
 ---
 
@@ -38,37 +40,40 @@ an unfinished task.
 
 **Document constructs and format modules.** Every story depends on these.
 
-- [ ] T003 [P] Tests in `tests/test_documents.py` for the new constructs and
+- [X] T003 [P] Tests in `tests/test_documents.py` for the new constructs and
   their validation: `Mention`, `HardBreak`, `Image`, `Table` (rectangular),
   `Marker`, nested `ListItem` lists, and the derived queries `markers()`,
   `plain_text()`, `mentions()`.
-- [ ] T004 Extend `app/documents.py` with those constructs and derived
+- [X] T004 Extend `app/documents.py` with those constructs and derived
   queries. Remove every parser and renderer from the module, so it holds
   constructs and validating builders only.
-- [ ] T005 [P] Tests in `tests/test_document_formats_markdown.py` for the
+- [X] T005 [P] Tests in `tests/test_document_formats_markdown.py` for the
   Markdown format:
   - tables, images, hard breaks, nested lists, blockquote and nested marks
     parse as research R1 says;
   - parsed documents are validated;
   - `OrderedList.start` survives;
   - render ∘ parse is stable.
-- [ ] T006 Create `app/document_formats/markdown.py` (commonmark preset plus
+- [X] T006 Create `app/document_formats/markdown.py` (commonmark preset plus
   the table rule, list nesting and breaks fixed) and
   `app/document_formats/text.py`. Move the code out of
   `app/documents_parser.py` and delete that file.
-- [ ] T007 [P] Tests in `tests/test_document_formats_adf.py`:
+- [X] T007 [P] Tests in `tests/test_document_formats_adf.py`:
   - every row of `contracts/adf-mapping.md`, in both directions;
   - a round-trip property, `parse_adf(render_adf(d)) == d`, over generated
     documents from the closed set;
   - unknown ADF nodes degrade to their text without raising.
-- [ ] T008 Create `app/document_formats/adf.py` with `render_adf` (moved
+  - *Done (track 01):* the round-trip runs over an exhaustive hand-built set
+    covering every construct instead of generated documents, to avoid adding
+    a property-testing dependency (Principle IV).
+- [X] T008 Create `app/document_formats/adf.py` with `render_adf` (moved
   from `documents.py`, now emitting `order`, tables, mentions, hard breaks
   and `Marker`) and the new `parse_adf`, as `contracts/adf-mapping.md`
   specifies.
-- [ ] T009 [P] Move `app/documents_json.py` to `app/document_formats/json.py`,
+- [X] T009 [P] Move `app/documents_json.py` to `app/document_formats/json.py`,
   extend it to the new constructs, and add round-trip tests in
   `tests/test_document_formats_json.py`.
-- [ ] T010 Add the import-linter contract
+- [X] T010 Add the import-linter contract
   `[importlinter:contract:documents-at-the-boundary]` to `.importlinter`:
   - type `forbidden`;
   - sources `app.services.board`, `app.routers`, `app.models_board`,
@@ -78,7 +83,7 @@ an unfinished task.
 
 **Ports and adapters.**
 
-- [ ] T011 Change the ports in `app/ports.py` as `contracts/ports.md` says:
+- [X] T011 Change the ports in `app/ports.py` as `contracts/ports.md` says:
   - add `Person`;
   - `Task.body` becomes `Document`, and `Task` gains `reporter` and
     `change_owner`;
@@ -87,7 +92,7 @@ an unfinished task.
   - `list_comments` returns `CommentPage`;
   - remove every `Document | str`;
   - document `transition()` as sub-tasks only.
-- [ ] T012 Update the adapters to the new port types: `app/services/jira.py`,
+- [X] T012 Update the adapters to the new port types: `app/services/jira.py`,
   `app/services/jira_document.py`, `app/services/github_tasksource.py`,
   `app/services/github.py`, `app/services/gitlab.py`,
   `app/services/local_task_source.py`, `app/services/github_reviews.py`.
@@ -104,10 +109,14 @@ an unfinished task.
   - Tests: extend `tests/test_jira_client.py` and `tests/test_jira_document.py`
     (replace the `to_text` cases with `parse_adf` ones), plus the existing
     GitHub, GitLab and local adapter tests.
+  - *Done (track 01):* the Jira REST client moved to `app/services/jira_client.py`
+    (`jira.py` was at the 500-line limit); `jira_document.py` and `markers.py`
+    are deleted. A comment author without an account keeps only their name,
+    with an empty `account_id` that must never match anyone (US3).
 
 **Persistence and the agent boundary.**
 
-- [ ] T013 Persistence as a boundary:
+- [X] T013 Persistence as a boundary:
   - new `app/persistence/document_column.py`, a SQLAlchemy type that maps
     `Document` to document JSON;
   - in migration 0036, convert `board_workflow.task_body` and
@@ -117,14 +126,18 @@ an unfinished task.
   - in `app/persistence/board_store.py`, update `record_intake` and
     `record_approved_prd`;
   - tests in `tests/test_board_store.py`.
-- [ ] T014 Document artifacts:
+  - *Done (track 01):* no data conversion in migration 0036. The column type
+    parses a legacy Markdown value when read, so old rows need no migration
+    and the migration imports no app code. Tests for T013 and T014 are in
+    `tests/test_document_persistence.py`.
+- [X] T014 Document artifacts:
   - in `app/services/board/artifacts.py`, add mime type
     `application/vnd.kestrel.document+json` and
     `store_document_artifact(...)` / `read_document(...)`;
   - legacy `text/markdown` artifacts are parsed on read in the persistence
     layer;
   - tests in `tests/test_board_artifacts.py`.
-- [ ] T015 The agent-result boundary:
+- [X] T015 The agent-result boundary:
   - parse agent Markdown into a `Document` when results are accepted, in
     `app/services/board/understanding.py` (restatement),
     `app/services/board/refinement.py` (PRD draft) and
@@ -135,7 +148,11 @@ an unfinished task.
     `Image`, lists) with no Markdown strings;
   - update `tests/test_board_exec_summary.py` and
     `tests/test_board_delivery_body.py`.
-- [ ] T016 Rendering at the outer boundaries:
+  - *Done (track 01), one gap left:* gate `response` artifacts (human answers
+    in the machine-parsed `Q:`/`A:` format) are still plain text. Not in the
+    constitution's list of named violations; a follow-up if they need rich
+    content.
+- [X] T016 Rendering at the outer boundaries:
   - `app/services/board/dispatch.py` (`build_card_envelope`) renders
     documents to Markdown for prompts;
   - API serialisers in `app/routers/board_views.py` and `app/routers/board.py`
@@ -157,19 +174,23 @@ survives.
 that uses every construct produces the expected ADF, and reading ADF back
 gives the same document.
 
-- [ ] T017 [P] [US1] Test in `tests/test_jira_comment_rendering.py`:
+- [X] T017 [P] [US1] Test in `tests/test_jira_comment_rendering.py`:
   - `JiraTaskSource.post_comment` sends exactly `render_adf(document +
     Marker("posted"))`;
   - it never calls a Markdown renderer;
   - a `Mention` becomes an ADF `mention` node with the account ID.
-- [ ] T018 [P] [US1] Test in `tests/test_jira_ingest_structure.py`: an issue
+  - *Done (track 01):* the tests live in `tests/test_jira_document.py`.
+- [X] T018 [P] [US1] Test in `tests/test_jira_ingest_structure.py`: an issue
   description with a heading, a nested list, a table and a link reaches
   `Workflow.task_body` and the API's "original request" with its structure
   intact.
-- [ ] T019 [US1] Fix whatever T017 and T018 expose in
+- [X] T019 [US1] Fix whatever T017 and T018 expose in
   `app/services/jira.py` and `app/services/ingestion.py`. Screening
   receives the document rendered to plain text (`text` format) at the
   quarantine boundary in `app/services/board/quarantine.py`.
+  - *Done (track 01):* the quarantine service is the screening boundary and
+    renders the document itself; the screened text now includes link targets.
+    Covered by `tests/test_jira_ingest_structure.py`, together with T018.
 
 **Checkpoint:** Story 1 is independently demonstrable (quickstart step 1).
 
@@ -211,7 +232,8 @@ source. Assert one comment per opening with the expected mentions, no
 - [ ] T024 [US2] Route `GatesService.create_gate` in
   `app/services/board/gates.py` through `BoardService`, so it appends a
   `gate.opened` event with `{"gate_kind": ...}` and bumps the revision.
-- [ ] T025 [US2] Ledger keeps its payload:
+- [ ] T025 [US2] Ledger keeps its payload (`ProjectionRequest.payload` is
+  already a `Document` since track 01; what remains is storing it):
   - `app/persistence/board_projection_store.py` stores `task_ref`,
     `payload` (document JSON through `app/document_formats/json.py`) and
     `attempts`, and can re-arm `retryable_failure` rows;
@@ -356,9 +378,10 @@ expected decision, refusal, question back and confirmations.
 
 ## Phase 6: Polish
 
-- [ ] T044 [P] Delete the dead `app/review_requests.py` and its test, and
+- [X] T044 [P] Delete the dead `app/review_requests.py` and its test, and
   remove `ReviewTokenMarker` from `app/markers.py` if nothing else uses it
   (#65 asked for a decision: the durable comment mapping replaces it).
+  - *Done early (track 01):* deleted with the rest of the string-marker code.
 - [ ] T045 [P] Update `docs/architecture.md` (the document boundary, the
   announcement and reply flow) and `docs/feedback-intake.md` (now ticket
   replies through 046).
