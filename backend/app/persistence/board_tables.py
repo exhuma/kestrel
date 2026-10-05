@@ -366,3 +366,43 @@ class BoardExternalProjectionRow(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class BoardCommentCursorRow(Base):
+    """How far a request's ticket comments have been read (feature 046)."""
+
+    __tablename__ = "board_comment_cursor"
+
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("board_workflow.id"), primary_key=True
+    )
+    #: Adapter-owned and opaque: passed back to ``list_comments`` as is.
+    cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class BoardInboundCommentRow(Base):
+    """One ticket comment kestrel considered, so it is acted on at most
+    once (feature 046, data-model.md)."""
+
+    __tablename__ = "board_inbound_comment"
+    __table_args__ = (
+        Index("has_inbound_comment_workflow", "workflow_id"),
+    )
+
+    external_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("board_workflow.id")
+    )
+    gate_card_id: Mapped[str | None] = mapped_column(nullable=True)
+    author_account_id: Mapped[str] = mapped_column(Text)
+    #: "claimed" | "refused" | "held" | "unclear" | "decided" |
+    #: "already_decided" | "no_gate" | "interview_pointer".
+    state: Mapped[str] = mapped_column(Text)
+    security_review_id: Mapped[str | None] = mapped_column(nullable=True)
+    #: "approve" | "reject" | "unclear", once the liaison has read it.
+    intent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
