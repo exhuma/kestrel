@@ -70,11 +70,13 @@ New kinds: `gate_opened`, `status`, `reply`.
 | `intent` | Text, nullable | `approve` / `reject` / `unclear` |
 | `created_at`, `processed_at` | DateTime | |
 
-States: `ignored` (no `@kestrel` marker / carries kestrel's own
-`Marker`) are **not** stored, only
-skipped by cursor. Stored states: `refused` (not entitled), `held`
-(screening), `unclear` (asked back), `decided`, `already_decided`,
-`no_gate` (nothing open), `interview_pointer`.
+States: comments with no `@kestrel` marker, or carrying kestrel's own
+`Marker`, are **not** stored, only skipped by cursor. Stored states:
+`refused` (not entitled), `held` (screening), `unclear` (asked back), `decided`, `already_decided`,
+`no_gate` (nothing open), `interview_pointer`, and `ignored` for a reply
+written before kestrel's announcement of its gate was posted (or while that
+announcement is still unposted): it is recorded so it is never looked at
+again, and gets no answer.
 
 ```
             ┌──────── refused / no_gate / interview_pointer / already_decided

@@ -27,11 +27,14 @@ from tests.reply_support import (
 _TWO = 2
 
 
-def _understanding(stack: ReplyStack):
-    return open_gate(
+async def _understanding(stack: ReplyStack):
+    """An understanding gate, opened and announced."""
+    gate = open_gate(
         stack.board, CardKind.UNDERSTANDING_GATE, None,
         "confirm_understanding",
     )
+    await stack.announce()
+    return gate
 
 
 def _state(stack: ReplyStack, card_id: str) -> str:
@@ -51,7 +54,7 @@ def _restarted(stack: ReplyStack) -> CommentPollService:
 async def test_the_cursor_advances(tmp_path: Path) -> None:
     """Ensure the next read starts where the last one ended."""
     stack = build_reply_stack(tmp_path)
-    _understanding(stack)
+    await _understanding(stack)
     stack.ticket.write(REPORTER, "an ordinary comment")
     last = stack.ticket.write(REPORTER, "another one")
 
@@ -71,7 +74,7 @@ async def test_a_reply_is_acted_on_once_across_cycles_and_restarts(
     """Ensure the re-read boundary comment, a second cycle and a restart
     never answer or decide twice."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel looks right")
 
     assert await stack.read() == 1
@@ -79,7 +82,7 @@ async def test_a_reply_is_acted_on_once_across_cycles_and_restarts(
     assert await _restarted(stack).poll_once() == 0
 
     assert _state(stack, gate.id) == "done"
-    assert len(stack.ticket.comments()) == 1
+    assert len(stack.ticket.answers()) == 1
     assert len(stack.liaison_backend.prompts) == 1
 
 
@@ -87,7 +90,7 @@ async def test_a_reply_is_acted_on_once_across_cycles_and_restarts(
 async def test_an_edited_reply_is_not_read_again(tmp_path: Path) -> None:
     """Ensure the original version stands and the edit is ignored."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     reply = stack.ticket.write(REPORTER, "@kestrel looks right")
     await stack.read()
 
@@ -96,7 +99,7 @@ async def test_an_edited_reply_is_not_read_again(tmp_path: Path) -> None:
     await stack.read()
 
     assert _state(stack, gate.id) == "done"
-    assert len(stack.ticket.comments()) == 1
+    assert len(stack.ticket.answers()) == 1
 
 
 @pytest.mark.asyncio
@@ -105,7 +108,7 @@ async def test_the_first_reply_decides_and_the_rest_are_already_decided(
 ) -> None:
     """Ensure several replies are taken in the order written."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel looks right")
     stack.ticket.write(REPORTER, "@kestrel no, it must also cover exports")
 
@@ -124,7 +127,7 @@ async def test_a_gate_decided_in_the_ui_first_is_already_decided(
     """Ensure a reply read after a UI decision changes nothing, and says
     the decision was taken in kestrel."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel no, it must also cover exports")
     stack.board.gates.resolve(gate.id, "approved")
 
@@ -142,7 +145,7 @@ async def test_a_late_reply_never_decides_the_next_gate(
     """Ensure a reply written to one gate is not applied to the gate that
     opened after it."""
     stack = build_reply_stack(tmp_path)
-    understanding = _understanding(stack)
+    understanding = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel looks right")
     stack.board.gates.resolve(understanding.id, "approved")
     prd = open_gate(stack.board, CardKind.PRD_GATE, None, "approve_prd")
@@ -160,7 +163,7 @@ async def test_a_reasoned_rejection_passes_its_reason_on(
     """Ensure the reason reaches the gate as its answer, as the UI's
     correction would."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel no — it must also cover exports")
 
     await stack.read()
@@ -184,6 +187,7 @@ async def test_an_unclear_or_reasonless_reply_is_asked_back(
     """Ensure kestrel asks back and the gate stays open."""
     stack = build_reply_stack(tmp_path)
     gate = open_gate(stack.board, CardKind.PRD_GATE, None, "approve_prd")
+    await stack.announce()
     stack.ticket.write(REPORTER, text)
 
     await stack.read()
@@ -200,7 +204,7 @@ async def test_a_held_reply_decides_nothing_until_released(
     """Ensure screening holds a suspicious reply, the ticket says so, and
     the release has it acted on, once."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     reply = stack.ticket.write(REPORTER, f"@kestrel looks right {SUSPECT}")
 
     await stack.read()
@@ -227,7 +231,7 @@ async def test_a_discarded_reply_is_never_acted_on_and_the_ticket_is_told(
 ) -> None:
     """Ensure a discard leaves the gate open and says so, once."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     reply = stack.ticket.write(REPORTER, f"@kestrel approve {SUSPECT}")
     await stack.read()
     review_id = stack.comments.get(reply.external_id).security_review_id
@@ -259,7 +263,7 @@ async def test_an_unreadable_ticket_is_tried_again_next_cycle(
 ) -> None:
     """Ensure a failed read neither raises nor loses the reply."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel looks right")
     stack.ticket._unreadable = True  # the ticket cannot be fetched
 
@@ -291,7 +295,7 @@ async def test_nothing_is_read_when_kestrel_cannot_mark_its_comments(
     """Ensure kestrel never risks answering itself: without its ownership
     marker the loop reads nothing."""
     stack = build_reply_stack(tmp_path, enabled=False)
-    _understanding(stack)
+    await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel looks right")
 
     assert await stack.read() == 0
@@ -307,7 +311,7 @@ async def test_the_release_route_continues_a_held_reply_in_the_background(
     """Ensure the route's continuation acts on the released reply, and
     leaves a review that holds no reply to task intake."""
     stack = build_reply_stack(tmp_path)
-    gate = _understanding(stack)
+    gate = await _understanding(stack)
     reply = stack.ticket.write(REPORTER, f"@kestrel looks right {SUSPECT}")
     await stack.read()
     review_id = stack.comments.get(reply.external_id).security_review_id

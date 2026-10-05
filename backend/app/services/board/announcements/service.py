@@ -18,6 +18,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.documents import Document
 from app.models_board import CardState, WorkCard
@@ -91,6 +92,15 @@ class AnnouncementService:
             _logger.exception(
                 "workflow %s: announcement pass failed", workflow_id
             )
+
+    def announced_at(self, card: WorkCard) -> datetime | None:
+        """When the announcement for the gate *card* was posted (naive
+        UTC), or ``None`` while it is unposted. A reply written before
+        this moment was not an answer to what the announcement said."""
+        plan = self._deps.content.plan(card)
+        if plan is None:
+            return None
+        return self._deps.projections.completed_at(plan.key)
 
     async def delivered(
         self, workflow_id: str, card_id: str, location: str

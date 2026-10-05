@@ -58,6 +58,7 @@ def _task(reporter: Person | None, owner: Person | None = None) -> Task:
 
 async def _reply(stack: ReplyStack, author: Person, text: str) -> str:
     """Write *text* as *author*, poll once, and return kestrel's answer."""
+    await stack.announce()
     before = len(stack.ticket.comments())
     stack.ticket.write(author, text)
     await stack.read()

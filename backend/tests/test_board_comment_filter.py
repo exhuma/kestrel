@@ -116,6 +116,7 @@ async def test_the_operators_own_unmarked_reply_is_considered(
         stack.board, CardKind.UNDERSTANDING_GATE, None,
         "confirm_understanding",
     )
+    await stack.announce()
     stack.ticket.write(OPERATOR, "@kestrel looks right")
 
     taken = await stack.read()
@@ -135,10 +136,11 @@ async def test_a_comment_without_the_marker_is_ignored(
         stack.board, CardKind.UNDERSTANDING_GATE, None,
         "confirm_understanding",
     )
+    await stack.announce()
     stack.ticket.write(stack.ticket.task.reporter, "looks right to me")
 
     taken = await stack.read()
 
     assert taken == 0
-    assert stack.ticket.comments() == []
+    assert stack.ticket.answers() == []
     assert stack.board.store.get_card(gate.id).state == "awaiting_human"

@@ -13,6 +13,10 @@ small and tested on its own:
 - **The decision** a reply answers is the gate that was open when it was
   written, so a reply to a gate decided meanwhile (in the UI, or by an
   earlier reply) is told so, and never decides the next gate.
+- **Old replies do not count**: a reply may only act on a gate if it was
+  written after kestrel's announcement of that gate was posted (the
+  ledger's completion time; clock skew with the ticket is accepted). Such
+  a comment is ignored without an answer.
 - **Who may decide**: the reporter decides the requester's gates, the
   change owner the two CAB gates, both by account id. An empty account id
   (a Jira Server user without one) never matches anyone.
@@ -80,6 +84,9 @@ class OpenedGate:
     card: WorkCard
     record: HumanGateRecord
     opened_at: datetime
+    #: When kestrel's announcement of the gate was posted; ``None`` while
+    #: it is not (``counts_for`` then refuses every reply).
+    announced_at: datetime | None = None
 
     @property
     def is_open(self) -> bool:
@@ -160,6 +167,14 @@ def gate_for(
             still_open, key=lambda g: (not g.is_interview, g.opened_at)
         )
     return max(earlier, key=lambda g: g.opened_at, default=None)
+
+
+def counts_for(gate: OpenedGate, written_at: datetime) -> bool:
+    """Whether a reply written at *written_at* may act on *gate*: only if
+    kestrel's announcement of it was posted first. A comment from before
+    (or while the announcement is still unposted) was not written in
+    answer to it and is never acted on."""
+    return gate.announced_at is not None and written_at > gate.announced_at
 
 
 def decision_words(gate: OpenedGate) -> tuple[str, str]:

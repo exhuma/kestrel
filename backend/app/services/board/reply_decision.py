@@ -45,7 +45,8 @@ class Settled:
     """
 
     outcome: Outcome
-    build: Callable[[Context], Document]
+    #: The answer to post; ``None`` for a comment that is left alone.
+    build: Callable[[Context], Document] | None
     decided: tuple[WorkCard, str] | None = None
 
 

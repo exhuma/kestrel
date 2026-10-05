@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.documents import Document
 from app.models_board_records import ExternalProjectionRecord
@@ -92,6 +93,15 @@ class ProjectionsService:
         """Whether a projection for *idempotency_key* is already in the
         ledger, whatever its state."""
         return self._store.get_by_idempotency_key(idempotency_key) is not None
+
+    def completed_at(self, idempotency_key: str) -> datetime | None:
+        """When the projection for *idempotency_key* was durably
+        delivered (naive UTC), or ``None`` while it is unposted, failed
+        or unknown."""
+        record = self._store.get_by_idempotency_key(idempotency_key)
+        if record is None or record.state != "completed":
+            return None
+        return record.updated_at
 
     def complete(
         self, projection_id: str, *, external_id: str | None = None

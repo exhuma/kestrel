@@ -483,12 +483,20 @@ expected decision, refusal, question back and confirmations.
   `announcements/decisions.py`, built as Documents; the link stays at the
   end. Track 03's reply confirmations reuse the same sentence after a
   "thank you". Tests in `tests/test_board_gate_decisions.py`.
-- [ ] T049 [US3] Old replies don't count (added after Michel's review
+- [X] T049 [US3] Old replies don't count (added after Michel's review
   2026-10-05): a reply may only decide or act on a gate if it was written
   after kestrel's announcement comment for that gate completed (ledger
   keys `gate_opened:{card}` / `gate_opened:batch:{plan}`). Earlier
   comments, and every comment while the announcement is unposted, are
   recorded as `ignored` and get no answer.
+  - *Done:* `reply_rules.counts_for` compares the comment's creation time
+    with `AnnouncementService.announced_at(card)` (the ledger's completion
+    time of the gate's announcement key, via
+    `ProjectionsService.completed_at`). The gate is still matched by when
+    it opened, so a comment written after the next gate opened but before
+    its announcement is ignored, not told the old gate was decided. Tests
+    in `tests/test_board_reply_announced.py`; the reply test stack now
+    announces before replying (`ReplyStack.announce`).
 
 ---
 

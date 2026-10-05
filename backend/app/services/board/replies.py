@@ -7,7 +7,10 @@ request's ticket to :meth:`ReplyService.consider`. Each reply is then:
    kestrel's own comments; comments written before the request existed
    are left alone;
 2. **claimed** in the comment store, so it is acted on at most once;
-3. **matched** to the gate that was open when it was written;
+3. **matched** to the gate that was open when it was written, and only
+   counted if it was written after kestrel's announcement of that gate was
+   posted (``reply_rules.counts_for``); an earlier one is recorded as
+   ``ignored`` and gets no answer;
 4. **checked for entitlement** against the reporter and change owner, read
    fresh from the ticket;
 5. **screened** by the quarantine boundary, as its own identity
@@ -17,7 +20,8 @@ request's ticket to :meth:`ReplyService.consider`. Each reply is then:
 7. **decided** through ``GatesService.resolve``, exactly as the UI does,
    credited to its author.
 
-Every outcome is answered on the ticket, once (``reply:{external id}``).
+Every outcome but ``ignored`` is answered on the ticket, once
+(``reply:{external id}``).
 Replies are handled one at a time, in the order they were written, so
 the first that decides wins and the rest are told it was already decided.
 """
@@ -55,6 +59,7 @@ from app.services.board.reply_decision import (
 )
 from app.services.board.reply_rules import (
     OpenedGate,
+    counts_for,
     decider_role,
     decision_words,
     entitled,
@@ -241,14 +246,16 @@ class ReplyService:
         if settled.decided is not None and self._deps.on_decided:
             card, decision = settled.decided
             self._deps.on_decided(reply.workflow.id, card, decision)
-        await self._deps.announcements.post(
-            reply.workflow.id, "reply", key, settled.build
-        )
+        if settled.build is not None:
+            await self._deps.announcements.post(
+                reply.workflow.id, "reply", key, settled.build
+            )
 
     async def _handle(self, reply: _Reply) -> Settled:
-        gate = gate_for(
-            self._gates(reply.workflow.id), now_utc(reply.feedback.created_at)
-        )
+        written = now_utc(reply.feedback.created_at)
+        gate = gate_for(self._gates(reply.workflow.id), written)
+        if gate is not None and not counts_for(gate, written):
+            return Settled(Outcome("ignored", gate_card_id=gate.card.id), None)
         settled = self._without_reading(reply, gate)
         if settled is not None or gate is None:
             return settled  # gate is None always settles: no gate
@@ -330,7 +337,10 @@ class ReplyService:
         for card in store.list_cards(workflow_id):
             record = self._deps.gates.get_gate(card.id)
             if card.id in opened and record and faces_ticket(card):
-                found.append(OpenedGate(card, record, opened[card.id]))
+                found.append(OpenedGate(
+                    card, record, opened[card.id],
+                    self._deps.announcements.announced_at(card),
+                ))
         return found
 
 

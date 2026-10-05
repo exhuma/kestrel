@@ -29,6 +29,7 @@ from tests.announcement_support import (
     REPORTER,
     SOURCE,
     TASK_REF,
+    WORKFLOW_ID,
     RecordingSource,
     Stack,
     build_stack,
@@ -50,10 +51,11 @@ class Ticket(RecordingSource):
     """A recording ticket people comment on. Reading from a cursor
     includes the boundary comment, as Jira's does."""
 
-    def __init__(self, task: Task) -> None:
-        super().__init__(task)
+    def __init__(self, task: Task, *, failures: int = 0) -> None:
+        super().__init__(task, failures=failures)
         self.thread: list[Feedback] = []
         self.list_calls: list[str | None] = []
+        self._announced = 0
         self._clock = datetime.now(timezone.utc)
 
     def write(self, author: Person, text: str, *,
@@ -96,9 +98,16 @@ class Ticket(RecordingSource):
         last = self.thread[-1].created_at.isoformat() if self.thread else None
         return CommentPage(found, last or since)
 
+    def skip_announcements(self) -> None:
+        """Leave what kestrel has posted so far out of :meth:`answers`."""
+        self._announced = len(self.posted)
+
     def answers(self) -> list[str]:
-        """The text of every comment kestrel posted."""
-        return [doc.plain_text() for doc in self.comments()]
+        """The text of every comment kestrel posted since its last
+        announcement."""
+        return [
+            doc.plain_text() for doc in self.comments()[self._announced:]
+        ]
 
 
 class _Backend:
@@ -164,16 +173,25 @@ class ReplyStack:
         """One poll cycle."""
         return await self.poll.poll_once()
 
+    async def announce(self) -> None:
+        """Let kestrel announce the gates opened so far, as after any board
+        change. Replies written from now on answer those announcements,
+        and the ticket's ``answers()`` leave them out."""
+        await self.board.service.announce(WORKFLOW_ID)
+        self.ticket.skip_announcements()
+
 
 def reply_ticket(
     *, reporter: Person | None = REPORTER,
     change_owner: Person | None = CHANGE_OWNER,
+    failures: int = 0,
 ) -> Ticket:
-    """A ticket with these people on it."""
+    """A ticket with these people on it; it refuses its first *failures*
+    comments."""
     return Ticket(Task(
         TASK_REF, "Add export", document(paragraph(Text("x"))),
         reporter=reporter, change_owner=change_owner,
-    ))
+    ), failures=failures)
 
 
 def build_reply_stack(
