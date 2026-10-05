@@ -256,6 +256,7 @@ The image sets these so they normally need no changes:
 | `KESTREL_STATIC_DIR` | `/app/static` (the baked-in SPA) |
 | `KESTREL_DATABASE_URL` | `sqlite:////data/kestrel.db` |
 | `KESTREL_WORKSPACE_ROOT` | `/workspaces` |
+| `KESTREL_BOARD_ARTIFACTS_ROOT` | `/data/board-artifacts` (on the persisted `/data` volume) |
 | `HOME` | `/data/home` (the writable, seeded Claude `HOME`) |
 | `CLAUDE_SEED_DIR` | `/seed` (where host `~/.claude*` are mounted read-only) |
 

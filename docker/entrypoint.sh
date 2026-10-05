@@ -5,6 +5,7 @@ set -e
 : "${HOME:=/data/home}"
 : "${CLAUDE_SEED_DIR:=/seed}"
 : "${KESTREL_WORKSPACE_ROOT:=/workspaces}"
+: "${KESTREL_BOARD_ARTIFACTS_ROOT:=/data/board-artifacts}"
 
 # Fail fast with a clear message if a required path isn't writable by this
 # container's user, instead of a confusing mid-script crash later (a raw
@@ -26,6 +27,7 @@ require_writable() {
 
 require_writable /data "the /data volume"
 require_writable "$HOME" "the Claude HOME directory"
+require_writable "$KESTREL_BOARD_ARTIFACTS_ROOT" "the board artifacts root"
 require_writable "$KESTREL_WORKSPACE_ROOT" "the workspace root"
 
 # Seed the spawned claude CLI's config (MCP servers, plugins, credentials) from

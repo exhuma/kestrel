@@ -60,7 +60,7 @@ The published `docker-compose.yml` mounts four things:
 
 | Mount | Mode | Purpose |
 | --- | --- | --- |
-| `kestrel-data` → `/data` | read-write | SQLite DB and the container's Claude `HOME`, persisted across restarts |
+| `kestrel-data` → `/data` | read-write | SQLite DB, the board's handoff artifacts (`/data/board-artifacts`) and the container's Claude `HOME`, persisted across restarts |
 | `./workspaces` → `/workspaces` | read-write | The git repos claude clones and edits — **browsable on the host** |
 | `~/.claude` → `/seed/.claude` | read-only | Seed: your host Claude config, plugins, and credentials |
 | `~/.claude.json` → `/seed/claude.json` | read-only | Seed: your host Claude config file (MCP servers, plugin/approval state) |
@@ -104,7 +104,8 @@ upgrade is a deliberate change of that tag.
 
 A new release may change the database schema, and the schema is migrated
 automatically on start. **Back up the `kestrel-data` volume before upgrading**
-so you can roll back if needed:
+(it holds the database and the board artifacts, which belong together) so you
+can roll back if needed:
 
 ```bash
 docker compose down
