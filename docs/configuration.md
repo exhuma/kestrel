@@ -180,6 +180,11 @@ fields today has no observable effect: no label is applied, no transition
 fires, and no `hooks_dir` executable runs (only its startup audit-log pass
 still does). They are documented here for when this is wired back up.
 
+When it is, the constitution (access model, fourth recorded constraint)
+limits it: kestrel never changes the status of an ingested task. The
+transition ids may only move sub-tasks kestrel created itself; where the
+ingested ticket should move on, kestrel asks its owner in a comment.
+
 | Field | Source type | Purpose |
 | --- | --- | --- |
 | `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels a run would apply as it progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |

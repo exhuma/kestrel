@@ -1,6 +1,38 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-10-05 (1.5.1 -> 1.6.0, MINOR): Add Principle VI, "Documents
+Are Modelled, Never Strings" (NON-NEGOTIABLE). Every document kestrel handles
+is the abstract `Document` internally; parsing and rendering happen only in
+the adapter at a system boundary (task sources, code hosts, agent backends,
+persistence, the HTTP API), never in core code, and never as a format
+round-trip inside an adapter. Prompted by the Jira-first alpha: Jira Cloud
+requires ADF, and string-typed documents leak platform syntax into the core.
+Existing violations are named as debt.
+The same amendment records a fourth access-model constraint: kestrel never
+changes the status of an ingested task, only of sub-tasks it created itself;
+it asks the responsible human in a comment instead. Feature 006's
+`TaskSource.transition` port and `transition_*` settings remain, restricted
+to kestrel-created sub-tasks (nothing calls them today). A new principle and
+a new constraint, therefore MINOR.
+
+Added sections:
+  - Core Principles -> VI. Documents Are Modelled, Never Strings
+  - Technology & Architecture Constraints -> access model: fourth recorded
+    constraint (no status changes on an ingested task)
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... no edit; gates are derived
+    from this file dynamically
+  - .specify/templates/spec-template.md ...... no edit; no section changed
+  - .specify/templates/tasks-template.md ..... no edit
+  - AGENTS.md ................................ consistent; defers to this file
+
+Follow-up TODOs:
+  - Add the import-linter contract (only adapters import parse/render).
+  - Remove the named violations; the Jira-first alpha plan schedules this.
+
+--------------------------------------------------------------------------------
 Amendment 2026-09-24 (1.5.0 -> 1.5.1, PATCH): Correct a factual drift left by
 the Phase 10 clean break (spec 026-autonomous-work-board): the fixed six-step
 workflow driver and its `/api/workflows/*` router — the sole implementation of
@@ -301,6 +333,44 @@ documented template).
 observability are what let a single maintainer move quickly without breaking
 trust in the running system.
 
+### VI. Documents Are Modelled, Never Strings (NON-NEGOTIABLE)
+
+Every document kestrel handles — ticket bodies, comments it reads or posts,
+PR/MR bodies and review comments, gate announcements, artifacts such as the
+restatement, PRD and executive summary, and agent-authored text — MUST be
+modelled internally as the abstract `Document` (`backend/app/documents.py`: a
+closed set of inline and block constructs).
+
+- **Parse and render only at a system boundary**, inside that boundary's
+  adapter: task sources and code hosts (Jira ADF in and out; GitHub and
+  GitLab Markdown in and out), agent backends (agent-authored Markdown is
+  parsed when the result is accepted), persistence (Document serialisation)
+  and the HTTP API to the frontend.
+- **Core and board code MUST NOT** build, concatenate, append to or inspect
+  raw Markdown, ADF or wiki-markup strings, and MUST NOT pass `str` where a
+  document is meant: ports take `Document`, never `Document | str`.
+- **No round-trips inside an adapter.** An adapter renders the `Document` it
+  is given straight to its platform format; it MUST NOT render to another
+  format and re-parse (e.g. to Markdown, to append a sentinel). Sentinels and
+  markers are `Document` constructs.
+- **Inbound content stays structured.** An adapter converts what it reads
+  into a `Document`; port types do not flatten it to plain text. A consumer
+  that needs plain text asks the `Document` for it.
+- **Enforced mechanically** where a tool can: an import-linter contract
+  allows only adapter modules to import the parse and render functions.
+
+Code that predates this principle and violates it is known debt to remove,
+never precedent to copy: the ports' `Document | str` parameters,
+`JiraTaskSource.post_comment` rendering to Markdown and re-parsing to append
+its sentinel, `Task.body` and `Feedback.body` flattened to plain text, and
+board projections posting plain strings.
+
+**Rationale**: Platforms disagree on format — Jira Cloud requires ADF, and
+Markdown sent to it is not rendered — so a string-typed document leaks one
+platform's syntax into the core and from there into every other platform. One
+internal model, converted only at the edge, makes each adapter the single
+place that knows its platform.
+
 ## Technology & Architecture Constraints
 
 The living description of how the system fits together is
@@ -376,7 +446,15 @@ resource or change the original source task except to restore its exact
 pre-publication state. Artifact cleanup MUST be idempotent: an absent artifact
 is success, while an unresolved required cleanup failure remains recorded for
 retry. Deleting comments/feedback is best-effort and cannot prevent the local
-reset or future polling eligibility.
+reset or future polling eligibility. **Fourth recorded constraint**: kestrel
+MUST NOT change the status (workflow state, transition, resolution) of an
+ingested task — the ticket a request was ingested from belongs to its owners,
+and moving it is their decision. Kestrel MAY transition only sub-tasks it
+created itself and recorded against the workflow. Where an ingested task
+should move on, kestrel tells the responsible human in a comment instead.
+Operator-provided `hooks_dir` executables are the operator's own code and
+outside this constraint, but kestrel itself MUST NOT call
+`TaskSource.transition` on an ingested task.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -417,4 +495,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.5.1 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-09-24
+**Version**: 1.6.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-10-05

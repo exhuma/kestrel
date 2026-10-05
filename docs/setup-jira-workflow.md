@@ -140,3 +140,4 @@ cycling the RFC's status.
 `hooks_dir` are still accepted on a Jira source entry, but nothing currently
 applies them — see [Configuration → Lifecycle sync and operator hooks
 (currently dormant)](configuration.md#lifecycle-sync-and-operator-hooks-currently-dormant).
+kestrel never transitions the RFC itself; moving it stays with its owners.
