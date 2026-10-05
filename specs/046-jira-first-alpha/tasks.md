@@ -322,28 +322,35 @@ expected decision, refusal, question back and confirmations.
 
 **Tests first.**
 
-- [ ] T031 [P] [US3] Tests in `tests/test_board_comment_filter.py`:
+- [X] T031 [P] [US3] Tests in `tests/test_board_comment_filter.py`:
   - a comment counts only with the `feedback_marker` as a whole word,
     ignoring case;
   - a comment carrying `Marker("posted")` is skipped even though it
     contains `@kestrel`, because kestrel's own announcements do;
   - the operator's own unmarked reply is considered.
-- [ ] T032 [P] [US3] Tests in `tests/test_board_reply_entitlement.py`:
+  - *Done (track 03):* the answers kestrel posts and the new
+    `how_to_answer` wording are tested in `tests/test_board_reply_answers.py`.
+- [X] T032 [P] [US3] Tests in `tests/test_board_reply_entitlement.py`:
   - the reporter decides requester gates; the change owner decides CAB-1
     and CAB-2;
   - anyone else is refused;
   - interview gates get the pointer, and "nothing open" gets `no_gate`;
   - the reporter and change owner are re-read when the comment is
     processed.
-- [ ] T033 [P] [US3] Tests in `tests/test_board_liaison.py`: the envelope
+  - *Done (track 03):* the strategic interview gate is an interview
+    (`requested_decision = "answer"`, answered only on the form), so the
+    reporter gets the form pointer there, as on refinement gates; anyone
+    else is refused first. Entitlement is checked before screening, so a
+    stranger's reply never reaches the quarantine or the liaison.
+- [X] T033 [P] [US3] Tests in `tests/test_board_liaison.py`: the envelope
   matches `contracts/liaison-turn.md`, and malformed output, a timeout, a
   backend error, or a reasonless rejection where a reason is needed all
   give `unclear`.
-- [ ] T034 [P] [US3] Tests in `tests/test_board_gate_reasons.py`:
+- [X] T034 [P] [US3] Tests in `tests/test_board_gate_reasons.py`:
   `GatesService.resolve` rejects a `confirm_understanding` or `approve_prd`
   rejection without `answer`, and writes `decided_by` into the
   `gate.approved` / `gate.rejected` payload.
-- [ ] T035 [P] [US3] Tests in `tests/test_board_comment_poll.py`:
+- [X] T035 [P] [US3] Tests in `tests/test_board_comment_poll.py`:
   - the cursor advances;
   - each external ID is processed at most once, across restarts and edits;
   - several replies are taken in order, with "first decides, rest are
@@ -355,11 +362,16 @@ expected decision, refusal, question back and confirmations.
 
 **Implementation.**
 
-- [ ] T036 [US3] `app/persistence/comment_store.py`: the cursor and
+- [X] T036 [US3] `app/persistence/comment_store.py`: the cursor and
   inbound-comment store (`get_cursor`, `set_cursor`, `claim(external_id)`
   insert-if-absent, `record_outcome`, `held_for_review(review_id)`), with
   `@lru_cache get_comment_store()`.
-- [ ] T037 [US3] Backend reason rule and attribution:
+  - *Done (track 03):* also `get` and `reclaim_held` (an atomic
+    held → claimed, so a release continues a reply once). A taken-on
+    comment is `claimed` until settled (a crash then loses it rather than
+    acting twice); a released reply keeps its review id. Tests in
+    `tests/test_comment_store.py`. No new migration.
+- [X] T037 [US3] Backend reason rule and attribution:
   - in `app/services/board/gates.py`, `resolve(..., decided_by: Decider |
     None)` enforces the reason rule and passes an event payload;
   - in `app/services/board/service.py`, `transition_card` accepts a
@@ -367,13 +379,21 @@ expected decision, refusal, question back and confirmations.
   - `app/services/board/interventions.py` passes `decided_by=None` (the UI
     operator);
   - `app/routers/board.py` maps the new error to HTTP 422.
-- [ ] T038 [US3] The liaison specialist:
+  - *Done (track 03):* `Decider`, the reason rule and the payload live in
+    the new `app/services/board/gate_decision.py` (`gates.py` is near the
+    module limit). The 422 comes through `InterventionsService`, which
+    turns `ReasonRequiredError` into `InvalidInterventionError` (already
+    422 in the router); covered in `tests/test_board_gate_reasons.py`.
+- [X] T038 [US3] The liaison specialist:
   - `specialists/liaison/manifest.toml`: no workspace, no card types;
   - `specialists/liaison/prompt.md`;
   - `app/services/board/liaison.py`: envelope (rendering at the agent
     boundary), a direct turn modelled on `dispatch.classify_input`, a
     fail-closed parser.
-- [ ] T039 [US3] `app/services/board/replies.py`:
+  - *Done (track 03):* the turn shares
+    `board_input_security_timeout_seconds` (no new setting). The data tag
+    is stripped from the reply so it cannot close its section.
+- [X] T039 [US3] `app/services/board/replies.py`:
   - the filter (marker word, own `Marker`);
   - matching the open Jira-facing gate (understanding, strategic interview,
     PRD, CAB-1, CAB-2);
@@ -385,26 +405,55 @@ expected decision, refusal, question back and confirmations.
   - planning a `reply:{external_id}` announcement through
     `announcements/replies.py` for confirmation, refusal, question, hold,
     already decided, interview pointer or no gate.
-- [ ] T040 [US3] `app/services/board/comment_poll.py`:
+  - *Done (track 03):* split into `reply_rules.py` (pure: filter, gate
+    matching, entitlement), `reply_decision.py` (liaison and `resolve`) and
+    `replies.py`. A reply is matched to the gate that was open when it was
+    written, so a late reply never decides the next gate; comments older
+    than the request are left alone. A decision from the ticket posts the
+    reply confirmation instead of the UI's "Gate approved" comment, then the
+    same follow-ups (approved PRD, breakdown) through
+    `bootstrap.schedule_gate_followup` (moved out of the router). The CAB
+    comments now also invite a reply (`how_to_answer`). The answers after a
+    release or a discard use `reply:{id}:released` and
+    `reply:{id}:discarded`, since `reply:{id}` already holds the "held"
+    answer.
+- [X] T040 [US3] `app/services/board/comment_poll.py`:
   `CommentPollService.run_forever` / `poll_once` over active workflows
   whose source supports `list_comments`, in created order, with try/except
   per workflow. Wire it in `bootstrap.py` (`get_comment_poll_service`) and
   start it in `app/main.py`.
-- [ ] T041 [US3] Release continuation: in `app/routers/board.py`
+  - *Done (track 03):* wired in the new
+    `app/services/board/bootstrap_replies.py` (`bootstrap.py` is near the
+    module limit). Only Jira sources are read (`REPLY_CHANNELS`, R8), only
+    requests with an unfinished card, and nothing at all while
+    `comment_sentinel_enabled` is off (kestrel could not tell its own
+    comments from replies).
+- [X] T041 [US3] Release continuation: in `app/routers/board.py`
   (security-review resolve), when the review's source identity has the
   `gate-reply:` category, schedule re-processing of that one comment
   through `replies.py` (re-fetch by ID). On a discard, plan the "held, not
   acted on" reply.
-- [ ] T042 [P] [US3] Frontend attribution:
+  - *Done (track 03):* the router asks an injectable `HeldReplies`
+    (`get_held_replies`), which recognises a reply's review through the
+    comment store's `held_for_review` rather than by parsing the source
+    identity. The comment is re-fetched by listing the ticket's comments
+    from the start (no port change).
+- [X] T042 [P] [US3] Frontend attribution:
   - `frontend/src/lib/personas.ts` and `frontend/src/types/` show "<name>
     decided via Jira" when the gate event payload has a `channel`;
   - tests in `frontend/tests/lib/personas.test.ts`;
   - the backend payload test in the same commit (Principle I).
-- [ ] T043 [US3] End-to-end test in `tests/test_board_jira_channel_e2e.py`:
+  - *Done (track 03):* the row is credited to the person and reads
+    "<name> decided via Jira: approved"; its payload fields are not shown
+    again under it.
+- [X] T043 [US3] End-to-end test in `tests/test_board_jira_channel_e2e.py`:
   a fake Jira source carries one request from intake to delivery using only
   comments (interviews answered through the existing UI path). It asserts
   SC-001 to SC-005: one comment per gate, at most once, no CAB mention, no
   transition, strangers never decide.
+  - *Done (track 03):* gates are opened as the board does, by hand, as in
+    track 02's T023 test (no agent turns); delivery is the delivered
+    announcement.
 
 **Checkpoint:** quickstart steps 4 and 5 pass.
 

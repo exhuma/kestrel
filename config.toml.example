@@ -43,6 +43,7 @@ max_verify_iterations = 3
 max_ci_repair_iterations = 2
 # Mark Kestrel-generated comments so kestrel never acts on its own. Needed
 # while kestrel posts through the operator's account (no service account yet).
+# With it off, ticket replies are not read at all.
 comment_sentinel_enabled = true
 # A ticket reply must contain this plain-text marker (whole word, any case)
 # for kestrel to act on it (feature 046).
@@ -51,9 +52,9 @@ feedback_marker = "@kestrel"
 # --- work board (feature 026) -----------------------------------------------
 # Root of file-backed specialist definitions: one subdirectory per named role
 # (requester, pm, uiux, developer, infosec, dba, architect, ops, qa,
-# coordinator, coder, verifier, input-security), each holding a manifest and
-# prompt file. Treated as a trust boundary: a manifest resolving outside this
-# root is refused.
+# coordinator, coder, verifier, input-security, liaison), each holding a
+# manifest and prompt file. Treated as a trust boundary: a manifest resolving
+# outside this root is refused.
 specialists_root = "./specialists"
 # Maximum size in bytes of one untrusted board input (task body, feedback
 # item, gate/questionnaire answer, direct session prompt) accepted before

@@ -37,14 +37,14 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
 | `KESTREL_SPECIALISTS_ROOT` | `./specialists` | Root of file-backed specialist role definitions for the work board (feature 026). Treated as a trust boundary — a manifest resolving outside this root is refused |
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
-| `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine |
+| `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine. The liaison's reading of a ticket reply (feature 046) uses it too; a timeout there makes kestrel ask the person back |
 | `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a card claim lease is held before it is considered abandoned |
 | `KESTREL_BOARD_WORKSPACE_LEASE_SECONDS` | `1800` | How long a repository workspace-write lease is held before recovery may reclaim it |
 | `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
 | `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |
-| `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | Reserved for reading replies on tickets (feature 046, a later part); not read yet |
-| `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker a person puts in a ticket reply for kestrel to act on (feature 046, a later part); not read yet |
+| `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | How often the comments on the Jira tickets of requests in progress are read for replies (feature 046). Nothing is read while `comment_sentinel_enabled` is off: kestrel could not tell its own comments from replies |
+| `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker (whole word, any case) a person puts in a ticket reply for kestrel to act on (feature 046). The reporter's reply decides the understanding and the PRD, the change owner's CAB-1 and CAB-2; anyone else is told they cannot |
 | `KESTREL_BOARD_ARTIFACTS_ROOT` | `./.kestrel-board-artifacts` | Durable, content-addressed store for handoff-artifact bodies |
 
 **Vestigial settings, not currently read by anything.** A handful of
