@@ -57,3 +57,9 @@ created only by the coordinator when specialist outputs conflict.
 - `input-security` — classifies untrusted input for the quarantine boundary
   (FR-019). Structured-output-only: no tools, no workspace access, so it can
   safely see content nothing else has cleared yet.
+- `liaison` — reads a reply on a request's ticket (feature 046) and says
+  whether it approves or rejects the open decision, and why. Like
+  `input-security` it claims no card and has no tools and no workspace; it
+  is invoked directly, only after screening has cleared the reply. Any
+  answer it cannot give cleanly counts as "unclear", so kestrel asks back
+  rather than deciding on a guess.
