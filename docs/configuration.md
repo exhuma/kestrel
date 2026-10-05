@@ -33,7 +33,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_WEBHOOK_SECRET` | _(empty)_ | HMAC shared secret verifying GitHub webhook deliveries. Empty disables the webhook path. Never logged. See [GitHub workflow](setup-github-workflow.md) |
 | `KESTREL_JIRA_API_TOKEN` | _(empty)_ | Default token env var for a `jira` task source. Secret; never logged |
 | `KESTREL_CODE_HOST_TOKEN` | _(empty)_ | Default code-host token for a Jira source's resolved repos. Secret; falls back to `KESTREL_GITHUB_TOKEN` when its `code_host` is github |
-| `KESTREL_PUBLIC_BASE_URL` | _(empty)_ | Public URL of the kestrel UI, used to build clickable gate-notification deep-links. Empty ⇒ link-less comments |
+| `KESTREL_PUBLIC_BASE_URL` | _(empty)_ | Public URL of the kestrel UI, used to build the link that ends every comment kestrel posts on a ticket (and its interview-form link). Empty ⇒ link-less comments |
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
 | `KESTREL_SPECIALISTS_ROOT` | `./specialists` | Root of file-backed specialist role definitions for the work board (feature 026). Treated as a trust boundary — a manifest resolving outside this root is refused |
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
@@ -42,6 +42,9 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_WORKSPACE_LEASE_SECONDS` | `1800` | How long a repository workspace-write lease is held before recovery may reclaim it |
 | `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
+| `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |
+| `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | Reserved for reading replies on tickets (feature 046, a later part); not read yet |
+| `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker a person puts in a ticket reply for kestrel to act on (feature 046, a later part); not read yet |
 | `KESTREL_BOARD_ARTIFACTS_ROOT` | `./.kestrel-board-artifacts` | Durable, content-addressed store for handoff-artifact bodies |
 
 **Vestigial settings, not currently read by anything.** A handful of
@@ -98,6 +101,7 @@ verify_ssl = true                      # false ⇒ skip TLS checks on REST/API c
 # token_env = "KESTREL_JIRA_API_TOKEN" # optional (default)
 repo_field = "customfield_10050"       # optional; else a titled web link is used
 repo_link_text = "Repository"          # web-link title to match (default)
+change_owner_field = ""                # optional; Jira user field naming the change owner
 code_host = "github"                   # github | gitlab | gitea (self-hostable)
 code_host_base_url = ""                # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"

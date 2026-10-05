@@ -26,6 +26,7 @@ key = "RFC"                            # issue-key prefix; scopes dismissals onl
 verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 repo_field = "customfield_10050"       # optional; holds owner/name[@base_branch]
 repo_link_text = "Repository"          # web-link title to resolve the repo (default)
+change_owner_field = "customfield_10051"  # optional; user field naming the change owner
 code_host = "gitlab"                   # github | gitlab | gitea (self-hostable)
 code_host_base_url = "https://gitlab.internal.example.com"
 # token_env = "KESTREL_JIRA_API_TOKEN"           # default; the API token (Cloud) / PAT
@@ -48,6 +49,17 @@ REST v3 and render Kestrel's controlled Markdown as Atlassian Document Format
 (ADF), including review gates, requested-change summaries, and lifecycle
 footers. Jira Server/DC keeps REST v2 and plain-text bodies with
 `deployment = "server"`.
+
+### The change owner
+
+`change_owner_field` names the Jira **user** field that holds the person who
+decides, for the organisation, whether a request goes ahead (the "change
+owner"). Leave it out and kestrel simply has no change owner for that source.
+The field is read on every announcement, so a change owner set or changed on
+the ticket takes effect at the next comment.
+
+The reporter is whoever Jira says reported the issue; there is nothing to
+configure for them.
 
 ### Target repository resolution
 
@@ -109,11 +121,12 @@ just an intended contract.
    only an operator can release or discard, in the Kestrel UI.
 3. Everything from here — watching card state, answering an
    understanding/refinement/PRD/decomposition gate, retrying or reassigning
-   a card, resolving a quarantined review — happens **in the Kestrel UI**
-   (the Board), not on the RFC. A resolved gate, an escalation, a published
-   child task, an approved PRD, and a clean verification's delivery each
-   post one comment back to the RFC; day-to-day card-by-card progress is
-   still Board-only. See
+   a card, resolving a quarantined review — is **answered in the Kestrel
+   UI** (the Board), not on the RFC; the RFC tells people when it is their
+   turn (see [What the ticket shows](#what-the-ticket-shows)). A resolved
+   gate, an escalation, an approved PRD, and a clean verification's delivery
+   each post one comment back to the RFC; day-to-day card-by-card progress
+   is still Board-only. See
    [Architecture → Specialist dispatch, delivery, and write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078)
    for the full list of what projects and what doesn't.
 
@@ -124,6 +137,39 @@ on the board's own terms (spec 026 T068/T078): refinement/PRD/decomposition
 gates exist again, just resolved on the Board rather than as RFC comments,
 and a decomposition publishes real child tickets rather than native
 Sub-tasks.
+
+### What the ticket shows
+
+kestrel comments on the ticket whenever a person is needed, so nobody has to
+watch the Board. Each comment is short and plain, shows what is being decided,
+and ends with a link to the request in kestrel (when `public_base_url` is
+set; without it the link is left out). A comment is posted **once**: if Jira
+cannot be reached, kestrel keeps the comment and posts it later, without ever
+posting it twice.
+
+| When | Comment | Mentions |
+| --- | --- | --- |
+| The understanding gate opens | The restatement in full, asking to confirm or correct it | the reporter |
+| The strategic interview or an interview round opens | How many questions and from which profiles, with a link to the form; nothing is asked on the ticket | the reporter |
+| The PRD gate opens | The PRD in full | the reporter |
+| CAB-1 opens | "Ready for CAB": the strategic-fit answers | the change owner |
+| CAB-2 opens | "Ready for CAB": the executive summary, with totals, risks and the task table | the change owner |
+| The work is delivered | The change request link; the ticket should move on | the change owner |
+| The request fails, or stops because a decision was rejected | What failed or was rejected; the ticket should move on | the change owner |
+| CI fails or is repaired; a card is escalated | A plain status line | nobody |
+
+All interview rounds that open together get one comment. If the ticket has no
+change owner set, the "ready for CAB" comment says so and nobody is mentioned:
+the CAB decision is then taken in the kestrel UI.
+
+**kestrel never changes the status of the ticket.** It does not move, close or
+resolve an RFC; where the RFC should move on, it says so in a comment to the
+change owner, and moving it stays with its owners. **CAB members are never
+mentioned**: kestrel does not know who they are, and only the change owner is
+asked to take the decision.
+
+For now people answer in the kestrel UI; replying on the ticket comes with a
+later part of the same feature.
 
 ### Re-triggering an RFC
 

@@ -207,10 +207,16 @@ source. Assert one comment per opening with the expected mentions, no
 
 **Tests first.**
 
-- [ ] T020 [P] [US2] Tests in `tests/test_board_gate_opened.py`:
+- [X] T020 [P] [US2] Tests in `tests/test_board_gate_opened.py`:
   `GatesService.create_gate` appends a `gate.opened` event and bumps the
   workflow revision, for each of the six call sites.
-- [ ] T021 [P] [US2] Tests in `tests/test_board_announcements.py`, one per
+  - *Done (track 02):* tests are in `tests/test_board_gate_opened.py`: every
+    gate kind, plus the real call sites. `create_gate` does not wake the
+    coordinator (a new `BoardService.on_gate_opened` hook, not
+    `on_mutation`), so a gate opening costs no extra coordinator turn.
+    The feed (`frontend/src/lib/personas.ts`) gained a summary for
+    `gate.opened`, with a test, so it does not show the raw event type.
+- [X] T021 [P] [US2] Tests in `tests/test_board_announcements.py`, one per
   row of data-model.md's announcement table:
   - document content;
   - mentions: the reporter on requester gates, the change owner on CAB
@@ -219,20 +225,32 @@ source. Assert one comment per opening with the expected mentions, no
     unset), and the trailing `Marker`;
   - the "no change owner set" variant;
   - one comment per refinement batch.
-- [ ] T022 [P] [US2] Tests in `tests/test_board_projection_retry.py`:
+  - *Done (track 02):* the trailing `Marker` is checked on what the
+    (fake) adapter posts, because adapters add it (`as_posted`); a separate
+    test asserts the builders add none. The CI key is
+    `status:ci:{delivery card}:{round}:{failed|repaired}` (the round alone
+    would collide between "failed" and "repaired").
+- [X] T022 [P] [US2] Tests in `tests/test_board_projection_retry.py`:
   - a failed post is stored with its payload and `task_ref`;
   - the retry loop re-posts it once it succeeds, with backoff by `attempts`;
   - restarts never post twice.
-- [ ] T023 [P] [US2] Test in `tests/test_board_no_transition.py`: across a
+  - *Done (track 02):* a retry takes a row on atomically
+    (`begin_retry`, `retryable_failure` to `pending`); a row left pending by
+    a crash is never taken again (a lost comment beats a doubled one).
+    Backoff is the interval doubled per attempt (capped at 32 intervals),
+    and a row is left failed in the ledger after 8 retries.
+- [X] T023 [P] [US2] Test in `tests/test_board_no_transition.py`: across a
   full request, `TaskSource.transition` is never called for the ingested
   issue (constitution, fourth access-model constraint).
+  - *Done (track 02):* also a static guard that no board, router or
+    ingestion code calls `transition` on a task source.
 
 **Implementation.**
 
-- [ ] T024 [US2] Route `GatesService.create_gate` in
+- [X] T024 [US2] Route `GatesService.create_gate` in
   `app/services/board/gates.py` through `BoardService`, so it appends a
   `gate.opened` event with `{"gate_kind": ...}` and bumps the revision.
-- [ ] T025 [US2] Ledger keeps its payload (`ProjectionRequest.payload` is
+- [X] T025 [US2] Ledger keeps its payload (`ProjectionRequest.payload` is
   already a `Document` since track 01; what remains is storing it):
   - `app/persistence/board_projection_store.py` stores `task_ref`,
     `payload` (document JSON through `app/document_formats/json.py`) and
@@ -241,14 +259,21 @@ source. Assert one comment per opening with the expected mentions, no
     `status` and `reply`;
   - `ProjectionRequest.payload` in `app/services/board/write_back.py`
     becomes a `Document`.
-- [ ] T026 [P] [US2] Builders in `app/services/board/announcements/`, one
+  - *Done (track 02):* `ProjectionRequest` moved from `write_back.py` to
+    `projections.py` and is now the argument to `ProjectionsService.plan`
+    (the extra `task_ref` would have broken the argument limit); the row
+    maps `payload` through `DocumentText`, so no new import-linter edge.
+- [X] T026 [P] [US2] Builders in `app/services/board/announcements/`, one
   module per family, each returning a `Document` built from constructs:
   - `gates.py`: understanding, strategic interview, refinement batch, PRD,
     CAB-1, CAB-2;
   - `status.py`: delivered, failed, cancelled, CI failed or repaired,
     escalation;
   - `common.py`: the kestrel link, how-to-answer text, mentions.
-- [ ] T027 [US2] `app/services/board/announcements/service.py`:
+  - *Done (track 02):* added `content.py` (reads each gate's content from
+    the board and pairs it with its builder and key). How-to-answer wording
+    is `common.how_to_answer`, the one place track 03 changes.
+- [X] T027 [US2] `app/services/board/announcements/service.py`:
   `AnnouncementService` subscribes to board mutations, the way
   `_trigger_scheduling` does in `app/services/board/bootstrap.py`. It:
   - maps events to builders;
@@ -258,17 +283,26 @@ source. Assert one comment per opening with the expected mentions, no
 
   It detects failed and cancelled outcomes with feature 040's outcome
   derivation, and CI status changes from `app/services/board/ci_poll.py`.
-- [ ] T028 [US2] Move the existing projections onto Documents and the
+  - *Done (track 02):* "cancelled" is announced only when a decision was
+    rejected: finished work with nothing yet created after it also reads as
+    "cancelled" in `outcome_of`, and a posted comment cannot be taken back.
+    A request that ends with CAB-2 approved and no coding is not announced.
+    CI announcements are made from `CiPollService` (it dropped its
+    `interval_seconds` argument, reading the setting instead).
+- [X] T028 [US2] Move the existing projections onto Documents and the
   announcement service: in `app/services/board/bootstrap.py`,
   `_project_gate`, `_project_escalation`, `_project_breakdown` and
   `_project_prd_approval`; plus `app/services/board/dispatch_delivery.py`
   and `app/services/board/dispatch_ready.py`. The delivered comment
   mentions the change owner.
-- [ ] T029 [US2] `app/services/board/projection_retry.py`:
+  - *Done (track 02):* `DispatchServices.projections` is replaced by
+    `announcements`. Gate-decision, approved-PRD and breakdown comments are
+    unchanged in content but now end with the kestrel link.
+- [X] T029 [US2] `app/services/board/projection_retry.py`:
   `ProjectionRetryService.run_forever` / `poll_once`, wrapped in try/except
   per cycle. Wire it in `bootstrap.py` (`get_projection_retry_service`) and
   start it in `app/main.py` next to the CI loop.
-- [ ] T030 [P] [US2] Docs: `docs/setup-jira-workflow.md` (change-owner
+- [X] T030 [P] [US2] Docs: `docs/setup-jira-workflow.md` (change-owner
   field, what the ticket shows, no status changes, no CAB mentions) and
   `docs/configuration.md` (new settings).
 
