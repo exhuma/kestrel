@@ -9,7 +9,7 @@
  * rather than being dropped: the feed's job is to carry the whole story,
  * including the parts this module has not been taught yet.
  */
-import type { BoardEvent } from '../types/workflows'
+import type { BoardEvent, GateDecider } from '../types/workflows'
 
 /** Attribution, honestly (FR-013).
  *
@@ -22,6 +22,7 @@ export type PersonaLabel =
   | { kind: 'specialist'; name: string }
   | { kind: 'system' }
   | { kind: 'operator' }
+  | { kind: 'person'; name: string; channel: string }
 
 export type FeedTone = 'info' | 'success' | 'warning' | 'error'
 
@@ -107,7 +108,46 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'dev_reset.rerun': 'Developer reset: workflow rerun',
 }
 
+/** Gate decisions that can come from a ticket reply (feature 046). */
+const DECISION_EVENTS: Readonly<Record<string, string>> = {
+  'gate.approved': 'approved',
+  'gate.rejected': 'rejected',
+}
+
+/** How each decision channel is named. */
+const CHANNEL_NAMES: Readonly<Record<string, string>> = { jira: 'Jira' }
+
+/** Who decided a gate outside kestrel, when its payload says so. A UI
+ *  decision's payload is `{}`, which reads as nobody. */
+export function deciderOf(event: BoardEvent): GateDecider | null {
+  if (!(event.event_type in DECISION_EVENTS)) return null
+  try {
+    const value: unknown = JSON.parse(event.payload)
+    if (value === null || typeof value !== 'object') return null
+    const decider = value as Partial<GateDecider>
+    if (typeof decider.channel !== 'string' || !decider.channel) return null
+    return {
+      detail: String(decider.detail ?? ''),
+      channel: decider.channel,
+      account_id: String(decider.account_id ?? ''),
+      display_name: String(decider.display_name ?? ''),
+    }
+  } catch {
+    return null
+  }
+}
+
+/** A channel as people read it ("Jira"). */
+export function channelName(channel: string): string {
+  return CHANNEL_NAMES[channel] ?? channel
+}
+
 export function personaOf(event: BoardEvent): PersonaLabel {
+  const decider = deciderOf(event)
+  if (decider) {
+    const name = decider.display_name.trim() || 'Someone'
+    return { kind: 'person', name, channel: decider.channel }
+  }
   if (OPERATOR_EVENTS.has(event.event_type)) return { kind: 'operator' }
   const name = event.specialist?.label
   return name ? { kind: 'specialist', name } : { kind: 'system' }
@@ -120,13 +160,20 @@ export function toneOf(event: BoardEvent): FeedTone {
 /** A human sentence for the event, falling back to its raw type so an
  *  unknown event still says what it was. */
 export function summaryOf(event: BoardEvent): string {
+  const persona = personaOf(event)
+  if (persona.kind === 'person') {
+    const decision = DECISION_EVENTS[event.event_type]
+    return `${persona.name} decided via ${channelName(persona.channel)}: ${decision}`
+  }
   return SUMMARIES[event.event_type] ?? event.event_type
 }
 
 /** The display name for a persona. The neutral case is named
  *  deliberately — never an empty string. */
 export function personaName(persona: PersonaLabel): string {
-  if (persona.kind === 'specialist') return persona.name
+  if (persona.kind === 'specialist' || persona.kind === 'person') {
+    return persona.name
+  }
   return persona.kind === 'operator' ? 'You' : 'System'
 }
 

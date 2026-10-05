@@ -146,3 +146,52 @@ describe('toFeedEntry', () => {
     ])
   })
 })
+
+describe('a gate decided from the ticket (feature 046)', () => {
+  const fromJira = JSON.stringify({
+    detail: 'Rita Reporter decided via Jira',
+    channel: 'jira',
+    account_id: 'acc-reporter',
+    display_name: 'Rita Reporter',
+  })
+
+  it('credits the person who replied, not the operator', () => {
+    const event = boardEvent({ event_type: 'gate.approved', payload: fromJira })
+    expect(personaOf(event)).toEqual({
+      kind: 'person',
+      name: 'Rita Reporter',
+      channel: 'jira',
+    })
+    expect(personaName(personaOf(event))).toBe('Rita Reporter')
+  })
+
+  it('says who decided, via Jira, and what', () => {
+    expect(
+      summaryOf(boardEvent({ event_type: 'gate.approved', payload: fromJira })),
+    ).toBe('Rita Reporter decided via Jira: approved')
+    expect(
+      summaryOf(boardEvent({ event_type: 'gate.rejected', payload: fromJira })),
+    ).toBe('Rita Reporter decided via Jira: rejected')
+  })
+
+  it('never shows an empty name', () => {
+    const payload = JSON.stringify({ channel: 'jira', display_name: ' ' })
+    const event = boardEvent({ event_type: 'gate.approved', payload })
+    expect(personaName(personaOf(event))).toBe('Someone')
+  })
+
+  it('keeps a UI decision as the operator', () => {
+    const event = boardEvent({ event_type: 'gate.approved', payload: '{}' })
+    expect(personaOf(event)).toEqual({ kind: 'operator' })
+    expect(summaryOf(event)).toBe('You approved this gate')
+  })
+
+  it('ignores a channel on any other event', () => {
+    const event = boardEvent({
+      event_type: 'card.result_accepted',
+      payload: fromJira,
+      specialist: null,
+    })
+    expect(personaOf(event)).toEqual({ kind: 'system' })
+  })
+})

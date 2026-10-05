@@ -20,6 +20,11 @@ from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dependents import advance_ready_dependents
+from app.services.board.gate_decision import (
+    Decider,
+    decision_payload,
+    require_reason,
+)
 from app.services.board.interview_answers import check_open
 from app.services.board.interview_batch import (
     InterviewBoard,
@@ -211,20 +216,30 @@ class GatesService:
         )
 
     def resolve(
-        self, card_id: str, decision: str, *, answer: str | None = None
+        self,
+        card_id: str,
+        decision: str,
+        *,
+        answer: str | None = None,
+        decided_by: Decider | None = None,
     ) -> WorkCard:
-        """Record the operator's *decision* and apply its consequence.
+        """Record a *decision* and apply its consequence.
 
         :param decision: ``"approved"`` or ``"rejected"``.
         :param answer: Free-text response (T078) — a
             ``refinement_gate``'s answer, or a ``prd_gate`` rejection's
             feedback for `pm`'s redraft. Stored as a reference artifact
             when given; ignored for any other gate kind/decision.
+        :param decided_by: Who decided outside the kestrel UI (a reply on
+            the ticket, feature 046); ``None`` for the operator in kestrel.
+            Recorded in the decision event.
         :raises UnknownGateError: If *card_id* has no gate record.
         :raises ValueError: If *decision* is not a recognized value.
         :raises GateNotOpenError: If the gate is already decided.
         :raises IncompleteAnswerError: If an interview answer leaves a
             question without a response (feature 037).
+        :raises ReasonRequiredError: If a rejection that needs a reason
+            comes without one (feature 046).
         """
         record = self._gate_store.get_for_card(card_id)
         if record is None:
@@ -236,6 +251,7 @@ class GatesService:
             record, self._store.get_card(card_id), self._artifacts,
             decision, answer,
         )
+        require_reason(record.requested_decision, decision, answer)
         if answer is not None:
             self._artifacts.store_reference_artifact(
                 ArtifactDraft(
@@ -248,7 +264,8 @@ class GatesService:
             )
         self._gate_store.record_decision(card_id, decision)
         card = self._board_service.transition_card(
-            card_id, target.value, event_type=f"gate.{decision}"
+            card_id, target.value, event_type=f"gate.{decision}",
+            payload=decision_payload(decided_by),
         )
         if decision == "approved":
             self._maybe_require_cab1_interview(card)

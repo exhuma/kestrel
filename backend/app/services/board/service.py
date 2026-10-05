@@ -138,6 +138,7 @@ class BoardService:
         *,
         event_type: str,
         wait_reason: str | None = None,
+        payload: str = "{}",
     ) -> WorkCard:
         """Move a card to *target_state* if policy allows it.
 
@@ -146,6 +147,8 @@ class BoardService:
         :param event_type: A safe, closed event-type identifier recorded
             for this transition.
         :param wait_reason: Safe explanation, when entering a waiting state.
+        :param payload: Safe event payload (JSON), e.g. who decided a gate
+            (feature 046).
         :raises PolicyViolation: if the card is unknown or the transition
             is not allowed from its current state.
         """
@@ -162,7 +165,7 @@ class BoardService:
         self._store.set_card_state(
             card_id, target_state, wait_reason=wait_reason
         )
-        self._after_mutation(card.workflow_id, card_id, event_type)
+        self._after_mutation(card.workflow_id, card_id, event_type, payload)
         return self._store.get_card(card_id)
 
     def record_recovery_event(

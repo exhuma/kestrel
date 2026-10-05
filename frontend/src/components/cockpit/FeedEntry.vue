@@ -9,7 +9,13 @@ import { personaInitial, personaName, type FeedEntry } from '../../lib/personas'
 
 const props = defineProps<{ entry: FeedEntry }>()
 
-const payload = computed(() => parsePayload(props.entry.event.payload))
+// A decision taken from the ticket already says who decided, and where,
+// in its summary (feature 046): its payload has nothing more to add.
+const payload = computed(() =>
+  props.entry.persona.kind === 'person'
+    ? null
+    : parsePayload(props.entry.event.payload),
+)
 
 const name = computed(() => personaName(props.entry.persona))
 const initial = computed(() => personaInitial(props.entry.persona))

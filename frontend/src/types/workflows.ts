@@ -105,6 +105,17 @@ export interface BoardEvent {
   specialist: BoardRoleRef | null
 }
 
+/** Who decided a gate outside kestrel (feature 046): the payload of a
+ *  `gate.approved` / `gate.rejected` event decided from the ticket.
+ *  Mirrors `app.services.board.gate_decision.decision_payload`; a UI
+ *  decision's payload is `{}`. */
+export interface GateDecider {
+  detail: string
+  channel: string
+  account_id: string
+  display_name: string
+}
+
 /** A gate card's decision detail. Mirrors `app.schemas.WorkCardGateOut`.
  *  `requested_decision` tells an "approve/reject" gate apart from an
  *  "answer these questions" gate; `decision` is `null` until resolved.

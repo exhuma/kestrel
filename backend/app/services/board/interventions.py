@@ -24,6 +24,7 @@ from app.models_board import (
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board.dependents import advance_ready_dependents
+from app.services.board.gate_decision import ReasonRequiredError
 from app.services.board.gates import GatesService, UnknownGateError
 from app.services.board.interview_answers import (
     GateNotOpenError,
@@ -194,11 +195,14 @@ class InterventionsService:
             )
         try:
             return self._gates_service.resolve(
-                card.id, resolution.decision, answer=resolution.answer
+                card.id, resolution.decision, answer=resolution.answer,
+                decided_by=None,  # the operator, in the kestrel UI
             )
         except GateNotOpenError as exc:
             raise StaleInterventionError(str(exc)) from exc
-        except (UnknownGateError, IncompleteAnswerError) as exc:
+        except (
+            UnknownGateError, IncompleteAnswerError, ReasonRequiredError,
+        ) as exc:
             raise InvalidInterventionError(str(exc)) from exc
 
     def _complete_manual_task(self, card: WorkCard) -> WorkCard:

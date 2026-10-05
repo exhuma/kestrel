@@ -235,7 +235,7 @@ class TestPrdRedraft:
             requested_decision="approve_prd",
         )
 
-        service.resolve(gate.id, "rejected")
+        service.resolve(gate.id, "rejected", answer="Too vague.")
 
         assert any(c.kind == "prd" for c in store.list_cards("wf-1"))
 
