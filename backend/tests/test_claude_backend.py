@@ -19,7 +19,7 @@ def _fake_run_blocking(
 ):
     """Return a run_blocking stub that records *event* under *sid*."""
     async def _run(prompt, cwd, permission_mode, *, resume_id=None,
-                   on_session_id=None, model=None):
+                   on_session_id=None, on_queue_change=None, model=None):
         registry._records[sid] = SessionRecord(session_id=sid, cwd=cwd)
         registry._records[sid].events.append(event)
         if on_session_id:
