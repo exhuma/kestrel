@@ -15,7 +15,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `KESTREL_HOST` | `0.0.0.0` | Uvicorn bind address for `python -m app` |
+| `KESTREL_HOST` | `0.0.0.0` | Uvicorn bind address for `python -m app`. The image keeps `0.0.0.0` so published compose ports work; behind a sidecar proxy set `127.0.0.1` (see [Kubernetes](deploy-kubernetes.md)) |
 | `KESTREL_PORT` | `8000` | Uvicorn bind port for `python -m app` |
 | `KESTREL_RELOAD` | `false` | Enable uvicorn dev auto-reload (`python -m app`) |
 | `KESTREL_CLAUDE_BIN` | `claude` | Path/name of the `claude` CLI to spawn |
@@ -46,19 +46,33 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | How often the comments on the Jira tickets of requests in progress are read for replies (feature 046). Nothing is read while `comment_sentinel_enabled` is off: kestrel could not tell its own comments from replies |
 | `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker (whole word, any case) a person puts in a ticket reply for kestrel to act on (feature 046). The reporter's reply decides the understanding and the PRD, the change owner's CAB-1 and CAB-2; anyone else is told they cannot |
 | `KESTREL_BOARD_ARTIFACTS_ROOT` | `./.kestrel-board-artifacts` | Durable, content-addressed store for handoff-artifact bodies |
+| `KESTREL_STATIC_DIR` | _(empty)_ | Directory of the built SPA to serve. Empty ⇒ API-only (the Vite dev server serves the UI). Image: `/app/static` |
+| `KESTREL_COMMENT_SENTINEL_ENABLED` | `true` | Mark every comment kestrel posts with its ownership marker. Kestrel posts through the operator's account, so this marker is how it tells its own comments from replies; with it off, no ticket reply is read. How the marker looks is each source adapter's concern |
+| `KESTREL_HEALTH_CHECK_INTERVAL_SECONDS` | `60` | How often each task source's health (reachable and authenticated) is re-checked in the background |
+| `KESTREL_HEALTH_CHECK_TIMEOUT_SECONDS` | `10` | How long one source health check may take before it counts as unhealthy |
+| `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Verification rounds one approved coding task gets before it escalates to coordinator review |
+| `KESTREL_MAX_CI_REPAIR_ITERATIONS` | `2` | Repair attempts after a failing required CI check on a delivered change request, independent of the verify rounds |
+| `KESTREL_BOARD_TURN_TIMEOUT_SECONDS` | `600.0` | Timeout for one agent turn on the board (the coordinator's or a specialist's). Raise it for slow local models |
+| `KESTREL_BOARD_CI_POLL_INTERVAL_SECONDS` | `60.0` | How often the CI sweep checks delivered workflows' required CI status. A no-op without `required_ci_statuses` on the source |
+| `KESTREL_BOARD_UNREADABLE_RETRY_CAP` | `1` | How often a card whose result cannot be read is retried before it escalates to the coordinator. `0` escalates at once |
+| `KESTREL_BOARD_CAB1_INTERVIEW_MAX_QUESTIONS` | `3` | Hard cap on the questions of the strategic-fit interview before CAB-1 |
+| `KESTREL_BOARD_REFINEMENT_ROUND_CAP` | `1` | Refinement-interview rounds per persona; above `1`, a persona whose answers stay ambiguous gets another round |
+| `KESTREL_BOARD_PRD_REDRAFT_CAP` | `1` | PRD redrafts per workflow after a PRD gate rejection; a further rejection escalates to the operator |
+| `KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP` | `2` | Redrafts of the restated understanding after a rejection; a further rejection opens a coordinator review. `0` never redrafts |
+| `KESTREL_BOARD_DEV_ACTIONS_ENABLED` | `false` | Temporary dev-only cleanup/rerun routes, restricted to private (local-task) workflows. Leave off in a real deployment |
 
 **Vestigial settings, not currently read by anything.** A handful of
 `Settings` fields survive from the deleted fixed driver purely because
-nobody has removed them yet from `backend/app/config.py`:
-`workflow_debug`,
-`refine_samples`, `refine_critic`,
-`reconcile_mode`, `allow_incomplete_answers`, and `mockups_enabled`. Setting
-their `KESTREL_*` env var or `config.toml` key is accepted at startup but has
+nobody has removed them yet from `backend/app/config.py`: `workflow_debug`,
+`refine_samples`, `refine_critic`, `reconcile_mode`,
+`allow_incomplete_answers`, and `mockups_enabled`. Setting their
+`KESTREL_*` env var or `config.toml` key is accepted at startup but has
 **no effect** — nothing in the codebase reads any of them outside
-`config.py` itself. They described the old driver's debug transcript, `@kestrel`-marker feedback steering, and refine-interview
-robustness knobs, none of which exist post-Phase-10; do not rely on any of
-them. (This is a known cleanup gap, not something this documentation pass
-resolves — it's a code change, tracked separately.)
+`config.py` itself. They described the old driver's debug transcript and
+refine-interview robustness knobs, none of which exist post-Phase-10; do
+not rely on any of them. (This is a known cleanup gap, tracked separately.)
+Ticket replies marked with `@kestrel` do exist again since feature 046; they
+use `feedback_marker`, which is a live setting listed above.
 
 **Task sources are configured in `config.toml`, not via env vars.** Which
 GitHub repos and Jira instances kestrel pulls from — the former
@@ -67,9 +81,23 @@ GitHub repos and Jira instances kestrel pulls from — the former
 [Task sources](#task-sources) below). Those env keys have been removed and are
 ignored if left over.
 
-The applicative key `KESTREL_POLL_INTERVAL_SECONDS` can also be set in
-`config.toml` (as `poll_interval_seconds`). The file wins where it sets a
-key; the environment fills in the rest. Secrets have no TOML equivalent.
+Only some settings may be set in `config.toml` (the file wins where it sets
+one; the environment fills in the rest). Any other key in the file is
+ignored. The file-overridable keys are: `poll_interval_seconds`,
+`max_verify_iterations`, `max_ci_repair_iterations`, `port`, `database_url`,
+`workspace_root`, `board_artifacts_root`, `comment_sentinel_enabled`,
+`feedback_marker`, `specialists_root`, `board_input_max_bytes`,
+`board_input_security_timeout_seconds`, `board_turn_timeout_seconds`,
+`board_claim_lease_seconds`, `board_workspace_lease_seconds`,
+`board_max_parallel_read_cards`, `board_recovery_interval_seconds`,
+`board_ci_poll_interval_seconds`, `board_comment_poll_interval_seconds`,
+`board_projection_retry_interval_seconds`,
+`board_cab1_interview_max_questions`, `board_unreadable_retry_cap`,
+`health_check_interval_seconds`, `health_check_timeout_seconds`, and
+`board_dev_actions_enabled`. Everything else (for example `KESTREL_HOST`,
+`KESTREL_PUBLIC_BASE_URL`, `KESTREL_LOG_*`, the redraft and refinement caps)
+is environment-only. Secrets have no TOML equivalent, except a backend's
+inline `password`/`api_key`.
 
 ## Task sources
 
@@ -93,6 +121,7 @@ trigger_label = "kestrel"              # issue label that triggers ingestion
 [[task_sources]]
 type = "jira"
 base_url = "https://acme.atlassian.net"
+deployment = "cloud"                   # cloud (ADF/v3) | server (text/v2, the default)
 auth = "basic"                         # basic (Cloud) | bearer (Server/DC PAT)
 email = "me@acme.com"
 jql = 'project = "RFC" AND status = "Ready"'  # one whole query, you write it
@@ -312,7 +341,17 @@ read-only and simply reports the running build.
 
 ## Secrets
 
-The only secret kestrel itself consumes is `KESTREL_GITHUB_TOKEN` (optional).
+Secrets always stay in the environment (a Kubernetes Secret, a `.env`, the
+compose `environment:` block). Kestrel consumes:
+
+- `KESTREL_GITHUB_TOKEN`: GitHub ingestion, clone/push and pull requests
+  (also the code-host token of a Jira source whose `code_host` is github);
+- `KESTREL_WEBHOOK_SECRET`: verifies GitHub webhook deliveries (not needed for
+  Jira, which is poll-only);
+- `KESTREL_JIRA_API_TOKEN`, or the variable a source names in `token_env`;
+- `KESTREL_CODE_HOST_TOKEN`, or the variable named in `code_host_token_env`;
+- per-backend credentials named by a backend's `api_key_env` (for example
+  the opencode server password) and the translation `api_key_env`.
+
 Claude credentials come from your seeded host login, not from a kestrel
-setting. Backend secrets (a secured opencode password, an LLM API key) live
-in the backend config — see [Backends](backends.md).
+setting. See [Backends](backends.md) for backend secrets.
