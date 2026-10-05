@@ -51,8 +51,12 @@ the image small and lets a deploy attach or swap backends purely by config.
 - **State** lives in SQLite on the `/data` volume; migrations run on every
   container start (idempotent).
 - **Agent auth** is inherited from the host `claude` login (seeded read-only
-  into the container), never re-implemented by kestrel. The only secret
-  kestrel itself consumes is an optional `KESTREL_GITHUB_TOKEN`.
+  into the container), never re-implemented by kestrel. Kestrel's own secrets
+  are env-only: the task-source and code-host tokens
+  (`KESTREL_GITHUB_TOKEN`, `KESTREL_JIRA_API_TOKEN`,
+  `KESTREL_CODE_HOST_TOKEN`, or the names a source gives), the GitHub webhook
+  secret, and per-backend credentials (`api_key_env`). See
+  [Configuration → Secrets](configuration.md#secrets).
 
 ## The work board (spec 026)
 
@@ -596,7 +600,16 @@ owner. Nothing in the announcement or reply code calls
 ## Design trade-offs
 
 - **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool bound to loopback. Multi-user/authn is out of scope. One exception:
+  tool meant to be reachable only from loopback, and it trusts whoever
+  reaches it. The code default of `KESTREL_HOST` and the image default are
+  both `0.0.0.0` so that a published compose port works; the constitution's
+  loopback rule is then met by the port mapping (`127.0.0.1:8000:8000`) or,
+  in the [Kubernetes guide](deploy-kubernetes.md), by binding `127.0.0.1`
+  inside a pod whose only exposed port belongs to an authenticating reverse
+  proxy. The API itself performs no authentication; it only reads the
+  identity headers (`X-Forwarded-User` and friends) the proxy sets, so the
+  proxy must be the only way in. Everyone the proxy lets through can do
+  everything (accepted gap, tracked as epic #81). One exception:
   the GitHub webhook endpoint (`POST /api/github/webhook`) is intended to
   face the network so GitHub can deliver events; its authenticity gate is an
   HMAC signature, not loopback binding (see the constitution's access model).
@@ -605,8 +618,10 @@ owner. Nothing in the announcement or reply code calls
   `pull_request_review` / `pull_request_review_comment` handling the old
   feedback-intake subsystem added was removed with the fixed driver (see
   "Current gap" above) and carried no separate access-model exception of its
-  own. Kestrel still identifies every comment it writes with a configurable
-  `[kestrel:posted]` sentinel by default, independent of feedback intake.
+  own. Kestrel still marks every comment it writes with an ownership marker
+  (`comment_sentinel_enabled`, on by default). The marker's look is not
+  configurable: each source adapter decides how its tickets carry it, and
+  kestrel recognises its own comments by it, not by author (feature 046).
 - **Ingestion is a seam, and the ports are extracted.** GitHub ingestion
   (webhook + reconciliation), **Jira ingestion** (poll-only), and a
   file-backed **local** source all feed one source-neutral entry point

@@ -23,10 +23,9 @@ only decides a gate, and only for the person entitled to decide it. See
 ticket](architecture.md#working-with-kestrel-on-the-ticket-feature-046) and
 [Jira workflow](setup-jira-workflow.md#replying-on-the-ticket). It reuses
 the `KESTREL_FEEDBACK_MARKER` setting. The other settings of the old
-feature (`KESTREL_FEEDBACK_IGNORE_AUTHORS`, `KESTREL_FEEDBACK_WINDOW_DAYS`,
-the `[translation]` table) still exist in `backend/app/config.py` and are
-accepted at startup, but nothing reads them. See [Configuration →
-Vestigial settings](configuration.md#environment-variables).
+feature (`KESTREL_FEEDBACK_IGNORE_AUTHORS`, `KESTREL_FEEDBACK_WINDOW_DAYS`)
+have been removed; a leftover key is ignored at startup. The `[translation]`
+table is still accepted, but nothing reads it.
 
 **What to use instead today:** every board workflow — however it was
 created (GitHub, Jira, or a local task) — is worked entirely through the
@@ -34,7 +33,6 @@ Kestrel UI (a Jira request can also be answered on its ticket, see
 above). Resolve a human gate, release or discard a quarantined security
 review, and retry/cancel/reassign a card there; see
 [Architecture](architecture.md#the-work-board-spec-026) for the current
-domain model, and its "Current gap" section for what task-source write-back
-(status comments, decomposition into child tickets, and steering a run in
-flight from a comment) is tracked as follow-on work, and what is not yet
-built.
+domain model, and its "Current gap" section for what task-source write-back is still
+follow-on work and what is not yet built. (An approved decomposition creates
+no child tickets: its tasks become cards in the request's own workflow.)

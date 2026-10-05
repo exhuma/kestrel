@@ -20,6 +20,10 @@
 # `api_key`/`password`, which is tolerated only because this file is
 # gitignored).
 #
+# NOTE ON THE BIND ADDRESS: KESTREL_HOST (environment only, not a key in this
+# file) defaults to 0.0.0.0. Behind an authenticating reverse proxy in the same
+# pod (see docs/deploy-kubernetes.md) set KESTREL_HOST=127.0.0.1.
+#
 # NOTE ON base_url IN DOCKER: inside the container `localhost` is the
 # container, not the host. To reach a backend running on the Docker host,
 # use http://host.docker.internal:PORT instead of http://localhost:PORT
@@ -185,13 +189,12 @@ trigger_label = "kestrel"
 # SECURITY note applies (full environment/credential inheritance).
 # hooks_dir = "/path/to/hooks/jira"
 
-# Fixture: local, disposable task folders for offline testing/retrying. Rerun
-# is available only for this source. Every task has `task.json`; comments,
-# attachments, and child tasks stay in that folder. Fixture branches publish
-# to a local bare repository and do not open a change request.
+# Local: disposable task folders for offline testing. Every task has
+# `task.json`; comments and attachments stay in that folder. Local branches
+# publish to a local bare repository and do not open a change request.
 # [[task_sources]]
-# type = "fixture"
-# fixtures_dir = "/path/to/kestrel-fixtures"
+# type = "local"
+# tasks_dir = "/path/to/kestrel-local-tasks"
 # code_host = "local"
 
 # --- backend routing --------------------------------------------------------

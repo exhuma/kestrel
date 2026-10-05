@@ -1,4 +1,4 @@
-# Jira workflow (feature 003)
+# Jira workflow
 
 Kestrel can ingest change requests (RFCs) from a Jira project into the
 **work board** (see [Architecture](architecture.md#the-work-board-spec-026)
@@ -68,8 +68,8 @@ Each RFC names its target code repository either in the configured
 web/remote link on the issue whose title matches `repo_link_text` (default
 "Repository") — the field is optional. On each poll cycle kestrel resolves
 the repo and probes the code host for reachability. If neither resolves or
-the repo is unreachable, kestrel starts no run and posts a comment on the
-RFC.
+the repo is unreachable, kestrel starts no run and only logs it (nothing is
+posted on the RFC, since the poll would repeat the comment every cycle).
 
 The web link must be an **`http(s)://`** URL (Jira rejects `git@…`/`ssh://` in
 the link field). Kestrel parses `owner/name` from it, host-aware per the
@@ -137,9 +137,10 @@ This replaces the old fixed driver's `describe → refine →
 technical_analysis → design → code → verify` sequence and its native Jira
 Sub-task decomposition — removed in the Phase 10 clean break, then rebuilt
 on the board's own terms (spec 026 T068/T078): refinement/PRD/decomposition
-gates exist again, resolved on the ticket or on the Board, and a
-decomposition publishes real child tickets rather than native
-Sub-tasks.
+gates exist again, resolved on the ticket or on the Board. An approved
+decomposition (CAB-2) creates no child tickets or Sub-tasks: its tasks become
+cards inside the request's own workflow, and the RFC gets one breakdown
+comment (feature 031).
 
 ### What the ticket shows
 

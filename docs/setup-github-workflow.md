@@ -6,15 +6,15 @@ concept — it's one setting: `KESTREL_GITHUB_TOKEN`.
 
 ## Marking kestrel's own comments
 
-Kestrel appends `[kestrel:posted]` to every comment it posts by default, so
-a future consumer of comment history can tell a kestrel-authored comment
-from a human one. (The old fixed driver's `@kestrel approve` /
-`@kestrel reject` / `@kestrel request changes` feedback pipeline, which also
-used this marker to avoid reacting to its own comments, was removed in the
-Phase 10 clean break — see
-[Architecture](architecture.md#the-work-board-spec-026) — and currently has
-no board-domain replacement, so nothing currently reads ticket comments back
-into kestrel.)
+Kestrel marks every comment it posts with an ownership marker (on by
+default, `comment_sentinel_enabled`), so a consumer of comment history can
+tell a kestrel-authored comment from a human one. On **GitHub**, nothing
+reads issue comments back into kestrel: the old fixed driver's
+`@kestrel approve` / `@kestrel reject` / `@kestrel request changes` feedback
+pipeline was removed in the Phase 10 clean break (see
+[Architecture](architecture.md#the-work-board-spec-026)). On **Jira**,
+replies are read since feature 046, see
+[Jira workflow → Replying on the ticket](setup-jira-workflow.md#replying-on-the-ticket).
 
 Keep `comment_sentinel_enabled = true` in `config.toml` unless the connected
 source cannot preserve the marker. Kestrel posts through your account, so the
@@ -111,5 +111,6 @@ reconciliation cycle. From here, watching progress, resolving any human
 gate or quarantined security review, and retrying/cancelling/reassigning a
 card all happen **in the Kestrel UI**, not on the GitHub issue — see
 [Architecture](architecture.md#the-work-board-spec-026) for what's wired up
-today and what (lifecycle labels, comment-based feedback, decomposition
-into linked issues) is not yet.
+today and what (lifecycle labels, comment-based feedback on GitHub) is not
+yet. An approved decomposition creates no linked issues: its tasks become
+cards in the request's own workflow (feature 031).

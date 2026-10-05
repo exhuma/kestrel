@@ -73,7 +73,7 @@ running the image.
 Ad-hoc sessions (the **Sessions** debug panel / `POST /api/sessions`) use
 `default_session_backend`. Every board specialist (`requester`, `pm`,
 `uiux`, `developer`, `infosec`, `dba`, `architect`, `ops`, `qa`,
-`coordinator`, `coder`, `verifier`, `input-security`) uses its own
+`coordinator`, `coder`, `verifier`, `input-security`, `liaison`) uses its own
 manifest's `model_policy` — `"default"` for the same default, or a pinned
 backend id.
 
@@ -172,8 +172,14 @@ password = "changeme"                      # inline (gitignored file), or:
 > session's working directory (the per-run cloned workspace, or an ad-hoc
 > session's own folder) via opencode's `directory` parameter, so opencode's
 > file tools act there rather than in the directory where `opencode serve` was
-> started. The `opencode serve` process must be able to reach that path — run
-> it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
+> started. The `opencode serve` process must be able to reach that path —
+> run it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
+> Kestrel sends **absolute** paths, and the git worktrees it creates hold
+> absolute `gitdir` paths, so a sidecar must see the workspace volume at the
+> **same absolute path** as kestrel (for example `/workspaces` in both
+> containers), run as the **same uid:gid**, and have `git` installed. It
+> needs no code-host token: kestrel does the pushing. For a full pod layout,
+> see [Deploying on Kubernetes](deploy-kubernetes.md).
 >
 > **opencode read-only specialists and permissions.** A specialist whose
 > manifest declares `workspace_permission = "read_only"` (or `"none"`) runs
@@ -185,7 +191,8 @@ password = "changeme"                      # inline (gitignored file), or:
 > permission prompts itself — it streams the server's `/event` bus and replies
 > to each request — so a headless `opencode serve` never blocks waiting for a
 > human to click "allow"; you do **not** need to pre-configure opencode's
-> permissions. An auto-started `serve` supervisor is still in progress.
+> permissions. kestrel does not start or supervise `opencode serve`: you run
+> it yourself (or as a sidecar, see below).
 >
 > **Tools and runaway turns (feature 036).** Every tool your opencode server
 > offers is available to kestrel's turns by default, including the MCP servers
