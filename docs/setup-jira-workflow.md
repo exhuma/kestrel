@@ -119,14 +119,17 @@ just an intended contract.
    quarantine. Safe content creates a board **Workflow** and its initial
    cards; suspect content instead creates a quarantined security review that
    only an operator can release or discard, in the Kestrel UI.
-3. Everything from here — watching card state, answering an
-   understanding/refinement/PRD/decomposition gate, retrying or reassigning
-   a card, resolving a quarantined review — is **answered in the Kestrel
-   UI** (the Board), not on the RFC; the RFC tells people when it is their
-   turn (see [What the ticket shows](#what-the-ticket-shows)). A resolved
-   gate, an escalation, an approved PRD, and a clean verification's delivery
-   each post one comment back to the RFC; day-to-day card-by-card progress
-   is still Board-only. See
+3. From here the RFC tells people when it is their turn (see
+   [What the ticket shows](#what-the-ticket-shows)), and they answer **on
+   the ticket** with a reply ([Replying on the
+   ticket](#replying-on-the-ticket)): confirming the understanding and the
+   PRD (the reporter) and relaying the CAB decisions (the change owner).
+   Interview questions are answered on kestrel's short forms, reached by a
+   link. Watching card state, retrying or reassigning a card and resolving
+   a quarantined review stay in the Kestrel UI (the Board), which can also
+   answer any gate. A resolved gate, an escalation, an approved PRD, and a
+   clean verification's delivery each post one comment back to the RFC;
+   day-to-day card-by-card progress is still Board-only. See
    [Architecture → Specialist dispatch, delivery, and write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078)
    for the full list of what projects and what doesn't.
 
@@ -134,8 +137,8 @@ This replaces the old fixed driver's `describe → refine →
 technical_analysis → design → code → verify` sequence and its native Jira
 Sub-task decomposition — removed in the Phase 10 clean break, then rebuilt
 on the board's own terms (spec 026 T068/T078): refinement/PRD/decomposition
-gates exist again, just resolved on the Board rather than as RFC comments,
-and a decomposition publishes real child tickets rather than native
+gates exist again, resolved on the ticket or on the Board, and a
+decomposition publishes real child tickets rather than native
 Sub-tasks.
 
 ### What the ticket shows
@@ -168,8 +171,64 @@ change owner, and moving it stays with its owners. **CAB members are never
 mentioned**: kestrel does not know who they are, and only the change owner is
 asked to take the decision.
 
-For now people answer in the kestrel UI; replying on the ticket comes with a
-later part of the same feature.
+### When a gate is decided
+
+kestrel says what was decided in one plain sentence per gate and outcome.
+It says it once, whether the decision was taken on the ticket or in the
+kestrel UI:
+
+| Gate | Approved | Rejected |
+| --- | --- | --- |
+| Understanding | Understanding confirmed. | Understanding corrected, kestrel is rewriting it. |
+| CAB-1 | CAB approved the strategic fit. | CAB declined the strategic fit; this request stops here. |
+| PRD | PRD signed off. | PRD sent back with feedback, kestrel is revising it. |
+| CAB-2 | CAB approved the plan; work starts. | CAB declined the plan. |
+
+When the decision was taken by a reply, the sentence comes in the answer to
+that reply, after a thank-you to the person who wrote it.
+
+**Interviews say nothing when they are resolved.** Submitting answers on the
+form is not a decision, so a line like "approved" would mislead. The next
+comment (the "ready for CAB" comment after the strategic interview, the
+next round or the PRD after a refinement) is the acknowledgement.
+
+### Replying on the ticket
+
+Anyone entitled to decide can answer a decision by replying on the ticket
+with the reply marker (`@kestrel` by default, see
+[`KESTREL_FEEDBACK_MARKER`](configuration.md#environment-variables)) and
+what they mean, for example `@kestrel approved`, or `@kestrel no, because
+...`. kestrel reads new comments every `board_comment_poll_interval_seconds`
+(60 by default) and answers each reply once, mentioning its author.
+
+- **Who decides.** The reporter decides the understanding and the PRD. The
+  change owner decides CAB-1 and CAB-2. Both are read from the ticket when
+  the reply is read, compared by account. Anyone else is told they cannot
+  decide this here, and nothing changes. With no change owner on the ticket
+  nobody is entitled to a CAB decision there; it is taken in kestrel.
+- **A no needs a reason** for the understanding and the PRD. If a rejection
+  has none, or kestrel cannot tell what was meant, it asks again and decides
+  nothing.
+- **Only replies written after the announcement count.** A reply counts
+  only if it was written after kestrel posted the comment announcing that
+  gate. Older comments (written before it, or all of a thread's history the
+  first time kestrel reads it) are left alone and get no answer. While an
+  announcement has not been posted yet (Jira was unreachable and kestrel is
+  retrying), nothing written counts either: reply again once the
+  announcement is there. kestrel's clock and Jira's are not compared with
+  any tolerance, so a badly skewed clock can make a reply that is seconds
+  old count late or not at all.
+- **Security screening.** Each reply passes the same input screening as a
+  new request. A suspicious reply is held: the ticket says so, kestrel acts
+  on nothing, and the operator releases or discards it in the kestrel UI.
+- **Already decided.** A reply to a gate decided meanwhile (in the UI, or by
+  an earlier reply) is told by whom, and never decides the next gate.
+- **Interviews** are never answered on the ticket. A reply there gets a
+  pointer to the form.
+- Names in the audit trail ("Rita Reporter decided via Jira") are the display
+  names Jira reported when the reply was read.
+- The reply is read only while `comment_sentinel_enabled` is on, because
+  kestrel needs its ownership marker to tell its own comments from replies.
 
 ### Re-triggering an RFC
 

@@ -303,9 +303,11 @@ listing hides only done and cancelled requests.
 
 **Accepted trade-off:** per-task tickets in GitHub/Jira are gone for now.
 The task source was the only place people without kestrel access could
-follow per-task progress. Mirroring cards back as sub-tasks, and resolving
-gates or manual tasks from the ticket, are on the backlog as #63 (#64,
-#65).
+follow per-task progress. Mirroring cards back as sub-tasks is on the
+backlog as #63 (#64). Resolving gates from a Jira ticket is built since
+feature 046 (#65, see [Working with kestrel on the
+ticket](#working-with-kestrel-on-the-ticket-feature-046)); manual tasks are
+still resolved in the UI.
 
 Decomposition is **enforced**, not just offered. It is mandatory, like
 CAB-1 and PRD sign-off, since #70; the former
@@ -478,12 +480,118 @@ creates a board **Workflow** on a qualifying task, screens it in place,
 and starts the understanding step; specialist cards then progress
 automatically, including a `coder` role committing real file edits to
 its own local worktree branch, and human gates/interventions still
-happen only in the Kestrel web UI. Gate decisions, escalations,
+happen in the Kestrel web UI, or, for a Jira ticket, as a reply on the
+ticket (feature 046). Gate decisions, escalations,
 an approved task breakdown, an approved PRD, and a clean verification's
 delivery all now get reported back to the ticket itself (T067/T069/T078,
 spec 031); what an operator still can't see from the source or a PR
 alone is anything short of those milestones — day-to-day card-by-card
 progress is still Kestrel-UI-only.
+
+## Working with kestrel on the ticket (feature 046)
+
+For the alpha, a Jira ticket is where people work with kestrel. kestrel
+says what people need to read on the ticket, and people answer there. The
+kestrel UI stays available as a fallback, and interviews keep their own
+forms, reached by a link. This section is the system context; the design
+history is in [specs/046-jira-first-alpha](../specs/046-jira-first-alpha/).
+
+### The document boundary
+
+Anything kestrel reads from or writes to a platform is a **document**, never
+a string in that platform's syntax (constitution, Principle VI).
+
+- `app/documents.py` holds the closed set of constructs: paragraphs, text,
+  links, mentions, lists, tables, markers and so on. It knows no format.
+- `app/document_formats/` holds one module per platform format (Markdown,
+  Atlassian Document Format, document JSON). Parsing into a document and
+  rendering out of one happen only here.
+- An import-linter contract (`documents-at-the-boundary` in
+  `backend/.importlinter`) lets only the adapter at each system boundary
+  import `document_formats`: task sources, code hosts, agent text,
+  screening, the persistence column and the HTTP API. Every allowed edge
+  is named. Services, routers and the board build and read documents and
+  never see a format.
+
+So an announcement is built from constructs, and the Jira adapter renders
+it to ADF when it posts. Wording lives in
+`app/services/board/announcements/`, one builder per announcement.
+
+### The announcement flow
+
+```
+board change ─▶ AnnouncementService ─▶ projection ledger ─▶ adapter ─▶ ticket
+ (gate opens,    (decides what has       (idempotency key,    (renders   (one comment,
+  request ends)   not been said yet)      payload kept)        to ADF)    marked "posted")
+```
+
+- Opening a gate records a `gate.opened` event. The announcement service
+  looks at the request after every board change and says, once, whatever it
+  has not said yet: the restatement, the PRD, the interview pointer, the
+  "ready for CAB" summaries, delivery, failure.
+- Every announcement goes through the **projection ledger**. Its
+  idempotency key (`gate_opened:{card}`, `gate_opened:batch:{plan}`,
+  `delivery:{card}`, `reply:{comment}`, ...) makes each comment at-most-once
+  across passes and restarts. The ledger keeps the document, so a failed
+  post is retried later by the retry loop, never twice.
+- A decided gate says one plain sentence for its kind and outcome (for
+  example "PRD signed off."), from one mapping in
+  `announcements/decisions.py`. Interview gates say nothing when resolved:
+  the next announcement is the acknowledgement.
+- Comments carry an ownership **marker** the adapter adds, so kestrel can
+  tell its own comments from replies.
+- The person to ask is mentioned: the reporter for the requester's gates,
+  the change owner for the CAB gates and for "move this ticket on". CAB
+  members are never mentioned; kestrel does not know who they are.
+
+### The reply flow
+
+```
+poll ─▶ filter ─▶ claim ─▶ match gate ─▶ entitled? ─▶ screen ─▶ liaison ─▶ resolve
+                                                       │ held ▶ operator ▶ release
+```
+
+`CommentPollService` reads the comments of active requests on Jira sources,
+oldest first, from a stored position. `ReplyService` then handles each:
+
+1. **Filter.** Only a comment carrying the reply marker (`@kestrel` by
+   default, `feedback_marker`) counts, and never one of kestrel's own.
+2. **Claim.** The comment's id is stored before anything else, so it is
+   acted on at most once, across cycles, restarts and edits.
+3. **Match.** The comment belongs to the gate that was open when it was
+   written, so a late reply never decides the next gate. It only counts if
+   it was written **after kestrel's announcement of that gate was posted**.
+   An older comment, or any comment while the announcement is still
+   unposted, is recorded as `ignored` and gets no answer.
+4. **Entitlement.** The reporter decides the requester's gates, the change
+   owner the CAB gates, both read fresh from the ticket and compared by
+   account id. A stranger is told so, and nothing changes. Interview
+   answers are never taken from the ticket; the reply gets a pointer to the
+   form.
+5. **Screening.** The text goes through the same input-security boundary as
+   any task intake. A suspicious reply is **held** for the operator, and the
+   ticket is told. Releasing it continues that one reply; discarding it
+   tells the ticket it was not acted on.
+6. **Liaison.** A specialist with no workspace and no tools reads what the
+   reply means: approve, reject (with a reason), or unclear. Anything it
+   cannot read cleanly, a timeout included, fails closed: kestrel asks the
+   person to say it again, and decides nothing.
+7. **Resolve.** A clear answer resolves the gate through
+   `GatesService.resolve`, the same call the UI makes, credited to the
+   person and the channel ("decided via Jira"). A rejection that needs a
+   reason and has none is asked back.
+
+Each considered reply gets one short answer on the ticket (except
+`ignored`), mentioning its author. A decision taken on the ticket posts that
+answer, which reuses the decision sentence, instead of the UI's line.
+
+### The no-transition rule
+
+kestrel never changes the status of a ticket it ingested (constitution,
+access model, fourth constraint). It does not move, close or resolve it.
+Where the ticket should move on, kestrel says so in a comment to the change
+owner. Nothing in the announcement or reply code calls
+`TaskSource.transition`, and a test over a whole request asserts it.
 
 ## Design trade-offs
 

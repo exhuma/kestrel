@@ -13,17 +13,28 @@ migration as part of spec
 Phase 10 "clean break" (see
 [Architecture](architecture.md#the-work-board-spec-026)).
 
-There is currently **no board-domain replacement**. A handful of related
-config fields (`KESTREL_FEEDBACK_MARKER`, `KESTREL_FEEDBACK_IGNORE_AUTHORS`,
-`KESTREL_FEEDBACK_WINDOW_DAYS`, the `[translation]` table) still exist in `backend/app/config.py` and are
-accepted at startup, but nothing reads them — see [Configuration →
+PR and MR review feedback has **no replacement yet**; that is spec 044.
+
+Replies on a **ticket** are a different matter. Since feature 046, kestrel
+reads `@kestrel` replies on a Jira ticket and decides the open gate from
+them. That is a new and much smaller design, not the old protocol: a reply
+only decides a gate, and only for the person entitled to decide it. See
+[Architecture → Working with kestrel on the
+ticket](architecture.md#working-with-kestrel-on-the-ticket-feature-046) and
+[Jira workflow](setup-jira-workflow.md#replying-on-the-ticket). It reuses
+the `KESTREL_FEEDBACK_MARKER` setting. The other settings of the old
+feature (`KESTREL_FEEDBACK_IGNORE_AUTHORS`, `KESTREL_FEEDBACK_WINDOW_DAYS`,
+the `[translation]` table) still exist in `backend/app/config.py` and are
+accepted at startup, but nothing reads them. See [Configuration →
 Vestigial settings](configuration.md#environment-variables).
 
 **What to use instead today:** every board workflow — however it was
 created (GitHub, Jira, or a local task) — is worked entirely through the
-Kestrel UI. Resolve a human gate, release or discard a quarantined security
+Kestrel UI (a Jira request can also be answered on its ticket, see
+above). Resolve a human gate, release or discard a quarantined security
 review, and retry/cancel/reassign a card there; see
 [Architecture](architecture.md#the-work-board-spec-026) for the current
 domain model, and its "Current gap" section for what task-source write-back
-(status comments, decomposition into child tickets, and comment-based
-steering itself) is tracked as follow-on work but not yet built.
+(status comments, decomposition into child tickets, and steering a run in
+flight from a comment) is tracked as follow-on work, and what is not yet
+built.

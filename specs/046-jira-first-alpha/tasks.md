@@ -465,10 +465,10 @@ expected decision, refusal, question back and confirmations.
   remove `ReviewTokenMarker` from `app/markers.py` if nothing else uses it
   (#65 asked for a decision: the durable comment mapping replaces it).
   - *Done early (track 01):* deleted with the rest of the string-marker code.
-- [ ] T045 [P] Update `docs/architecture.md` (the document boundary, the
+- [X] T045 [P] Update `docs/architecture.md` (the document boundary, the
   announcement and reply flow) and `docs/feedback-intake.md` (now ticket
   replies through 046).
-- [ ] T046 Run `task quality`, prettier, the frontend build, pytest and
+- [X] T046 Run `task quality`, prettier, the frontend build, pytest and
   vitest (pre-push checks).
 - [ ] T047 Run `quickstart.md` against Jira Cloud. Record the results in
   `specs/046-jira-first-alpha/quickstart.md`, then close #65 with a link
