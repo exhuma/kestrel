@@ -43,6 +43,11 @@
     "uiux", "unconfigured", "unqualifying",
     "parseable", "unloadable", "unparseable", "unretrieved",
     "unlabeled", "uvicorn", "viewnav", "Vite", "Vuetify", "webfetch",
-    "webhook", "worktree", "worktrees", "Zammad"
+    "webhook", "worktree", "worktrees", "Zammad",
+    "askable", "chokepoint", "Deserialise", "gitdir", "hardbreak",
+    "headlessly", "importlinter", "issuecomment", "kubelet", "malbert",
+    "noopener", "noreferrer", "prereqs", "pyaltiplano", "retryable",
+    "softbreak", "unconvergeable", "UNDERSTING", "unestimated", "unposted",
+    "unpushed", "urandom", "urlopen", "urlsafe"
   ]
 }

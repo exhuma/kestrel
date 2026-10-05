@@ -68,7 +68,8 @@ entity reference; this is the operator-relevant shape:
 - **Work Card.** A single policy-governed unit of work with a closed `kind`
   vocabulary (`understanding_gate`, `refinement_gate`, `prd_gate`,
   `decomposition_gate`, `security_review`, `analysis`, `design`,
-  `estimation`, `implementation`, `verification`, `reconciliation`, `coordinator_review`)
+  `estimation`, `implementation`, `verification`, `reconciliation`,
+  `coordinator_review`)
   and a universal state lifecycle: `ready → claimed →
   {waiting_dependency|awaiting_human|review|quarantined} →
   {done|failed|cancelled}`. A **Card Relation** is a directed
@@ -145,7 +146,7 @@ plus a card-state-grouped list layout and a lazy graph layout
 its intervention actions. `useBoard.ts` wraps the API above. The old
 per-run session panel remains reachable as a secondary debug view.
 
-### Specialist dispatch, delivery, and write-back (spec 026, complete as of T078)
+### Specialist dispatch, delivery, and write-back (spec 026)
 
 Everything above through gate/intervention resolution is live, and so is
 the automatic specialist dispatch loop (spec 026 T034):
@@ -316,7 +317,8 @@ still resolved in the UI.
 Decomposition is **enforced**, not just offered. It is mandatory, like
 CAB-1 and PRD sign-off, since #70; the former
 `board_decomposition_required`, `board_prd_gate_required` and
-`board_cab1_gate_required` switches are gone. This reflects that Kestrel is sometimes only one part of a larger system where
+`board_cab1_gate_required` switches are gone. This reflects that Kestrel is
+sometimes only one part of a larger system where
 an ingested task is high-level and may include non-development work, so
 every workflow must pass an approved decomposition (CAB-2) before any
 other work starts — even if the decomposition is a single task covering
@@ -326,7 +328,8 @@ deterministically creates the `decomposition` card itself right after
 discretion), and `CoordinatorService.apply_actions` independently rejects
 any other card-creating action until a `decomposition_gate` card reaches
 `done` — the first guarantees the assessment starts, the second guarantees
-nothing else can happen in parallel with it. See `tests/test_board_decomposition.py`,
+nothing else can happen in parallel with it. See
+`tests/test_board_decomposition.py`,
 `tests/test_board_gates.py::TestDecompositionEnforcement`, and
 `tests/test_board_coordinator.py::TestDecompositionEnforcement`.
 
@@ -406,7 +409,8 @@ model always had slots for (`understanding_gate`/`refinement_gate`/
 `prd_gate`/`decomposition_gate`) but that, until now, only
 `understanding_gate` (and, when enabled, `decomposition_gate`) ever
 actually got created. Now mandatory (#70; originally gated behind a
-`board_prd_gate_required` setting): approving `understanding_gate` deterministically
+`board_prd_gate_required` setting): approving `understanding_gate`
+deterministically
 creates three parallel interview cards, one per business-altitude
 persona (`requester`/`pm`/`uiux`, matching the old deleted driver's own
 `BUSINESS_ALTITUDE_IDS` split) — each drafts its own scoped question set,
@@ -418,7 +422,8 @@ projects `kind="approved_artifact"` — the last of the five FR-033
 milestone kinds, closing that gap as a side effect of building this
 rather than as its own task (see tasks.md's T067/T078 notes). Technical-
 altitude personas (infosec/architect/dba/ops/qa) and cost-estimation
-(since added by spec 030, above) were explicitly scoped out for this pass — decomposition still stands in
+(since added by spec 030, above) were explicitly scoped out for this pass —
+decomposition still stands in
 for that "technical analysis" step, per T068 — and may become their own
 later iteration.
 

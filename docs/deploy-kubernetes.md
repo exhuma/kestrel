@@ -93,7 +93,8 @@ stringData:
 ```
 
 - Generate the cookie secret with
-  `python3 -c 'import os,base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'`.
+  `openssl rand -base64 32 | tr -- '+/' '-_'` (32 random bytes, URL-safe
+  base64, as oauth2-proxy expects).
 - `KESTREL_GITHUB_TOKEN` is the code-host token when the Jira source says
   `code_host = "github"`. For GitLab or Gitea use `KESTREL_CODE_HOST_TOKEN`
   (or the name you give in `code_host_token_env`). A source's Jira token can

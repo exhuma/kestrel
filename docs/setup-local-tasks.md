@@ -74,9 +74,14 @@ those exact filenames, so it never consumes its own feedback.
 
 ## Helpers
 
-`task local-tasks:init` creates the ignored example task. Use
-`LOCAL_TASK=frontend/hello BODY='@kestrel revise this' task local-tasks:add-comment`
-to add human feedback. `local-tasks:list`, `local-tasks:show-task`,
+`task local-tasks:init` creates the ignored example task. Add human feedback
+with:
+
+```sh
+LOCAL_TASK=frontend/hello BODY='@kestrel revise this' task local-tasks:add-comment
+```
+
+`local-tasks:list`, `local-tasks:show-task`,
 `local-tasks:show-comments`, `local-tasks:branches`, and `local-tasks:reset`
 inspect or reset local data. These helpers reject absolute and parent-traversal
 task paths.

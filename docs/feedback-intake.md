@@ -33,6 +33,7 @@ Kestrel UI (a Jira request can also be answered on its ticket, see
 above). Resolve a human gate, release or discard a quarantined security
 review, and retry/cancel/reassign a card there; see
 [Architecture](architecture.md#the-work-board-spec-026) for the current
-domain model, and its "Current gap" section for what task-source write-back is still
+domain model, and its "Current gap" section for what task-source write-back
+is still
 follow-on work and what is not yet built. (An approved decomposition creates
 no child tickets: its tasks become cards in the request's own workflow.)
