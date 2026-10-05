@@ -161,9 +161,10 @@ def _ready_for_cab(ctx: Context, what: str) -> Paragraph:
 def _cab_decision(ctx: Context) -> Paragraph:
     if ctx.people.change_owner is None and ctx.people.known:
         return paragraph(Text("Open the request in kestrel to decide."))
-    return paragraph(Text(
-        "The decision is taken in kestrel (link below). kestrel does not "
-        "change this ticket's status."
+    answer = how_to_answer(ctx)
+    return Paragraph((
+        *answer.content,
+        Text(" kestrel does not change this ticket's status."),
     ))
 
 

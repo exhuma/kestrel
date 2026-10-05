@@ -146,7 +146,11 @@ class CommentStore:
                 return
             row.state = outcome.state
             row.gate_card_id = outcome.gate_card_id
-            row.security_review_id = outcome.security_review_id
+            # A released reply keeps its review, so the review still
+            # reads as a reply's (and is not continued as task intake).
+            row.security_review_id = (
+                outcome.security_review_id or row.security_review_id
+            )
             row.intent = outcome.intent
             row.processed_at = now_utc(now)
 

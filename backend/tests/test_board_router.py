@@ -8,6 +8,7 @@ from app.main import create_app
 from app.models_board_records import SecurityReviewRecord
 from app.persistence.board_quarantine_store import ReviewResolution
 from app.services.board.bootstrap import get_quarantine_service
+from app.services.board.bootstrap_replies import get_held_replies
 
 
 class _FakeQuarantine:
@@ -39,9 +40,20 @@ class _FakeQuarantine:
         return ReviewResolution(review, changed=self._pending)
 
 
-def _client(quarantine) -> httpx.AsyncClient:
+class _NoHeldReplies:
+    """No review holds a reply on the ticket (feature 046)."""
+
+    def schedule(self, _review_id: str, *, released: bool) -> bool:
+        assert released in (True, False)
+        return False
+
+
+def _client(quarantine, held=None) -> httpx.AsyncClient:
     app = create_app()
     app.dependency_overrides[get_quarantine_service] = lambda: quarantine
+    app.dependency_overrides[get_held_replies] = lambda: (
+        held or _NoHeldReplies()
+    )
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
@@ -123,3 +135,54 @@ async def test_response_never_carries_raw_content_fields() -> None:
         "review_state",
         "resolution",
     }
+
+
+class _HeldReplies:
+    """Every review holds a reply on the ticket; records each continuation."""
+
+    def __init__(self) -> None:
+        self.scheduled: list[tuple[str, bool]] = []
+
+    def schedule(self, review_id: str, *, released: bool) -> bool:
+        self.scheduled.append((review_id, released))
+        return True
+
+
+@pytest.mark.parametrize("action, released", [
+    ("release_quarantine", True), ("discard_quarantine", False),
+])
+@pytest.mark.asyncio
+async def test_a_held_reply_is_continued_instead_of_the_intake(
+    monkeypatch: pytest.MonkeyPatch, action: str, released: bool
+) -> None:
+    """Ensure a review holding a ticket reply continues that reply (acted
+    on when released, the ticket told when discarded), never the task
+    intake (feature 046, T041)."""
+    continued: list[str] = []
+    monkeypatch.setattr(
+        "app.routers.board.schedule_intake_continuation", continued.append
+    )
+    held = _HeldReplies()
+    async with _client(_FakeQuarantine(), held) as client:
+        resp = await client.post(
+            "/api/board/security-reviews/review-1/resolve",
+            json={"action": action},
+        )
+
+    assert resp.status_code == httpx.codes.OK
+    assert held.scheduled == [("review-1", released)]
+    assert continued == []
+
+
+@pytest.mark.asyncio
+async def test_an_already_resolved_reply_review_continues_nothing(
+) -> None:
+    """Ensure a second release does not act on the reply twice."""
+    held = _HeldReplies()
+    async with _client(_FakeQuarantine(pending=False), held) as client:
+        await client.post(
+            "/api/board/security-reviews/review-1/resolve",
+            json={"action": "release_quarantine"},
+        )
+
+    assert held.scheduled == []

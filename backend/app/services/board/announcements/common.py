@@ -24,6 +24,8 @@ from app.ports import Person
 
 #: The link's wording, wherever it ends an announcement.
 _LINK_TEXT = "Open this request in kestrel"
+#: The reply marker when none is configured (``Settings.feedback_marker``).
+DEFAULT_MARKER = "@kestrel"
 
 
 @dataclass(frozen=True)
@@ -42,12 +44,13 @@ class People:
 @dataclass(frozen=True)
 class Context:
     """What an announcement is built for: the request, who is on its
-    ticket, and where kestrel can be reached (empty when not configured,
-    which leaves the link out)."""
+    ticket, where kestrel can be reached (empty when not configured,
+    which leaves the link out), and the marker a reply carries."""
 
     workflow_id: str
     people: People = field(default_factory=People)
     base_url: str = ""
+    marker: str = DEFAULT_MARKER
 
     def page(self, *, interview: bool = False) -> str:
         """The kestrel page for this request, or ``""`` without a base
@@ -83,16 +86,18 @@ def addressed(person: Person | None, text: str) -> Paragraph:
 
 
 def how_to_answer(ctx: Context) -> Paragraph:
-    """How a person answers a question put on the ticket.
-
-    For now: on the kestrel page, which the link at the end of every
-    announcement leads to.
+    """How a person answers a decision put on the ticket (feature 046):
+    a reply here carrying the marker, or the kestrel page, which the link
+    at the end of every announcement leads to. Interview gates never use
+    this: their answers are given on the form only.
     """
-    if ctx.page():
-        return paragraph(
-            Text("To answer, open this request in kestrel (link below).")
-        )
-    return paragraph(Text("To answer, open this request in kestrel."))
+    where = " (link below)" if ctx.page() else ""
+    marker = ctx.marker
+    return paragraph(Text(
+        f"To answer, reply on this ticket with {marker} and your answer, "
+        f'for example "{marker} approved" or "{marker} no, because ...". '
+        f"You can also answer in kestrel{where}."
+    ))
 
 
 def finish(

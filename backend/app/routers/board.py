@@ -13,11 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app import sse
-from app.models_board import (
-    CardAction,
-    CardKind,
-    WorkCard,
-)
+from app.models_board import CardAction
+from app.models_board_records import SecurityReviewRecord
 from app.persistence.board_artifact_content_store import ContentNotFoundError
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
@@ -53,10 +50,13 @@ from app.services.board.bootstrap import (
     get_artifacts_service,
     get_interventions_service,
     get_quarantine_service,
-    schedule_breakdown_projection,
     schedule_escalation_projection,
+    schedule_gate_followup,
     schedule_gate_projection,
-    schedule_prd_approval_projection,
+)
+from app.services.board.bootstrap_replies import (
+    HeldReplies,
+    get_held_replies,
 )
 from app.services.board.interventions import (
     GateResolution,
@@ -80,6 +80,7 @@ async def resolve_security_review(
     body: QuarantineInterventionIn,
     quarantine: QuarantineService = Depends(get_quarantine_service),
     bus: WorkflowBus = Depends(get_workflow_bus),
+    held: HeldReplies = Depends(get_held_replies),
 ) -> SecurityReviewOut:
     """Release or discard a pending quarantine review.
 
@@ -105,8 +106,8 @@ async def resolve_security_review(
     # card detail SSE streams would never reflect the resolved state.
     review = resolution.review
     bus.publish(review.workflow_id)
-    if resolution.changed and review.review_state == "released":
-        schedule_intake_continuation(review.workflow_id)  # feature 032
+    if resolution.changed:
+        _continue_after_review(held, review)
     return SecurityReviewOut(
         id=review.id,
         card_id=review.card_id,
@@ -116,6 +117,19 @@ async def resolve_security_review(
         review_state=review.review_state,
         resolution=review.resolution,
     )
+
+
+def _continue_after_review(
+    held: HeldReplies, review: SecurityReviewRecord
+) -> None:
+    """Continue what a resolved review held: a reply on the ticket
+    (feature 046: acted on when released, the ticket told when
+    discarded), else a released task intake (feature 032)."""
+    released = review.review_state == "released"
+    if held.schedule(review.id, released=released):
+        return
+    if released:
+        schedule_intake_continuation(review.workflow_id)
 
 
 @router.get(
@@ -339,22 +353,10 @@ async def apply_board_intervention(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.action == CardAction.RESOLVE_GATE.value and body.decision:
         schedule_gate_projection(workflow_id, updated, body.decision)
-        _schedule_gate_followup(workflow_id, updated, body.decision)
+        schedule_gate_followup(workflow_id, updated, body.decision)
     elif body.action == CardAction.REQUEST_COORDINATOR_REVIEW.value:
         schedule_escalation_projection(workflow_id, updated)
     relations = deps.board.list_relations(workflow_id)
     cards = deps.board.list_cards(workflow_id)
     return card_summary(updated, relations, board_lookups(cards, deps))
 
-
-def _schedule_gate_followup(
-    workflow_id: str, updated: WorkCard, decision: str
-) -> None:
-    """Schedule a resolved gate's kind-specific follow-up, if it has one
-    (T068's decomposition publish, T078's PRD-approval projection)."""
-    if decision != "approved":
-        return
-    if updated.kind == CardKind.DECOMPOSITION_GATE.value:
-        schedule_breakdown_projection(workflow_id, updated)
-    elif updated.kind == CardKind.PRD_GATE.value:
-        schedule_prd_approval_projection(workflow_id, updated)

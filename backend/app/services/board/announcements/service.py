@@ -24,7 +24,12 @@ from app.models_board import CardState, WorkCard
 from app.persistence.board_store import BoardStore
 from app.ports import TaskSource
 from app.services.board.announcements import status
-from app.services.board.announcements.common import Context, People, named
+from app.services.board.announcements.common import (
+    DEFAULT_MARKER,
+    Context,
+    People,
+    named,
+)
 from app.services.board.announcements.content import GateContent, Plan
 from app.services.board.phases import CANCELLED, FAILED, outcome_of
 from app.services.board.projections import (
@@ -52,6 +57,8 @@ class AnnouncementDeps:
     projections: ProjectionsService
     task_sources: TaskSourceRegistry
     base_url: str = ""
+    #: What a reply on the ticket carries (``Settings.feedback_marker``).
+    marker: str = DEFAULT_MARKER
 
 
 class AnnouncementService:
@@ -209,7 +216,7 @@ class AnnouncementService:
     async def _context(
         self, workflow_id: str, task_ref: str, source: TaskSource
     ) -> Context:
-        base_url = self._deps.base_url
+        deps = self._deps
         try:
             task = await source.get_task(task_ref)
         except Exception:
@@ -217,9 +224,10 @@ class AnnouncementService:
                 "workflow %s: could not read the ticket for its people",
                 workflow_id, exc_info=True,
             )
-            return Context(workflow_id, People(known=False), base_url)
-        people = People(named(task.reporter), named(task.change_owner))
-        return Context(workflow_id, people, base_url)
+            people = People(known=False)
+        else:
+            people = People(named(task.reporter), named(task.change_owner))
+        return Context(workflow_id, people, deps.base_url, deps.marker)
 
 
 def _rejected_gates(cards: list[WorkCard]) -> list[str]:

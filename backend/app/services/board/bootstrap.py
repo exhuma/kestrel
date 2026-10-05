@@ -8,7 +8,7 @@ from functools import lru_cache
 from app.backends.base import Backend
 from app.config import get_settings
 from app.documents import Strong, paragraph
-from app.models_board import WorkCard
+from app.models_board import CardKind, WorkCard
 from app.persistence.board_artifact_content_store import (
     get_board_artifact_content_store,
 )
@@ -183,6 +183,7 @@ def get_announcement_service() -> AnnouncementService:
             projections=get_projections_service(),
             task_sources=get_task_source_registry(),
             base_url=get_settings().public_base_url,
+            marker=get_settings().feedback_marker,
         )
     )
 
@@ -364,6 +365,19 @@ async def _project_gate(
     workflow_id: str, card: WorkCard, decision: str
 ) -> None:
     await get_announcement_service().gate_decided(workflow_id, card, decision)
+
+
+def schedule_gate_followup(
+    workflow_id: str, card: WorkCard, decision: str
+) -> None:
+    """Schedule a resolved gate's kind-specific follow-up, if it has one
+    (T068's breakdown, T078's approved PRD), however it was decided."""
+    if decision != "approved":
+        return
+    if card.kind == CardKind.DECOMPOSITION_GATE.value:
+        schedule_breakdown_projection(workflow_id, card)
+    elif card.kind == CardKind.PRD_GATE.value:
+        schedule_prd_approval_projection(workflow_id, card)
 
 
 def schedule_escalation_projection(workflow_id: str, card: WorkCard) -> None:

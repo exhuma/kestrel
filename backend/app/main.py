@@ -106,6 +106,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(get_projection_retry_service().run_forever())
     )
 
+    # Replies on the ticket (feature 046): an @kestrel reply from the
+    # entitled person decides the open gate.
+    from app.services.board.bootstrap_replies import get_comment_poll_service
+
+    poll_tasks.append(
+        asyncio.create_task(get_comment_poll_service().run_forever())
+    )
+
     try:
         yield
     finally:
