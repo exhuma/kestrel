@@ -9,6 +9,7 @@ is policy-validated (FR-028, FR-005).
 from __future__ import annotations
 
 import pytest
+
 from app.services.board.validation import (
     VALID_FINDING_CATEGORIES,
     VerifierFinding,

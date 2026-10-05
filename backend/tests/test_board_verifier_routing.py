@@ -8,6 +8,7 @@ operator or the coordinator's escalation path.
 from __future__ import annotations
 
 import pytest
+
 from app.services.board.validation import (
     VerifierFinding,
     VerifierResultError,
