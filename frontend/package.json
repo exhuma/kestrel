@@ -1,7 +1,7 @@
 {
   "name": "kestrel-frontend",
   "private": true,
-  "version": "2026.9.8-alpha.2",
+  "version": "2026.10.5-alpha.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
