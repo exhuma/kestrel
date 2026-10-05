@@ -8,30 +8,11 @@ phase, for the one milestone kind wired so far: a resolved human gate.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from app.documents import Document
 from app.ports import TaskSource
-from app.services.board.projections import ProjectionsService
-
-
-@dataclass(frozen=True)
-class ProjectionRequest:
-    """What to project and where. Bundled to keep
-    :func:`post_projection`'s argument count within the repo's limit.
-
-    :param kind: One of ``projections.VALID_PROJECTION_KINDS``.
-    :param idempotency_key: Unique per real-world event (FR-033) — a
-        second request for the same key is a no-op once the first
-        completes.
-    :param payload: The safe comment body to post, as a document.
-    """
-
-    workflow_id: str
-    task_ref: str
-    kind: str
-    idempotency_key: str
-    payload: Document
+from app.services.board.projections import (
+    ProjectionRequest,
+    ProjectionsService,
+)
 
 
 async def post_projection(
@@ -48,11 +29,9 @@ async def post_projection(
     task-source outage must not be treated as though the board mutation
     that triggered this projection itself failed.
     """
-    record = projections.plan(
-        request.workflow_id, request.kind, request.idempotency_key,
-        request.payload,
-    )
-    if record.state != "pending":
+    record = projections.plan(request)
+    # A row a retry has taken on is that retry's to post, not ours.
+    if record.state != "pending" or record.attempts:
         return
     try:
         external_id = await task_source.post_comment(

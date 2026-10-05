@@ -16,10 +16,14 @@ import pytest
 
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.services.board.projections import (
+    ProjectionRequest,
     ProjectionsService,
     UnsupportedProjectionKindError,
 )
 from tests.board_test_support import board_session_factory
+from tests.document_helpers import doc
+
+_TASK_REF = "owner/repo#1"
 
 
 def _service(tmp_path: Path) -> ProjectionsService:
@@ -27,13 +31,19 @@ def _service(tmp_path: Path) -> ProjectionsService:
     return ProjectionsService(store)
 
 
+def _plan(service: ProjectionsService, workflow_id, kind, key, text):
+    return service.plan(
+        ProjectionRequest(workflow_id, _TASK_REF, kind, key, doc(text))
+    )
+
+
 class TestPlanningEligibility:
     """Only the four FR-033 milestone kinds may be planned."""
 
     def test_plans_a_gate_projection(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
-        record = service.plan(
-            "wf-1", "gate", "wf-1:gate:understanding", "approved"
+        record = _plan(
+            service, "wf-1", "gate", "wf-1:gate:understanding", "approved"
         )
         assert record.kind == "gate"
         assert record.state == "pending"
@@ -46,7 +56,7 @@ class TestPlanningEligibility:
         self, tmp_path: Path, kind: str
     ) -> None:
         service = _service(tmp_path)
-        record = service.plan("wf-1", kind, f"wf-1:{kind}:1", "x")
+        record = _plan(service, "wf-1", kind, f"wf-1:{kind}:1", "x")
         assert record.kind == kind
 
     def test_child_work_is_no_longer_a_kind(self, tmp_path: Path) -> None:
@@ -54,12 +64,12 @@ class TestPlanningEligibility:
         031, FR-021)."""
         service = _service(tmp_path)
         with pytest.raises(UnsupportedProjectionKindError):
-            service.plan("wf-1", "child_work", "wf-1:child_work:1", "x")
+            _plan(service, "wf-1", "child_work", "wf-1:child_work:1", "x")
 
     def test_unsupported_kind_is_rejected(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
         with pytest.raises(UnsupportedProjectionKindError):
-            service.plan("wf-1", "claim", "wf-1:claim:1", "x")
+            _plan(service, "wf-1", "claim", "wf-1:claim:1", "x")
 
     def test_routine_completion_is_not_a_valid_kind(
         self, tmp_path: Path
@@ -69,7 +79,7 @@ class TestPlanningEligibility:
         vocabulary a caller could even plan."""
         service = _service(tmp_path)
         with pytest.raises(UnsupportedProjectionKindError):
-            service.plan("wf-1", "completion", "wf-1:completion:1", "x")
+            _plan(service, "wf-1", "completion", "wf-1:completion:1", "x")
 
 
 class TestIdempotency:
@@ -79,14 +89,14 @@ class TestIdempotency:
         self, tmp_path: Path
     ) -> None:
         service = _service(tmp_path)
-        first = service.plan("wf-1", "gate", "wf-1:gate:understanding", "a")
-        second = service.plan("wf-1", "gate", "wf-1:gate:understanding", "b")
+        first = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "a")
+        second = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "b")
         assert first.id == second.id
 
     def test_a_different_key_plans_independently(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
-        first = service.plan("wf-1", "gate", "wf-1:gate:understanding", "a")
-        second = service.plan("wf-1", "gate", "wf-1:gate:prd", "b")
+        first = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "a")
+        second = _plan(service, "wf-1", "gate", "wf-1:gate:prd", "b")
         assert first.id != second.id
 
     def test_webhook_and_poll_racing_the_same_milestone_project_once(
@@ -95,11 +105,11 @@ class TestIdempotency:
         """Simulates the Edge Cases scenario: a webhook and a poll cycle
         both observe the same milestone and both attempt to plan it."""
         service = _service(tmp_path)
-        webhook_view = service.plan(
-            "wf-1", "delivery", "wf-1:delivery:pr-42", "merged"
+        webhook_view = _plan(
+            service, "wf-1", "delivery", "wf-1:delivery:pr-42", "merged"
         )
-        poll_view = service.plan(
-            "wf-1", "delivery", "wf-1:delivery:pr-42", "merged"
+        poll_view = _plan(
+            service, "wf-1", "delivery", "wf-1:delivery:pr-42", "merged"
         )
         assert webhook_view.id == poll_view.id
 
@@ -111,7 +121,7 @@ class TestRetry:
         self, tmp_path: Path
     ) -> None:
         service = _service(tmp_path)
-        record = service.plan("wf-1", "gate", "wf-1:gate:understanding", "x")
+        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
         service.fail(record.id, "rate limited")
 
         retryable = service.retryable()
@@ -123,7 +133,7 @@ class TestRetry:
         self, tmp_path: Path
     ) -> None:
         service = _service(tmp_path)
-        record = service.plan("wf-1", "gate", "wf-1:gate:understanding", "x")
+        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
         service.complete(record.id, external_id="comment-1")
 
         assert service.retryable() == []
@@ -132,7 +142,7 @@ class TestRetry:
         self, tmp_path: Path
     ) -> None:
         service = _service(tmp_path)
-        record = service.plan("wf-1", "gate", "wf-1:gate:understanding", "x")
+        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
         service.fail(record.id, "rate limited")
 
         completed = service.complete(record.id, external_id="comment-1")
@@ -147,8 +157,9 @@ class TestCleanupOwnership:
 
     def test_completed_projection_is_owned(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
-        record = service.plan(
-            "wf-1", "approved_artifact", "wf-1:approved_artifact:g-1", "x"
+        record = _plan(
+            service, "wf-1", "approved_artifact",
+            "wf-1:approved_artifact:g-1", "x",
         )
         service.complete(record.id, external_id="issue-99")
 
@@ -158,7 +169,7 @@ class TestCleanupOwnership:
 
     def test_pending_projection_is_not_yet_owned(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
-        service.plan("wf-1", "gate", "wf-1:gate:understanding", "x")
+        _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
 
         assert service.owned_external_ids("wf-1") == []
 
@@ -168,7 +179,7 @@ class TestCleanupOwnership:
         """A completed projection with no external_id created nothing
         externally (e.g. an internal-only milestone) — nothing to clean up."""
         service = _service(tmp_path)
-        record = service.plan("wf-1", "gate", "wf-1:gate:understanding", "x")
+        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
         service.complete(record.id)
 
         assert service.owned_external_ids("wf-1") == []
@@ -177,7 +188,7 @@ class TestCleanupOwnership:
         self, tmp_path: Path
     ) -> None:
         service = _service(tmp_path)
-        record = service.plan("wf-1", "gate", "wf-1:gate:understanding", "x")
+        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
         service.complete(record.id, external_id="comment-1")
 
         assert service.owned_external_ids("wf-2") == []

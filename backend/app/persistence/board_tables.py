@@ -345,8 +345,9 @@ class BoardExternalProjectionRow(Base):
     workflow_id: Mapped[str] = mapped_column(
         ForeignKey("board_workflow.id")
     )
-    #: "gate" | "escalation" | "approved_artifact" | "delivery" (a legacy
-    #: row may still read "child_work", no longer written — feature 031).
+    #: "gate" | "escalation" | "approved_artifact" | "delivery" |
+    #: "gate_opened" | "status" | "reply" (a legacy row may still read
+    #: "child_work", no longer written — feature 031).
     kind: Mapped[str] = mapped_column(Text)
     idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
     #: "pending" | "completed" | "retryable_failure".
@@ -355,5 +356,13 @@ class BoardExternalProjectionRow(Base):
     #: Recorded source resource identity, for safe cleanup.
     external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload_hash: Mapped[str] = mapped_column(Text)
+    #: Where to post, and what, so a failed post can be retried (feature
+    #: 046); ``None`` on a row from before the ledger kept them.
+    task_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[Document | None] = mapped_column(
+        DocumentText, nullable=True
+    )
+    #: How many times a retry has taken this row on.
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)

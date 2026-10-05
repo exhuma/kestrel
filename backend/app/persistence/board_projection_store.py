@@ -7,7 +7,7 @@ most one projection row, mirroring the same durable de-dup pattern as
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import lru_cache
 
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board_records import ExternalProjectionRecord
 from app.persistence.board_tables import BoardExternalProjectionRow
+from app.persistence.board_time import now_utc
 from app.persistence.db import get_sessionmaker
 
 
@@ -30,6 +31,10 @@ def _row_to_record(
         state=row.state,
         error=row.error,
         external_id=row.external_id,
+        task_ref=row.task_ref,
+        payload=row.payload,
+        attempts=row.attempts,
+        updated_at=row.updated_at,
     )
 
 
@@ -51,7 +56,7 @@ class BoardProjectionStore:
         existing = self.get_by_idempotency_key(record.idempotency_key)
         if existing is not None:
             return existing
-        moment = now or datetime.now(timezone.utc)
+        moment = now_utc(now)
         row = BoardExternalProjectionRow(
             id=record.id,
             workflow_id=record.workflow_id,
@@ -61,6 +66,9 @@ class BoardProjectionStore:
             state=record.state,
             error=record.error,
             external_id=record.external_id,
+            task_ref=record.task_ref,
+            payload=record.payload,
+            attempts=record.attempts,
             created_at=moment,
             updated_at=moment,
         )
@@ -111,7 +119,7 @@ class BoardProjectionStore:
             row.state = "completed"
             row.external_id = external_id
             row.error = None
-            row.updated_at = now or datetime.now(timezone.utc)
+            row.updated_at = now_utc(now)
             db.flush()
             db.expunge(row)
             return _row_to_record(row)
@@ -124,20 +132,54 @@ class BoardProjectionStore:
             row = db.get(BoardExternalProjectionRow, projection_id)
             row.state = "retryable_failure"
             row.error = error
-            row.updated_at = now or datetime.now(timezone.utc)
+            row.updated_at = now_utc(now)
             db.flush()
             db.expunge(row)
             return _row_to_record(row)
 
     def list_retryable(self) -> list[ExternalProjectionRecord]:
-        """Return every projection currently in ``retryable_failure``."""
+        """Return every projection currently in ``retryable_failure``,
+        oldest first."""
         with self._factory() as db:
             rows = (
                 db.query(BoardExternalProjectionRow)
                 .filter(BoardExternalProjectionRow.state == "retryable_failure")
+                .order_by(BoardExternalProjectionRow.updated_at)
                 .all()
             )
             return [_row_to_record(row) for row in rows]
+
+    def begin_retry(
+        self, projection_id: str, *, now: datetime | None = None
+    ) -> bool:
+        """Take a ``retryable_failure`` row on for one more post attempt.
+
+        Atomic: the row moves to ``pending`` and its attempt count rises
+        in one conditional update, so of two callers racing for it (or a
+        restart after a crash mid-post) at most one gets ``True``. A row
+        left ``pending`` by a crash is never taken again: the post may
+        have reached the ticket, and a lost comment is better than a
+        doubled one.
+        """
+        with self._factory.begin() as db:
+            taken = (
+                db.query(BoardExternalProjectionRow)
+                .filter(
+                    BoardExternalProjectionRow.id == projection_id,
+                    BoardExternalProjectionRow.state == "retryable_failure",
+                )
+                .update(
+                    {
+                        BoardExternalProjectionRow.state: "pending",
+                        BoardExternalProjectionRow.attempts: (
+                            BoardExternalProjectionRow.attempts + 1
+                        ),
+                        BoardExternalProjectionRow.updated_at: now_utc(now),
+                    },
+                    synchronize_session=False,
+                )
+            )
+            return taken == 1
 
     def owned_external_ids(self, workflow_id: str) -> list[tuple[str, str]]:
         """Return ``(kind, external_id)`` for every completed, Kestrel-owned

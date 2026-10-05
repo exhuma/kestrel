@@ -248,8 +248,9 @@ class ExternalProjectionRecord:
     :param id: Stable record identity.
     :param workflow_id: The workflow this milestone belongs to.
     :param kind: ``"gate"``, ``"escalation"``, ``"approved_artifact"``,
-        or ``"delivery"`` (a legacy row may still read ``"child_work"``,
-        which feature 031 no longer writes).
+        ``"delivery"``, or (feature 046) ``"gate_opened"``, ``"status"``,
+        ``"reply"`` (a legacy row may still read ``"child_work"``, which
+        feature 031 no longer writes).
     :param idempotency_key: Unique per real-world event; a webhook and a
         poll cycle racing to report the same milestone still project it
         at most once.
@@ -259,6 +260,13 @@ class ExternalProjectionRecord:
     :param error: Safe failure reason, when ``retryable_failure``.
     :param external_id: The task-source resource Kestrel now owns, once
         ``completed`` — the durable cleanup ledger (FR-035).
+    :param task_ref: Where to post it (feature 046); ``None`` on a row
+        from before the ledger kept its payload.
+    :param payload: What to post, kept so a failed post can be retried;
+        ``None`` on an old row.
+    :param attempts: How many times a retry has taken this row on.
+    :param updated_at: When the row last changed: the retry backoff's
+        clock.
     """
 
     id: str
@@ -269,3 +277,7 @@ class ExternalProjectionRecord:
     state: str = "pending"
     error: str | None = None
     external_id: str | None = None
+    task_ref: str | None = None
+    payload: Document | None = None
+    attempts: int = 0
+    updated_at: datetime | None = None
