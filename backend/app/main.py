@@ -88,6 +88,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # abandoned specialist claims rather than polling any task source.
     from app.services.board.bootstrap import (
         get_ci_poll_service,
+        get_projection_retry_service,
         get_recovery_service,
     )
 
@@ -98,6 +99,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # for its source/repo is simply never eligible, so this is a no-op
     # sweep for a deployment that hasn't configured any.
     poll_tasks.append(asyncio.create_task(get_ci_poll_service().run_forever()))
+
+    # Posting again what a task source refused (feature 046): a comment
+    # that failed to post waits in the projection ledger for this loop.
+    poll_tasks.append(
+        asyncio.create_task(get_projection_retry_service().run_forever())
+    )
 
     try:
         yield

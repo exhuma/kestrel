@@ -99,6 +99,18 @@ describe('summaryOf', () => {
     )
   })
 
+  it('says a gate opening is a decision waiting, not a raw event type', () => {
+    expect(summaryOf(boardEvent({ event_type: 'gate.opened' }))).toBe(
+      'A decision is waiting for an answer',
+    )
+  })
+
+  it('credits a gate opening to the system, not the operator', () => {
+    expect(
+      personaOf(boardEvent({ event_type: 'gate.opened', specialist: null })),
+    ).toEqual({ kind: 'system' })
+  })
+
   it('falls back to the raw event type rather than dropping the event', () => {
     expect(summaryOf(boardEvent({ event_type: 'something.new' }))).toBe(
       'something.new',

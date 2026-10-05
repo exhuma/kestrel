@@ -13,6 +13,7 @@ from app.models_board import WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board import bootstrap
+from app.services.board.announcements.common import Context
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.candidate import load_candidate
 from app.services.board.claims import ClaimsService, NoEligibleCardError
@@ -276,19 +277,22 @@ async def test_approval_posts_one_breakdown_comment_and_no_ticket(
     gate = board.approve(_task("t1", "Schema"))
     posted: list[tuple] = []
 
-    async def _record(*args: str) -> None:
-        posted.append(args)
+    class _Announcements:
+        async def post(self, *args) -> None:
+            posted.append(args)
 
     monkeypatch.setattr(bootstrap, "get_gates_service", lambda: board.gates)
     monkeypatch.setattr(
         bootstrap, "get_artifacts_service", lambda: board.artifacts
     )
-    monkeypatch.setattr(bootstrap, "_project", _record)
+    monkeypatch.setattr(
+        bootstrap, "get_announcement_service", _Announcements
+    )
 
     await bootstrap._project_breakdown("wf-1", gate)
 
-    ((workflow_id, kind, key, payload),) = posted
-    text = render_markdown(payload)
+    ((workflow_id, kind, key, build),) = posted
+    text = render_markdown(build(Context("wf-1")))
     assert (workflow_id, kind) == ("wf-1", "approved_artifact")
     assert key == f"approved_artifact:{gate.id}"
     assert "1. Schema (coding)" in text

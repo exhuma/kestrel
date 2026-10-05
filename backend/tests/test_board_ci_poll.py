@@ -70,7 +70,6 @@ def _service(
     service = CiPollService(
         store, coordinator, _FakeTaskSources({"github-issue": code_host}),
         _settings(max_ci_repair_iterations=max_ci_repair_iterations),
-        interval_seconds=60,
     )
     return service, store
 
@@ -135,7 +134,7 @@ class TestEligibility:
         settings = Settings(_env_file=None)  # no task_sources configured
         service = CiPollService(
             store, coordinator, _FakeTaskSources({"github-issue": code_host}),
-            settings, interval_seconds=60,
+            settings,
         )
 
         await service.poll_once()

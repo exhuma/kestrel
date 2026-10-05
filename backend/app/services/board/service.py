@@ -39,6 +39,7 @@ class BoardService:
         bus: WorkflowBus | None = None,
         *,
         on_mutation: Callable[[str], None] | None = None,
+        on_gate_opened: Callable[[str], None] | None = None,
     ) -> None:
         """
         :param on_mutation: Called with the workflow id after every
@@ -46,10 +47,15 @@ class BoardService:
             trigger (FR-004: card creation, completion, and other board
             changes). Decoupled from any particular scheduling
             implementation the same way ``bus`` is decoupled from SSE.
+        :param on_gate_opened: Called with the workflow id after a gate
+            opens (feature 046). Separate from *on_mutation* because a
+            gate opening is for a human to act on, not a change for the
+            coordinator to react to.
         """
         self._store = store
         self._bus = bus
         self._on_mutation = on_mutation
+        self._on_gate_opened = on_gate_opened
 
     def get_workflow(self, workflow_id: str) -> Workflow | None:
         """Return one workflow by id, or ``None`` if it does not exist."""
@@ -187,6 +193,24 @@ class BoardService:
         belongs — e.g. an interview card its result already completed
         (feature 038). Same effects as :meth:`record_recovery_event`."""
         return self.record_recovery_event(card_id, event_type)
+
+    def record_gate_opened(self, card: WorkCard) -> None:
+        """Record that the gate *card* now waits for a human (feature
+        046): the ``gate.opened`` event, a revision bump, a live-view
+        tick, and the hook that tells the people who must answer. The
+        coordinator is not woken: there is nothing for it to do."""
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=card.workflow_id,
+                card_id=card.id,
+                event_type="gate.opened",
+                payload=json.dumps({"gate_kind": card.kind}),
+            )
+        )
+        self._store.bump_workflow_revision(card.workflow_id)
+        self.announce(card.workflow_id)
+        if self._on_gate_opened is not None:
+            self._on_gate_opened(card.workflow_id)
 
     def record_attempt(
         self, card: WorkCard, event_type: str, payload: str

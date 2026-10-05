@@ -27,6 +27,7 @@ from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
+from tests.announcement_support import announcing
 from tests.board_test_support import board_session_factory
 from tests.test_board_scheduling import _FakeBackend
 
@@ -313,7 +314,9 @@ class TestEndToEndDispatchRouting:
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator,
             task_sources=_FakeTaskSources({"github-issue": task_source}),
-            projections=projections,
+            announcements=announcing(
+                store, projections, {"github-issue": task_source}
+            ),
         )
         backend = _FakeBackend(_findings_block(
             '{"category": "ambiguity", "summary": "unclear boundary"}'

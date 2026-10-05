@@ -24,6 +24,7 @@ import logging
 from app.config import Settings
 from app.models_board import CardKind, Workflow
 from app.persistence.board_store import BoardStore
+from app.services.board.announcements.service import AnnouncementService
 from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.task_sources import TaskSourceRegistry
 
@@ -41,19 +42,19 @@ class CiPollService:
         task_sources: TaskSourceRegistry,
         settings: Settings,
         *,
-        interval_seconds: float,
+        announcements: AnnouncementService | None = None,
     ) -> None:
         self._store = store
         self._coordinator = coordinator
         self._task_sources = task_sources
         self._settings = settings
-        self._interval_seconds = interval_seconds
+        self._announcements = announcements
 
     async def run_forever(self) -> None:
         """Poll every eligible workflow until cancelled."""
         while True:
             await self.poll_once()
-            await asyncio.sleep(self._interval_seconds)
+            await asyncio.sleep(self._settings.board_ci_poll_interval_seconds)
 
     async def poll_once(self) -> None:
         """Check every currently-eligible workflow's required CI once."""
@@ -101,6 +102,8 @@ class CiPollService:
             return
         if all(status.state == "passed" for status in statuses):
             self._store.record_ci_status(workflow.id, "passed")
+            if workflow.ci_repair_round > 0:  # it had failed before
+                await self._say(workflow, workflow.ci_repair_round, None)
             return
         round_number = self._store.record_ci_status(workflow.id, "failed")
         detail = "; ".join(
@@ -108,10 +111,29 @@ class CiPollService:
             for status in statuses
             if status.state == "failed"
         )
+        await self._say(workflow, round_number, detail)
         if round_number > self._settings.max_ci_repair_iterations:
             self._escalate(workflow, detail)
         else:
             self._repair(workflow, detail)
+
+    async def _say(
+        self, workflow: Workflow, round_number: int, detail: str | None
+    ) -> None:
+        """Tell the ticket the required checks failed (*detail*) or are
+        repaired (no detail), once per round of a delivery."""
+        if self._announcements is None:
+            return
+        deliveries = [
+            c for c in self._store.list_cards(workflow.id)
+            if c.kind == CardKind.DELIVERY.value
+        ]
+        delivery = deliveries[-1].id if deliveries else workflow.id
+        outcome = "repaired" if detail is None else "failed"
+        await self._announcements.ci_changed(
+            workflow.id, f"status:ci:{delivery}:{round_number}:{outcome}",
+            detail,
+        )
 
     def _repair(self, workflow: Workflow, detail: str) -> None:
         trigger = f"ci_repair:{workflow.id}:{workflow.ci_repair_round}"

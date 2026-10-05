@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from app.documents import Document, Link, Text, document, paragraph
 from app.models_board import CardKind, CardState, WorkCard, Workflow
 from app.services.board.coordinator import (
     CreateCardAction,
@@ -25,7 +24,6 @@ from app.services.board.delivery_readiness import (
     delivery_due,
     delivery_trigger,
 )
-from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.change_requests import change_request_number
 
 if TYPE_CHECKING:
@@ -151,34 +149,8 @@ async def _project_delivery(
     location: str,
     services: DispatchServices,
 ) -> None:
-    """Best-effort projection of a workflow's delivery location (T067)."""
-    if services.projections is None or services.task_sources is None:
+    """Best-effort projection of a workflow's delivery location (T067):
+    the change owner is told the work is delivered (feature 046)."""
+    if services.announcements is None:
         return
-    task_source = services.task_sources.sources.get(workflow.source)
-    if task_source is None:
-        return
-    try:
-        await post_projection(
-            ProjectionRequest(
-                workflow_id=workflow.id,
-                task_ref=workflow.task_ref,
-                kind="delivery",
-                idempotency_key=f"delivery:{card.id}",
-                payload=_delivered(location),
-            ),
-            task_source,
-            services.projections,
-        )
-    except Exception:  # noqa: BLE001 — never let projection crash dispatch
-        _dispatch_log.exception(
-            "workflow %s: delivery projection failed for card %s",
-            workflow.id, card.id,
-        )
-
-
-def _delivered(location: str) -> Document:
-    """Where the work was delivered: a link to the change request, or the
-    local branch it was published to."""
-    if location.startswith(("https://", "http://")):
-        return document(paragraph(Text("Delivered: "), Link(location)))
-    return document(paragraph(Text(f"Delivered: {location}")))
+    await services.announcements.delivered(workflow.id, card.id, location)

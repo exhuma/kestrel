@@ -141,7 +141,8 @@ class GatesService:
         requested_decision: str,
         target_artifact_id: str | None = None,
     ) -> WorkCard:
-        """Create an ``awaiting_human`` gate card and its decision record."""
+        """Create an ``awaiting_human`` gate card and its decision record,
+        and record that it opened (feature 046)."""
         card = WorkCard(
             id=f"card-{uuid.uuid4().hex[:8]}",
             workflow_id=workflow_id,
@@ -158,6 +159,7 @@ class GatesService:
                 target_artifact_id=target_artifact_id,
             )
         )
+        self._board_service.record_gate_opened(card)
         return card
 
     def get_gate(self, card_id: str) -> HumanGateRecord | None:

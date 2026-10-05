@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from app.backends.base import Backend
 from app.config import get_settings
-from app.documents import Document, Strong, Text, document, paragraph
+from app.documents import Strong, paragraph
 from app.models_board import WorkCard
 from app.persistence.board_artifact_content_store import (
     get_board_artifact_content_store,
@@ -20,6 +20,12 @@ from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
 from app.persistence.board_store import get_board_store
 from app.policy import get_specialist_backend_policy
+from app.services.board.announcements.common import finish
+from app.services.board.announcements.content import GateContent
+from app.services.board.announcements.service import (
+    AnnouncementDeps,
+    AnnouncementService,
+)
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.ci_poll import CiPollService
 from app.services.board.claims import ClaimsService
@@ -39,13 +45,13 @@ from app.services.board.materialise import (
     approved_candidate,
     render_breakdown,
 )
+from app.services.board.projection_retry import ProjectionRetryService
 from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
 from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
 from app.services.board.workspace import WorkspaceService
-from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.task_sources import get_task_source_registry
 from app.storage.workflow_bus import get_workflow_bus
 
@@ -56,7 +62,8 @@ _logger = logging.getLogger(__name__)
 def get_board_service() -> BoardService:
     """Return the process-wide BoardService singleton."""
     return BoardService(
-        get_board_store(), get_workflow_bus(), on_mutation=_trigger_scheduling
+        get_board_store(), get_workflow_bus(), on_mutation=_on_mutation,
+        on_gate_opened=_announce,
     )
 
 
@@ -163,6 +170,37 @@ def get_projections_service() -> ProjectionsService:
 
 
 @lru_cache
+def get_announcement_service() -> AnnouncementService:
+    """Return the process-wide AnnouncementService singleton: what kestrel
+    says on a request's ticket (feature 046)."""
+    return AnnouncementService(
+        AnnouncementDeps(
+            store=get_board_store(),
+            content=GateContent(
+                get_board_store(), get_gates_service(),
+                get_artifacts_service(), get_specialist_roster(),
+            ),
+            projections=get_projections_service(),
+            task_sources=get_task_source_registry(),
+            base_url=get_settings().public_base_url,
+        )
+    )
+
+
+@lru_cache
+def get_projection_retry_service() -> ProjectionRetryService:
+    """Return the process-wide ProjectionRetryService singleton."""
+    return ProjectionRetryService(
+        get_projections_service(),
+        get_board_store(),
+        get_task_source_registry(),
+        interval_seconds=(
+            get_settings().board_projection_retry_interval_seconds
+        ),
+    )
+
+
+@lru_cache
 def get_recovery_service() -> RecoveryService:
     """Return the process-wide RecoveryService singleton."""
     settings = get_settings()
@@ -183,7 +221,7 @@ def get_ci_poll_service() -> CiPollService:
         get_coordinator_service(),
         get_task_source_registry(),
         settings,
-        interval_seconds=settings.board_ci_poll_interval_seconds,
+        announcements=get_announcement_service(),
     )
 
 
@@ -216,13 +254,26 @@ def get_dispatch_services() -> DispatchServices:
         workspace=get_workspace_service(),
         task_sources=get_task_source_registry(),
         coordinator=get_coordinator_service(),
-        projections=get_projections_service(),
+        announcements=get_announcement_service(),
         gates=get_gates_service(),
         verify_round_cap=get_settings().max_verify_iterations,
         board=get_board_service(),
         live=get_live_activity(),
         unreadable_retry_cap=get_settings().board_unreadable_retry_cap,
     )
+
+
+def _announce(workflow_id: str) -> None:
+    """Have the ticket told whatever is new on *workflow_id* (feature
+    046). Fire-and-forget: the service logs its own failures."""
+    get_announcement_service().schedule(workflow_id)
+
+
+def _on_mutation(workflow_id: str) -> None:
+    """``BoardService``'s ``on_mutation`` hook: wake the coordinator and
+    let the ticket know."""
+    _trigger_scheduling(workflow_id)
+    _announce(workflow_id)
 
 
 def _trigger_scheduling(workflow_id: str) -> None:
@@ -312,10 +363,7 @@ def schedule_gate_projection(
 async def _project_gate(
     workflow_id: str, card: WorkCard, decision: str
 ) -> None:
-    await _project(
-        workflow_id, "gate", f"gate:{card.id}",
-        document(paragraph(Text(f"Gate {decision}: {card.title}"))),
-    )
+    await get_announcement_service().gate_decided(workflow_id, card, decision)
 
 
 def schedule_escalation_projection(workflow_id: str, card: WorkCard) -> None:
@@ -333,31 +381,9 @@ def schedule_escalation_projection(workflow_id: str, card: WorkCard) -> None:
 
 
 async def _project_escalation(workflow_id: str, card: WorkCard) -> None:
-    await _project(
-        workflow_id, "escalation", f"escalation:{card.id}",
-        document(paragraph(Text(f"Escalation: {card.title}"))),
+    await get_announcement_service().escalated(
+        workflow_id, f"escalation:{card.id}", card.title
     )
-
-
-async def _project(
-    workflow_id: str, kind: str, idempotency_key: str, payload: Document
-) -> None:
-    workflow = get_board_store().get_workflow(workflow_id)
-    task_source = get_task_source_registry().sources.get(workflow.source)
-    if task_source is None:
-        _logger.warning(
-            "workflow %s: no task source for source %r; %s not "
-            "projected", workflow_id, workflow.source, kind,
-        )
-        return
-    request = ProjectionRequest(
-        workflow_id=workflow_id,
-        task_ref=workflow.task_ref,
-        kind=kind,
-        idempotency_key=idempotency_key,
-        payload=payload,
-    )
-    await post_projection(request, task_source, get_projections_service())
 
 
 def schedule_breakdown_projection(workflow_id: str, card: WorkCard) -> None:
@@ -389,9 +415,10 @@ async def _project_breakdown(workflow_id: str, card: WorkCard) -> None:
             "no breakdown posted", workflow_id, card.id,
         )
         return
-    await _project(
+    breakdown = render_breakdown(candidate)
+    await get_announcement_service().post(
         workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
-        render_breakdown(candidate),
+        lambda ctx: finish(ctx, breakdown.blocks),
     )
 
 
@@ -418,9 +445,10 @@ async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
             "recorded; nothing projected", workflow_id, card.id,
         )
         return
-    await _project(
+    blocks = (
+        paragraph(Strong("Approved PRD")), *workflow.approved_prd.blocks
+    )
+    await get_announcement_service().post(
         workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
-        document(
-            paragraph(Strong("Approved PRD")), *workflow.approved_prd.blocks
-        ),
+        lambda ctx: finish(ctx, blocks),
     )

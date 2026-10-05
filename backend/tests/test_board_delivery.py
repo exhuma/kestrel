@@ -30,6 +30,7 @@ from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
+from tests.announcement_support import announcing
 from tests.board_test_support import board_session_factory
 from tests.test_board_scheduling import _FakeBackend
 from tests.test_board_workspace import _seed_bare_remote
@@ -265,7 +266,10 @@ class TestEndToEndDelivery:
             task_sources=_FakeTaskSources(
                 {"github-issue": code_host}, {"github-issue": task_source}
             ),
-            coordinator=coordinator, projections=projections,
+            coordinator=coordinator,
+            announcements=announcing(
+                store, projections, {"github-issue": task_source}
+            ),
         )
         backend = _FakeBackend("<VERIFIER_FINDINGS>{\"findings\": []}"
                                 "</VERIFIER_FINDINGS>")
@@ -280,10 +284,10 @@ class TestEndToEndDelivery:
         assert len(delivery_cards) == 1
         assert delivery_cards[0].state == "done"
         assert code_host.opened["head"] == "kestrel/board/wf-1"
-        assert task_source.calls == [(
-            "owner/repo#1",
-            "Delivered: https://github.com/owner/repo/pull/7",
-        )]
+        ((ref, text),) = task_source.calls
+        assert ref == "owner/repo#1"
+        assert "delivered" in text
+        assert "https://github.com/owner/repo/pull/7" in text
         workflow = store.get_workflow("wf-1")
         assert workflow.change_request_number == _PR_NUMBER
         assert workflow.change_request_url == (

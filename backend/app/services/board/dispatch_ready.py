@@ -12,7 +12,6 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from app.documents import Text, document, paragraph
 from app.models_board import (
     CardKind,
     SpecialistDefinition,
@@ -20,6 +19,7 @@ from app.models_board import (
     WorkspacePermission,
 )
 from app.policy import SpecialistCapabilityError
+from app.services.board.announcements.service import AnnouncementService
 from app.services.board.artifacts import (
     CARD_RESULT_LOGICAL_NAME,
     ArtifactDraft,
@@ -55,7 +55,6 @@ from app.services.board.live_activity import (
     tracking,
     turn_failure,
 )
-from app.services.board.projections import ProjectionsService
 from app.services.board.question_review import reconcile_interviews
 from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
@@ -63,7 +62,6 @@ from app.services.board.specialists import SpecialistRoster
 from app.services.board.verification import route_verifier_result
 from app.services.board.verification_rounds import RoundContext
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
-from app.services.board.write_back import ProjectionRequest, post_projection
 from app.services.exceptions import GitError
 from app.services.task_sources import TaskSourceRegistry
 
@@ -87,9 +85,9 @@ class DispatchServices:
         findings into new remediation/escalation cards (T051). ``None``
         leaves a verification card's result generically accepted like any
         other card's, with no follow-up card created.
-    :param projections: Posts a routed escalation finding to its task
-        source (T067). ``None`` skips projection — the escalation card
-        is still created either way.
+    :param announcements: Tells the ticket about a routed escalation
+        finding (T067) and about a delivery (feature 046). ``None`` says
+        nothing — the escalation card is still created either way.
     :param gates: Holds a parsed decomposition candidate behind a
         ``decomposition_gate`` card (T068). ``None`` leaves a
         ``decomposition`` card's result generically accepted with no
@@ -111,7 +109,7 @@ class DispatchServices:
     workspace: WorkspaceService | None = None
     task_sources: TaskSourceRegistry | None = None
     coordinator: CoordinatorService | None = None
-    projections: ProjectionsService | None = None
+    announcements: AnnouncementService | None = None
     gates: GatesService | None = None
     verify_round_cap: int = 3
     board: BoardService | None = None
@@ -316,31 +314,13 @@ async def _project_escalation(
     services: DispatchServices,
 ) -> None:
     """Best-effort projection of one escalation finding (T067)."""
-    if services.projections is None or services.task_sources is None:
+    if services.announcements is None:
         return
-    workflow = services.claims.store.get_workflow(workflow_id)
-    task_source = services.task_sources.sources.get(workflow.source)
-    if task_source is None:
-        return
-    try:
-        await post_projection(
-            ProjectionRequest(
-                workflow_id=workflow_id,
-                task_ref=workflow.task_ref,
-                kind="escalation",
-                idempotency_key=(
-                    f"escalation:{card.id}:{card.attempt_count}:{index}"
-                ),
-                payload=document(paragraph(Text(f"Escalation: {summary}"))),
-            ),
-            task_source,
-            services.projections,
-        )
-    except Exception:  # noqa: BLE001 — never let projection crash dispatch
-        _dispatch_log.exception(
-            "workflow %s: escalation projection failed for card %s",
-            workflow_id, card.id,
-        )
+    await services.announcements.escalated(
+        workflow_id,
+        f"escalation:{card.id}:{card.attempt_count}:{index}",
+        summary,
+    )
 
 
 async def _resolve_workspace(

@@ -79,6 +79,7 @@ const TONES: Readonly<Record<string, FeedTone>> = {
 
 const SUMMARIES: Readonly<Record<string, string>> = {
   'workflow.created': 'Request ingested',
+  'gate.opened': 'A decision is waiting for an answer',
   'card.dependency_met': 'Dependency met — work can start',
   'card.result_accepted': 'Result accepted',
   'refinement.satisfied': 'Interview complete — no further round needed',
