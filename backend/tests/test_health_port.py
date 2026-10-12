@@ -1,16 +1,18 @@
 """Contract tests for ``check_health()`` across every adapter (feature 014).
 
-Mirrors contracts/health-check-port.md: success -> True, any failure
-(HTTP error, connection failure) -> False, never raises.
+Mirrors contracts/health-check-port.md: success -> True; a failure (HTTP
+error, connection failure) raises, so the health service can log why the
+source is unreachable instead of losing the reason.
 """
 from __future__ import annotations
 
 import httpx
 import pytest
 
+from app.services.exceptions import GitHubError
 from app.services.github import GitHubClient
-from app.services.gitlab import GitLabCodeHost
-from app.services.jira import JiraClient
+from app.services.gitlab import GitLabCodeHost, GitLabError
+from app.services.jira import JiraClient, JiraError
 from app.services.local_task_source import LocalTaskSource
 
 
@@ -52,21 +54,23 @@ async def test_github_check_health_true_on_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_github_check_health_false_on_http_error() -> None:
-    """Ensure a 401 reports unhealthy, not a raised exception."""
+async def test_github_check_health_raises_on_http_error() -> None:
+    """Ensure a 401 raises with the status, so the reason can be logged."""
     client = _github(lambda _req: httpx.Response(401, json={}))
-    assert await client.check_health() is False
+    with pytest.raises(GitHubError, match="401"):
+        await client.check_health()
 
 
 @pytest.mark.asyncio
-async def test_github_check_health_false_on_connection_failure() -> None:
-    """Ensure a transport-level failure reports unhealthy, never raises."""
+async def test_github_check_health_raises_on_connection_failure() -> None:
+    """Ensure a transport-level failure surfaces as itself."""
 
     def handler(req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=req)
 
     client = _github(handler)
-    assert await client.check_health() is False
+    with pytest.raises(httpx.ConnectError, match="connection refused"):
+        await client.check_health()
 
 
 @pytest.mark.asyncio
@@ -77,10 +81,22 @@ async def test_jira_check_health_true_on_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_jira_check_health_false_on_http_error() -> None:
-    """Ensure a 403 reports unhealthy, not a raised exception."""
+async def test_jira_check_health_raises_on_http_error() -> None:
+    """Ensure a 403 raises with the status, so the reason can be logged."""
     client = _jira(lambda _req: httpx.Response(403, json={}))
-    assert await client.check_health() is False
+    with pytest.raises(JiraError, match="403"):
+        await client.check_health()
+
+
+@pytest.mark.asyncio
+async def test_jira_check_health_raises_on_connection_failure() -> None:
+    """Ensure a TLS/DNS/connect failure surfaces as itself."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("certificate verify failed", request=req)
+
+    with pytest.raises(httpx.ConnectError, match="certificate"):
+        await _jira(handler).check_health()
 
 
 @pytest.mark.asyncio
@@ -91,10 +107,11 @@ async def test_gitlab_check_health_true_on_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gitlab_check_health_false_on_http_error() -> None:
-    """Ensure a 401 reports unhealthy, not a raised exception."""
+async def test_gitlab_check_health_raises_on_http_error() -> None:
+    """Ensure a 401 raises with the status, so the reason can be logged."""
     host = _gitlab(lambda _req: httpx.Response(401, json={}))
-    assert await host.check_health() is False
+    with pytest.raises(GitLabError, match="401"):
+        await host.check_health()
 
 
 @pytest.mark.asyncio

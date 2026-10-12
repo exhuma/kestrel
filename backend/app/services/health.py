@@ -26,8 +26,25 @@ from app.storage.health_bus import HealthBus
 
 _log = logging.getLogger("kestrel.health")
 
-#: One entry's check: no arguments, never raises, ``True`` iff healthy.
+#: One entry's check: no arguments, ``True`` iff healthy. It may raise; any
+#: exception means unhealthy, and its reason is logged (never exposed).
 CheckFn = Callable[[], Awaitable[bool]]
+
+#: The most characters of a failure's message the log keeps (an error body
+#: can be a whole HTML page).
+_MAX_REASON = 500
+#: What a check that returned ``False`` without an exception is logged as.
+_NO_DETAIL = "reported unhealthy (no detail)"
+
+
+def _reason(exc: BaseException, timeout: float) -> str:
+    """A one-line, bounded description of why a check failed."""
+    if isinstance(exc, TimeoutError):
+        return f"timed out after {timeout:g} s"
+    text = " ".join(str(exc).split()) or "(no message)"
+    if len(text) > _MAX_REASON:
+        text = f"{text[:_MAX_REASON]}…"
+    return f"{type(exc).__name__}: {text}"
 
 
 class HealthState(str, Enum):
@@ -85,6 +102,10 @@ class HealthPollService:
         self.store = HealthStore(self._names)
         self.bus = HealthBus()
         self._locks = {name: asyncio.Lock() for name in self._names}
+        #: Each unhealthy entry's last logged reason, so a failure is
+        #: logged once per change rather than every cycle. Log-only: the
+        #: API never exposes it (feature 014).
+        self._reasons: dict[str, str] = {}
 
     @property
     def name(self) -> str:
@@ -122,10 +143,34 @@ class HealthPollService:
             timeout = get_settings().health_check_timeout_seconds
             try:
                 healthy = await asyncio.wait_for(check_fn(), timeout)
-            except Exception:  # noqa: BLE001 — a bad check must not raise
-                _log.exception("health check failed for %s", name)
+            except Exception as exc:
+                reason = _reason(exc, timeout)
+                _log.log(
+                    self._level_for(name, reason),
+                    "health: %s unreachable: %s", name, reason, exc_info=exc,
+                )
                 healthy = False
+            else:
+                self._log_outcome(name, healthy)
             self.store.set(name, healthy)
+
+    def _level_for(self, name: str, reason: str) -> int:
+        """WARNING when *name* became unhealthy or its reason changed;
+        DEBUG for the same failure again."""
+        changed = self._reasons.get(name) != reason
+        self._reasons[name] = reason
+        return logging.WARNING if changed else logging.DEBUG
+
+    def _log_outcome(self, name: str, healthy: bool) -> None:
+        """Log a check that returned without raising: a recovery, or a
+        failure that gave no reason."""
+        if not healthy:
+            _log.log(
+                self._level_for(name, _NO_DETAIL),
+                "health: %s unreachable: %s", name, _NO_DETAIL,
+            )
+        elif self._reasons.pop(name, None) is not None:
+            _log.info("health: %s reachable again", name)
 
     async def run_forever(self) -> None:
         """Run a cycle immediately, then every configured interval."""

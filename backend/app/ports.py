@@ -314,9 +314,9 @@ class TaskSource(Protocol):
 
         A single cheap, read-only, ticket-independent call (e.g. "who am
         I") — never a specific ``ref``, since this checks the adapter
-        itself, not any one ticket. MUST NOT raise: any failure (network,
-        auth, timeout, malformed response) is caught internally and
-        reported as ``False`` (contracts/health-check-port.md).
+        itself, not any one ticket. A failure (network, TLS, auth,
+        timeout) raises: the health service treats any exception as
+        unhealthy and logs why (contracts/health-check-port.md).
         """
         ...
 
@@ -423,8 +423,8 @@ class CodeHost(Protocol):
         """Best-effort reachability + auth probe (feature 014).
 
         A single cheap, read-only, repo-independent call (e.g. "who am
-        I"). MUST NOT raise: any failure (network, auth, timeout,
-        malformed response) is caught internally and reported as
-        ``False`` (contracts/health-check-port.md).
+        I"). A failure (network, TLS, auth, timeout) raises: the health
+        service treats any exception as unhealthy and logs why
+        (contracts/health-check-port.md).
         """
         ...

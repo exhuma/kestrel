@@ -115,14 +115,13 @@ class GitHubClient:
     async def check_health(self) -> bool:
         """Best-effort reachability + auth probe (feature 014).
 
-        A single cheap, repo-independent, authenticated call. Never
-        raises: any failure (network, auth, timeout, malformed response)
-        is caught and reported as ``False``.
+        A single cheap, repo-independent, authenticated call.
+
+        :raises httpx.HTTPError: When GitHub cannot be reached; the health
+            service logs why.
+        :raises GitHubError: When it answers with a failure (e.g. 401).
         """
-        try:
-            await self._request("GET", "/user")
-        except Exception:  # noqa: BLE001 — health checks never raise
-            return False
+        await self._request("GET", "/user")
         return True
 
     async def get_issue(self, repo: str, number: int) -> Issue:

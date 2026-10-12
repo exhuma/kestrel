@@ -165,14 +165,13 @@ class GitLabCodeHost:
         A single cheap, project-independent, authenticated call — same
         endpoint shape for a real GitLab instance and a Gitea instance
         (this adapter already assumes GitLab-API-compatible endpoints for
-        both, e.g. ``get_default_branch``). Never raises: any failure
-        (network, auth, timeout, malformed response) is caught and
-        reported as ``False``.
+        both, e.g. ``get_default_branch``).
+
+        :raises httpx.HTTPError: When the host cannot be reached; the
+            health service logs why.
+        :raises GitLabError: When it answers with a failure (e.g. 401).
         """
-        try:
-            await self._request("GET", "/user")
-        except Exception:  # noqa: BLE001 — health checks never raise
-            return False
+        await self._request("GET", "/user")
         return True
 
     def clone_remote(self, repo: str) -> str:

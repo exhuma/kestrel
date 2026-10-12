@@ -90,16 +90,14 @@ class JiraClient:
         return render_adf(body) if self._cloud else render_markdown(body)
 
     async def check_health(self) -> bool:
-        """Best-effort reachability + auth probe (feature 014).
+        """Reachability + auth probe (feature 014): one cheap,
+        issue-independent, authenticated call.
 
-        A single cheap, issue-independent, authenticated call. Never
-        raises: any failure (network, auth, timeout, malformed response)
-        is caught and reported as ``False``.
+        :raises httpx.HTTPError: When Jira cannot be reached (DNS, TLS,
+            proxy, timeout) — the health service logs why.
+        :raises JiraError: When Jira answers with a failure (e.g. 401).
         """
-        try:
-            await self._request("GET", "/myself")
-        except (httpx.HTTPError, JiraError):
-            return False
+        await self._request("GET", "/myself")
         return True
 
     @staticmethod
