@@ -48,6 +48,6 @@
     "headlessly", "importlinter", "issuecomment", "kubelet", "malbert",
     "noopener", "noreferrer", "prereqs", "pyaltiplano", "retryable",
     "softbreak", "unconvergeable", "UNDERSTING", "unestimated", "unposted",
-    "unpushed", "urandom", "urlopen", "urlsafe"
+    "unpushed", "urandom", "urlopen", "urlsafe", "CAINFO"
   ]
 }
