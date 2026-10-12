@@ -606,6 +606,23 @@ kubectl exec deployment/kestrel -c kestrel -- \
 
 See also [Troubleshooting](troubleshooting.md).
 
+**Jira or the code host shows as unreachable.** The kestrel container logs
+the reason when it happens:
+`kubectl logs <pod> -c kestrel | grep 'health:'`. Typical causes in a
+cluster:
+
+- `CERTIFICATE_VERIFY_FAILED`: the server uses an internal CA the image does
+  not trust. Mount a CA bundle that includes it and set `SSL_CERT_FILE` to
+  its path (kestrel's HTTP clients honour it). `git` clone and push do not
+  read that variable: also set `GIT_SSL_CAINFO` to the same bundle, or build
+  an image with the CA in the system trust store.
+- `ConnectError`, `ConnectTimeout` or `timed out after …`: egress is blocked,
+  or a proxy is required. kestrel honours `HTTPS_PROXY`, `HTTP_PROXY` and
+  `NO_PROXY`. Also check NetworkPolicies and DNS from inside the pod.
+- `-> 401` or `-> 403`: a wrong token, the wrong `email` for Jira Cloud
+  basic auth, or missing scopes (GitLab needs `api`, `read_repository`,
+  `write_repository`).
+
 **The pod crash-loops with `FATAL: … is not writable`.** The volume is not
 owned by uid:gid 1000. Check `fsGroup: 1000` is in the pod
 `securityContext` and that you did not use `subPath`. Some storage drivers
