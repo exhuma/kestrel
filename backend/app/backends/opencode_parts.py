@@ -3,20 +3,7 @@ errors. Pure; split out of ``opencode.py`` to keep it within the module
 size limit."""
 from __future__ import annotations
 
-import json
-
-from app.models import CanonicalEvent, EventKind
-
-
-def tool_summary(tool_input: object) -> str | None:
-    """Summarise a tool call's input (file_path/path/command first)."""
-    if not isinstance(tool_input, dict):
-        return None
-    for key in ("file_path", "path", "command", "filePath"):
-        value = tool_input.get(key)
-        if isinstance(value, str):
-            return value
-    return json.dumps(tool_input) if tool_input else None
+from app.models import CanonicalEvent, EventKind, tool_summary
 
 
 def assistant_error(response: object) -> str | None:

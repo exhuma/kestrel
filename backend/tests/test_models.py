@@ -4,8 +4,8 @@ from __future__ import annotations
 from app.models import CanonicalEvent, EventKind, map_claude_line
 
 
-def test_map_system_init_extracts_session_id_and_mcp() -> None:
-    """Ensure the init event maps to a system event with model/tools/mcp."""
+def test_map_system_init_extracts_session_id_and_subtype() -> None:
+    """Ensure the init event maps to a system event named by its subtype."""
     line = (
         '{"type":"system","subtype":"init","session_id":"abc-123",'
         '"model":"sonnet","tools":["Read"],'
@@ -16,9 +16,7 @@ def test_map_system_init_extracts_session_id_and_mcp() -> None:
     assert ev.kind is EventKind.SYSTEM
     assert ev.session_id == "abc-123"
     assert ev.subtype == "init"
-    assert ev.model == "sonnet"
-    assert ev.tools == ["Read"]
-    assert ev.mcp_servers == [{"name": "quartermaster", "status": "connected"}]
+    assert ev.summary == "init"
 
 
 def test_map_result_event_carries_text_and_duration() -> None:
@@ -81,7 +79,7 @@ def test_map_thinking_tokens() -> None:
     )
     assert ev is not None
     assert ev.kind is EventKind.THINKING
-    assert ev.tokens == 42
+    assert ev.summary == "42 tokens"
 
 
 def test_map_rate_limit_event() -> None:
@@ -91,7 +89,7 @@ def test_map_rate_limit_event() -> None:
     )
     assert ev is not None
     assert ev.kind is EventKind.RATE_LIMIT
-    assert ev.status == "throttled"
+    assert ev.summary == "throttled"
 
 
 def test_map_blank_or_garbage_returns_none() -> None:
@@ -103,9 +101,9 @@ def test_map_blank_or_garbage_returns_none() -> None:
 
 
 def test_map_unrecognised_type_is_preserved_as_unknown() -> None:
-    """Ensure an unhandled event is preserved as UNKNOWN, not dropped."""
+    """Ensure an unhandled event is kept as UNKNOWN, with its JSON."""
     ev = map_claude_line('{"type":123,"session_id":"s1"}')
     assert ev is not None
     assert ev.kind is EventKind.UNKNOWN
     assert ev.session_id == "s1"
-    assert ev.native == {"type": 123, "session_id": "s1"}
+    assert ev.text == '{"type": 123, "session_id": "s1"}'
