@@ -1,15 +1,15 @@
 # kestrel
 
-Single-operator tool that dispatches and monitors coding-agent sessions
-(Claude Code CLI or opencode) from a web UI. FastAPI backend
-+ Vue 3 / Vuetify frontend.
+Single-operator engine that takes tasks from a task source (Jira, GitHub,
+local folders) through a work board of specialist coding agents (Claude Code
+CLI or opencode). FastAPI backend + Vue 3 / Vuetify frontend.
 
 ## Governance & specs — read before changing code
 
 - **Constitution** — non-negotiable principles and binding constraints:
   `.specify/memory/constitution.md`
-- **Baseline spec** — current behavior, as built: `.specify/specs/000-baseline/`
-- **Architecture** — system context: `docs/architecture.md`
+- **Architecture** — system context and current behavior, as built:
+  `docs/architecture.md`
 
 The constitution overrides convenience; when it and this file disagree, it wins.
 
