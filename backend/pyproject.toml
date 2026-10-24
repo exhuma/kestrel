@@ -93,7 +93,6 @@ extend-immutable-calls = [
 # rename the unused argument instead (see AGENTS.md "Code-quality guardrails").
 # New files get no exemptions.
 [tool.ruff.lint.per-file-ignores]
-"app/config.py" = ["ARG003", "C901", "PLC0415"]
 "app/logging_config.py" = ["PLC0415"]
 "app/main.py" = ["ARG001", "PLC0415", "PLR0915"]
 "app/models.py" = ["C901", "PLR0911", "PLR0912"]

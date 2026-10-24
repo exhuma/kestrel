@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from app import config
 from app.config import Settings
 from app.config_models import BackendConfig, TaskSourceConfig
 
@@ -438,6 +437,6 @@ def test_every_documented_top_level_key_is_read_from_the_file() -> None:
         key for key, value in example.items()
         if not isinstance(value, (dict, list))
     }
-    readable = config._CONFIG_FILE_FIELDS | config._FILE_ONLY_FIELDS
+    readable = set(Settings.model_fields)
 
     assert scalars - readable == set()

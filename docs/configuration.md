@@ -4,8 +4,8 @@ Kestrel is configured through `KESTREL_*` environment variables (or a
 `backend/.env` file when running from source) and an optional `config.toml`
 file. **Secrets always stay in the environment**; the TOML file holds backend
 routing and applicative (non-secret) settings such as the watched-repo
-allow-list and the verify iteration cap. Where the file sets an applicative
-key it wins; the environment fills in the rest. See [Backends](backends.md)
+allow-list and the verify iteration cap. Where the file sets a key it wins;
+the environment fills in the rest. See [Backends](backends.md)
 for the backend side.
 
 ## Environment variables
@@ -70,23 +70,12 @@ GitHub repos and Jira instances kestrel pulls from — the former
 [Task sources](#task-sources) below). Those env keys have been removed and are
 ignored if left over.
 
-Only some settings may be set in `config.toml` (the file wins where it sets
-one; the environment fills in the rest). Any other key in the file is
-ignored. The file-overridable keys are: `poll_interval_seconds`,
-`max_verify_iterations`, `max_ci_repair_iterations`, `port`, `database_url`,
-`workspace_root`, `board_artifacts_root`, `comment_sentinel_enabled`,
-`feedback_marker`, `specialists_root`, `board_input_max_bytes`,
-`board_input_security_timeout_seconds`, `board_turn_timeout_seconds`,
-`board_claim_lease_seconds`, `board_workspace_lease_seconds`,
-`board_max_parallel_read_cards`, `board_recovery_interval_seconds`,
-`board_ci_poll_interval_seconds`, `board_comment_poll_interval_seconds`,
-`board_projection_retry_interval_seconds`,
-`board_cab1_interview_max_questions`, `board_unreadable_retry_cap`,
-`health_check_interval_seconds`, `health_check_timeout_seconds`, and
-`board_dev_actions_enabled`. Everything else (for example `KESTREL_HOST`,
-`KESTREL_PUBLIC_BASE_URL`, `KESTREL_LOG_*`, the redraft and refinement caps)
-is environment-only. Secrets have no TOML equivalent, except a backend's
-inline `password`/`api_key`.
+Every setting above can also be set in `config.toml`, under its field name
+(`poll_interval_seconds`, `board_prd_redraft_cap`, …): the file wins where it
+sets one, and the environment fills in the rest. A key in the file that is not
+a setting fails at startup. Secrets belong in the environment, not in the
+file, except a backend's inline `password`/`api_key`. The backend routing and
+the task sources are file-only.
 
 ## Task sources
 
@@ -144,9 +133,7 @@ the Phase 10 clean break and has no board-domain replacement yet; see
 An approved decomposition (CAB-2) does **not** create tickets in the task
 source. Its tasks become cards inside the request's own workflow, and the
 request's ticket gets one comment listing them (feature 031). There is
-nothing to configure for this. The former `child_task_closure_retention_days`
-setting has been removed; an existing `config.toml` that still sets it loads
-fine, because unknown keys are ignored.
+nothing to configure for this.
 
 `max_verify_iterations` (default 3) caps how many verification rounds one
 approved coding task gets. A verification that still finds problems at the cap
@@ -218,8 +205,9 @@ support `rate_limit_retries` (non-negative integer, default `3`) and
 `rate_limit_backoff_seconds` (positive number, default `2.0`) for HTTP 429
 retries. See [Concurrency and rate limits](backends.md#concurrency-and-rate-limits).
 
-Unknown or stale `KESTREL_*` keys are ignored rather than causing a startup
-failure, so a leftover key from a rename never crashes the service.
+Unknown or stale `KESTREL_*` environment variables are ignored, so a leftover
+one from a rename never crashes the service. An unknown key in `config.toml`
+does fail at startup, so a typo is caught instead of silently doing nothing.
 
 ## Config files
 
@@ -231,15 +219,15 @@ The recommended layout keeps the two kinds of settings apart:
   pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
   mount it and set the env var (see [Backends](backends.md)). Read once at
   startup — restart after editing.
-- **`backend/.env` — secrets and the not-yet-migrated env-only settings.** Read
+- **`backend/.env` — secrets and host-level settings.** Read
   only when running from source. Copy `backend/.env.example` and fill it in; it
   is gitignored, so never commit it. The example leads with `config.toml` and
   comments out the settings that now belong there — put your tokens
   (`KESTREL_GITHUB_TOKEN`, `KESTREL_WEBHOOK_SECRET`, `KESTREL_JIRA_API_TOKEN`,
   `KESTREL_CODE_HOST_TOKEN`) here and prefer the TOML file for everything else.
 
-Any applicative key set in both places is taken from `config.toml`; the
-environment only fills in what the file omits.
+A key set in both places is taken from `config.toml`; the environment only
+fills in what the file omits.
 
 When kestrel is started as `python -m app`, `backend/.env` is loaded into the
 process environment at startup. This matters for the **named token env vars** a

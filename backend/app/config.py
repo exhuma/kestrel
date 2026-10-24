@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import logging
-import tomllib
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -14,11 +12,12 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from app.config_file import config_file_source
 from app.config_models import BackendConfig, TaskSourceConfig
 
 _log = logging.getLogger("kestrel.config")
 
-# Backend config is file-only: these keys are resolved from the TOML file
+# These keys are file-only: they are resolved from the TOML file
 # named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
@@ -28,41 +27,6 @@ _FILE_ONLY_FIELDS = frozenset(
         "task_sources",
     }
 )
-
-# Applicative (non-secret) settings the TOML config file may override. Unlike
-# the file-only backend keys, these remain readable from the environment too
-# (back-compat); the file simply wins when it sets them. Secrets
-# (tokens/passwords) are deliberately excluded — those stay in the env.
-_CONFIG_FILE_FIELDS = frozenset(
-    {
-        "poll_interval_seconds",
-        "max_verify_iterations",
-        "max_ci_repair_iterations",
-        "port",
-        "database_url",
-        "workspace_root",
-        "board_artifacts_root",
-        "comment_sentinel_enabled",
-        "feedback_marker",
-        "specialists_root",
-        "board_input_max_bytes",
-        "board_input_security_timeout_seconds",
-        "board_turn_timeout_seconds",
-        "board_claim_lease_seconds",
-        "board_workspace_lease_seconds",
-        "board_max_parallel_read_cards",
-        "board_recovery_interval_seconds",
-        "board_ci_poll_interval_seconds",
-        "board_comment_poll_interval_seconds",
-        "board_projection_retry_interval_seconds",
-        "board_cab1_interview_max_questions",
-        "board_unreadable_retry_cap",
-        "health_check_interval_seconds",
-        "health_check_timeout_seconds",
-        "board_dev_actions_enabled",
-    }
-)
-
 
 class Settings(BaseSettings):
     """Runtime configuration for the kestrel backend."""
@@ -84,13 +48,15 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Drop the file-only backend keys from the environment sources.
+        """Order the sources: init, config file, environment, defaults.
 
-        Backends are configured exclusively via ``KESTREL_CONFIG_FILE``
-        (or direct construction). Filtering these keys out of the env and
+        The file named by ``KESTREL_CONFIG_FILE`` (or the ``config_file``
+        argument) can set any field and wins over the environment and
+        ``.env``; whatever it omits keeps its env/default value. The
+        backend keys are file-only: filtering them out of the env and
         dotenv sources makes any stray ``KESTREL_BACKENDS`` /
-        ``KESTREL_STEP_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND``
-        inert, while init kwargs and the file overlay still apply.
+        ``KESTREL_DEFAULT_SESSION_BACKEND`` inert. A missing or malformed
+        file, or an unknown key in it, fails at startup.
         """
 
         def _drop_file_only(
@@ -105,8 +71,12 @@ class Settings(BaseSettings):
 
             return _call  # type: ignore[return-value]
 
+        file_source = config_file_source(
+            settings_cls, init_settings, env_settings, dotenv_settings
+        )
         return (
             init_settings,
+            *((file_source,) if file_source else ()),
             _drop_file_only(env_settings),
             _drop_file_only(dotenv_settings),
             file_secret_settings,
@@ -150,10 +120,9 @@ class Settings(BaseSettings):
     #: ``service.name`` reported on exported spans
     #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
     otel_service_name: str = "kestrel"
-    #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Holds the
-    #: backend config (``backends`` / ``default_session_backend``) and
-    #: applicative overrides (see
-    #: ``_CONFIG_FILE_FIELDS``: ``watched_repos``, ``trigger_label``, …).
+    #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Its
+    #: top-level keys are any of these fields, including the file-only
+    #: ``backends`` / ``default_session_backend`` / ``task_sources``.
     #: Secrets stay in the environment. Mount it as a volume in Docker;
     #: relative paths resolve against the working directory.
     config_file: str = ""
@@ -327,50 +296,6 @@ class Settings(BaseSettings):
         if source == "jira-issue" and self.jira_sources():
             return self.jira_sources()[0].required_ci_statuses
         return []
-
-    @model_validator(mode="after")
-    def _apply_config_file(self) -> Settings:
-        """Overlay config from the TOML file when one is set.
-
-        The file owns the backend keys (``backends`` /
-        ``default_session_backend``) and may override the applicative keys
-        in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
-        omits keeps its env/default value, so the file wins only where it
-        speaks. A missing or malformed file fails
-        fast at startup. Defined before the completeness-warning validators
-        (after-validators run in definition order) so they see the file's
-        final values.
-        """
-        path_str = self.config_file
-        if not path_str:
-            _log.info(
-                "no config file configured (KESTREL_CONFIG_FILE unset) — "
-                "using built-in defaults"
-            )
-            return self
-        path = Path(path_str)
-        if not path.is_file():
-            raise ValueError(f"config_file not found: {path}")
-        _log.info("loading config file: %s", path.resolve())
-        try:
-            data = tomllib.loads(path.read_text())
-        except tomllib.TOMLDecodeError as exc:
-            raise ValueError(f"invalid TOML in {path}: {exc}") from exc
-        if "backends" in data:
-            self.backends = [
-                BackendConfig(**entry) for entry in data["backends"]
-            ]
-        if "default_session_backend" in data:
-            self.default_session_backend = data["default_session_backend"]
-        if "task_sources" in data:
-            self.task_sources = [
-                TaskSourceConfig(**entry) for entry in data["task_sources"]
-            ]
-        # Applicative overrides: file wins, but only for keys it sets.
-        for key in _CONFIG_FILE_FIELDS:
-            if key in data:
-                setattr(self, key, data[key])
-        return self
 
     @model_validator(mode="after")
     def _warn_incomplete_ingestion_config(self) -> Settings:

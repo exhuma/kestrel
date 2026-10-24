@@ -1,7 +1,8 @@
 # kestrel configuration.
 #
 # Point kestrel at this file with KESTREL_CONFIG_FILE (see README). Copy to
-# `config.toml` and edit. It holds two kinds of settings:
+# `config.toml` and edit. Every top-level key is a setting of the same name
+# (an unknown key fails at startup). It holds two kinds of settings:
 #
 #   1. Applicative (non-secret) config — watched repos, cadences, board
 #      lease/recovery timings. These may also be given as KESTREL_* env
@@ -100,6 +101,20 @@ board_artifacts_root = "./.kestrel-board-artifacts"
 # interview light, unlike the deeper post-approval refinement interviews
 # it precedes.
 board_cab1_interview_max_questions = 3
+# Max refinement-interview rounds per persona per workflow. 1 means one round
+# per persona; above 1, a persona whose answers leave genuine ambiguity gets
+# a further round, up to this cap, before PRD drafting starts.
+board_refinement_round_cap = 1
+# Max PRD redrafts per workflow after a PRD-gate rejection. 1 allows exactly
+# one redraft per rejection; a further rejection past the cap escalates to
+# the operator instead of redrafting again.
+board_prd_redraft_cap = 1
+# Max redrafts of the restated understanding after the operator rejects it;
+# a further rejection opens a coordinator review. 0 never redrafts.
+board_understanding_redraft_cap = 2
+# How many times a card whose result cannot be read is retried on its own
+# before it escalates to the coordinator. 0 escalates at once.
+board_unreadable_retry_cap = 1
 # Enable the temporary /api/board/workflows/{id}/dev/{cleanup,rerun}
 # routes, for repeating a local-task-source dry run without restarting
 # kestrel. Off by default; restricted to private-visibility workflows
