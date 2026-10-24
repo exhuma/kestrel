@@ -110,9 +110,6 @@ and compose healthchecks call `/readyz` so an instance whose database is
 unreachable is gated out rather than served; see [Configuration → Health and
 version](configuration.md#health-and-version).
 
-`GET /api/backends` reports the configured backends and the ad-hoc-session
-default — useful to confirm a mounted `config.toml` took effect.
-
 ### Task-source and code-host health
 
 The status icon in the top bar shows each configured source (Jira, GitHub,

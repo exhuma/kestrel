@@ -43,13 +43,14 @@ take a minute. The database password defaults to `kestrel`; set
 `KESTREL_DB_PASSWORD` in the environment (or an `.env` file next to
 `docker-compose.yml`) to choose another one before the first start.
 
-## Dispatch your first session
+## Bring in your first task
 
-1. Open the **Sessions** panel in the UI.
-2. Enter a prompt and start a session. Kestrel spawns a `claude` session in a
-   fresh per-run workspace under `./workspaces` on the host.
-3. Watch events stream live (server-sent events). The workspace is a real git
-   directory you can inspect on the host while the session runs.
+Kestrel works on tasks it ingests: add a `[[task_sources]]` entry to
+`config.toml` (GitHub, Jira or a local task folder; see
+[Configuration](configuration.md)). A new task appears on the board in the
+UI. Specialist agents then work it in a per-run workspace under
+`./workspaces` on the host — a real git directory you can inspect while the
+agent works.
 
 To confirm the service is healthy at any time:
 

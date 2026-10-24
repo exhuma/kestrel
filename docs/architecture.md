@@ -9,15 +9,15 @@ and replaced by the event-driven **work board** described below. Design
 history and the backlog live in the
 [GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
 
-Kestrel is a **single-operator** tool that dispatches and monitors coding-agent
-sessions from a web UI. One process serves both the API and (when packaged)
+Kestrel is a **single-operator** tool that ingests tasks and has coding-agent
+specialists work them, monitored from a web UI. One process serves both the API and (when packaged)
 the built SPA.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
-| **FastAPI backend** (`backend/app`) | HTTP API, session/board orchestration, SSE streaming |
+| **FastAPI backend** (`backend/app`) | HTTP API, board orchestration, SSE streaming |
 | **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode` |
 | **Persistence** (`backend/app/persistence`) | PostgreSQL via SQLAlchemy and psycopg, schema managed by Alembic |
 | **SPA** (`frontend/`) | Vue 3 + Vuetify UI; in the image it is served same-origin by the backend |
@@ -25,17 +25,20 @@ the built SPA.
 ## Key boundaries
 
 - **The `Backend` protocol** (`backends/base.py`) is the seam everything above
-  the adapters talks to. It exposes `start` / `resume` / `run_turn` /
-  `terminate` and a `Capability` set (`TEXT`, `FILE_EDITS`, `TOOL_USE`). A
+  the adapters talks to. It exposes `run_turn` and a
+  `Capability` set (`TEXT`, `FILE_EDITS`, `TOOL_USE`). A
   board specialist is served only by a backend whose capabilities are a
   superset of its `required_abilities`, so a text-only backend can serve a
   text-only role but not `coder`. Adapters never leak a tool's flags or
   output format upward.
 - **A canonical event vocabulary** (`models.py`) normalizes each backend's
-  native stream (claude's `stream-json`, opencode's SSE, an LLM's tokens)
-  onto one timeline the UI consumes.
-- **Server-sent events** carry that timeline to the browser live; the backend
-  adds heartbeat/anti-buffering headers so the UI updates in real time.
+  native stream (claude's `stream-json`, opencode's messages) onto one
+  shape. Agent output is not stored: it goes to the server log under the
+  `kestrel.agent` logger, tagged with the session id (see
+  [Observability](observability.md#agent-output)).
+- **Server-sent events** carry the board's state to the browser live; the
+  backend adds heartbeat/anti-buffering headers so the UI updates in real
+  time.
 - **Per-run git workspaces** under `KESTREL_WORKSPACE_ROOT` isolate each
   session's file edits and stay browsable on the host.
 
@@ -146,8 +149,6 @@ board (`StageBoardView.vue`, the default; one column per stage, one
 phase spine, narrative feed, artifacts, and the action banner that carries
 gate decisions) and its interview view (`InterviewView.vue`). Unknown
 addresses land on `NotFoundView.vue`. `useBoard.ts` wraps the API above.
-The raw-sessions view remains reachable at `/sessions` as a secondary
-debug view.
 
 ### Specialist dispatch, delivery, and write-back (spec 026)
 

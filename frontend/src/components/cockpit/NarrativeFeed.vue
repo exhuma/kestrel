@@ -4,8 +4,7 @@
 // answerable, every answer-shaped interaction leaves for the interview
 // view (FR-017).
 //
-// Reuses SessionPanel's feed idiom rather than inventing a second one:
-// a compact `v-timeline`, a tone-coloured dot per row, and auto-scroll on
+// A compact `v-timeline`, a tone-coloured dot per row, and auto-scroll on
 // new events.
 import { computed, ref, watch, nextTick } from 'vue'
 import { toFeedEntries, type FeedTone } from '../../lib/personas'

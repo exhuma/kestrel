@@ -172,7 +172,7 @@ data:
     # A reply must contain this word for kestrel to act on it.
     feedback_marker = "@kestrel"
 
-    # Ad-hoc sessions and every specialist with model_policy = "default".
+    # Every specialist with model_policy = "default".
     # Set this before the first [[backends]] table.
     default_session_backend = "oc"
 
@@ -527,8 +527,7 @@ Things to look for in the kestrel log:
 - `loading config file: /config/config.toml`. If it is missing, the
   ConfigMap is not mounted or `KESTREL_CONFIG_FILE` is wrong, and the pod
   exits with `config_file not found`.
-- The effective backends line (`backends: … | ad-hoc sessions dispatch to:
-  …`) naming `oc`.
+- The effective backends line (`backends: … | default backend: …`) naming `oc`.
 - No warning like `jira task source … has no token`.
 - `FATAL: … is not writable by uid 1000:1000` means the volume ownership is
   wrong; see Troubleshooting.

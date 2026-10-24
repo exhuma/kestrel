@@ -21,11 +21,6 @@ describe('router', () => {
     expect(resolved.path).toBe('/requests/wf-1/interview')
   })
 
-  it('resolves sessions at /sessions', () => {
-    const resolved = router.resolve({ name: 'sessions' })
-    expect(resolved.path).toBe('/sessions')
-  })
-
   it('resolves an unmatched path to the not-found catch-all', () => {
     const resolved = router.resolve('/nothing/here')
     expect(resolved.name).toBe('not-found')
@@ -36,7 +31,6 @@ describe('router', () => {
       { name: 'board' },
       { name: 'cockpit', params: { id: 'wf-1' } },
       { name: 'interview', params: { id: 'wf-1' } },
-      { name: 'sessions' },
     ] as const) {
       await router.push(target)
       expect(router.currentRoute.value.name).toBe(target.name)
@@ -95,7 +89,7 @@ describe('router lazy loading', () => {
     expect(typeof component(r, 'board')).toBe('object')
   })
 
-  it.each(['cockpit', 'interview', 'sessions'])(
+  it.each(['cockpit', 'interview'])(
     'loads %s only once it is visited',
     async (name) => {
       const r = createAppRouter(createMemoryHistory())

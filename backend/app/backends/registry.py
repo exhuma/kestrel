@@ -8,7 +8,6 @@ from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.limiter import BackendLimiter
 from app.backends.opencode import OpenCodeBackend
 from app.config import BackendConfig, Settings, get_settings
-from app.storage.registry import SessionRegistry, get_registry
 
 
 class UnknownBackendError(KeyError):
@@ -18,11 +17,8 @@ class UnknownBackendError(KeyError):
 class BackendRegistry:
     """Owns one :class:`Backend` instance per configured backend."""
 
-    def __init__(
-        self, settings: Settings, session_registry: SessionRegistry
-    ) -> None:
+    def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._session_registry = session_registry
         self._backends: dict[str, Backend] = {
             cfg.id: self._build(cfg) for cfg in settings.backends
         }
@@ -34,15 +30,10 @@ class BackendRegistry:
         limiter = BackendLimiter(cfg.max_concurrency)
         if cfg.type == "claude_cli":
             backend = ClaudeCliBackend(
-                self._settings,
-                self._session_registry,
-                backend_id=cfg.id,
-                limiter=limiter,
+                self._settings, backend_id=cfg.id, limiter=limiter
             )
         elif cfg.type == "opencode":
-            backend = OpenCodeBackend(
-                self._settings, self._session_registry, cfg, limiter=limiter
-            )
+            backend = OpenCodeBackend(self._settings, cfg, limiter=limiter)
         else:
             raise NotImplementedError(
                 f"backend type {cfg.type!r} is not implemented yet"
@@ -68,7 +59,7 @@ class BackendRegistry:
             ) from None
 
     def default_session_backend(self) -> Backend:
-        """Return the backend used for ad-hoc ``/api/sessions`` dispatch.
+        """Return the backend a ``"default"`` model policy resolves to.
 
         :raises UnknownBackendError: If ``default_session_backend`` names
             no configured backend — commonly a TOML ordering mistake: a
@@ -100,4 +91,4 @@ class BackendRegistry:
 @lru_cache
 def get_backend_registry() -> BackendRegistry:
     """Return the process-wide BackendRegistry singleton."""
-    return BackendRegistry(get_settings(), get_registry())
+    return BackendRegistry(get_settings())

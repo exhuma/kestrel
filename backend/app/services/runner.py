@@ -1,19 +1,20 @@
-"""Service that spawns and resumes claude CLI sessions."""
+"""Service that runs one claude CLI turn to completion."""
 from __future__ import annotations
 
 import asyncio
-import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
-from fastapi import Depends
-
-from app.backends.base import PERMISSION_EDIT, PERMISSION_READ_ONLY
+from app.backends.base import (
+    PERMISSION_EDIT,
+    PERMISSION_READ_ONLY,
+    BackendTurnError,
+    TurnRequest,
+)
 from app.backends.limiter import BackendLimiter
-from app.config import Settings, get_settings
-from app.models import map_claude_line
-from app.services.exceptions import SessionNotFoundError, SessionStartError
-from app.storage.registry import SessionRegistry, get_registry
+from app.config import Settings
+from app.models import CanonicalEvent, EventKind, map_claude_line
 
 # Claude Code's own names for the backend-neutral permission modes; any other
 # value (e.g. a configured ``bypassPermissions``) is passed through as is.
@@ -22,44 +23,6 @@ _CLAUDE_PERMISSION_MODES = {
     PERMISSION_EDIT: "acceptEdits",
 }
 
-# Strong references to in-flight streaming tasks. A SessionRunner is
-# created per request, so the task cannot live on the instance; the
-# event loop keeps only weak references, so we hold them here for the
-# process lifetime and drop each when it finishes.
-_TASKS: set[asyncio.Task[None]] = set()
-
-# Live claude subprocesses keyed by session id, so an abandon can kill
-# the in-flight process. Registered the moment a session id is known and
-# dropped when the process ends. Module-global because a SessionRunner is
-# created per request while the process outlives any one instance.
-_PROCS: dict[str, asyncio.subprocess.Process] = {}
-
-
-def _track_proc(session_id: str, proc: asyncio.subprocess.Process) -> None:
-    """Record a live subprocess under its session id."""
-    _PROCS[session_id] = proc
-
-
-def _drop_proc(proc: asyncio.subprocess.Process) -> None:
-    """Forget a subprocess once it has ended (by identity)."""
-    for sid in [s for s, p in _PROCS.items() if p is proc]:
-        _PROCS.pop(sid, None)
-
-
-def terminate_session(session_id: str) -> bool:
-    """
-    Kill the live subprocess for a session, if one is running.
-
-    :param session_id: Session whose subprocess to kill.
-    :returns: True if a running process was killed, else False.
-    """
-    proc = _PROCS.get(session_id)
-    if proc is None:
-        return False
-    if proc.returncode is None:
-        proc.kill()
-    return True
-
 # asyncio.create_subprocess_exec's default per-line StreamReader limit
 # is 64 KiB (65536 bytes); a single stream-json event (e.g. a
 # tool_result embedding a large file or diff) can legitimately exceed
@@ -67,6 +30,16 @@ def terminate_session(session_id: str) -> bool:
 # "ValueError: Separator is found, but chunk is longer than limit".
 # 10 MiB comfortably covers real event sizes seen in practice.
 _STREAM_LIMIT = 10 * 1024 * 1024
+
+
+@dataclass
+class ClaudeTurn:
+    """What one claude CLI run produced."""
+
+    #: The session id the stream reported, or None if it never did.
+    session_id: str | None
+    #: The stream's terminal ``result`` event, or None if it never sent one.
+    result: CanonicalEvent | None
 
 
 async def _stdout_lines(
@@ -85,17 +58,13 @@ async def _drain(stream: AsyncIterator[object]) -> None:
 
 
 class SessionRunner:
-    """Spawns claude subprocesses and streams events to the registry."""
+    """Spawns claude subprocesses and reads their stream-json output."""
 
     def __init__(
-        self,
-        settings: Settings,
-        registry: SessionRegistry,
-        limiter: BackendLimiter | None = None,
+        self, settings: Settings, limiter: BackendLimiter | None = None
     ) -> None:
         """Create a CLI runner, optionally sharing a backend turn limiter."""
         self.settings = settings
-        self.registry = registry
         self._limiter = limiter
 
     def build_argv(
@@ -134,258 +103,79 @@ class SessionRunner:
         return argv
 
     async def consume(
-        self,
-        lines: AsyncIterator[str],
-        cwd: str,
-        record_id: str | None = None,
-        on_session_id: Callable[[str], None] | None = None,
-    ) -> str | None:
+        self, lines: AsyncIterator[str], req: TurnRequest
+    ) -> ClaudeTurn:
         """
-        Consume a line stream, updating the registry.
+        Consume a line stream down to the turn's session id and result.
 
-        Events are appended as they arrive, so subscribers see them
-        live. ``on_session_id`` fires once, the moment the session id
-        is first known (immediately for a resume, or on the first event
+        ``req.on_session_id`` fires once, the moment the session id is
+        first known (immediately for a resume, or on the first event
         carrying an id for a fresh start).
 
         :param lines: Async iterator of raw JSONL lines.
-        :param cwd: Working directory the session runs in.
-        :param record_id: Existing record id (resume), or None to
-            create a record when the first session id appears.
-        :param on_session_id: Optional callback invoked with the id the
-            first time it becomes known.
-        :returns: The resolved session id, or None if never seen.
+        :param req: The turn being run.
+        :returns: The session id (None if never seen) and the terminal
+            ``result`` event (None if the stream sent none).
         """
-        session_id = record_id
-        if session_id is not None and on_session_id is not None:
-            on_session_id(session_id)
+        session_id = req.resume_id
+        if session_id is not None and req.on_session_id is not None:
+            req.on_session_id(session_id)
+        result: CanonicalEvent | None = None
         async for line in lines:
             event = map_claude_line(line)
             if event is None:
                 continue
             if session_id is None and event.session_id is not None:
                 session_id = event.session_id
-                self.registry.create(session_id, cwd)
-                if on_session_id is not None:
-                    on_session_id(session_id)
-            if session_id is not None:
-                self.registry.append_event(session_id, event)
-        return session_id
-
-    async def _launch(
-        self, argv: list[str], cwd: str, record_id: str | None
-    ) -> str:
-        """
-        Spawn the subprocess and stream it in the background.
-
-        Returns as soon as the session id is known; consuming the rest
-        of stdout continues in a detached task so events keep flowing to
-        subscribers after the caller's request has returned.
-        """
-        if self._limiter is not None:
-            await self._limiter.acquire()
-        try:
-            return await self._launch_admitted(argv, cwd, record_id)
-        except BaseException:
-            if self._limiter is not None:
-                self._limiter.release()
-            raise
-
-    async def _launch_admitted(
-        self, argv: list[str], cwd: str, record_id: str | None
-    ) -> str:
-        """Launch an already admitted detached CLI turn."""
-        Path(cwd).mkdir(parents=True, exist_ok=True)
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=_STREAM_LIMIT,
-        )
-        loop = asyncio.get_running_loop()
-        sid_future: asyncio.Future[str] = loop.create_future()
-
-        def _resolve(sid: str) -> None:
-            _track_proc(sid, proc)
-            if not sid_future.done():
-                sid_future.set_result(sid)
-
-        async def _stdout() -> AsyncIterator[str]:
-            assert proc.stdout is not None
-            async for raw in proc.stdout:
-                yield raw.decode("utf-8", "replace")
-
-        async def _drain_stderr() -> None:
-            assert proc.stderr is not None
-            async for _ in proc.stderr:
-                pass
-
-        async def _run() -> None:
-            stderr_task = asyncio.create_task(_drain_stderr())
-            try:
-                sid = await self.consume(
-                    _stdout(), cwd, record_id, on_session_id=_resolve
-                )
-                await proc.wait()
-                await stderr_task
-                if sid is None and not sid_future.done():
-                    sid_future.set_exception(
-                        SessionStartError("claude produced no session id")
-                    )
-            except Exception as exc:  # surface to the awaiting caller
-                if not sid_future.done():
-                    sid_future.set_exception(exc)
-            finally:
-                if proc.returncode is None:
-                    proc.kill()
-                stderr_task.cancel()
-                _drop_proc(proc)
-                if not sid_future.done():
-                    sid_future.set_exception(
-                        SessionStartError("session ended without a session id")
-                    )
-                if self._limiter is not None:
-                    self._limiter.release()
-
-        task = asyncio.create_task(_run())
-        _TASKS.add(task)
-        task.add_done_callback(_TASKS.discard)
-        return await sid_future
+                if req.on_session_id is not None:
+                    req.on_session_id(session_id)
+            if event.kind == EventKind.RESULT:
+                result = event
+        return ClaudeTurn(session_id, result)
 
     async def run_blocking(
         self,
-        prompt: str,
-        cwd: str,
-        permission_mode: str,
-        resume_id: str | None = None,
-        on_session_id: Callable[[str], None] | None = None,
-        model: str | None = None,
+        req: TurnRequest,
         on_queue_change: Callable[[bool], None] | None = None,
-    ) -> str:
+    ) -> ClaudeTurn:
         """
-        Run a claude step to completion, streaming events live.
+        Run a claude turn to completion.
 
-        Unlike start/resume (which return early and stream in the
-        background), this awaits the subprocess so the caller can read
-        the finished session's deliverable. Events still reach
-        subscribers live as they arrive.
-
-        :param prompt: The prompt text to pass to claude.
-        :param cwd: Working directory to run the subprocess in.
-        :param permission_mode: Permission mode to pass to claude.
-        :param resume_id: Session id to resume, or None to start a new
-            session.
-        :param on_session_id: Optional callback invoked with the id the
-            first time it becomes known.
-        :param model: Model alias for ``--model``, or None to use the
-            CLI's default.
-        :returns: The resolved session id.
-        :raises SessionStartError: If no session id is produced.
+        :param req: The turn to run (prompt, cwd, permission mode, model,
+            optional session to resume).
+        :param on_queue_change: Told when the turn starts or stops
+            waiting for a backend slot.
+        :returns: The turn's session id and terminal result.
+        :raises BackendTurnError: If the stream reports no session id.
         """
-        Path(cwd).mkdir(parents=True, exist_ok=True)
+        Path(req.cwd).mkdir(parents=True, exist_ok=True)
         if self._limiter is None:
-            return await self._run_blocking(prompt, cwd, permission_mode,
-                                            resume_id, on_session_id, model)
+            return await self._run_blocking(req)
         async with self._limiter.slot(on_queue_change):
-            return await self._run_blocking(prompt, cwd, permission_mode,
-                                            resume_id, on_session_id, model)
+            return await self._run_blocking(req)
 
-    async def _run_blocking(
-        self,
-        prompt: str,
-        cwd: str,
-        permission_mode: str,
-        resume_id: str | None,
-        on_session_id: Callable[[str], None] | None,
-        model: str | None,
-    ) -> str:
+    async def _run_blocking(self, req: TurnRequest) -> ClaudeTurn:
         """Execute an already admitted CLI subprocess until it completes."""
-        argv = self.build_argv(prompt, resume_id, permission_mode, model)
+        argv = self.build_argv(
+            req.prompt, req.resume_id, req.permission_mode, req.model
+        )
         proc = await asyncio.create_subprocess_exec(
             *argv,
-            cwd=cwd,
+            cwd=req.cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=_STREAM_LIMIT,
         )
-
-        def _track(sid: str) -> None:
-            _track_proc(sid, proc)
-            if on_session_id is not None:
-                on_session_id(sid)
-
         assert proc.stderr is not None
         stderr_task = asyncio.create_task(_drain(proc.stderr))
         try:
-            sid = await self.consume(
-                _stdout_lines(proc), cwd, resume_id, _track
-            )
+            turn = await self.consume(_stdout_lines(proc), req)
             await proc.wait()
             await stderr_task
         finally:
             if proc.returncode is None:
                 proc.kill()
             stderr_task.cancel()
-            _drop_proc(proc)
-        if sid is None:
-            raise SessionStartError("claude produced no session id")
-        return sid
-
-    async def start(self, prompt: str) -> str:
-        """
-        Start a new session and return its session id.
-
-        Returns once the id is known; the run streams on in the
-        background.
-
-        :param prompt: The prompt text to start the session with.
-        :returns: The resolved session id.
-        """
-        cwd = str(
-            Path(self.settings.workspace_root)
-            / ("session-" + uuid.uuid4().hex[:8])
-        )
-        argv = self.build_argv(prompt)
-        return await self._launch(argv, cwd, record_id=None)
-
-    async def resume(self, session_id: str, prompt: str) -> str:
-        """
-        Resume an existing session with new input.
-
-        Returns immediately (the id is already known); the run streams
-        on in the background.
-
-        :param session_id: Id of the session to resume.
-        :param prompt: The prompt text to resume the session with.
-        :returns: The resolved session id.
-        :raises SessionNotFoundError: If the session is unknown.
-        """
-        record = self.registry.get(session_id)
-        if record is None:
-            raise SessionNotFoundError(session_id)
-        argv = self.build_argv(prompt, resume_id=session_id)
-        return await self._launch(argv, record.cwd, record_id=session_id)
-
-    def terminate(self, session_id: str) -> bool:
-        """
-        Kill the live subprocess for a session, if one is running.
-
-        :param session_id: Session whose subprocess to kill.
-        :returns: True if a running process was killed, else False.
-        """
-        return terminate_session(session_id)
-
-
-def get_runner(
-    settings: Settings = Depends(get_settings),
-    registry: SessionRegistry = Depends(get_registry),
-) -> SessionRunner:
-    """
-    Provide a SessionRunner as a FastAPI dependency.
-
-    :param settings: Application settings, injected.
-    :param registry: Session registry, injected.
-    :returns: A SessionRunner instance.
-    """
-    return SessionRunner(settings, registry)
+        if turn.session_id is None:
+            raise BackendTurnError("claude produced no session id")
+        return turn

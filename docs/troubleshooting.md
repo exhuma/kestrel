@@ -92,8 +92,8 @@ from-source run reports `0.0.0-dev`.
 docker compose restart kestrel
 ```
 
-Confirm the effective config with `GET /api/backends` or the startup log line
-(`backends: … | ad-hoc sessions dispatch to: …`).
+Confirm the effective config with the startup log line
+(`backends: … | default backend: …`).
 
 ## Mount permission errors on `./workspaces`
 

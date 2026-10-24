@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, MetaData, Text
+from sqlalchemy import DateTime, ForeignKey, MetaData
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -38,28 +38,6 @@ def deferred_fk(target: str) -> ForeignKey:
     dangling reference, at commit.
     """
     return ForeignKey(target, deferrable=True, initially="DEFERRED")
-
-
-class SessionRow(Base):
-    """One dispatched claude session."""
-
-    __tablename__ = "session"
-
-    session_id: Mapped[str] = mapped_column(primary_key=True)
-    cwd: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-
-class EventRow(Base):
-    """One parsed stream-json event belonging to a session."""
-
-    __tablename__ = "event"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(deferred_fk("session.session_id"))
-    type: Mapped[str] = mapped_column()
-    raw: Mapped[str] = mapped_column(Text)
 
 
 class WebhookDeliveryRow(Base):

@@ -185,8 +185,8 @@ trigger_label = "kestrel"
 # code_host = "local"
 
 # --- backend routing --------------------------------------------------------
-# Backend used for ad-hoc /api/sessions dispatch, and the "default" a
-# specialist's model_policy resolves to (see the header note above).
+# The backend a specialist's "default" model_policy resolves to (see the
+# header note above).
 # Must be set before any [[backends]] table below — TOML parses a bare
 # key after an array-of-tables header as part of that table, not a
 # top-level setting.
@@ -199,8 +199,7 @@ default_session_backend = "claude"
 [[backends]]
 id = "claude"
 type = "claude_cli"
-# Process-wide cap for this backend id, shared by all workflows and ad-hoc
-# sessions. The default is 1; raise it only when the provider quota allows it.
+# Process-wide cap for this backend id, shared by all workflows. The default is 1; raise it only when the provider quota allows it.
 # max_concurrency = 1
 
 # opencode via `opencode serve`. `model` is "provider/model". For a secured
@@ -215,7 +214,7 @@ model = "anthropic/claude-sonnet-4"
 # username = "opencode"
 # password = "changeme"
 # api_key_env = "OPENCODE_SERVER_PASSWORD"   # alternative to `password`
-# max_concurrency = 1          # shared by all workflows/sessions using "oc"
+# max_concurrency = 1          # shared by all workflows using "oc"
 # rate_limit_retries = 3       # retry HTTP 429 this many times
 # rate_limit_backoff_seconds = 2.0  # exponential base when no Retry-After
 # Tools (feature 036). Every opencode tool is available by default —

@@ -49,7 +49,7 @@ async def test_cors_preflight_allows_loopback_origins(origin: str) -> None:
         transport=transport, base_url="http://test"
     ) as client:
         resp = await client.options(
-            "/api/sessions",
+            "/api/board/workflows",
             headers={
                 "Origin": origin,
                 "Access-Control-Request-Method": "POST",

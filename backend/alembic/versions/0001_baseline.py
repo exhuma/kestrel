@@ -69,14 +69,6 @@ def upgrade() -> None:
         unique=True,
     )
     op.create_table(
-        "session",
-        sa.Column("session_id", sa.String(), nullable=False),
-        sa.Column("cwd", sa.Text(), nullable=False),
-        sa.Column("status", sa.String(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.PrimaryKeyConstraint("session_id", name="pk_session"),
-    )
-    op.create_table(
         "webhook_delivery",
         sa.Column("delivery_id", sa.String(), nullable=False),
         sa.Column("event", sa.String(), nullable=False),
@@ -209,21 +201,6 @@ def upgrade() -> None:
         "board_inbound_comment",
         ["workflow_id"],
         unique=False,
-    )
-    op.create_table(
-        "event",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("session_id", sa.String(), nullable=False),
-        sa.Column("type", sa.String(), nullable=False),
-        sa.Column("raw", sa.Text(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["session_id"],
-            ["session.session_id"],
-            name="fk_event_session_id",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_event"),
     )
     op.create_table(
         "board_artifact",
@@ -428,14 +405,12 @@ def downgrade() -> None:
         "board_card_relation",
         "board_card_attempt",
         "board_artifact",
-        "event",
         "board_inbound_comment",
         "board_external_projection",
         "board_coordinator_action",
         "board_comment_cursor",
         "board_card",
         "webhook_delivery",
-        "session",
         "board_workflow",
         "board_untrusted_input",
     ):

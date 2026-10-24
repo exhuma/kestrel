@@ -11,7 +11,7 @@ KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
 Copy [`config.toml.example`](../config.toml.example) to `config.toml` and
 edit. Alongside the applicative settings (see
 [Configuration](configuration.md)), it declares the available backends and
-the ad-hoc-session default:
+the default for specialists:
 
 ```toml
 default_session_backend = "local"
@@ -42,9 +42,8 @@ model_policy = "claude"   # the coder needs file-editing, so pin it explicitly
 ```
 
 Config is read once at startup — **restart the backend after editing it**. On
-boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
-to: …`), and `GET /api/backends` reports it live. In Docker, mount the file
-and set the env var (see the commented lines in `docker-compose.yml`).
+boot the effective config is logged (`backends: … | default backend: …`).
+In Docker, mount the file and set the env var (see the commented lines in `docker-compose.yml`).
 
 > The TOML file is the **only** way to configure backends. Without
 > `KESTREL_CONFIG_FILE` set, kestrel runs claude-only.
@@ -70,12 +69,11 @@ running the image.
 
 ## Where backends apply
 
-Ad-hoc sessions (the **Sessions** debug panel / `POST /api/sessions`) use
-`default_session_backend`. Every board specialist (`requester`, `pm`,
+Every board specialist (`requester`, `pm`,
 `uiux`, `developer`, `infosec`, `dba`, `architect`, `ops`, `qa`,
 `coordinator`, `coder`, `verifier`, `input-security`, `liaison`) uses its own
-manifest's `model_policy` — `"default"` for the same default, or a pinned
-backend id.
+manifest's `model_policy` — `"default"` for `default_session_backend`, or a
+pinned backend id.
 
 A specialist only accepts a backend that satisfies its `required_abilities`:
 `coder` needs file-editing (`claude`/`opencode`), since it is the only role
@@ -89,7 +87,7 @@ silently dispatching anyway.
 ## Concurrency and rate limits
 
 Every configured backend has a process-wide concurrency cap. It is shared by
-every specialist dispatch and ad-hoc session using that backend ID, not
+every specialist dispatch using that backend ID, not
 reset per board workflow. The conservative default is one in-flight LLM
 turn. Backends have independent caps, so a busy local backend does not
 delay a Claude backend.
@@ -154,8 +152,7 @@ password = "changeme"                      # inline (gitignored file), or:
 ```
 
 > **opencode working directory.** Each request kestrel sends is scoped to the
-> session's working directory (the per-run cloned workspace, or an ad-hoc
-> session's own folder) via opencode's `directory` parameter, so opencode's
+> session's working directory (the per-run cloned workspace) via opencode's `directory` parameter, so opencode's
 > file tools act there rather than in the directory where `opencode serve` was
 > started. The `opencode serve` process must be able to reach that path —
 > run it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.

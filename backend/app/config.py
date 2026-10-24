@@ -135,7 +135,8 @@ class Settings(BaseSettings):
     backends: list[BackendConfig] = Field(
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
-    #: Backend used for ad-hoc ``/api/sessions`` dispatch. File-only.
+    #: Backend a specialist with ``model_policy = "default"`` runs on.
+    #: File-only.
     default_session_backend: str = "claude"
     #: GitHub ingestion (feature 002). The webhook HMAC shared secret
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one

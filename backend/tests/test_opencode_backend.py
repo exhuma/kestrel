@@ -8,7 +8,6 @@ messages, which the POST response omits) is read from
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import os
@@ -22,8 +21,6 @@ from app.backends.opencode_models import split_model
 from app.backends.opencode_permissions import run_permission_loop
 from app.backends.registry import BackendRegistry
 from app.config import BackendConfig, Settings
-from app.models import EventKind
-from app.storage.registry import SessionRegistry
 
 
 def _settings(ws: str = "/tmp/ws") -> Settings:
@@ -32,8 +29,7 @@ def _settings(ws: str = "/tmp/ws") -> Settings:
 
 def _backend(
     handler, cfg: BackendConfig | None = None, ws: str = "/tmp/ws"
-) -> tuple[OpenCodeBackend, SessionRegistry, list[httpx.Request]]:
-    registry = SessionRegistry()
+) -> tuple[OpenCodeBackend, list[httpx.Request]]:
     cfg = cfg or BackendConfig(
         id="oc", type="opencode",
         base_url="http://oc.local:4096", model="anthropic/claude-sonnet-4",
@@ -45,8 +41,8 @@ def _backend(
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(wrapped))
-    backend = OpenCodeBackend(_settings(ws), registry, cfg, client=client)
-    return backend, registry, seen
+    backend = OpenCodeBackend(_settings(ws), cfg, client=client)
+    return backend, seen
 
 
 # A transcript with a tool message then a final text message — the shape a
@@ -149,7 +145,7 @@ def _reply_for(seen: list[httpx.Request]) -> dict:
 @pytest.mark.asyncio
 async def test_read_only_turn_disables_file_mutating_tools() -> None:
     """Ensure a read-only (plan) turn tells opencode to disable edit tools."""
-    backend, _, seen = _backend(_transcript_handler())
+    backend, seen = _backend(_transcript_handler())
     await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="read_only")
     )
@@ -171,7 +167,7 @@ async def test_read_only_turn_disables_file_mutating_tools() -> None:
 @pytest.mark.asyncio
 async def test_edit_turn_does_not_restrict_tools() -> None:
     """Ensure an edit-capable turn leaves all tools enabled."""
-    backend, _, seen = _backend(_transcript_handler())
+    backend, seen = _backend(_transcript_handler())
     await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="edit")
     )
@@ -194,7 +190,7 @@ async def test_permission_loop_approves_a_read() -> None:
             )
         return httpx.Response(200, json=True)
 
-    backend, _, seen = _backend(handler)
+    backend, seen = _backend(handler)
     await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=True)
     assert _reply_for(seen) == {"response": "once"}
     assert seen[-1].url.path == "/session/s1/permissions/per_1"
@@ -211,7 +207,7 @@ async def test_permission_loop_rejects_edit_on_read_only_turn() -> None:
             )
         return httpx.Response(200, json=True)
 
-    backend, _, seen = _backend(handler)
+    backend, seen = _backend(handler)
     await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=True)
     assert _reply_for(seen) == {"response": "reject"}
     assert seen[-1].url.path == "/session/s1/permissions/per_9"
@@ -228,7 +224,7 @@ async def test_permission_loop_allows_edit_when_editable() -> None:
             )
         return httpx.Response(200, json=True)
 
-    backend, _, seen = _backend(handler)
+    backend, seen = _backend(handler)
     await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=False)
     assert _reply_for(seen) == {"response": "once"}
     assert seen[-1].url.path == "/session/s1/permissions/per_2"
@@ -247,7 +243,7 @@ async def test_permission_reply_failure_fails_the_turn() -> None:
             return httpx.Response(500, json={"error": "reply failed"})
         return httpx.Response(200, json=True)
 
-    backend, _, _ = _backend(handler)
+    backend, _ = _backend(handler)
     with pytest.raises(RuntimeError, match="permission handling failed"):
         await run_permission_loop(
             backend._conn, "oc-1", "/tmp/s", read_only=False
@@ -265,7 +261,7 @@ async def test_permission_loop_ignores_other_sessions() -> None:
             )
         return httpx.Response(200, json=True)
 
-    backend, _, seen = _backend(handler)
+    backend, seen = _backend(handler)
     await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=True)
     assert not [r for r in seen if "/permission/" in r.url.path]
 
@@ -281,14 +277,14 @@ def test_split_model_parses_provider_and_model() -> None:
 
 def test_backend_can_edit_files() -> None:
     """Ensure opencode advertises file editing (a full agent)."""
-    backend, _, _ = _backend(_transcript_handler())
+    backend, _ = _backend(_transcript_handler())
     assert backend.caps == frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
 
 @pytest.mark.asyncio
-async def test_run_turn_maps_tool_and_text_messages() -> None:
-    """Ensure a turn maps the tool message and the final text message."""
-    backend, reg, seen = _backend(_transcript_handler())
+async def test_run_turn_returns_the_final_text() -> None:
+    """Ensure a turn returns the final text message and posts the model."""
+    backend, seen = _backend(_transcript_handler())
 
     result = await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
@@ -296,16 +292,6 @@ async def test_run_turn_maps_tool_and_text_messages() -> None:
 
     assert result.session_id == "oc-1"
     assert result.final_text == "all done"
-    rec = reg.get("oc-1")
-    assert [e.kind for e in rec.events] == [
-        EventKind.USER_TEXT, EventKind.TOOL_USE,
-        EventKind.TOOL_RESULT, EventKind.ASSISTANT_TEXT, EventKind.RESULT,
-    ]
-    assert rec.events[1].tool_name == "read"
-    assert rec.events[1].tool_summary == "x.py"
-    assert rec.events[2].text == "file body"
-    assert rec.status == "idle"
-
     post = next(
         r for r in seen
         if r.url.path == "/session/oc-1/message" and r.method == "POST"
@@ -321,7 +307,7 @@ async def test_run_turn_maps_tool_and_text_messages() -> None:
 @pytest.mark.asyncio
 async def test_run_turn_reports_an_assistant_error() -> None:
     """Ensure an error-only response does not become a blank success."""
-    backend, _, _ = _backend(_assistant_error_handler())
+    backend, _ = _backend(_assistant_error_handler())
 
     with pytest.raises(RuntimeError, match="provider credentials invalid"):
         await backend.run_turn(
@@ -337,7 +323,7 @@ async def test_run_turn_scopes_requests_to_the_working_directory() -> None:
     process's own cwd and edits the wrong folder (resolution order:
     ``?directory=`` query > ``x-opencode-directory`` header > process.cwd()).
     """
-    backend, _, seen = _backend(_transcript_handler())
+    backend, seen = _backend(_transcript_handler())
 
     await backend.run_turn(
         TurnRequest(
@@ -360,7 +346,7 @@ async def test_relative_cwd_is_sent_as_an_absolute_directory() -> None:
     ``directory`` would resolve against the wrong base. kestrel must send an
     absolute path.
     """
-    backend, _, seen = _backend(_transcript_handler())
+    backend, seen = _backend(_transcript_handler())
 
     await backend.run_turn(
         TurnRequest(
@@ -377,46 +363,6 @@ async def test_relative_cwd_is_sent_as_an_absolute_directory() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_streams_a_turn_in_the_background(tmp_path) -> None:
-    """Ensure start returns immediately then completes the turn."""
-    backend, reg, _ = _backend(_transcript_handler(), ws=str(tmp_path))
-    sid = await backend.start("do it")
-
-    for _ in range(100):
-        if reg.get(sid) and reg.get(sid).status == "idle":
-            break
-        await asyncio.sleep(0.01)
-
-    rec = reg.get(sid)
-    assert rec.status == "idle"
-    assert any(e.kind is EventKind.RESULT for e in rec.events)
-
-
-@pytest.mark.asyncio
-async def test_server_error_surfaces_as_a_failed_result(tmp_path) -> None:
-    """Ensure an opencode error never leaves the session stuck running."""
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/session" and request.method == "POST":
-            return httpx.Response(200, json={"id": "oc-1"})
-        if request.method == "GET":
-            return httpx.Response(200, json=[])
-        return httpx.Response(500, json={"error": "boom"})
-
-    backend, reg, _ = _backend(handler, ws=str(tmp_path))
-    sid = await backend.start("do it")
-
-    for _ in range(100):
-        if reg.get(sid) and reg.get(sid).status == "idle":
-            break
-        await asyncio.sleep(0.01)
-
-    rec = reg.get(sid)
-    assert rec.status == "idle"
-    assert rec.events[-1].kind is EventKind.RESULT
-    assert rec.events[-1].is_error is True
-
-
-@pytest.mark.asyncio
 async def test_basic_auth_sent_when_password_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -427,7 +373,7 @@ async def test_basic_auth_sent_when_password_configured(
         base_url="http://oc.local:4096", model="anthropic/claude-sonnet-4",
         api_key_env="OC_PW",
     )
-    backend, _, seen = _backend(_transcript_handler(), cfg)
+    backend, seen = _backend(_transcript_handler(), cfg)
 
     await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
@@ -445,7 +391,7 @@ async def test_inline_password_produces_basic_auth() -> None:
         id="oc", type="opencode", base_url="http://oc.local:4096",
         password="changeme",
     )
-    backend, _, seen = _backend(_transcript_handler(), cfg)
+    backend, seen = _backend(_transcript_handler(), cfg)
     await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
     )
@@ -464,7 +410,7 @@ async def test_custom_basic_auth_username() -> None:
             id="oc", type="opencode", base_url="http://oc.local:4096",
             api_key_env="OC_PW2", username="admin",
         )
-        backend, _, seen = _backend(_transcript_handler(), cfg)
+        backend, seen = _backend(_transcript_handler(), cfg)
         await backend.run_turn(
             TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
         )
@@ -478,7 +424,7 @@ async def test_custom_basic_auth_username() -> None:
 @pytest.mark.asyncio
 async def test_no_auth_header_without_a_password() -> None:
     """Ensure no auth is sent to an unsecured server."""
-    backend, _, seen = _backend(_transcript_handler())
+    backend, seen = _backend(_transcript_handler())
     await backend.run_turn(
         TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="n/a")
     )
@@ -494,5 +440,5 @@ def test_registry_builds_an_opencode_backend() -> None:
         ],
         default_session_backend="oc",
     )
-    registry = BackendRegistry(settings, SessionRegistry())
+    registry = BackendRegistry(settings)
     assert isinstance(registry.get("oc"), OpenCodeBackend)

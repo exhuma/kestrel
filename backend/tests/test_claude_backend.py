@@ -6,27 +6,19 @@ import pytest
 from app.backends.base import BackendTurnError, TurnRequest
 from app.backends.claude_cli import ClaudeCliBackend
 from app.config import Settings
-from app.models import CanonicalEvent, EventKind, SessionRecord
-from app.storage.registry import SessionRegistry
+from app.models import CanonicalEvent, EventKind
+from app.services.runner import ClaudeTurn
 
 
-def _backend(registry: SessionRegistry) -> ClaudeCliBackend:
-    return ClaudeCliBackend(Settings(), registry, backend_id="claude")
+def _backend(sid: str, event: CanonicalEvent) -> ClaudeCliBackend:
+    """A backend whose runner reports *event* as the turn's result."""
+    backend = ClaudeCliBackend(Settings(), backend_id="claude")
 
+    async def _run(req, on_queue_change=None):
+        return ClaudeTurn(sid, event)
 
-def _fake_run_blocking(
-    registry: SessionRegistry, sid: str, event: CanonicalEvent
-):
-    """Return a run_blocking stub that records *event* under *sid*."""
-    async def _run(prompt, cwd, permission_mode, *, resume_id=None,
-                   on_session_id=None, on_queue_change=None, model=None):
-        registry._records[sid] = SessionRecord(session_id=sid, cwd=cwd)
-        registry._records[sid].events.append(event)
-        if on_session_id:
-            on_session_id(sid)
-        return sid
-
-    return _run
+    backend._runner.run_blocking = _run  # type: ignore[method-assign]
+    return backend
 
 
 @pytest.mark.asyncio
@@ -37,10 +29,8 @@ async def test_run_turn_raises_on_error_result() -> None:
     a RESULT event with is_error=True; it must raise so the run fails
     loudly rather than becoming a bogus deliverable.
     """
-    reg = SessionRegistry()
-    backend = _backend(reg)
-    backend._runner.run_blocking = _fake_run_blocking(  # type: ignore[method-assign]
-        reg, "sess-err",
+    backend = _backend(
+        "sess-err",
         CanonicalEvent(
             EventKind.RESULT, "sess-err",
             text="Not logged in · Please run /login", is_error=True,
@@ -56,10 +46,8 @@ async def test_run_turn_raises_on_error_result() -> None:
 @pytest.mark.asyncio
 async def test_run_turn_returns_text_on_ok_result() -> None:
     """Ensure a normal (non-error) result still returns its text."""
-    reg = SessionRegistry()
-    backend = _backend(reg)
-    backend._runner.run_blocking = _fake_run_blocking(  # type: ignore[method-assign]
-        reg, "sess-ok",
+    backend = _backend(
+        "sess-ok",
         CanonicalEvent(
             EventKind.RESULT, "sess-ok", text="all good", is_error=False
         ),
@@ -68,12 +56,3 @@ async def test_run_turn_returns_text_on_ok_result() -> None:
         TurnRequest(prompt="p", cwd="/tmp", permission_mode="read_only")
     )
     assert result.final_text == "all good"
-
-
-@pytest.mark.asyncio
-async def test_check_alive_is_always_alive() -> None:
-    """Ensure the claude CLI has no independent liveness signal to check."""
-    backend = _backend(SessionRegistry())
-    result = await backend.check_alive("any-session")
-    assert result.alive is True
-    assert result.reason is None

@@ -1,15 +1,14 @@
-"""Domain models: the canonical event vocabulary and session records.
+"""Domain models: the canonical event vocabulary.
 
 Every agent backend (claude CLI, opencode) maps its native
-output onto :class:`CanonicalEvent` so the registry, persistence, wire
-protocol, and UI never depend on any one backend's event shape. The
+output onto :class:`CanonicalEvent` so the server log and the backends'
+consumers never depend on any one backend's event shape. The
 claude-specific mapping lives in :func:`map_claude_line`.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 
 
@@ -54,19 +53,6 @@ class CanonicalEvent:
     duration_ms: int | None = None
     status: str | None = None
     native: dict[str, object] = field(default_factory=dict)
-
-
-@dataclass
-class SessionRecord:
-    """In-memory record of one dispatched session."""
-
-    session_id: str
-    cwd: str
-    status: str = "running"
-    events: list[CanonicalEvent] = field(default_factory=list)
-    #: When the record was first created (session start). None for
-    #: rows persisted before this column existed.
-    created_at: datetime | None = None
 
 
 def _content_blocks(data: dict[str, object]) -> list[dict[str, object]] | None:

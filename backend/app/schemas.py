@@ -12,24 +12,6 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class SessionSummary(BaseModel):
-    """Summary of one session for the list endpoint.
-
-    :param session_id: Unique id of the session.
-    :param status: Current lifecycle status (e.g. running, idle).
-    :param event_count: Number of events recorded so far.
-    :param created_at: When the session started, if known.
-    :param workflow: The run that used this session ("repo#issue"),
-        or None for a free-form session.
-    """
-
-    session_id: str
-    status: str
-    event_count: int
-    created_at: datetime | None = None
-    workflow: str | None = None
-
-
 class SecurityReviewOut(BaseModel):
     """Safe, read-only view of a quarantine decision (feature 026).
 

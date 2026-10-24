@@ -1,8 +1,8 @@
 # kestrel backend
 
-FastAPI backend for kestrel: dispatches `claude` CLI sessions,
-persists them to PostgreSQL, and streams events to the frontend via
-SSE.
+FastAPI backend for kestrel: runs `claude` CLI and opencode turns for
+board specialists, persists the board to PostgreSQL, and streams its state
+to the frontend via SSE.
 
 ## Running
 

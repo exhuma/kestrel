@@ -12,7 +12,6 @@ from app.backends.registry import BackendRegistry, UnknownBackendError
 from app.config import BackendConfig, Settings
 from app.models_board import SpecialistDefinition
 from app.policy import SpecialistBackendPolicy, SpecialistCapabilityError
-from app.storage.registry import SessionRegistry
 
 
 def _result_claude(tmp_path: Path, payload: str) -> Path:
@@ -53,7 +52,7 @@ def _settings(**kw: object) -> Settings:
 
 def test_claude_backend_advertises_text_and_file_edits() -> None:
     """Ensure the claude backend can serve both text and edit steps."""
-    backend = ClaudeCliBackend(_settings(), SessionRegistry(), backend_id="c")
+    backend = ClaudeCliBackend(_settings(), backend_id="c")
     assert backend.id == "c"
     assert backend.caps == frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
@@ -65,8 +64,7 @@ async def test_run_turn_returns_the_result_deliverable(tmp_path: Path) -> None:
         claude_bin=str(_result_claude(tmp_path, "the deliverable")),
         workspace_root=str(tmp_path / "ws"),
     )
-    reg = SessionRegistry()
-    backend = ClaudeCliBackend(settings, reg)
+    backend = ClaudeCliBackend(settings)
 
     seen: list[str] = []
     result = await backend.run_turn(
@@ -74,19 +72,18 @@ async def test_run_turn_returns_the_result_deliverable(tmp_path: Path) -> None:
             prompt="hi",
             cwd=str(tmp_path / "step"),
             permission_mode="read_only",
-        ),
-        on_session_id=seen.append,
+            on_session_id=seen.append,
+        )
     )
 
     assert result.session_id == "turn-1"
     assert result.final_text == "the deliverable"
     assert seen == ["turn-1"]
-    assert reg.get("turn-1").status == "idle"
 
 
 def test_registry_builds_default_claude_backend() -> None:
     """Ensure the default config yields a resolvable claude backend."""
-    registry = BackendRegistry(_settings(), SessionRegistry())
+    registry = BackendRegistry(_settings())
     assert isinstance(registry.default_session_backend(), ClaudeCliBackend)
     assert registry.get("claude").id == "claude"
 
@@ -104,13 +101,13 @@ def test_registry_applies_configured_capability_override() -> None:
         ],
         default_session_backend="local",
     )
-    registry = BackendRegistry(settings, SessionRegistry())
+    registry = BackendRegistry(settings)
     assert registry.get("local").caps == frozenset({Capability.TEXT})
 
 
 def test_registry_unknown_backend_raises() -> None:
     """Ensure resolving an unconfigured backend id raises."""
-    registry = BackendRegistry(_settings(), SessionRegistry())
+    registry = BackendRegistry(_settings())
     with pytest.raises(UnknownBackendError):
         registry.get("nope")
 
@@ -121,8 +118,7 @@ def test_registry_unknown_backend_error_lists_configured_ids() -> None:
         _settings(
             backends=[BackendConfig(id="oc", type="opencode")],
             default_session_backend="oc",
-        ),
-        SessionRegistry(),
+        )
     )
     with pytest.raises(UnknownBackendError, match=r"nope.*\['oc'\]"):
         registry.get("nope")
@@ -135,7 +131,7 @@ def test_registry_rejects_a_missing_default_at_build() -> None:
         default_session_backend="ghost",
     )
     with pytest.raises(UnknownBackendError, match=r"ghost.*\['claude'\]"):
-        BackendRegistry(settings, SessionRegistry())
+        BackendRegistry(settings)
 
 
 # ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
@@ -150,7 +146,7 @@ def _mixed_registry() -> BackendRegistry:
             ),
         ],
     )
-    return BackendRegistry(settings, SessionRegistry())
+    return BackendRegistry(settings)
 
 
 
@@ -171,7 +167,7 @@ def _specialist(**overrides: object) -> SpecialistDefinition:
 
 
 def test_specialist_policy_uses_default_backend() -> None:
-    """A ``"default"`` model_policy resolves to the default session backend."""
+    """A ``"default"`` model_policy resolves to the default backend."""
     policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
     assert policy.backend_for(_specialist()).id == "claude"
 

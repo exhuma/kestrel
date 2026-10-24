@@ -13,7 +13,6 @@ from app.backends.base import TurnRequest, TurnStopped
 from app.backends.opencode import OpenCodeBackend
 from app.backends.opencode_tools import ToolLoopGuard, ToolPolicy, tools_map
 from app.config import BackendConfig, Settings
-from app.storage.registry import SessionRegistry
 
 _POLICY = ToolPolicy(allowed=None, max_calls=4, max_repeats=3)
 
@@ -177,7 +176,7 @@ async def test_a_looping_turn_is_aborted_and_says_why() -> None:
     client = httpx.AsyncClient(transport=transport)
     backend = OpenCodeBackend(
         Settings(_env_file=None, workspace_root="/tmp/ws"),
-        SessionRegistry(), cfg, client=client,
+        cfg, client=client,
     )
     told: list[str] = []
 

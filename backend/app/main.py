@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -16,12 +16,6 @@ from app.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
     VersionHeaderMiddleware,
-)
-from app.services.exceptions import (
-    DirectPromptTooLargeError,
-    SessionNotFoundError,
-    SessionStartError,
-    UnconfirmedDirectPromptError,
 )
 
 # Unified logging (see app.logging_config) configures the root logger, so a
@@ -48,7 +42,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # check when a session runs on the wrong backend.
     get_backend_registry()
     _logger.info(
-        "config file: %s | backends: %s | ad-hoc sessions dispatch to: %r",
+        "config file: %s | backends: %s | default backend: %r",
         settings.config_file or "(none)",
         {c.id: c.type for c in settings.backends},
         settings.default_session_backend,
@@ -117,42 +111,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         await close_tracked_clients()
 
 
-def _register_exception_handlers(app: FastAPI) -> None:
-    """Map domain exceptions crossing the service -> router boundary to HTTP."""
-
-    @app.exception_handler(SessionNotFoundError)
-    async def _session_not_found(
-        request: Request, exc: SessionNotFoundError
-    ) -> JSONResponse:
-        """Map an unknown session to HTTP 404."""
-        return JSONResponse(
-            status_code=404, content={"detail": "unknown session"}
-        )
-
-    @app.exception_handler(SessionStartError)
-    async def _session_start_failed(
-        request: Request, exc: SessionStartError
-    ) -> JSONResponse:
-        """Map a failed session start to HTTP 502."""
-        return JSONResponse(
-            status_code=502, content={"detail": "session start failed"}
-        )
-
-    @app.exception_handler(UnconfirmedDirectPromptError)
-    async def _unconfirmed_direct_prompt(
-        request: Request, exc: UnconfirmedDirectPromptError
-    ) -> JSONResponse:
-        """Map a missing injection-risk confirmation to HTTP 400."""
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    @app.exception_handler(DirectPromptTooLargeError)
-    async def _direct_prompt_too_large(
-        request: Request, exc: DirectPromptTooLargeError
-    ) -> JSONResponse:
-        """Map an oversized direct prompt to HTTP 413."""
-        return JSONResponse(status_code=413, content={"detail": str(exc)})
-
-
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application."""
     from app.config import get_settings
@@ -160,8 +118,6 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="kestrel", version=get_settings().version, lifespan=_lifespan
     )
-
-    _register_exception_handlers(app)
 
     # Cross-cutting HTTP middleware (see module-http-middleware-hardening).
     # ORDER MATTERS: Starlette applies middleware LIFO, so the LAST
@@ -232,10 +188,8 @@ def create_app() -> FastAPI:
         github_webhook,
         health,
         identity,
-        sessions,
     )
 
-    app.include_router(sessions.router)
     app.include_router(board.router)
     app.include_router(health.router)
     app.include_router(identity.router)

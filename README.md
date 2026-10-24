@@ -1,8 +1,8 @@
 # kestrel
 
-Dispatch and monitor coding-agent sessions from a web UI: the
-[Claude Code](https://github.com/anthropics/claude-code) CLI, an
-[opencode](https://opencode.ai) server. Kestrel is a
+Ingest tasks and have coding agents work them, monitored from a web UI. The
+agents are the [Claude Code](https://github.com/anthropics/claude-code) CLI or
+an [opencode](https://opencode.ai) server. Kestrel is a
 single-operator tool: a FastAPI backend
 ingests tasks from GitHub, Jira, or local task folders into an event-driven
 **work board** of typed cards claimed by configurable specialist agents (see

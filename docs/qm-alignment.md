@@ -216,7 +216,7 @@ theme is built in `main.ts`, but `grep '<v-'` over `frontend/src` returns
   via Vuetify `variables` (both `light` + `dark`), and add the mandatory
   page-level `v-progress-linear` driven by the existing `loading` refs.
 - Either branch also fixes the trivial a11y gap: add `aria-pressed` to the
-  "Workflows" toggle (`App.vue`) for parity with the sessions toggle.
+  "Workflows" toggle (`App.vue`).
 
 **Files:** `frontend/package.json`, `frontend/src/main.ts`, `App.vue`,
 `components/*`, `styles/theme.css`.

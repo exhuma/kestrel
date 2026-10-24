@@ -1,46 +1,16 @@
-"""Tests for the session runner argv building and stream consume."""
+"""Tests for the claude runner: argv building, stream consume, one turn."""
 from __future__ import annotations
 
-import asyncio
 import textwrap
 from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
 
+from app.backends.base import BackendTurnError, TurnRequest
 from app.config import Settings
 from app.models import EventKind
-from app.services.exceptions import SessionStartError
-from app.services.runner import _TASKS, SessionRunner
-from app.storage.registry import SessionRegistry
-
-
-async def _drain_background() -> None:
-    """Await in-flight streaming tasks so subprocess pipes close in-loop."""
-    await asyncio.gather(*list(_TASKS), return_exceptions=True)
-
-
-def test_terminate_session_kills_registered_proc() -> None:
-    """Ensure terminate_session kills a live registered subprocess."""
-    from app.services.runner import _PROCS, terminate_session
-
-    class _FakeProc:
-        def __init__(self) -> None:
-            self.returncode: int | None = None
-            self.killed = False
-
-        def kill(self) -> None:
-            self.killed = True
-            self.returncode = -9
-
-    proc = _FakeProc()
-    _PROCS["sx"] = proc  # type: ignore[assignment]
-    try:
-        assert terminate_session("sx") is True
-        assert proc.killed is True
-        assert terminate_session("unknown") is False
-    finally:
-        _PROCS.pop("sx", None)
+from app.services.runner import SessionRunner
 
 
 def _streaming_claude(tmp_path: Path) -> Path:
@@ -97,7 +67,7 @@ def _runner() -> SessionRunner:
         workspace_root="/tmp/ws",
         permission_mode="edit",
     )
-    return SessionRunner(settings, SessionRegistry())
+    return SessionRunner(settings)
 
 
 def test_build_argv_start() -> None:
@@ -152,113 +122,71 @@ async def _lines(items: list[str]) -> AsyncIterator[str]:
         yield item
 
 
+def _req(cwd: str, **kw: object) -> TurnRequest:
+    return TurnRequest(prompt="hi", cwd=cwd, permission_mode="read_only", **kw)
+
+
 @pytest.mark.asyncio
-async def test_consume_creates_record_and_sets_idle() -> None:
-    """Ensure consume registers the session and finishes idle."""
-    runner = _runner()
+async def test_consume_returns_session_id_and_result() -> None:
+    """Ensure consume reports the session id and the terminal result."""
+    seen: list[str] = []
     lines = [
         '{"type":"system","subtype":"init","session_id":"s1"}',
         '{"type":"assistant","message":{}}',
-        '{"type":"result","subtype":"success","session_id":"s1"}',
+        '{"type":"result","subtype":"success","session_id":"s1",'
+        '"result":"done"}',
     ]
-    sid = await runner.consume(_lines(lines), cwd="/tmp/ws/s1")
-    assert sid == "s1"
-    rec = runner.registry.get("s1")
-    assert rec is not None
-    assert rec.cwd == "/tmp/ws/s1"
-    assert rec.status == "idle"
-    assert len(rec.events) == 3
+    turn = await _runner().consume(
+        _lines(lines), _req("/tmp/ws/s1", on_session_id=seen.append)
+    )
+    assert turn.session_id == "s1"
+    assert turn.result is not None
+    assert turn.result.text == "done"
+    assert seen == ["s1"]
 
 
 @pytest.mark.asyncio
-async def test_start_without_session_id_raises_start_error(tmp_path) -> None:
-    """Ensure a subprocess yielding no session id raises SessionStartError."""
+async def test_consume_resume_reports_the_known_id_up_front() -> None:
+    """Ensure a resumed turn announces its session id before any event."""
+    seen: list[str] = []
+    lines = ['{"type":"assistant","message":{}}']
+    turn = await _runner().consume(
+        _lines(lines),
+        _req("/tmp/ws/s1", resume_id="s1", on_session_id=seen.append),
+    )
+    assert turn.session_id == "s1"
+    assert turn.result is None
+    assert seen == ["s1"]
+
+
+@pytest.mark.asyncio
+async def test_run_blocking_without_session_id_raises(tmp_path) -> None:
+    """Ensure a subprocess yielding no session id fails the turn."""
     settings = Settings(
         claude_bin="true",  # exits 0 with no stdout
         workspace_root=str(tmp_path),
         permission_mode="edit",
     )
-    runner = SessionRunner(settings, SessionRegistry())
-    with pytest.raises(SessionStartError):
-        await runner.start("hi")
-    await _drain_background()
+    with pytest.raises(BackendTurnError):
+        await SessionRunner(settings).run_blocking(_req(str(tmp_path / "w")))
 
 
 @pytest.mark.asyncio
-async def test_start_returns_before_subprocess_completes(tmp_path) -> None:
-    """Ensure start returns at the first id while streaming continues."""
+async def test_run_blocking_awaits_the_subprocess(tmp_path) -> None:
+    """Ensure run_blocking returns only once the run has completed."""
     settings = Settings(
         claude_bin=str(_streaming_claude(tmp_path)),
         workspace_root=str(tmp_path / "ws"),
         permission_mode="edit",
     )
-    reg = SessionRegistry()
-    runner = SessionRunner(settings, reg)
-
-    sid = await runner.start("hi")
-
-    # Returned as soon as the id is known: record exists, still running,
-    # and the terminal result event has not landed yet.
-    assert sid == "stream-1"
-    rec = reg.get(sid)
-    assert rec is not None
-    assert rec.status == "running"
-    assert all(e.kind is not EventKind.RESULT for e in rec.events)
-
-    # The background task keeps consuming to completion.
-    for _ in range(60):
-        if reg.get(sid).status == "idle":
-            break
-        await asyncio.sleep(0.05)
-    assert reg.get(sid).status == "idle"
-    assert any(e.kind is EventKind.RESULT for e in reg.get(sid).events)
-    await _drain_background()
-
-
-@pytest.mark.asyncio
-async def test_consume_resume_appends_to_existing() -> None:
-    """Ensure consume with record_id appends to the same record."""
-    runner = _runner()
-    runner.registry.create("s1", "/tmp/ws/s1")
-    lines = [
-        '{"type":"assistant","message":{}}',
-        '{"type":"result","subtype":"success","session_id":"s1"}',
-    ]
-    sid = await runner.consume(
-        _lines(lines), cwd="/tmp/ws/s1", record_id="s1"
-    )
-    assert sid == "s1"
-    rec = runner.registry.get("s1")
-    assert rec is not None
-    assert len(rec.events) == 2
-    assert rec.status == "idle"
-
-
-@pytest.mark.asyncio
-async def test_run_blocking_streams_and_awaits(tmp_path) -> None:
-    """Ensure run_blocking streams to the registry and returns on completion."""
-    settings = Settings(
-        claude_bin=str(_streaming_claude(tmp_path)),
-        workspace_root=str(tmp_path / "ws"),
-        permission_mode="edit",
-    )
-    reg = SessionRegistry()
-    runner = SessionRunner(settings, reg)
-    cwd = str(tmp_path / "step")
-
     seen: list[str] = []
-    sid = await runner.run_blocking(
-        "hi", cwd=cwd, permission_mode="read_only",
-        on_session_id=lambda s: seen.append(s),
+    turn = await SessionRunner(settings).run_blocking(
+        _req(str(tmp_path / "step"), on_session_id=seen.append)
     )
 
-    # Returned only after completion: result event present, status idle.
-    assert sid == "stream-1"
+    assert turn.session_id == "stream-1"
     assert seen == ["stream-1"]
-    rec = reg.get(sid)
-    assert rec.status == "idle"
-    assert any(e.kind is EventKind.RESULT for e in rec.events)
-    await _drain_background()
+    assert turn.result is not None
 
 
 @pytest.mark.asyncio
@@ -274,19 +202,14 @@ async def test_run_blocking_handles_a_line_over_64kib(tmp_path) -> None:
         workspace_root=str(tmp_path / "ws"),
         permission_mode="edit",
     )
-    reg = SessionRegistry()
-    runner = SessionRunner(settings, reg)
-    cwd = str(tmp_path / "step")
+    turn = await SessionRunner(settings).run_blocking(
+        _req(str(tmp_path / "step"))
+    )
 
-    sid = await runner.run_blocking("hi", cwd=cwd, permission_mode="read_only")
-
-    assert sid == "big-1"
-    rec = reg.get(sid)
-    assert rec.status == "idle"
-    result_events = [e for e in rec.events if e.kind is EventKind.RESULT]
-    assert len(result_events) == 1
-    assert len(result_events[0].text) == 100_000
-    await _drain_background()
+    assert turn.session_id == "big-1"
+    assert turn.result is not None
+    assert turn.result.kind is EventKind.RESULT
+    assert len(turn.result.text) == 100_000
 
 
 def test_build_argv_permission_mode_override() -> None:
@@ -295,7 +218,7 @@ def test_build_argv_permission_mode_override() -> None:
         claude_bin="claude", workspace_root="/tmp/ws",
         permission_mode="edit",
     )
-    argv = SessionRunner(settings, SessionRegistry()).build_argv(
+    argv = SessionRunner(settings).build_argv(
         "p", permission_mode="read_only"
     )
     assert argv[argv.index("--permission-mode") + 1] == "plan"
