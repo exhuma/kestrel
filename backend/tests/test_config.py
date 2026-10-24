@@ -35,21 +35,20 @@ def test_settings_read_kestrel_env(
     assert Settings(_env_file=None).claude_bin == "/opt/claude"
 
 
-def test_host_port_reload_read_from_env(
+def test_host_and_port_read_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure host/port/reload load through Settings (so .env is honoured)."""
+    """Ensure host/port load through Settings (so .env is honoured)."""
     monkeypatch.setenv("KESTREL_HOST", "127.0.0.1")
     monkeypatch.setenv("KESTREL_PORT", "9001")
-    monkeypatch.setenv("KESTREL_RELOAD", "true")
     s = Settings(_env_file=None)
-    assert (s.host, s.port, s.reload) == ("127.0.0.1", 9001, True)
+    assert (s.host, s.port) == ("127.0.0.1", 9001)
 
 
-def test_host_port_reload_defaults() -> None:
+def test_host_and_port_defaults() -> None:
     """Ensure the server fields keep their documented defaults."""
     s = Settings(_env_file=None)
-    assert (s.host, s.port, s.reload) == ("0.0.0.0", 8000, False)
+    assert (s.host, s.port) == ("0.0.0.0", 8000)
 
 
 def test_workspace_default_is_kestrel_branded() -> None:

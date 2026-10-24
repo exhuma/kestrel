@@ -30,7 +30,7 @@ match it. The manual equivalents:
 # Backend — API on http://localhost:8000
 cd backend
 uv run alembic upgrade head              # apply schema migrations
-KESTREL_RELOAD=1 uv run python -m app    # unified logs + hot-reload
+uv run python -m app --reload            # unified logs + hot-reload
 
 # Frontend — Vite dev server, separate terminal
 cd frontend

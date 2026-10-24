@@ -34,8 +34,11 @@ def load_env() -> None:
     load_dotenv(".env")
 
 
-def cmd_serve(settings: Settings) -> int:
-    """Start uvicorn for ``app.main:app`` with the configured logging."""
+def cmd_serve(settings: Settings, reload: bool = False) -> int:
+    """Start uvicorn for ``app.main:app`` with the configured logging.
+
+    :param reload: Run uvicorn's dev auto-reloader (``--reload``).
+    """
     log_config = build_log_config(settings.log_level, settings.log_format)
     # The dev auto-reloader watches *.py changes under the cwd. The run
     # workspace defaults there too, and a run writes real .py files into it
@@ -49,7 +52,7 @@ def cmd_serve(settings: Settings) -> int:
         host=settings.host,
         port=settings.port,
         log_config=log_config,
-        reload=settings.reload,
+        reload=reload,
         reload_excludes=[os.path.abspath(settings.workspace_root)],
     )
     return 0
@@ -91,6 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the ``serve`` / ``poll`` argument parser (serve is default)."""
     parser = argparse.ArgumentParser(prog="app")
     parser.set_defaults(func=cmd_serve)
+    parser.add_argument(
+        "--reload", action="store_true", help="serve with dev auto-reload"
+    )
     sub = parser.add_subparsers()
     sub.add_parser("serve", help="run the API server (default)").set_defaults(
         func=cmd_serve
@@ -104,4 +110,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and dispatch to the selected command."""
     args = build_parser().parse_args(argv)
+    if args.func is cmd_serve:
+        return cmd_serve(get_settings(), reload=args.reload)
     return args.func(get_settings())

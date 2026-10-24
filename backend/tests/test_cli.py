@@ -110,7 +110,20 @@ def test_serve_is_the_default_subcommand(
     called: dict[str, bool] = {}
     monkeypatch.setattr(cli, "get_settings", object)
     monkeypatch.setattr(
-        cli, "cmd_serve", lambda _s: called.update(serve=True) or 0
+        cli, "cmd_serve", lambda _s, reload: called.update(serve=reload) or 0
     )
     assert cli.main([]) == 0
+    assert called.get("serve") is False
+
+
+def test_reload_flag_is_passed_to_serve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure ``--reload`` reaches uvicorn's reload switch."""
+    called: dict[str, bool] = {}
+    monkeypatch.setattr(cli, "get_settings", object)
+    monkeypatch.setattr(
+        cli, "cmd_serve", lambda _s, reload: called.update(serve=reload) or 0
+    )
+    assert cli.main(["--reload"]) == 0
     assert called.get("serve") is True

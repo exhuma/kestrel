@@ -273,7 +273,7 @@ kestrel ever goes multi-user or is exposed beyond localhost.
   build time not exposed in the SPA; cheap to add later if desired.
 - **DB timezone-aware timestamps / request-scoped `get_db`**
   (database-postgresql) — deliberate deviation; documented in WP3.
-- **Backend config micro-hygiene** — `KESTREL_RELOAD/HOST/PORT` read via
+- **Backend config micro-hygiene** — `KESTREL_HOST/PORT` read via
   `os.environ` in `__main__.py`; promote to `Settings` fields when convenient.
 - **Notification service layer** — `routers/notifications.py` calls the store
   directly; a thin `NotificationService` would restore strict layering (Low).
