@@ -54,7 +54,12 @@ def cmd_serve(settings: Settings, reload: bool = False) -> int:
         port=settings.port,
         log_config=log_config,
         reload=reload,
-        reload_excludes=[str(workspace_root.absolute())],
+        # Only with the reloader: uvicorn warns about excludes without it.
+        **(
+            {"reload_excludes": [str(workspace_root.absolute())]}
+            if reload
+            else {}
+        ),
     )
     return 0
 

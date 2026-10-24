@@ -58,10 +58,31 @@ def test_serve_excludes_the_workspace_from_dev_reload(
     monkeypatch.setattr(
         cli.uvicorn, "run", lambda *_a, **kw: calls.update(kw)
     )
-    cli.cmd_serve(settings)
+    cli.cmd_serve(settings, reload=True)
 
     assert workspace.is_dir()  # created so watchfiles excludes it recursively
     assert calls["reload_excludes"] == [str(workspace.resolve())]
+
+
+def test_serve_without_reload_passes_no_reload_excludes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure a plain serve gives uvicorn no reload options.
+
+    uvicorn warns ("will not reload as not all conditions are met") when
+    it gets ``reload_excludes`` without ``reload``.
+    """
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(_env_file=None, workspace_root=str(tmp_path / "ws"))
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli.uvicorn, "run", lambda *_a, **kw: calls.update(kw)
+    )
+
+    cli.cmd_serve(settings)
+
+    assert calls["reload"] is False
+    assert "reload_excludes" not in calls
 
 
 class _FakePollSource:
