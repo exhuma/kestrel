@@ -58,7 +58,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_REFINEMENT_ROUND_CAP` | `1` | Refinement-interview rounds per persona; above `1`, a persona whose answers stay ambiguous gets another round |
 | `KESTREL_BOARD_PRD_REDRAFT_CAP` | `1` | PRD redrafts per workflow after a PRD gate rejection; a further rejection escalates to the operator |
 | `KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP` | `2` | Redrafts of the restated understanding after a rejection; a further rejection opens a coordinator review. `0` never redrafts |
-| `KESTREL_BOARD_DEV_ACTIONS_ENABLED` | `false` | Temporary dev-only cleanup/rerun routes, restricted to private (local-task) workflows. Leave off in a real deployment |
 
 Ticket replies marked with `@kestrel` do exist again since feature 046; they
 use `feedback_marker`, which is a live setting listed above.

@@ -356,18 +356,8 @@ this is deliberately **not** human-gated: publishing kestrel's own
 worktree branch as a draft PR is low-risk and reversible, so the
 verification's own pass/fail is trusted as the gate.
 
-A **temporary, dev-only** pair of actions also now exists for repeating
-a local dry run without restarting kestrel or hand-editing the database
-(`app/services/board/dev_reset.py`, `app/routers/board_dev.py`): cleanup
-cancels a workflow's open cards, revokes active claims, and tears down
-its workspace; rerun layers cleanup with a fresh `understanding_gate` on
-the same workflow row. Gated behind `board_dev_actions_enabled` (off by
-default — the routes don't exist unless it's on) and, regardless of the
-flag, restricted to a `private`-visibility workflow, the same safety
-property the old deleted `workflows/reset.py`'s own `rerun` enforced.
-Meant to be deleted outright once the board is production-ready, not
-hardened — see the module's own docstring before extending it. Abandon
-only blocks *new* dispatch, not an already-running specialist turn:
+Cancelling
+a card only blocks *new* dispatch, not an already-running specialist turn:
 nothing in the dispatch loop retains a cancellable handle for one (see
 below), so an in-flight turn simply finishes and its result is discarded
 against the now-cancelled card.
@@ -654,8 +644,7 @@ owner. Nothing in the announcement or reply code calls
   and Jira are `"public"` — their tickets are externally shared and only
   ever move forward in time; local tasks are `"private"`. This capability
   is snapshotted onto every board workflow at ingestion time; it currently
-  has no consumer (see "Current gap" above for rerun/cleanup, its intended
-  use).
+  has no consumer.
 
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at

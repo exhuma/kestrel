@@ -260,16 +260,6 @@ class Settings(BaseSettings):
     #: A further rejection past the cap opens a coordinator review instead
     #: of another redraft. ``0`` never redrafts.
     board_understanding_redraft_cap: int = Field(default=2, ge=0)
-    #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
-    #: endpoints (feature 026, T069,
-    #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —
-    #: **temporary, dev-only**: lets a local-task-source dry run be
-    #: repeated without restarting kestrel or hand-editing the database.
-    #: Restricted at call time to a workflow whose source is ``private``
-    #: regardless of this flag. Meant to be deleted, not hardened, once
-    #: the board is production-ready — see
-    #: ``app/services/board/dev_reset.py``'s module docstring.
-    board_dev_actions_enabled: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""

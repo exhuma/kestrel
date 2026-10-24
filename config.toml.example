@@ -115,12 +115,6 @@ board_understanding_redraft_cap = 2
 # How many times a card whose result cannot be read is retried on its own
 # before it escalates to the coordinator. 0 escalates at once.
 board_unreadable_retry_cap = 1
-# Enable the temporary /api/board/workflows/{id}/dev/{cleanup,rerun}
-# routes, for repeating a local-task-source dry run without restarting
-# kestrel. Off by default; restricted to private-visibility workflows
-# regardless. Meant to be deleted, not hardened, once the board is
-# production-ready — see app/services/board/dev_reset.py.
-board_dev_actions_enabled = false
 
 # --- task sources -----------------------------------------------------------
 # Each [[task_sources]] entry declares where kestrel pulls work from. Secrets
