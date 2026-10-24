@@ -37,6 +37,8 @@ from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
 
+pytestmark = pytest.mark.integration
+
 _STRATEGIC_QUESTIONS = (
     '<REFINEMENT_QUESTIONS>{"questions": '
     '["Why does this matter to the business?"]}</REFINEMENT_QUESTIONS>'

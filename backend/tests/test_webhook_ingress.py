@@ -17,6 +17,8 @@ from app.persistence.webhook_delivery_store import (
 )
 from app.services.ingestion import get_ingestion_service
 
+pytestmark = pytest.mark.integration
+
 _SECRET = "s3cr3t"
 
 

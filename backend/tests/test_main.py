@@ -6,6 +6,8 @@ import pytest
 
 from app.main import create_app
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_healthz_reports_ok_with_database_component() -> None:

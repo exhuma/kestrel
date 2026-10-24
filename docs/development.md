@@ -88,13 +88,20 @@ npm run build
 npm test
 ```
 
+Backend tests are either unit tests (one module, fakes at the edges, no
+marker) or integration tests: they drive the database or the whole app
+(`create_app`, routers, the `*_e2e.py` board flows). Integration test
+modules carry `pytestmark = pytest.mark.integration`, so
+`uv run pytest -m "not integration"` runs the faster unit subset and
+`-m integration` the rest. Mark new tests of that kind the same way.
+
 Backend tests are hermetic (they never read your `backend/.env`).
 `KESTREL_TEST_DATABASE_URL` names a server, not the database the tests use:
 each run creates its own uniquely named databases there (one migrated
 template, cloned for the tests that need a database of their own) and drops
 them when it ends, so the user in the URL must be allowed to create
-databases. Without the variable the run stops at once. The same suite gates
-CI and every release.
+databases. Without the variable the run stops at once, unit subset
+included. The same suite gates CI and every release.
 
 ## Project layout
 

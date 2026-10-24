@@ -31,6 +31,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = [
+    "integration: needs the database or the whole app (end-to-end flows, routers); deselect with -m 'not integration'",
+]
 # Safety net, not a design choice: a test that leaks an unresolved async
 # task (e.g. a spawned driver task nobody ever drains) can hang
 # asyncio.run()'s own teardown indefinitely with near-zero CPU, which is
