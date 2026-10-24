@@ -140,11 +140,14 @@ summary) and `GET /workflows/events` (its SSE stream); `GET
 /security-reviews/{id}/resolve`. See
 `specs/026-autonomous-work-board/contracts/board-api.md`.
 
-**Frontend.** `WorkBoard.vue` is the app's default view: a workflow list
-plus a card-state-grouped list layout and a lazy graph layout
-(`WorkflowGraph.vue`, Vue Flow), with `WorkCardDetail.vue` for one card and
-its intervention actions. `useBoard.ts` wraps the API above. The old
-per-run session panel remains reachable as a secondary debug view.
+**Frontend.** Hash-routed (`router/index.ts`), three surfaces: the stage
+board (`StageBoardView.vue`, the default; one column per stage, one
+`RequestCard` per request), a request's cockpit (`RequestCockpitView.vue`:
+phase spine, narrative feed, artifacts, and the action banner that carries
+gate decisions) and its interview view (`InterviewView.vue`). Unknown
+addresses land on `NotFoundView.vue`. `useBoard.ts` wraps the API above.
+The raw-sessions view remains reachable at `/sessions` as a secondary
+debug view.
 
 ### Specialist dispatch, delivery, and write-back (spec 026)
 
