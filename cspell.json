@@ -31,7 +31,7 @@
     "ollama", "oncall",
     "opencode", "pinentry", "Planka", "PROCS", "psycopg", "pydantic",
     "pyproject",
-    "pytest", "qbadge", "qblock", "qform", "qgroup", "qtab", "qtabs",
+    "pytest", "pytestmark", "qbadge", "qblock", "qform", "qgroup", "qtab", "qtabs",
     "reactable", "readyz",
     "Refetches", "reldir",
     "renamespaced", "reraise", "REPOLL", "REPOLLABLE", "rerunnable", "rgba",

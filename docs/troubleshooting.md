@@ -122,8 +122,9 @@ mkdir -p workspaces
 sudo chown 1000:1000 workspaces   # match your `user:` override, if any
 ```
 
-The same applies to any other bind mount you add (e.g. `KESTREL_CONFIG_FILE`) — Docker auto-creates a missing bind-mount source owned by
-root, which this non-root default then rejects.
+The same applies to any other bind mount you add (e.g. `KESTREL_CONFIG_FILE`):
+Docker auto-creates a missing bind-mount source owned by root, which this
+non-root default then rejects.
 
 ### Sharing `./workspaces` with another container (e.g. an opencode sidecar)
 

@@ -10,8 +10,8 @@ history and the backlog live in the
 [GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
 
 Kestrel is a **single-operator** tool that ingests tasks and has coding-agent
-specialists work them, monitored from a web UI. One process serves both the API and (when packaged)
-the built SPA.
+specialists work them, monitored from a web UI. One process serves both the
+API and (when packaged) the built SPA.
 
 ## Components
 

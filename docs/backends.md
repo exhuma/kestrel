@@ -43,7 +43,8 @@ model_policy = "claude"   # the coder needs file-editing, so pin it explicitly
 
 Config is read once at startup — **restart the backend after editing it**. On
 boot the effective config is logged (`backends: … | default backend: …`).
-In Docker, mount the file and set the env var (see the commented lines in `docker-compose.yml`).
+In Docker, mount the file and set the env var (see the commented lines in
+`docker-compose.yml`).
 
 > The TOML file is the **only** way to configure backends. Without
 > `KESTREL_CONFIG_FILE` set, kestrel runs claude-only.
@@ -152,16 +153,16 @@ password = "changeme"                      # inline (gitignored file), or:
 ```
 
 > **opencode working directory.** Each request kestrel sends is scoped to the
-> session's working directory (the per-run cloned workspace) via opencode's `directory` parameter, so opencode's
-> file tools act there rather than in the directory where `opencode serve` was
-> started. The `opencode serve` process must be able to reach that path —
-> run it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
-> Kestrel sends **absolute** paths, and the git worktrees it creates hold
-> absolute `gitdir` paths, so a sidecar must see the workspace volume at the
-> **same absolute path** as kestrel (for example `/workspaces` in both
-> containers), run as the **same uid:gid**, and have `git` installed. It
-> needs no code-host token: kestrel does the pushing. For a full pod layout,
-> see [Deploying on Kubernetes](deploy-kubernetes.md).
+> session's working directory (the per-run cloned workspace) via opencode's
+> `directory` parameter, so opencode's file tools act there rather than in the
+> directory where `opencode serve` was started. The `opencode serve` process
+> must be able to reach that path — run it on the same host/mount as kestrel's
+> `KESTREL_WORKSPACE_ROOT`. Kestrel sends **absolute** paths, and the git
+> worktrees it creates hold absolute `gitdir` paths, so a sidecar must see the
+> workspace volume at the **same absolute path** as kestrel (for example
+> `/workspaces` in both containers), run as the **same uid:gid**, and have `git`
+> installed. It needs no code-host token: kestrel does the pushing. For a full
+> pod layout, see [Deploying on Kubernetes](deploy-kubernetes.md).
 >
 > **opencode read-only specialists and permissions.** A specialist whose
 > manifest declares `workspace_permission = "read_only"` (or `"none"`) runs

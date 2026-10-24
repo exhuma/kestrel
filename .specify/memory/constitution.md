@@ -445,7 +445,7 @@ section records only the non-negotiable constraints an agent must honour.
   dependency), and timestamps are stored as naive UTC.
 - **Worker agent**: the backend invokes the host's logged-in `claude` CLI as a
   subprocess (OAuth/Max subscription). No `ANTHROPIC_API_KEY` and no Agent SDK.
-  Alternative backends (opencode, self-hosted LLM) are dispatched the same way.
+  The alternative backend (opencode) is dispatched the same way.
 - **Access model**: the operator UI and API MUST require an OIDC sign-in with
   a single operator role; until that sign-in lands they stay bound to
   loopback. Two **recorded public exceptions** are reachable without it:

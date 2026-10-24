@@ -6,50 +6,63 @@ uses [CalVer](docs/releasing.md) (`vYYYY.M.D` with a pre-release suffix).
 
 ## [Unreleased]
 
-### Added
+The slim-core work package (#90): kestrel is the engine, the task source
+holds the record. Constitution 2.0.0.
 
-- Unified `config.toml` (pointed at by `KESTREL_CONFIG_FILE`) now also holds
-  applicative settings — `watched_repos`, `trigger_label`,
-  `reconcile_interval_seconds`, `max_verify_iterations` — alongside backend
-  routing. The file wins where it sets a key; the environment fills in the
-  rest. Secrets stay in the environment.
-- The running workflow stage's chip pulses; active runs in the sidebar show a
-  spinner; the verify chip shows a progress circle counting down the remaining
-  code↔verify iterations.
-- The code deliverable now renders in a proper diff viewer instead of as
-  Markdown.
-- Verify now grounds its verdict in real, observed behaviour: the `design`
-  step classifies the project's HTTP/UI boundary, and verify launches and
-  exercises the running application for real before judging it, using
-  whatever tools the operator's backend already has. `KESTREL_WORKFLOW_DEBUG`
-  captures the coder↔verifier dialogue to a transcript for debugging and
-  keeps the worktree around to inspect.
+### Breaking
 
-### Changed
-
-- `KESTREL_BACKENDS_FILE` is deprecated in favour of `KESTREL_CONFIG_FILE`
-  (still honoured, with a startup warning). `backends.toml.example` is now
-  `config.toml.example`.
-- Verify no longer runs operator-configured shell checks (`verify_checks`
-  and `KESTREL_VERIFY_CHECKS` are removed): durable test/lint coverage is
-  the coder's TDD responsibility, and blending it into the same hard gate
-  as behavioral evidence let a technical failure masquerade as a behavioral
-  one. Verify's evidence is now entirely its own observed behaviour.
-- The coder now commits its own work each round (`WIP:`-prefixed when
-  unsure), with kestrel committing on its behalf as a safety net if the tree
-  is still dirty afterwards. The verifier is no longer shown a diff at all —
-  coder and verifier share the same worktree, so it judges the checked-out
-  tree and its own live observations directly. This also fixes a failure
-  mode where a large diff (e.g. a lockfile change) embedded repeatedly in
-  the verify prompts and debug transcript could grow unboundedly; the debug
-  transcript now logs a compact `git diff --stat` summary instead, and every
-  entry is truncated defensively.
+- **PostgreSQL replaces SQLite.** `KESTREL_DATABASE_URL` is required
+  (`postgresql+psycopg://user:password@host:5432/kestrel`); kestrel does not
+  start without it. The schema is one fresh baseline migration: existing
+  SQLite databases are not migrated. The image no longer sets a database
+  URL; `docker-compose.yml` brings a `postgres` service.
+- **Ad-hoc sessions are gone.** The sessions view, `/api/sessions*`,
+  `/api/backends*` and the `session`/`event` tables are removed. Work enters
+  kestrel only through a task source. Agent output goes to the server log
+  (`kestrel.agent`), tagged with the session id; each card attempt records
+  its session id. See `docs/observability.md`.
+- **`config.toml` accepts every setting**, and an unknown top-level key now
+  fails at startup. Remove keys of deleted settings from existing files.
+  Explicit `Settings(...)` arguments now rank above the file.
+- **Removed settings:** `refine_samples`, `refine_critic`, `reconcile_mode`,
+  `mockups_enabled`, `allow_incomplete_answers`, `workflow_debug`,
+  `KESTREL_RELOAD` (use `python -m app --reload`), `KESTREL_BACKENDS_FILE`,
+  `board_dev_actions_enabled`, `board_workspace_lease_seconds`,
+  `board_artifacts_root` (`KESTREL_BOARD_ARTIFACTS_ROOT`), the Jira
+  `transition_failed` / `transition_escalated` / `transition_rejected` ids,
+  the per-source `hooks_dir`, the `translation` section, and the Jira
+  source `key`.
+- **Removed:** operator hooks, the `openai_compat` backend and translation,
+  the notification centre, issue dismissals, the dev reset/rerun actions,
+  the legacy `?run=` deep link, and API endpoints nothing called.
+- **Permission modes are backend-neutral:** `KESTREL_PERMISSION_MODE` takes
+  `read_only` or `edit` (default `edit`); the Claude backend maps them to its
+  own flags.
 
 ### Fixed
 
-- A driver task's unhandled exception is now logged instead of vanishing
-  silently, and a failure recovering one run on startup no longer blocks
-  recovery of the others (or app boot).
+- Races that SQLite's single writer hid are now atomic on PostgreSQL:
+  claims and repository leases, workflow revision and CI status counters,
+  gate decisions, quarantine review resolution, card state moves, and
+  comment cursors. A result arriving while recovery frees its claim no
+  longer both completes and resets the card.
+- GitHub clients are closed on shutdown; error messages keep a bounded part
+  of the response body.
+
+### Changed
+
+- Artifact bodies live in PostgreSQL instead of files under
+  `/data/board-artifacts`. The repository lease is part of the claim lease
+  (one table), and coordinator actions are board events (no separate
+  table).
+
+- The constitution is 2.0.0: state placement (business records live in the
+  task source and the code host), a single operator with many participants,
+  PostgreSQL, OIDC sign-in planned for the operator, and the interview form
+  as a second public exception.
+- Tests run against a throw-away PostgreSQL database
+  (`KESTREL_TEST_DATABASE_URL`); integration tests carry
+  `pytest.mark.integration`.
 
 ## [2026.7.5-alpha.3] - 2026-07-05
 
