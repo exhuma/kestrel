@@ -356,7 +356,7 @@ surfaces to move between. The scaffolding landed in Phase 3; the *guarantees* ar
 only testable here.
 
 - [x] T076 [US4] Implement the legacy `?run=<id>` redirect per `contracts/routes.md` §2 — `runIdFromSearch(window.location.search)` resolving to the `cockpit` route via `router.replace` (a **replace**, so back never lands on the redirect). Keep `lib/deeplink.ts`'s existing signature so `frontend/tests/lib/deeplink.test.ts` stays valid; only the injected `select` callback changes to navigate
-- [x] T077 [US4] Write `frontend/tests/router/legacyDeepLink.test.ts` covering `/?run=<id>` resolving to that request's cockpit (FR-031) and back **not** returning to the redirect
+- [x] T077 [US4] ~~Dropped 2026-10-24 (#71): the `?run=` redirect was deleted instead.~~ Write `frontend/tests/router/legacyDeepLink.test.ts` covering `/?run=<id>` resolving to that request's cockpit (FR-031) and back **not** returning to the redirect
 - [x] T078 [P] [US4] Write `frontend/tests/router/history.test.ts` walking board → cockpit → interview and asserting back twice yields cockpit then board, **and forward twice retraces it again** (FR-029)
 - [x] T079 [P] [US4] Write `frontend/tests/router/coldStart.test.ts` asserting each address renders its surface directly in a fresh router, without the board rendering first (FR-028)
 - [x] T080 [P] [US4] Write `frontend/tests/views/NotFoundView.test.ts` asserting an address naming a nonexistent request, and an unmatched path, both produce the explanatory surface with a route back to the board — not a blank page and not an error trace (FR-030)
