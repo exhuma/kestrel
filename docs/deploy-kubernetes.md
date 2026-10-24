@@ -182,7 +182,6 @@ data:
     deployment = "cloud"                  # REST v3 and ADF
     auth = "basic"                        # Cloud: email + API token
     email = "<account email>"
-    key = "<PROJECT>"
     jql = '''project = <PROJECT> AND creator in membersOf("DTN_COSS") AND status = "Ready for kestrel" ORDER BY created ASC'''
     repo_field = "customfield_<repo field id>"   # holds owner/name[@branch]
     # or leave repo_field out and put a web link titled "Repository" on the
@@ -210,7 +209,6 @@ Notes on the file:
 - Find the custom field ids with Jira's field list (`GET
   /rest/api/3/field`, look for the field names); they look like
   `customfield_10050`. The change owner field must be a **user picker**.
-- `key` only scopes dismissals; it is not part of the query.
 - The Jira poll uses one interval for every source (`poll_interval_seconds`).
   Kestrel reads ticket replies every 60 seconds by default
   (`board_comment_poll_interval_seconds`).

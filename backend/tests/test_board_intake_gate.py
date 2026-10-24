@@ -29,7 +29,6 @@ from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
-from app.persistence.dismissal_store import DismissalStore
 from app.ports import Task
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.gates import GatesService
@@ -101,7 +100,6 @@ async def test_intake_gate_resolves_through_interventions(
     ingestion = IngestionService(
         settings,
         _FakeTaskSources(),
-        DismissalStore(factory),
         BoardIntake(_FakeQuarantine(), board_service),
     )
 

@@ -119,9 +119,6 @@ class TaskSourceConfig(BaseModel):
     auth: Literal["basic", "bearer"] = "basic"
     email: str = ""
     jql: str = ""
-    #: Jira: issue-key prefix (e.g. ``"RFC"``) used only to scope this source's
-    #: dismissal-clear/re-trigger gesture — not part of item selection.
-    key: str = ""
     #: Jira: optional custom field holding ``owner/name[@base]``; when unset the
     #: repo is resolved from a web link titled ``repo_link_text``.
     repo_field: str = ""
@@ -164,12 +161,8 @@ class TaskSourceConfig(BaseModel):
         """Enforce the fields each source type needs (loud at startup)."""
         if self.type == "github" and not self.watched_repos:
             raise ValueError("github task source requires watched_repos")
-        if self.type == "jira" and not (
-            self.base_url and self.jql and self.key
-        ):
-            raise ValueError(
-                "jira task source requires base_url, jql, and key"
-            )
+        if self.type == "jira" and not (self.base_url and self.jql):
+            raise ValueError("jira task source requires base_url and jql")
         if self.type == "local" and not self.tasks_dir:
             raise ValueError("local task source requires tasks_dir")
         if self.type == "local" and self.code_host != "local":

@@ -103,7 +103,6 @@ deployment = "cloud"                   # cloud (ADF/v3) | server (text/v2, the d
 auth = "basic"                         # basic (Cloud) | bearer (Server/DC PAT)
 email = "me@acme.com"
 jql = 'project = "RFC" AND status = "Ready"'  # one whole query, you write it
-key = "RFC"                            # issue-key prefix; scopes dismissals only
 verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 # token_env = "KESTREL_JIRA_API_TOKEN" # optional (default)
 repo_field = "customfield_10050"       # optional; else a titled web link is used

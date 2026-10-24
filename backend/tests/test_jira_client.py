@@ -292,7 +292,7 @@ async def test_task_source_subtask_inherits_parent_repository_link() -> None:
 
 def _config(**overrides) -> TaskSourceConfig:
     base = dict(
-        type="jira", base_url="https://jira.example", jql="x", key="RFC"
+        type="jira", base_url="https://jira.example", jql="x"
     )
     base.update(overrides)
     return TaskSourceConfig(**base)

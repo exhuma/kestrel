@@ -28,7 +28,7 @@ def test_load_env_populates_named_secret_lookups(
     monkeypatch.chdir(tmp_path)
     saved = os.environ.pop(_JIRA_TOKEN, None)
     jira = TaskSourceConfig(
-        type="jira", base_url="https://j", jql="q", key="RFC"
+        type="jira", base_url="https://j", jql="q"
     )
     try:
         assert jira.token() is None  # not yet loaded

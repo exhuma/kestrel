@@ -119,7 +119,7 @@ def test_task_source_validation_rejects_incomplete_entries() -> None:
     with pytest.raises(Exception):
         TaskSourceConfig(type="github", watched_repos=[])
     with pytest.raises(Exception):
-        TaskSourceConfig(type="jira", base_url="https://j", jql="", key="RFC")
+        TaskSourceConfig(type="jira", base_url="https://j", jql="")
 
 
 def test_task_source_token_resolves_from_env(
@@ -130,7 +130,7 @@ def test_task_source_token_resolves_from_env(
     monkeypatch.setenv("CUSTOM_JIRA", "jira-custom")
     gh = TaskSourceConfig(type="github", watched_repos=["o/a"])
     jira = TaskSourceConfig(
-        type="jira", base_url="https://j", jql="project = RFC", key="RFC",
+        type="jira", base_url="https://j", jql="project = RFC",
         token_env="CUSTOM_JIRA",
     )
     assert gh.token() == "gh-default"
@@ -185,7 +185,7 @@ def test_jira_source_defaults_and_verify_defaults() -> None:
     s = Settings(_env_file=None)
     assert s.max_verify_iterations == 3
     jira = TaskSourceConfig(
-        type="jira", base_url="https://j", jql="project = RFC", key="RFC"
+        type="jira", base_url="https://j", jql="project = RFC"
     )
     assert jira.auth == "basic"
     assert jira.repo_link_text == "Repository"
@@ -197,7 +197,7 @@ def test_task_source_literals_accept_allowed_values() -> None:
     """Ensure the literal-typed source fields accept their allowed values."""
     def _jira(**kw):
         return TaskSourceConfig(
-            type="jira", base_url="https://j", jql="q", key="RFC", **kw
+            type="jira", base_url="https://j", jql="q", **kw
         )
 
     assert _jira(auth="bearer").auth == "bearer"
@@ -220,7 +220,7 @@ def test_jira_source_without_token_warns(
             task_sources=[
                 TaskSourceConfig(
                     type="jira", base_url="https://jira.example",
-                    jql="project = RFC", key="RFC",
+                    jql="project = RFC",
                 )
             ],
         )
@@ -238,7 +238,7 @@ def test_code_host_partial_config_warns_without_leaking_token(
             task_sources=[
                 TaskSourceConfig(
                     type="jira", base_url="https://jira.example",
-                    jql="q", key="RFC", token_env="KESTREL_CODE_HOST_TOKEN",
+                    jql="q", token_env="KESTREL_CODE_HOST_TOKEN",
                     code_host="gitlab",
                 )
             ],
@@ -260,7 +260,7 @@ def test_full_jira_and_code_host_config_does_not_warn(
             task_sources=[
                 TaskSourceConfig(
                     type="jira", base_url="https://jira.example",
-                    jql="project = RFC", key="RFC",
+                    jql="project = RFC",
                     code_host="gitlab",
                     code_host_base_url="https://gitlab.internal",
                 )
@@ -362,7 +362,6 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
         'type = "jira"\n'
         'base_url = "https://jira.example"\n'
         'jql = "project = RFC"\n'
-        'key = "RFC"\n'
         "verify_ssl = false\n"
     )
     s = Settings(_env_file=None, config_file=str(toml))
@@ -370,7 +369,7 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
     gh, jira = s.github_sources()[0], s.jira_sources()[0]
     assert gh.watched_repos == ["o/one", "o/two"]
     assert gh.trigger_label == "ship-it"
-    assert jira.key == "RFC" and jira.jql == "project = RFC"
+    assert jira.jql == "project = RFC"
     assert jira.verify_ssl is False  # opt-out parsed from the file
     assert gh.verify_ssl is True  # default
 

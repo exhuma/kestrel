@@ -121,7 +121,7 @@ class JiraClient:
 
         Cloud uses enhanced ``/search/jql`` token pagination. Server/DC keeps
         the v2 ``/search`` ``startAt``/``total`` page model. Collecting every
-        page keeps the poll's dismissal-clear logic correct.
+        page keeps the poll's view of the qualifying set complete.
         """
         body = {"jql": jql, "fields": fields, "maxResults": max_results}
         if self._cloud:

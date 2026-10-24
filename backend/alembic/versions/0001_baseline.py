@@ -69,12 +69,6 @@ def upgrade() -> None:
         unique=True,
     )
     op.create_table(
-        "issue_dismissal",
-        sa.Column("task_ref", sa.String(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("task_ref", name="pk_issue_dismissal"),
-    )
-    op.create_table(
         "session",
         sa.Column("session_id", sa.String(), nullable=False),
         sa.Column("cwd", sa.Text(), nullable=False),
@@ -450,7 +444,6 @@ def downgrade() -> None:
         "board_card",
         "webhook_delivery",
         "session",
-        "issue_dismissal",
         "board_workflow",
         "board_untrusted_input",
     ):

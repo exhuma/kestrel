@@ -22,7 +22,6 @@ deployment = "server"                 # cloud (ADF/v3) | server (text/v2)
 auth = "basic"                         # basic (Cloud email+API token) | bearer (Server/DC PAT)
 email = "you@example.com"              # basic only
 jql = 'project = "RFC" AND status = "Ready for Kestrel"'  # the whole query, yours to write
-key = "RFC"                            # issue-key prefix; scopes dismissals only
 verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 repo_field = "customfield_10050"       # optional; holds owner/name[@base_branch]
 repo_link_text = "Repository"          # web-link title to resolve the repo (default)
@@ -41,8 +40,7 @@ KESTREL_CODE_HOST_TOKEN=***   # PAT for a self-hosted code host
 
 Kestrel stays agnostic of your Jira conventions: the whole `jql` query and the
 repository resolution are configuration. You write the entire JQL (there is no
-separate project key); `key` is only the issue-key prefix used to scope the
-re-trigger gesture.
+separate project key).
 
 Set `deployment = "cloud"` for an `atlassian.net` site. Cloud requests use
 REST v3 and render Kestrel's controlled Markdown as Atlassian Document Format
@@ -230,15 +228,6 @@ what they mean, for example `@kestrel approved`, or `@kestrel no, because
   names Jira reported when the reply was read.
 - The reply is read only while `comment_sentinel_enabled` is on, because
   kestrel needs its ownership marker to tell its own comments from replies.
-
-### Re-triggering an RFC
-
-The old fixed driver recorded a "dismissal" when a PRD was rejected or a run
-abandoned, so polling wouldn't silently re-create it, clearing that
-dismissal only once the RFC left and re-entered the qualifying filter. That
-dismissal-setting code was removed with the driver and has no board-domain
-replacement, so there is currently no dismissal to clear or re-trigger by
-cycling the RFC's status.
 
 ### Lifecycle sync
 

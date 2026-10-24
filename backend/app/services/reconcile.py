@@ -2,9 +2,8 @@
 
 Periodically lists each of a GitHub source's trigger-labelled issues and starts
 any run the webhook path missed, idempotently with webhooks via the shared
-ingestion guard. Also clears dismissals whose trigger label was removed
-(feature 002, US2 / FR-012..FR-015 / FR-008a). One service instance is bound to
-one ``github`` task source (feature 004).
+ingestion guard. One service instance is bound to one
+``github`` task source (feature 004; feature 002, US2 / FR-012..FR-015).
 """
 from __future__ import annotations
 
@@ -14,7 +13,6 @@ from functools import lru_cache
 
 from app.config import get_settings
 from app.config_models import TaskSourceConfig
-from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.ports import WorkItem
 from app.services.github import GitHubClient, Issue
 from app.services.ingestion import IngestionService, get_ingestion_service
@@ -30,12 +28,10 @@ class ReconcileService:
         source: TaskSourceConfig,
         github: GitHubClient,
         ingestion: IngestionService,
-        dismissals: DismissalStore,
     ) -> None:
         self.source = source
         self.github = github
         self.ingestion = ingestion
-        self.dismissals = dismissals
 
     @property
     def name(self) -> str:
@@ -65,24 +61,8 @@ class ReconcileService:
             for issue in issues
             if self.source.trigger_label in issue.labels
         }
-        self._clear_stale_dismissals(repo, labelled)
         for issue in issues:
             await self._observe_or_start(repo, issue, issue.number in labelled)
-
-    def _clear_stale_dismissals(self, repo: str, labelled: set[int]) -> None:
-        # Clear dismissals whose trigger label is gone (self-heal a missed
-        # `unlabeled` delivery), so a re-label can start fresh. Dismissals are
-        # keyed by the source-neutral task_ref (``owner/name#n`` for GitHub).
-        prefix = f"{repo}#"
-        for ref in self.dismissals.all():
-            if not ref.startswith(prefix):
-                continue
-            try:
-                number = int(ref[len(prefix):])
-            except ValueError:
-                continue
-            if number not in labelled:
-                self.dismissals.clear(ref)
 
     async def _observe_or_start(
         self, repo: str, issue: Issue, is_labelled: bool
@@ -131,7 +111,6 @@ def get_reconcile_services() -> tuple[ReconcileService, ...]:
     """One ReconcileService per configured GitHub task source."""
     settings = get_settings()
     ingestion = get_ingestion_service()
-    dismissals = get_dismissal_store()
     return tuple(
         ReconcileService(
             source,
@@ -141,7 +120,6 @@ def get_reconcile_services() -> tuple[ReconcileService, ...]:
                 verify=source.verify_ssl,
             ),
             ingestion,
-            dismissals,
         )
         for source in settings.github_sources()
     )

@@ -77,18 +77,3 @@ class WebhookDeliveryRow(Base):
     repo: Mapped[str | None] = mapped_column(nullable=True)
     issue_number: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
-
-
-class IssueDismissalRow(Base):
-    """A durable tombstone that a ticket's run was rejected/abandoned.
-
-    Suppresses re-ingestion/reconciliation for a ``task_ref`` until the
-    ticket stops qualifying (GitHub: trigger label removed; Jira: the RFC
-    leaves the qualifying JQL). Source-neutral key (feature 003, FR-033;
-    generalized from the feature-002 ``(repo, issue_number)`` composite).
-    """
-
-    __tablename__ = "issue_dismissal"
-
-    task_ref: Mapped[str] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)

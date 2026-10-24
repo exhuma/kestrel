@@ -35,7 +35,7 @@ def _settings(
     jira_sources = (
         [TaskSourceConfig(
             type="jira", code_host=jira_code_host,
-            base_url="https://jira.example", jql="project = X", key="X",
+            base_url="https://jira.example", jql="project = X",
         )]
         if jira_code_host else []
     )

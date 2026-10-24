@@ -150,7 +150,7 @@ trigger_label = "kestrel"
 
 # Jira: poll one instance with a whole JQL query (you write the project clause
 # yourself). The target repo is resolved from `repo_field` or a web link titled
-# `repo_link_text`. `key` is the issue-key prefix, used only to scope dismissals.
+# `repo_link_text`.
 # [[task_sources]]
 # type = "jira"
 # base_url = "https://acme.atlassian.net"
@@ -158,7 +158,6 @@ trigger_label = "kestrel"
 # auth = "basic"                       # "basic" (Cloud) | "bearer" (Server/DC PAT)
 # email = "me@acme.com"
 # jql = 'project = "RFC" AND status = "Ready"'
-# key = "RFC"
 # token_env = "KESTREL_JIRA_API_TOKEN"  # optional (default)
 # verify_ssl = false                    # skip TLS cert checks on the Jira/code-host
 #                                       # REST calls (self-signed/internal CA)
