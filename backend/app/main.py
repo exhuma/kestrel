@@ -262,8 +262,9 @@ def create_app() -> FastAPI:
     telemetry.init_tracing(app, get_settings())
 
     # When packaged as a single image the backend also serves the built SPA.
-    # Mounted last so the API routers above keep priority; html=True serves
-    # index.html for unknown paths, giving the SPA its client-side routing.
+    # Mounted last so the API routers above keep priority; the SPA uses
+    # hash history because StaticFiles(html=True) does not fall back to
+    # index.html for unknown paths (it 404s), so deep paths would break.
     static_dir = get_settings().static_dir
     if static_dir and os.path.isdir(static_dir):
         from fastapi.staticfiles import StaticFiles
