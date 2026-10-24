@@ -3,32 +3,43 @@
 // Hash history (research R2) — no server-side route handling needed.
 // `board` is eager (the common entry point); `cockpit`/`interview`/
 // `sessions` are lazy so the board doesn't pay for their code.
-import { createRouter, createWebHashHistory } from 'vue-router'
+import {
+  createRouter,
+  createWebHashHistory,
+  type RouterHistory,
+} from 'vue-router'
 import StageBoardView from '../views/StageBoardView.vue'
 
-export const router = createRouter({
-  history: createWebHashHistory(),
-  routes: [
-    { path: '/', name: 'board', component: StageBoardView },
-    {
-      path: '/requests/:id',
-      name: 'cockpit',
-      component: () => import('../views/RequestCockpitView.vue'),
-    },
-    {
-      path: '/requests/:id/interview',
-      name: 'interview',
-      component: () => import('../views/InterviewView.vue'),
-    },
-    {
-      path: '/sessions',
-      name: 'sessions',
-      component: () => import('../views/SessionsView.vue'),
-    },
-    {
-      path: '/:pathMatch(.*)*',
-      name: 'not-found',
-      component: () => import('../views/NotFoundView.vue'),
-    },
-  ],
-})
+/** Build the app router; tests inject a memory history. */
+export function createAppRouter(
+  history: RouterHistory = createWebHashHistory(),
+) {
+  return createRouter({
+    history,
+    routes: [
+      { path: '/', name: 'board', component: StageBoardView },
+      {
+        path: '/requests/:id',
+        name: 'cockpit',
+        component: () => import('../views/RequestCockpitView.vue'),
+      },
+      {
+        path: '/requests/:id/interview',
+        name: 'interview',
+        component: () => import('../views/InterviewView.vue'),
+      },
+      {
+        path: '/sessions',
+        name: 'sessions',
+        component: () => import('../views/SessionsView.vue'),
+      },
+      {
+        path: '/:pathMatch(.*)*',
+        name: 'not-found',
+        component: () => import('../views/NotFoundView.vue'),
+      },
+    ],
+  })
+}
+
+export const router = createAppRouter()
