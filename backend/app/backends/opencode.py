@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import uuid
+from pathlib import Path
 from typing import Callable
 
 import httpx
@@ -24,6 +24,7 @@ from app.backends.opencode_models import split_model
 from app.backends.opencode_parts import assistant_error, tool_summary
 from app.backends.opencode_permissions import (
     OpenCodeConnection,
+    directory_params,
     permission_handler,
 )
 from app.backends.opencode_tools import (
@@ -84,12 +85,13 @@ class OpenCodeBackend(Backend):
         )
 
     async def start(self, prompt: str) -> str:
-        cwd = os.path.join(
-            self.settings.workspace_root, "session-" + uuid.uuid4().hex[:8]
+        session_dir = Path(self.settings.workspace_root) / (
+            "session-" + uuid.uuid4().hex[:8]
         )
+        cwd = str(session_dir)
         # opencode resolves file tools against this directory; make sure it
         # exists (an ad-hoc session has no repo cloned into it yet).
-        os.makedirs(cwd, exist_ok=True)
+        session_dir.mkdir(parents=True, exist_ok=True)
         sid = await self._create_session(cwd)
         self.registry.create(sid, cwd)
         # Ad-hoc sessions are user-driven and edit-capable.
@@ -452,9 +454,7 @@ class OpenCodeBackend(Backend):
         relative by default), so a relative path would resolve against the
         wrong base.
         """
-        params = (
-            {"directory": os.path.abspath(directory)} if directory else None
-        )
+        params = directory_params(directory)
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.request(

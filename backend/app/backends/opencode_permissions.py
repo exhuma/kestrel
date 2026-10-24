@@ -10,9 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
 import httpx
@@ -62,6 +62,13 @@ async def permission_handler(
             await task
 
 
+def directory_params(directory: str | None) -> dict[str, str] | None:
+    """The ``directory`` query parameter, as an absolute path (or ``None``)."""
+    if not directory:
+        return None
+    return {"directory": str(Path(directory).absolute())}
+
+
 async def run_permission_loop(
     conn: OpenCodeConnection,
     session_id: str,
@@ -73,7 +80,7 @@ async def run_permission_loop(
     show *watch* its message parts."""
     turn = _Turn(conn, session_id, directory, read_only, watch)
     client = conn.client or httpx.AsyncClient(timeout=None)
-    params = {"directory": os.path.abspath(directory)} if directory else None
+    params = directory_params(directory)
     try:
         async with client.stream(
             "GET",

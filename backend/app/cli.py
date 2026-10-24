@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
+from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
@@ -46,14 +46,15 @@ def cmd_serve(settings: Settings, reload: bool = False) -> int:
     # dropping every open SSE connection (ERR_EMPTY_RESPONSE in the browser).
     # Exclude it; create it first so watchfiles treats the entry as a
     # directory-prefix exclude (recursive) rather than a non-matching glob.
-    os.makedirs(settings.workspace_root, exist_ok=True)
+    workspace_root = Path(settings.workspace_root)
+    workspace_root.mkdir(parents=True, exist_ok=True)
     uvicorn.run(
         "app.main:app",
         host=settings.host,
         port=settings.port,
         log_config=log_config,
         reload=reload,
-        reload_excludes=[os.path.abspath(settings.workspace_root)],
+        reload_excludes=[str(workspace_root.absolute())],
     )
     return 0
 

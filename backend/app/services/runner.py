@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
+from pathlib import Path
 from typing import AsyncIterator, Callable
 
 from fastapi import Depends
@@ -186,7 +186,7 @@ class SessionRunner:
         self, argv: list[str], cwd: str, record_id: str | None
     ) -> str:
         """Launch an already admitted detached CLI turn."""
-        os.makedirs(cwd, exist_ok=True)
+        Path(cwd).mkdir(parents=True, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
             *argv,
             cwd=cwd,
@@ -274,7 +274,7 @@ class SessionRunner:
         :returns: The resolved session id.
         :raises SessionStartError: If no session id is produced.
         """
-        os.makedirs(cwd, exist_ok=True)
+        Path(cwd).mkdir(parents=True, exist_ok=True)
         if self._limiter is None:
             return await self._run_blocking(prompt, cwd, permission_mode,
                                             resume_id, on_session_id, model)
@@ -333,8 +333,10 @@ class SessionRunner:
         :param prompt: The prompt text to start the session with.
         :returns: The resolved session id.
         """
-        base = os.path.join(self.settings.workspace_root, "session")
-        cwd = base + "-" + uuid.uuid4().hex[:8]
+        cwd = str(
+            Path(self.settings.workspace_root)
+            / ("session-" + uuid.uuid4().hex[:8])
+        )
         argv = self.build_argv(prompt)
         return await self._launch(argv, cwd, record_id=None)
 

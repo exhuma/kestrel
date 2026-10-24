@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
@@ -253,7 +253,7 @@ def create_app() -> FastAPI:
     # hash history because StaticFiles(html=True) does not fall back to
     # index.html for unknown paths (it 404s), so deep paths would break.
     static_dir = get_settings().static_dir
-    if static_dir and os.path.isdir(static_dir):
+    if static_dir and Path(static_dir).is_dir():
         from fastapi.staticfiles import StaticFiles
 
         app.mount(
