@@ -31,13 +31,11 @@ from app.routers.board_deps import (
     snapshot_for,
 )
 from app.routers.board_views import (
-    board_events,
     card_summary,
 )
 from app.routers.document_out import MARKDOWN_MIME, api_markdown
 from app.schemas import (
     BoardArtifactContentOut,
-    BoardEventOut,
     BoardInterventionIn,
     BoardSnapshotOut,
     QuarantineInterventionIn,
@@ -223,30 +221,6 @@ async def stream_board_workflows(
 
 
 @router.get(
-    "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
-)
-async def list_board_events(
-    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
-) -> list[BoardEventOut]:
-    """Return one workflow's board event history, oldest first — the
-    narrative feed's data source.
-
-    Not streamed: board SSE is full-snapshot replacement (never
-    incremental patches), and a growing append-only log does not fit
-    that shape. The client re-fetches this after the snapshot stream
-    ticks instead.
-
-    :raises HTTPException: 404 if ``workflow_id`` is unknown.
-    """
-    workflow = deps.board.get_workflow(workflow_id)
-    if workflow is None:
-        raise HTTPException(status_code=404, detail="unknown workflow")
-    events = deps.board.list_events(workflow_id)
-    cards = deps.board.list_cards(workflow_id)
-    return board_events(events, cards, deps.roster)
-
-
-@router.get(
     "/workflows/{workflow_id}/board", response_model=BoardSnapshotOut
 )
 async def get_board(
@@ -294,28 +268,6 @@ async def stream_board(
     return StreamingResponse(
         _frames(), media_type="text/event-stream", headers=sse.HEADERS
     )
-
-
-@router.get(
-    "/workflows/{workflow_id}/cards/{card_id}",
-    response_model=WorkCardSummaryOut,
-)
-async def get_board_card(
-    workflow_id: str,
-    card_id: str,
-    deps: BoardReadDeps = Depends(board_read_deps),
-) -> WorkCardSummaryOut:
-    """Return one card's board-visible summary.
-
-    :raises HTTPException: 404 if the workflow or card is unknown, or the
-        card does not belong to ``workflow_id``.
-    """
-    card = deps.board.get_card(card_id)
-    if card is None or card.workflow_id != workflow_id:
-        raise HTTPException(status_code=404, detail="unknown card")
-    relations = deps.board.list_relations(workflow_id)
-    cards = deps.board.list_cards(workflow_id)
-    return card_summary(card, relations, board_lookups(cards, deps))
 
 
 @router.post(

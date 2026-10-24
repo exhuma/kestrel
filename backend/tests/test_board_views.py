@@ -19,14 +19,12 @@ from app.models_board import (
     Workflow,
 )
 from app.models_board_records import (
-    BoardEventRecord,
     HandoffArtifact,
     HumanGateRecord,
 )
 from app.routers.board_views import (
     BoardLookups,
     action_required_count,
-    board_events,
     board_snapshot,
     card_summary,
     state_counts,
@@ -415,67 +413,3 @@ class TestVisibleWorkflows:
             other,
         ]
 
-
-class TestBoardEvents:
-    """Board history maps to the narrative feed's safe shape."""
-
-    def test_event_fields_are_carried_through(self) -> None:
-        when = datetime.now(timezone.utc)
-        events = [
-            BoardEventRecord(
-                workflow_id="wf-1",
-                event_type="card.result_accepted",
-                card_id="card-1",
-                payload='{"x": 1}',
-                created_at=when,
-            )
-        ]
-        out = board_events(events, [_card()], _ROSTER)
-        assert len(out) == 1
-        assert out[0].event_type == "card.result_accepted"
-        assert out[0].card_id == "card-1"
-        assert out[0].payload == '{"x": 1}'
-        assert out[0].created_at == when
-
-    def test_specialist_is_derived_from_the_cards_eligible_role(
-        self,
-    ) -> None:
-        events = [
-            BoardEventRecord(
-                workflow_id="wf-1", event_type="card.done", card_id="card-1"
-            )
-        ]
-        out = board_events(events, [_card()], _ROSTER)
-        assert out[0].specialist is not None
-        assert out[0].specialist.id == "developer"
-
-    def test_workflow_level_event_has_no_specialist(self) -> None:
-        events = [
-            BoardEventRecord(workflow_id="wf-1", event_type="workflow.created")
-        ]
-        out = board_events(events, [], _ROSTER)
-        assert out[0].card_id is None
-        assert out[0].specialist is None
-
-    def test_a_gate_card_with_no_eligible_role_has_no_specialist(
-        self,
-    ) -> None:
-        events = [
-            BoardEventRecord(
-                workflow_id="wf-1", event_type="card.awaiting_human",
-                card_id="gate-1",
-            )
-        ]
-        gate_card = _card(
-            "gate-1", kind="understanding_gate", eligible_roles=()
-        )
-        out = board_events(events, [gate_card], _ROSTER)
-        assert out[0].specialist is None
-
-    def test_events_preserve_their_given_order(self) -> None:
-        events = [
-            BoardEventRecord(workflow_id="wf-1", event_type="first"),
-            BoardEventRecord(workflow_id="wf-1", event_type="second"),
-        ]
-        out = board_events(events, [], _ROSTER)
-        assert [e.event_type for e in out] == ["first", "second"]

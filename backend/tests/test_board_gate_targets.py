@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.models_board import WorkCard
@@ -50,6 +51,12 @@ def _interview(tmp_path: Path, store) -> None:
     )
 
 
+async def _get_card(c: httpx.AsyncClient, card_id: str) -> dict:
+    """Return one card's summary as the board snapshot lists it."""
+    resp = await c.get("/api/board/workflows/wf-1/board")
+    return next(x for x in resp.json()["cards"] if x["id"] == card_id)
+
+
 @pytest.mark.asyncio
 async def test_an_interview_gate_exposes_its_questions(
     tmp_path: Path,
@@ -59,11 +66,10 @@ async def test_an_interview_gate_exposes_its_questions(
     _interview(tmp_path, store)
 
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-gate")
+        card = await _get_card(c, "card-gate")
 
-    body = resp.json()
-    assert body["latest_artifact"] is None
-    assert body["gate"]["target_artifact"] == {
+    assert card["latest_artifact"] is None
+    assert card["gate"]["target_artifact"] == {
         "id": "art-questions", "label": "questions", "revision": 1,
     }
 
@@ -85,9 +91,9 @@ async def test_a_gate_without_a_target_exposes_none(tmp_path: Path) -> None:
     )
 
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
+        card = await _get_card(c, "card-1")
 
-    assert resp.json()["gate"]["target_artifact"] is None
+    assert card["gate"]["target_artifact"] is None
 
 
 def test_the_cab1_decision_targets_the_strategic_answers(

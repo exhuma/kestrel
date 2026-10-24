@@ -340,24 +340,6 @@ class BoardInterventionIn(BaseModel):
     answer: str | None = None
 
 
-class BoardEventOut(BaseModel):
-    """One board-history entry (data-model.md "Board Event"), safe for
-    the narrative feed.
-
-    :param specialist: The role eligible to own this event's card, when
-        it has one — derived from the card's eligible roles at read
-        time, not a recorded actor (feature 026 never records who
-        actually acted on an event). A workflow-level event (no card) or
-        an operator-resolved gate (no eligible role) carries ``None``.
-    """
-
-    event_type: str
-    card_id: str | None
-    payload: str
-    created_at: datetime | None
-    specialist: BoardRoleRefOut | None = None
-
-
 class NotificationOut(BaseModel):
     """One notification for the API."""
 

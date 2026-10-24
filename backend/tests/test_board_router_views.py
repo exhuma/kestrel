@@ -22,7 +22,6 @@ from app.models_board import (
     Workflow,
 )
 from app.models_board_records import (
-    BoardEventRecord,
     HandoffArtifact,
     HumanGateRecord,
 )
@@ -122,6 +121,12 @@ def _ready_card(card_id: str = "card-1", **overrides: object) -> WorkCard:
     }
     fields.update(overrides)
     return WorkCard(**fields)
+
+
+async def _get_card(c: httpx.AsyncClient, card_id: str) -> dict:
+    """Return one card's summary as the board snapshot lists it."""
+    resp = await c.get("/api/board/workflows/wf-1/board")
+    return next(x for x in resp.json()["cards"] if x["id"] == card_id)
 
 
 @pytest.mark.asyncio
@@ -239,59 +244,6 @@ async def test_get_board_unknown_workflow_is_404(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_card_returns_its_summary(tmp_path: Path) -> None:
-    client, store, _claims = _client(tmp_path)
-    store.create_card(_ready_card())
-    async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    assert resp.status_code == httpx.codes.OK
-    assert resp.json()["id"] == "card-1"
-
-
-@pytest.mark.asyncio
-async def test_get_card_unknown_card_is_404(tmp_path: Path) -> None:
-    client, _store, _claims = _client(tmp_path)
-    async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/missing")
-    assert resp.status_code == httpx.codes.NOT_FOUND
-
-
-@pytest.mark.asyncio
-async def test_list_board_events_returns_history_oldest_first(
-    tmp_path: Path,
-) -> None:
-    client, store, _claims = _client(tmp_path)
-    store.create_card(_ready_card(eligible_roles=("developer",)))
-    store.append_event(
-        BoardEventRecord(workflow_id="wf-1", event_type="workflow.created")
-    )
-    store.append_event(
-        BoardEventRecord(
-            workflow_id="wf-1", event_type="card.claimed", card_id="card-1"
-        )
-    )
-    async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/events")
-    assert resp.status_code == httpx.codes.OK
-    body = resp.json()
-    assert [e["event_type"] for e in body] == [
-        "workflow.created", "card.claimed",
-    ]
-    assert body[0]["specialist"] is None
-    assert body[1]["specialist"]["id"] == "developer"
-
-
-@pytest.mark.asyncio
-async def test_list_board_events_unknown_workflow_is_404(
-    tmp_path: Path,
-) -> None:
-    client, _store, _claims = _client(tmp_path)
-    async with client as c:
-        resp = await c.get("/api/board/workflows/missing/events")
-    assert resp.status_code == httpx.codes.NOT_FOUND
-
-
-@pytest.mark.asyncio
 async def test_intervention_cancels_a_ready_card(tmp_path: Path) -> None:
     client, store, _claims = _client(tmp_path)
     store.create_card(_ready_card())
@@ -387,8 +339,8 @@ async def test_card_summary_surfaces_gate_detail(tmp_path: Path) -> None:
         )
     )
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    gate = resp.json()["gate"]
+        card = await _get_card(c, "card-1")
+    gate = card["gate"]
     assert gate["requested_decision"] == "confirm_understanding"
     assert gate["decision"] is None
 
@@ -400,8 +352,8 @@ async def test_card_summary_gate_is_null_for_a_non_gate_card(
     client, store, _claims = _client(tmp_path)
     store.create_card(_ready_card())
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    assert resp.json()["gate"] is None
+        card = await _get_card(c, "card-1")
+    assert card["gate"] is None
 
 
 def _record_artifact(
@@ -463,8 +415,8 @@ async def test_claimed_card_reports_owner_via_the_router(
     store.create_card(_ready_card(eligible_roles=("developer",)))
     claims_store.claim_card(ClaimRequest("card-1", "developer", 600))
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    assert resp.json()["owner"]["specialist_id"] == "developer"
+        card = await _get_card(c, "card-1")
+    assert card["owner"]["specialist_id"] == "developer"
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,6 @@ from app.routers.document_out import api_markdown
 from app.schemas import (
     AwaitingOut,
     BoardArtifactRefOut,
-    BoardEventOut,
     BoardLeaseOut,
     BoardOwnerOut,
     BoardRoleRefOut,
@@ -347,41 +346,3 @@ def _gate_detail(
 def _persona_ref(lookups: BoardLookups, card_id: str) -> BoardRoleRefOut | None:
     persona = lookups.gate_personas.get(card_id)
     return _role_ref(lookups.roster, persona) if persona else None
-
-
-def board_events(
-    events: list[BoardEventRecord],
-    cards: list[WorkCard],
-    roster: SpecialistRoster,
-) -> list[BoardEventOut]:
-    """Map raw board history to the narrative feed's safe shape, oldest
-    first (board-api.md "Board Event").
-
-    Specialist attribution is derived from each event's card, not
-    recorded on the event itself (feature 026 never records who
-    actually acted) — a card's first eligible role stands in for who
-    this event is about, since a card kind is eligible to exactly the
-    role(s) meant to work it.
-    """
-    cards_by_id = {card.id: card for card in cards}
-    return [_event_out(event, cards_by_id, roster) for event in events]
-
-
-def _event_out(
-    event: BoardEventRecord,
-    cards_by_id: dict[str, WorkCard],
-    roster: SpecialistRoster,
-) -> BoardEventOut:
-    card = cards_by_id.get(event.card_id) if event.card_id else None
-    specialist = (
-        _role_ref(roster, card.eligible_roles[0])
-        if card is not None and card.eligible_roles
-        else None
-    )
-    return BoardEventOut(
-        event_type=event.event_type,
-        card_id=event.card_id,
-        payload=event.payload,
-        created_at=event.created_at,
-        specialist=specialist,
-    )
