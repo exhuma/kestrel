@@ -1,8 +1,8 @@
 """Shared naive-UTC clock normalization for the board persistence stores.
 
-SQLite's ``DateTime`` column round-trips naive datetimes; normalizing
-every clock read through one place keeps stored and injected-for-tests
-values comparable without a tz-aware/naive mismatch.
+The ``DateTime`` columns (``timestamp without time zone``) hold naive
+UTC; normalizing every clock read through one place keeps stored and
+injected-for-tests values comparable without a tz-aware/naive mismatch.
 """
 from __future__ import annotations
 

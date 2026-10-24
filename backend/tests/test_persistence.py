@@ -2,46 +2,24 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-import sqlalchemy as sa
-from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.models import CanonicalEvent, EventKind
 from app.persistence.store import SessionStore
 from app.persistence.tables import EventRow, SessionRow
 from app.storage.registry import SessionRegistry
+from tests.database_support import isolated_engine
 
 
-def _migrate(db_path: Path) -> str:
-    """Apply all migrations to a fresh SQLite file."""
-    url = f"sqlite:///{db_path}"
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", url)
-    command.upgrade(cfg, "head")
-    return url
+def _store() -> SessionStore:
+    """Build a store on an isolated, migrated database."""
+    return SessionStore(sessionmaker(bind=isolated_engine()))
 
 
-def test_migrations_create_tables(tmp_path: Path) -> None:
-    """Ensure migrations create the session and event tables."""
-    url = _migrate(tmp_path / "test.db")
-    inspector = sa.inspect(sa.create_engine(url))
-    names = set(inspector.get_table_names())
-    assert {"session", "event"} <= names
-
-
-def _store(tmp_path: Path) -> SessionStore:
-    """Build a store on a freshly migrated SQLite file."""
-    url = _migrate(tmp_path / "store.db")
-    factory = sessionmaker(bind=sa.create_engine(url))
-    return SessionStore(factory)
-
-
-def test_registry_survives_restart(tmp_path: Path) -> None:
+def test_registry_survives_restart() -> None:
     """Ensure sessions and canonical events persist across registries."""
-    store = _store(tmp_path)
+    store = _store()
     reg = SessionRegistry(store=store)
     reg.create("s1", "/tmp/s1")
     reg.append_event(
@@ -67,9 +45,9 @@ def test_registry_survives_restart(tmp_path: Path) -> None:
     assert rec.events[0].native == {"n": 1}
 
 
-def test_delete_removes_session_and_events(tmp_path: Path) -> None:
+def test_delete_removes_session_and_events() -> None:
     """Ensure deleting a session drops it and its events from the DB."""
-    store = _store(tmp_path)
+    store = _store()
     reg = SessionRegistry(store=store)
     reg.create("s1", "/tmp/s1")
     reg.append_event(
@@ -79,14 +57,14 @@ def test_delete_removes_session_and_events(tmp_path: Path) -> None:
     assert store.load_all() == []
 
 
-def test_load_upgrades_legacy_claude_event_rows(tmp_path: Path) -> None:
+def test_load_upgrades_legacy_claude_event_rows() -> None:
     """Ensure rows written before the canonical migration still load.
 
     Legacy rows hold a raw claude stream-json object (no ``kind``/
     ``native`` keys); they must be mapped to canonical events on read so
     existing session history survives the upgrade.
     """
-    store = _store(tmp_path)
+    store = _store()
     with store._factory.begin() as db:  # type: ignore[attr-defined]
         db.add(SessionRow(session_id="s1", cwd="/tmp/s1", status="idle"))
         db.add(

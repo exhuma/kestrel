@@ -22,6 +22,16 @@ from tests.test_board_router_views import _client
 def _interview(tmp_path: Path, store) -> None:
     """A refinement card's questions, and the gate asking them."""
     factory = board_session_factory(tmp_path)
+    for card_id, kind, state in (
+        ("card-ref", "refinement", "done"),
+        ("card-gate", "refinement_gate", "awaiting_human"),
+    ):
+        store.create_card(
+            WorkCard(
+                id=card_id, workflow_id="wf-1", kind=kind,
+                title="pm interview (1 question)", state=state,
+            )
+        )
     content_ref, content_hash = BoardArtifactContentStore(
         tmp_path / "artifacts"
     ).write('{"questions": ["Who uses it?"]}')
@@ -33,16 +43,6 @@ def _interview(tmp_path: Path, store) -> None:
             trust="agent_output",
         )
     )
-    for card_id, kind, state in (
-        ("card-ref", "refinement", "done"),
-        ("card-gate", "refinement_gate", "awaiting_human"),
-    ):
-        store.create_card(
-            WorkCard(
-                id=card_id, workflow_id="wf-1", kind=kind,
-                title="pm interview (1 question)", state=state,
-            )
-        )
     BoardGateStore(factory).create_gate(
         HumanGateRecord(
             id="gate-1", card_id="card-gate", requested_decision="answer",

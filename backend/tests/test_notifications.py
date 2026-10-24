@@ -1,37 +1,28 @@
 """Tests for the notification record's signal classification and store."""
 from __future__ import annotations
 
-from pathlib import Path
+from datetime import datetime
 
-import sqlalchemy as sa
-from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
-from alembic import command
 from app.notifications import signal_class
+from app.persistence.board_tables import BoardWorkflowRow
 from app.persistence.notification_store import NotificationStore
+from tests.database_support import isolated_engine
 
 
-def _migrate(db_path: Path) -> str:
-    """Apply all migrations to a fresh SQLite file."""
-    url = f"sqlite:///{db_path}"
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", url)
-    command.upgrade(cfg, "head")
-    return url
-
-
-def _store(tmp_path: Path) -> NotificationStore:
-    """Build a store on a freshly migrated SQLite file."""
-    url = _migrate(tmp_path / "notif.db")
-    return NotificationStore(sessionmaker(bind=sa.create_engine(url)))
-
-
-def test_migrations_create_notification_table(tmp_path: Path) -> None:
-    """Ensure migrations create the notification table."""
-    url = _migrate(tmp_path / "t.db")
-    names = set(sa.inspect(sa.create_engine(url)).get_table_names())
-    assert "notification" in names
+def _store() -> NotificationStore:
+    """Build a store on an isolated database holding workflow ``wf-1``."""
+    factory = sessionmaker(bind=isolated_engine())
+    with factory.begin() as db:
+        db.add(
+            BoardWorkflowRow(
+                id="wf-1", source="github-issue", task_ref="o/r#1",
+                repo="o/r", source_visibility="public", title="t",
+                state="active", created_at=datetime(2026, 10, 1),
+            )
+        )
+    return NotificationStore(factory)
 
 
 def test_signal_class_splits_gates_from_summaries() -> None:
@@ -42,9 +33,9 @@ def test_signal_class_splits_gates_from_summaries() -> None:
     assert signal_class("failed") == "summary"
 
 
-def test_store_list_all_orders_newest_first(tmp_path: Path) -> None:
+def test_store_list_all_orders_newest_first() -> None:
     """Ensure notifications list most recent first."""
-    store = _store(tmp_path)
+    store = _store()
     store.add(
         workflow_id="wf-1", repo="o/r", issue_number=1,
         status="done", message="first",
@@ -57,9 +48,9 @@ def test_store_list_all_orders_newest_first(tmp_path: Path) -> None:
     assert [n.message for n in items] == ["second", "first"]
 
 
-def test_store_mark_read(tmp_path: Path) -> None:
+def test_store_mark_read() -> None:
     """Ensure mark_read flips the read flag for that row only."""
-    store = _store(tmp_path)
+    store = _store()
     store.add(
         workflow_id="wf-1", repo="o/r", issue_number=1,
         status="done", message="x",

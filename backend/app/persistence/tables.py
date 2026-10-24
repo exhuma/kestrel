@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, MetaData, Text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -13,7 +13,31 @@ from sqlalchemy.orm import (
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all kestrel tables."""
+    """Declarative base for all kestrel tables.
+
+    The naming convention gives every constraint a predictable name, so a
+    migration can refer to it.
+    """
+
+    metadata = MetaData(
+        naming_convention={
+            "pk": "pk_%(table_name)s",
+            "fk": "fk_%(table_name)s_%(column_0_name)s",
+            "uq": "uq_%(table_name)s_%(column_0_name)s",
+            "ix": "ix_%(table_name)s_%(column_0_name)s",
+        }
+    )
+
+
+def deferred_fk(target: str) -> ForeignKey:
+    """A foreign key to *target* (``table.column``), checked at commit.
+
+    The unit of work orders one flush's inserts by mapper name, not by
+    foreign key, so a parent and its child added in the same transaction
+    may reach the database child first. A deferred check still rejects a
+    dangling reference, at commit.
+    """
+    return ForeignKey(target, deferrable=True, initially="DEFERRED")
 
 
 class SessionRow(Base):
@@ -33,7 +57,7 @@ class EventRow(Base):
     __tablename__ = "event"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("session.session_id"))
+    session_id: Mapped[str] = mapped_column(deferred_fk("session.session_id"))
     type: Mapped[str] = mapped_column()
     raw: Mapped[str] = mapped_column(Text)
 
@@ -76,7 +100,7 @@ class NotificationRow(Base):
     __tablename__ = "notification"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    workflow_id: Mapped[str] = mapped_column(ForeignKey("board_workflow.id"))
+    workflow_id: Mapped[str] = mapped_column(deferred_fk("board_workflow.id"))
     repo: Mapped[str] = mapped_column()
     #: GitHub issue number; ``NULL`` for a Jira-sourced run (feature 003),
     #: whose ticket has no numeric id — identify the run via ``workflow_id``.

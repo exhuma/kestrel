@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.documents import EMPTY_DOCUMENT, Document
 from app.persistence.document_column import DocumentText
-from app.persistence.tables import Base
+from app.persistence.tables import Base, deferred_fk
 
 
 class BoardWorkflowRow(Base):
@@ -70,7 +70,7 @@ class BoardCardRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     kind: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
@@ -116,9 +116,9 @@ class BoardCardRelationRow(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("board_card.id"))
+    card_id: Mapped[str] = mapped_column(deferred_fk("board_card.id"))
     depends_on_card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id")
+        deferred_fk("board_card.id")
     )
     kind: Mapped[str] = mapped_column(Text)
     required_artifact_revision: Mapped[int | None] = mapped_column(
@@ -135,7 +135,7 @@ class BoardCardAttemptRow(Base):
     __tablename__ = "board_card_attempt"
 
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), primary_key=True
+        deferred_fk("board_card.id"), primary_key=True
     )
     #: Unique per card; terminal attempts never change (data-model.md).
     sequence: Mapped[int] = mapped_column(primary_key=True)
@@ -163,7 +163,7 @@ class BoardClaimLeaseRow(Base):
     __tablename__ = "board_claim_lease"
 
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), primary_key=True
+        deferred_fk("board_card.id"), primary_key=True
     )
     attempt_sequence: Mapped[int] = mapped_column()
     holder_specialist_id: Mapped[str] = mapped_column(Text)
@@ -184,7 +184,7 @@ class BoardWorkspaceLeaseRow(Base):
     __tablename__ = "board_workspace_lease"
 
     repo: Mapped[str] = mapped_column(primary_key=True)
-    claim_card_id: Mapped[str] = mapped_column(ForeignKey("board_card.id"))
+    claim_card_id: Mapped[str] = mapped_column(deferred_fk("board_card.id"))
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -204,7 +204,7 @@ class BoardArtifactRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     producer_card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id")
+        deferred_fk("board_card.id")
     )
     logical_name: Mapped[str] = mapped_column(Text)
     revision: Mapped[int] = mapped_column()
@@ -216,7 +216,7 @@ class BoardArtifactRow(Base):
     retention: Mapped[str] = mapped_column(Text, default="standard")
     #: Explicit opt-in for inclusion in the project change (data-model.md).
     project_material: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
+        Boolean, default=False, server_default=false()
     )
     #: Exact consumed input-artifact ids, JSON list; never mutable pointers.
     input_artifacts: Mapped[str] = mapped_column(Text, default="[]")
@@ -230,10 +230,10 @@ class BoardHumanGateRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), unique=True
+        deferred_fk("board_card.id"), unique=True
     )
     target_artifact_id: Mapped[str | None] = mapped_column(
-        ForeignKey("board_artifact.id"), nullable=True
+        deferred_fk("board_artifact.id"), nullable=True
     )
     requested_decision: Mapped[str] = mapped_column(Text)
     #: NULL until the operator decides.
@@ -273,10 +273,10 @@ class BoardSecurityReviewRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     untrusted_input_id: Mapped[str] = mapped_column(
-        ForeignKey("board_untrusted_input.id")
+        deferred_fk("board_untrusted_input.id")
     )
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), unique=True
+        deferred_fk("board_card.id"), unique=True
     )
     classification_category: Mapped[str] = mapped_column(Text)
     #: The deterministic/classifier's own short, safe explanation of why
@@ -300,7 +300,7 @@ class BoardCoordinatorActionRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     trigger: Mapped[str] = mapped_column(Text)
     sequence: Mapped[int] = mapped_column()
@@ -323,10 +323,10 @@ class BoardEventRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     card_id: Mapped[str | None] = mapped_column(
-        ForeignKey("board_card.id"), nullable=True
+        deferred_fk("board_card.id"), nullable=True
     )
     event_type: Mapped[str] = mapped_column(Text)
     #: Safe event payload (JSON); never raw suspect content (FR-025).
@@ -343,7 +343,7 @@ class BoardExternalProjectionRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     #: "gate" | "escalation" | "approved_artifact" | "delivery" |
     #: "gate_opened" | "status" | "reply" (a legacy row may still read
@@ -374,7 +374,7 @@ class BoardCommentCursorRow(Base):
     __tablename__ = "board_comment_cursor"
 
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id"), primary_key=True
+        deferred_fk("board_workflow.id"), primary_key=True
     )
     #: Adapter-owned and opaque: passed back to ``list_comments`` as is.
     cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -392,7 +392,7 @@ class BoardInboundCommentRow(Base):
 
     external_id: Mapped[str] = mapped_column(Text, primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     gate_card_id: Mapped[str | None] = mapped_column(nullable=True)
     author_account_id: Mapped[str] = mapped_column(Text)

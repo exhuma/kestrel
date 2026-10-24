@@ -3,35 +3,41 @@
 from __future__ import annotations
 
 import os
-import shutil
-import tempfile
-from pathlib import Path
 
 import pytest
-from alembic.config import Config
 
-from alembic import command
 from app.config import Settings, get_settings
+from tests import database_support
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Point the app's default database at a fresh, migrated temporary file.
+    """Point the app's default database at a throw-away, migrated database.
 
     Code that falls back on the default database (an un-overridden store
     dependency, a cached ``get_sessionmaker()``) must never read or write a
-    developer's ``kestrel.db`` (constitution Principle III), and must find
-    the same schema on a clean CI checkout as locally. Set before any test
-    module is imported, so every cached engine binds to it; removed again
-    when the run ends.
+    developer's database (constitution Principle III), and must find the
+    same schema on a clean CI checkout as locally. The databases live on
+    the PostgreSQL server ``KESTREL_TEST_DATABASE_URL`` names (see
+    :mod:`tests.database_support`). Set before any test module is
+    imported, so every cached engine binds to it; dropped again when the
+    run ends, whatever its outcome.
     """
-    directory = tempfile.mkdtemp(prefix="kestrel-tests-")
-    config.add_cleanup(lambda: shutil.rmtree(directory, ignore_errors=True))
-    database = Path(directory) / "kestrel.db"
-    url = f"sqlite:///{database}"
-    os.environ["KESTREL_DATABASE_URL"] = url
-    alembic_config = Config(str(Path(__file__).parent.parent / "alembic.ini"))
-    alembic_config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(alembic_config, "head")
+    if not os.environ.get(database_support.SERVER_URL_ENV):
+        pytest.exit(
+            f"{database_support.SERVER_URL_ENV} is not set: point it at a "
+            "PostgreSQL server the tests may create databases on, e.g. "
+            "postgresql+psycopg://postgres@127.0.0.1:5432/postgres",
+            returncode=pytest.ExitCode.USAGE_ERROR,
+        )
+    config.add_cleanup(database_support.end_run)
+    os.environ["KESTREL_DATABASE_URL"] = database_support.start_run()
+
+
+@pytest.fixture(autouse=True)
+def _drop_isolated_databases() -> None:
+    """Drop the databases a test created with ``isolated_engine()``."""
+    yield
+    database_support.drop_isolated_databases()
 
 
 @pytest.fixture(autouse=True)

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board_records import HandoffArtifact
 from app.persistence.board_tables import BoardArtifactRow, BoardCardRow
-from app.persistence.db import get_sessionmaker
+from app.persistence.db import get_sessionmaker, is_unique_violation
 
 
 class DuplicateArtifactError(Exception):
@@ -76,6 +76,8 @@ class BoardArtifactStore:
                 db.flush()
                 db.expunge(row)
         except IntegrityError as exc:
+            if not is_unique_violation(exc):
+                raise
             raise DuplicateArtifactError(
                 f"artifact already recorded: {artifact.producer_card_id}/"
                 f"{artifact.logical_name}@{artifact.revision}"
@@ -89,11 +91,15 @@ class BoardArtifactStore:
             return _row_to_artifact(row) if row is not None else None
 
     def list_for_card(self, producer_card_id: str) -> list[HandoffArtifact]:
-        """Return every artifact revision produced by *producer_card_id*."""
+        """Return every artifact revision produced by *producer_card_id*,
+        by name and revision."""
         with self._factory() as db:
             rows = (
                 db.query(BoardArtifactRow)
                 .filter(BoardArtifactRow.producer_card_id == producer_card_id)
+                .order_by(
+                    BoardArtifactRow.logical_name, BoardArtifactRow.revision
+                )
                 .all()
             )
             return [_row_to_artifact(row) for row in rows]
@@ -120,6 +126,7 @@ class BoardArtifactStore:
                     BoardCardRow.workflow_id == workflow_id,
                     BoardArtifactRow.project_material.is_(True),
                 )
+                .order_by(BoardArtifactRow.created_at, BoardArtifactRow.id)
             )
             rows = db.scalars(statement).all()
             return tuple(_row_to_artifact(row) for row in rows)

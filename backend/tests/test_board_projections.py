@@ -20,15 +20,16 @@ from app.services.board.projections import (
     ProjectionsService,
     UnsupportedProjectionKindError,
 )
-from tests.board_test_support import board_session_factory
+from tests.board_test_support import board_session_factory, seed_workflows
 from tests.document_helpers import doc
 
 _TASK_REF = "owner/repo#1"
 
 
 def _service(tmp_path: Path) -> ProjectionsService:
-    store = BoardProjectionStore(board_session_factory(tmp_path))
-    return ProjectionsService(store)
+    factory = board_session_factory(tmp_path)
+    seed_workflows(factory, "wf-1", "wf-2")
+    return ProjectionsService(BoardProjectionStore(factory))
 
 
 def _plan(service: ProjectionsService, workflow_id, kind, key, text):

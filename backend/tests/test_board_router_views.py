@@ -361,6 +361,7 @@ def _record_artifact(
     mime_type: str = "text/plain",
 ) -> None:
     factory = board_session_factory(tmp_path)
+    BoardStore(factory).create_card(_ready_card())  # the producer
     content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     content_ref, content_hash = content_store.write(content)
     BoardArtifactStore(factory).record(

@@ -3,9 +3,10 @@
 Split out of ``board_store.py`` for module-length budget. Conditional
 ``UPDATE ... WHERE state = 'ready'`` statements are the concurrency
 primitive here (mirroring the transactional-claim decision in
-``specs/026-autonomous-work-board/research.md``): SQLite serializes
-writes, so a rowcount of zero means another transaction already won the
-claim, without any explicit locking.
+``specs/026-autonomous-work-board/research.md``): PostgreSQL locks the
+row an ``UPDATE`` matches and re-checks the condition once a competing
+transaction commits, so a rowcount of zero means another transaction
+already won the claim, without any explicit locking.
 """
 from __future__ import annotations
 

@@ -1,343 +1,86 @@
-"""Tests for the board-schema migration 0027 (feature 026)."""
+"""Tests for the Alembic baseline migration."""
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic.config import Config
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy.pool import NullPool
 
 from alembic import command
-
-_BOARD_TABLES = [
-    "board_workflow",
-    "board_card",
-    "board_card_relation",
-    "board_card_attempt",
-    "board_claim_lease",
-    "board_workspace_lease",
-    "board_artifact",
-    "board_human_gate",
-    "board_untrusted_input",
-    "board_security_review",
-    "board_coordinator_action",
-    "board_event",
-    "board_external_projection",
-]
-
-#: Fixed-driver / feedback-dispatch tables retired by migration 0028.
-_RETIRED_TABLES = [
-    "workflow_run",
-    "workflow_step",
-    "workflow_round_chip",
-    "workflow_artifact",
-    "review_request",
-    "feedback_item",
-    "feedback_cursor",
-]
+from app.persistence.board_tables import Base
+from tests.database_support import alembic_config, empty_database
 
 
-def _cfg(tmp_path: Path) -> tuple[Config, sa.Engine]:
-    """Return an Alembic config and SQLite engine for a temporary database."""
-    url = f"sqlite:///{tmp_path / 'm.db'}"
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", url)
-    return cfg, sa.create_engine(url)
+@pytest.fixture(name="database")
+def _database() -> str:
+    """An empty database (not cloned from the migrated template)."""
+    return empty_database()
 
 
-def test_upgrade_creates_every_board_table(tmp_path: Path) -> None:
-    """0027 adds every board-domain table alongside the fixed-driver ones."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0026")
-    command.upgrade(cfg, "0027")
-
-    tables = set(sa.inspect(engine).get_table_names())
-    assert set(_BOARD_TABLES) <= tables
-    # The fixed-driver tables coexist untouched (feature 026 is additive
-    # until the later clean-break phase removes them).
-    assert "workflow_run" in tables
-    assert "workflow_step" in tables
+def _tables(url: str) -> set[str]:
+    engine = sa.create_engine(url, poolclass=NullPool)
+    try:
+        return set(sa.inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
 
 
-def test_downgrade_removes_every_board_table(tmp_path: Path) -> None:
-    """Reversing 0027 drops every board table and nothing else."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0027")
-    command.downgrade(cfg, "0026")
+def test_upgrade_creates_every_model_table(database: str) -> None:
+    """Ensure ``upgrade head`` creates every table the models declare."""
+    command.upgrade(alembic_config(database), "head")
 
-    tables = set(sa.inspect(engine).get_table_names())
-    assert not (set(_BOARD_TABLES) & tables)
+    assert set(Base.metadata.tables) <= _tables(database)
 
 
-def test_upgrade_to_head_drops_the_retired_fixed_driver_tables(
-    tmp_path: Path,
-) -> None:
-    """0028 (Phase 10 clean break) drops the fixed-driver/feedback tables."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "head")
+def test_migrated_schema_matches_the_models(database: str) -> None:
+    """Ensure autogenerate finds no difference between schema and models."""
+    command.upgrade(alembic_config(database), "head")
 
-    tables = set(sa.inspect(engine).get_table_names())
-    assert not (set(_RETIRED_TABLES) & tables)
-    # The board schema and the tables it coexists with are unaffected.
-    assert set(_BOARD_TABLES) <= tables
-    assert "notification" in tables
-    # Feature 031 (0033) drops the child-ticket link table too.
-    assert "child_task_link" not in tables
+    engine = sa.create_engine(database, poolclass=NullPool)
+    with engine.connect() as conn:
+        diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+    engine.dispose()
+    assert diff == []
 
 
-def test_downgrade_from_head_restores_the_retired_tables(
-    tmp_path: Path,
-) -> None:
-    """Reversing 0028 recreates every table it dropped."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "head")
-    command.downgrade(cfg, "0027")
+def test_downgrade_to_base_drops_every_table(database: str) -> None:
+    """Ensure ``downgrade base`` leaves only Alembic's own table."""
+    config = alembic_config(database)
+    command.upgrade(config, "head")
+    command.downgrade(config, "base")
 
-    tables = set(sa.inspect(engine).get_table_names())
-    assert set(_RETIRED_TABLES) <= tables
-    assert "workflow_run" in tables
+    assert _tables(database) == {"alembic_version"}
 
 
-def test_board_workflow_source_task_ref_is_unique(tmp_path: Path) -> None:
-    """The (source, task_ref) index rejects a duplicate insert."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "head")
-
-    row = {
-        "id": "wf-1",
-        "source": "github-issue",
-        "task_ref": "owner/repo#1",
-        "repo": "owner/repo",
-        "base_branch": "main",
-        "source_visibility": "public",
-        "title": "t",
-        "state": "active",
-        "revision": 1,
-        "created_at": "2026-09-24T00:00:00",
-    }
+def test_workflow_source_task_ref_is_unique(database: str) -> None:
+    """Ensure the ``(source, task_ref)`` index rejects a duplicate."""
+    command.upgrade(alembic_config(database), "head")
+    insert = sa.text(
+        "INSERT INTO board_workflow (id, source, task_ref, repo, "
+        "base_branch, source_visibility, title, state, created_at) "
+        "VALUES (:id, 'github-issue', 'o/r#1', 'o/r', 'main', 'public', "
+        "'t', 'active', now())"
+    )
+    engine = sa.create_engine(database, poolclass=NullPool)
     with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "created_at) VALUES (:id, :source, :task_ref, :repo, "
-            ":base_branch, :source_visibility, :title, :state, :revision, "
-            ":created_at)"
-        ), row)
+        conn.execute(insert, {"id": "wf-1"})
 
-    duplicate = {**row, "id": "wf-2"}
+    with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
+        conn.execute(insert, {"id": "wf-2"})
+    engine.dispose()
+
+
+def test_foreign_keys_are_enforced(database: str) -> None:
+    """Ensure a card cannot reference a workflow that does not exist."""
+    command.upgrade(alembic_config(database), "head")
+    engine = sa.create_engine(database, poolclass=NullPool)
+
     with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
         conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "created_at) VALUES (:id, :source, :task_ref, :repo, "
-            ":base_branch, :source_visibility, :title, :state, :revision, "
-            ":created_at)"
-        ), duplicate)
-
-
-def test_board_workflow_skip_decomposition_defaults_false(
-    tmp_path: Path,
-) -> None:
-    """0029 adds skip_decomposition, defaulting existing rows to false."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0028")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "created_at) VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', "
-            "'main', 'public', 't', 'active', 1, '2026-09-24T00:00:00')"
-        ))
-    command.upgrade(cfg, "0029")
-
-    with engine.begin() as conn:
-        value = conn.execute(sa.text(
-            "SELECT skip_decomposition FROM board_workflow WHERE id = 'wf-1'"
-        )).scalar_one()
-    assert value == 0
-
-
-def test_board_workflow_ci_repair_columns_default_unset(
-    tmp_path: Path,
-) -> None:
-    """0030 adds the CI-repair columns, defaulting existing rows unset."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0029")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "skip_decomposition, created_at) VALUES ('wf-1', "
-            "'github-issue', 'o/r#1', 'o/r', 'main', 'public', 't', "
-            "'active', 1, 0, '2026-09-24T00:00:00')"
-        ))
-    command.upgrade(cfg, "0030")
-
-    with engine.begin() as conn:
-        row = conn.execute(sa.text(
-            "SELECT change_request_number, ci_repair_round, ci_status "
-            "FROM board_workflow WHERE id = 'wf-1'"
-        )).one()
-    assert row == (None, 0, None)
-
-
-def test_board_workflow_task_body_and_approved_prd_default_empty_unset(
-    tmp_path: Path,
-) -> None:
-    """0031 adds task_body/approved_prd, defaulting existing rows."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0030")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "skip_decomposition, ci_repair_round, created_at) VALUES "
-            "('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', 'public', "
-            "'t', 'active', 1, 0, 0, '2026-09-24T00:00:00')"
-        ))
-    command.upgrade(cfg, "0031")
-
-    with engine.begin() as conn:
-        row = conn.execute(sa.text(
-            "SELECT task_body, approved_prd FROM board_workflow "
-            "WHERE id = 'wf-1'"
-        )).one()
-    assert row == ("", None)
-
-    command.downgrade(cfg, "0028")
-    columns = {c["name"] for c in sa.inspect(engine).get_columns(
-        "board_workflow"
-    )}
-    assert "skip_decomposition" not in columns
-
-
-def test_board_card_task_node_id_defaults_unset(tmp_path: Path) -> None:
-    """Ensure 0033 adds a nullable task_node_id, unset on existing cards."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0032")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "skip_decomposition, ci_repair_round, task_body, created_at) "
-            "VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', "
-            "'public', 't', 'active', 1, 0, 0, '', '2026-09-24T00:00:00')"
-        ))
-        conn.execute(sa.text(
             "INSERT INTO board_card (id, workflow_id, kind, title, state, "
-            "created_at, updated_at) VALUES ('card-1', 'wf-1', "
-            "'analysis', 't', 'ready', '2026-09-24T00:00:00', "
-            "'2026-09-24T00:00:00')"
+            "eligible_roles, acceptance_contract, created_at, updated_at) "
+            "VALUES ('c-1', 'missing', 'analysis', 't', 'ready', '', '{}', "
+            "now(), now())"
         ))
-    command.upgrade(cfg, "0033")
-
-    with engine.begin() as conn:
-        value = conn.execute(sa.text(
-            "SELECT task_node_id FROM board_card WHERE id = 'card-1'"
-        )).scalar_one()
-    assert value is None
-
-
-def test_0033_drops_the_child_ticket_bookkeeping(tmp_path: Path) -> None:
-    """Ensure a database that used feature 012's child tickets upgrades,
-    keeping its former child workflow as an ordinary one (feature 031)."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0032")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "skip_decomposition, ci_repair_round, task_body, created_at) "
-            "VALUES ('wf-child', 'github-issue', 'o/r#2', 'o/r', 'main', "
-            "'public', 't', 'active', 1, 1, 0, '', '2026-09-24T00:00:00')"
-        ))
-        conn.execute(sa.text(
-            "INSERT INTO child_task_link (task_ref, parent_workflow_id, "
-            "source_state) VALUES ('o/r#2', 'wf-parent', 'open')"
-        ))
-
-    command.upgrade(cfg, "0033")
-
-    inspector = sa.inspect(engine)
-    assert "child_task_link" not in inspector.get_table_names()
-    columns = {c["name"] for c in inspector.get_columns("board_workflow")}
-    assert "skip_decomposition" not in columns
-    with engine.begin() as conn:
-        kept = conn.execute(sa.text(
-            "SELECT id FROM board_workflow"
-        )).scalars().all()
-    assert kept == ["wf-child"]
-
-    command.downgrade(cfg, "0032")
-    inspector = sa.inspect(engine)
-    assert "child_task_link" in inspector.get_table_names()
-    columns = {c["name"] for c in inspector.get_columns("board_workflow")}
-    assert "skip_decomposition" in columns
-
-
-def test_0034_completes_released_reviews_left_open(tmp_path: Path) -> None:
-    """Ensure a released review's card stuck in ``ready`` becomes
-    ``done``; a pending review's card is left quarantined (feature 041)."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0033")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "ci_repair_round, task_body, created_at) "
-            "VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', "
-            "'public', 't', 'active', 1, 0, '', '2026-09-30T00:00:00')"
-        ))
-        for card_id, state, review_state in (
-            ("released", "ready", "released"),
-            ("pending", "quarantined", "pending"),
-        ):
-            _insert_review(conn, card_id, state, review_state)
-
-    command.upgrade(cfg, "0034")
-
-    with engine.begin() as conn:
-        states = dict(conn.execute(sa.text(
-            "SELECT id, state FROM board_card"
-        )).all())
-    assert states == {"released": "done", "pending": "quarantined"}
-
-
-def _insert_review(
-    conn: sa.Connection, card_id: str, state: str, review_state: str
-) -> None:
-    conn.execute(sa.text(
-        "INSERT INTO board_card (id, workflow_id, kind, title, state, "
-        "created_at, updated_at) VALUES (:id, 'wf-1', 'security_review', "
-        "'t', :state, '2026-09-30T00:00:00', '2026-09-30T00:00:00')"
-    ), {"id": card_id, "state": state})
-    conn.execute(sa.text(
-        "INSERT INTO board_security_review (id, untrusted_input_id, "
-        "card_id, classification_category, review_state, created_at) "
-        "VALUES (:id, 'in-1', :card, 'x', :review, '2026-09-30T00:00:00')"
-    ), {
-        "id": f"rev-{card_id}", "card": card_id, "review": review_state,
-    })
-
-
-def test_0035_adds_an_unset_change_request_url(tmp_path: Path) -> None:
-    """0035 adds ``change_request_url``, unset for existing workflows."""
-    cfg, engine = _cfg(tmp_path)
-    command.upgrade(cfg, "0034")
-    with engine.begin() as conn:
-        conn.execute(sa.text(
-            "INSERT INTO board_workflow (id, source, task_ref, repo, "
-            "base_branch, source_visibility, title, state, revision, "
-            "change_request_number, created_at) "
-            "VALUES ('wf-1', 'github-issue', 'o/r#1', 'o/r', 'main', "
-            "'public', 't', 'active', 1, 7, '2026-09-30T00:00:00')"
-        ))
-    command.upgrade(cfg, "0035")
-
-    with engine.begin() as conn:
-        row = conn.execute(sa.text(
-            "SELECT change_request_number, change_request_url "
-            "FROM board_workflow WHERE id = 'wf-1'"
-        )).one()
-    assert row == (7, None)
-    command.downgrade(cfg, "0034")
+    engine.dispose()

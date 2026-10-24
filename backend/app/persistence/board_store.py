@@ -161,7 +161,8 @@ class BoardStore:
             )
 
     def list_relations(self, workflow_id: str) -> list[CardRelation]:
-        """Return every relation among *workflow_id*'s cards."""
+        """Return every relation among *workflow_id*'s cards, in the
+        order they were made."""
         with self._factory() as db:
             rows = (
                 db.query(BoardCardRelationRow)
@@ -170,6 +171,7 @@ class BoardStore:
                     BoardCardRelationRow.card_id == BoardCardRow.id,
                 )
                 .filter(BoardCardRow.workflow_id == workflow_id)
+                .order_by(BoardCardRelationRow.id)
                 .all()
             )
             return [
@@ -336,11 +338,12 @@ class BoardStore:
             return _row_to_card(row) if row is not None else None
 
     def list_cards(self, workflow_id: str) -> list[WorkCard]:
-        """Return every card belonging to *workflow_id*."""
+        """Return every card belonging to *workflow_id*, oldest first."""
         with self._factory() as db:
             rows = (
                 db.query(BoardCardRow)
                 .filter(BoardCardRow.workflow_id == workflow_id)
+                .order_by(BoardCardRow.created_at, BoardCardRow.id)
                 .all()
             )
             return [_row_to_card(row) for row in rows]

@@ -104,7 +104,10 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
-    database_url: str = "sqlite:///./kestrel.db"
+    #: SQLAlchemy URL of the PostgreSQL database
+    #: (``postgresql+psycopg://user:password@host:5432/kestrel``). Required:
+    #: there is no default database (see :meth:`_require_database_url`).
+    database_url: str = ""
     #: Console log verbosity (``KESTREL_LOG_LEVEL``): debug/info/warning/…
     log_level: str = "info"
     #: Console log format (``KESTREL_LOG_FORMAT``): ``text`` for
@@ -296,6 +299,20 @@ class Settings(BaseSettings):
         if source == "jira-issue" and self.jira_sources():
             return self.jira_sources()[0].required_ci_statuses
         return []
+
+    @model_validator(mode="after")
+    def _require_database_url(self) -> Settings:
+        """Fail at startup when no database is configured.
+
+        The URL may come from the environment or the config file.
+        """
+        if not self.database_url:
+            raise ValueError(
+                "KESTREL_DATABASE_URL is not set: kestrel needs a PostgreSQL "
+                "database, e.g. "
+                "postgresql+psycopg://user:password@host:5432/kestrel"
+            )
+        return self
 
     @model_validator(mode="after")
     def _warn_incomplete_ingestion_config(self) -> Settings:

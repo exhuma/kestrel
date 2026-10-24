@@ -23,7 +23,7 @@ from app.persistence.board_tables import (
     BoardInboundCommentRow,
 )
 from app.persistence.board_time import now_utc
-from app.persistence.db import get_sessionmaker
+from app.persistence.db import get_sessionmaker, is_unique_violation
 
 #: The state of a comment taken on and not yet settled.
 CLAIMED = "claimed"
@@ -114,7 +114,9 @@ class CommentStore:
         try:
             with self._factory.begin() as db:
                 db.add(row)
-        except IntegrityError:
+        except IntegrityError as exc:
+            if not is_unique_violation(exc):
+                raise
             return False
         return True
 

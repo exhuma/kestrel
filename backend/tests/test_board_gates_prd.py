@@ -180,6 +180,10 @@ class TestPrdApproval:
         self, tmp_path: Path
     ) -> None:
         service, store = _service(tmp_path)
+        store.create_card(WorkCard(
+            id="card-1", workflow_id="wf-1", kind="prd", title="Draft PRD",
+            state="done",
+        ))
         artifact = service._artifacts.store_reference_artifact(
             _draft_artifact("card-1", "the full plan")
         )
