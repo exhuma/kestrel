@@ -76,9 +76,6 @@ board_turn_timeout_seconds = 600.0
 # How long a card claim lease is held before it is considered abandoned and
 # eligible for retry/reassignment/escalation on recovery.
 board_claim_lease_seconds = 600
-# How long a repository workspace-write lease is held before recovery may
-# reclaim it.
-board_workspace_lease_seconds = 1800
 # Maximum number of read-only board cards claimed and active at once.
 board_max_parallel_read_cards = 4
 # How often the recovery sweep checks for expired claim leases.

@@ -38,7 +38,6 @@ class ClaimsService:
     roster: SpecialistRoster
     max_parallel_read_cards: int
     default_lease_seconds: float
-    default_workspace_lease_seconds: float
 
     def claim_next_ready_card(
         self,
@@ -109,7 +108,6 @@ class ClaimsService:
             self.default_lease_seconds,
             backend_id=backend_id,
             workspace_repo=repo,
-            workspace_lease_seconds=self.default_workspace_lease_seconds,
         )
 
     def record_session(

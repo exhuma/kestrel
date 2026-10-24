@@ -101,7 +101,6 @@ def _stack(tmp_path: Path, *, cab1: bool) -> tuple[
     claims = ClaimsService(
         store=store, claims_store=claims_store, roster=roster,
         max_parallel_read_cards=4, default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
     services = DispatchServices(
         claims, roster, artifacts, coordinator=coordinator, gates=gates,

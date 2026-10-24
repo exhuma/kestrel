@@ -1,19 +1,27 @@
 """Atomic card claims and repository write leases (feature 026).
 
-Split out of ``board_store.py`` for module-length budget. Conditional
-``UPDATE ... WHERE state = 'ready'`` statements are the concurrency
-primitive here (mirroring the transactional-claim decision in
-``specs/026-autonomous-work-board/research.md``): PostgreSQL locks the
-row an ``UPDATE`` matches and re-checks the condition once a competing
-transaction commits, so a rowcount of zero means another transaction
-already won the claim, without any explicit locking.
+Split out of ``board_store.py`` for module-length budget. Every write
+here is one conditional statement whose outcome says who won, never a
+read followed by a write (mirroring the transactional-claim decision in
+``specs/026-autonomous-work-board/research.md``):
+
+- a claim is ``UPDATE ... WHERE state = 'ready'``: PostgreSQL locks the
+  row an ``UPDATE`` matches and re-checks the condition once a competing
+  transaction commits, so no row back means another claimant won;
+- a writer's repository is taken by inserting its claim lease with
+  ``ON CONFLICT (workspace_repo) DO NOTHING``, which waits for a
+  competing insert and then backs off;
+- completion, recovery and release each start by deleting the claim
+  lease, so of two racing for one claim only the one whose ``DELETE``
+  returns the row goes on.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from functools import lru_cache
 
-from sqlalchemy import update
+from sqlalchemy import case, delete, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board import (
@@ -28,7 +36,6 @@ from app.persistence.board_tables import (
     BoardCardAttemptRow,
     BoardCardRow,
     BoardClaimLeaseRow,
-    BoardWorkspaceLeaseRow,
 )
 from app.persistence.board_time import now_utc
 from app.persistence.db import get_sessionmaker
@@ -46,29 +53,12 @@ class BoardClaimsStore:
         """Atomically claim a ``ready`` card, and its repository lease.
 
         :param request: The claim's card, specialist, lease, and optional
-            workspace-lease parameters.
+            repository.
         :param now: Injectable clock for tests.
         """
         now = now_utc(now)
         with self._factory() as db:
-            card = db.get(BoardCardRow, request.card_id)
-            if card is None or card.state != "ready":
-                return ClaimOutcome(success=False, reason="not_ready")
-            existing_lease = (
-                db.get(BoardWorkspaceLeaseRow, request.workspace_repo)
-                if request.workspace_repo is not None
-                else None
-            )
-            if _lease_held(db, existing_lease, now):
-                return ClaimOutcome(
-                    success=False, reason="workspace_lease_unavailable"
-                )
-            # Captured before the bulk UPDATE: Session.execute()'s default
-            # synchronize_session="evaluate" updates already-loaded ORM
-            # objects in place, so reading attempt_count afterward would
-            # double-count the increment.
-            sequence = card.attempt_count + 1
-            result = db.execute(
+            sequence = db.execute(
                 update(BoardCardRow)
                 .where(
                     BoardCardRow.id == request.card_id,
@@ -79,10 +69,15 @@ class BoardClaimsStore:
                     attempt_count=BoardCardRow.attempt_count + 1,
                     updated_at=now,
                 )
-            )
-            if result.rowcount == 0:
-                db.rollback()
+                .returning(BoardCardRow.attempt_count)
+            ).scalar_one_or_none()
+            if sequence is None:
                 return ClaimOutcome(success=False, reason="not_ready")
+            if not _take_lease(db, request, sequence, now):
+                db.rollback()
+                return ClaimOutcome(
+                    success=False, reason="workspace_lease_unavailable"
+                )
             db.add(
                 BoardCardAttemptRow(
                     card_id=request.card_id,
@@ -93,46 +88,8 @@ class BoardClaimsStore:
                     started_at=now,
                 )
             )
-            db.add(
-                BoardClaimLeaseRow(
-                    card_id=request.card_id,
-                    attempt_sequence=sequence,
-                    holder_specialist_id=request.specialist_id,
-                    expires_at=now + timedelta(seconds=request.lease_seconds),
-                )
-            )
-            if request.workspace_repo is not None:
-                ws_seconds = (
-                    request.workspace_lease_seconds or request.lease_seconds
-                )
-                self._acquire_workspace_lease(
-                    db,
-                    existing_lease,
-                    request.workspace_repo,
-                    request.card_id,
-                    now + timedelta(seconds=ws_seconds),
-                )
             db.commit()
             return ClaimOutcome(success=True, attempt_sequence=sequence)
-
-    def _acquire_workspace_lease(
-        self,
-        db: Session,
-        existing: BoardWorkspaceLeaseRow | None,
-        repo: str,
-        card_id: str,
-        expires_at: datetime,
-    ) -> None:
-        """Create or reuse (an expired) workspace-lease row for *repo*."""
-        if existing is not None:
-            existing.claim_card_id = card_id
-            existing.expires_at = expires_at
-        else:
-            db.add(
-                BoardWorkspaceLeaseRow(
-                    repo=repo, claim_card_id=card_id, expires_at=expires_at
-                )
-            )
 
     def record_session(
         self, card_id: str, attempt_sequence: int, session_id: str
@@ -165,34 +122,24 @@ class BoardClaimsStore:
         evidence and does not advance the card (data-model.md).
         """
         now = now_utc(now)
-        with self._factory() as db:
+        with self._factory.begin() as db:
             attempt = db.get(BoardCardAttemptRow, (card_id, attempt_sequence))
             if attempt is None:
                 return CompleteOutcome(success=False, reason="not_found")
-            lease = db.get(BoardClaimLeaseRow, card_id)
-            is_active = (
-                lease is not None
-                and lease.attempt_sequence == attempt_sequence
-            )
+            # Freeing the claim (and with it the repository) is what
+            # decides whether this completion or a concurrent recovery
+            # or release wins.
+            held = _end_claim(db, card_id, attempt_sequence) is not None
             attempt.result = result
             attempt.ended_at = now
-            attempt.status = "completed" if is_active else "stale"
-            if not is_active:
-                db.commit()
+            attempt.status = "completed" if held else "stale"
+            if not held:
                 return CompleteOutcome(success=False, reason="stale")
             db.execute(
                 update(BoardCardRow)
                 .where(BoardCardRow.id == card_id)
                 .values(state=new_state, updated_at=now)
             )
-            db.query(BoardClaimLeaseRow).filter(
-                BoardClaimLeaseRow.card_id == card_id
-            ).delete()
-            # The repository is free again once its writer is done.
-            db.query(BoardWorkspaceLeaseRow).filter(
-                BoardWorkspaceLeaseRow.claim_card_id == card_id
-            ).delete()
-            db.commit()
             return CompleteOutcome(success=True)
 
     def expire_leases(self, *, now: datetime | None = None) -> list[str]:
@@ -206,41 +153,23 @@ class BoardClaimsStore:
         :returns: The ids of cards whose lease expired.
         """
         now = now_utc(now)
-        with self._factory() as db:
-            expired = (
-                db.query(BoardClaimLeaseRow)
-                .filter(BoardClaimLeaseRow.expires_at <= now)
-                .all()
-            )
-            card_ids = [lease.card_id for lease in expired]
-            for lease in expired:
-                self._close_expired_lease(db, lease, now)
-            db.commit()
-            return card_ids
-
-    def _close_expired_lease(
-        self, db: Session, lease: BoardClaimLeaseRow, now: datetime
-    ) -> None:
-        """Mark one abandoned attempt interrupted and free its card."""
-        attempt = db.get(
-            BoardCardAttemptRow, (lease.card_id, lease.attempt_sequence)
-        )
-        if attempt is not None:
-            attempt.status = "interrupted"
-            attempt.ended_at = now
-        card = db.get(BoardCardRow, lease.card_id)
-        next_state = "ready"
-        if card is not None and card.attempt_count >= card.attempt_limit:
-            next_state = "failed"
-        db.execute(
-            update(BoardCardRow)
-            .where(BoardCardRow.id == lease.card_id)
-            .values(state=next_state, updated_at=now)
-        )
-        db.delete(lease)
-        db.query(BoardWorkspaceLeaseRow).filter(
-            BoardWorkspaceLeaseRow.claim_card_id == lease.card_id
-        ).delete()
+        with self._factory.begin() as db:
+            expired = db.execute(
+                delete(BoardClaimLeaseRow)
+                .where(BoardClaimLeaseRow.expires_at <= now)
+                .returning(
+                    BoardClaimLeaseRow.card_id,
+                    BoardClaimLeaseRow.attempt_sequence,
+                )
+            ).all()
+            for card_id, attempt_sequence in expired:
+                _interrupt(db, card_id, attempt_sequence, now)
+                db.execute(
+                    update(BoardCardRow)
+                    .where(BoardCardRow.id == card_id)
+                    .values(state=_RETRY_OR_FAIL, updated_at=now)
+                )
+            return [card_id for card_id, _ in expired]
 
     def release_claim(
         self, card_id: str, *, now: datetime | None = None
@@ -250,26 +179,16 @@ class BoardClaimsStore:
         Unlike :meth:`expire_leases`, this never decides the card's next
         state — the caller (an intervention) does that separately — it
         only marks the active attempt ``interrupted`` and frees the claim
-        and workspace leases.
+        and its repository.
 
         :returns: Whether an active lease was found and released.
         """
         now = now_utc(now)
-        with self._factory() as db:
-            lease = db.get(BoardClaimLeaseRow, card_id)
-            if lease is None:
+        with self._factory.begin() as db:
+            attempt_sequence = _end_claim(db, card_id)
+            if attempt_sequence is None:
                 return False
-            attempt = db.get(
-                BoardCardAttemptRow, (card_id, lease.attempt_sequence)
-            )
-            if attempt is not None:
-                attempt.status = "interrupted"
-                attempt.ended_at = now
-            db.delete(lease)
-            db.query(BoardWorkspaceLeaseRow).filter(
-                BoardWorkspaceLeaseRow.claim_card_id == card_id
-            ).delete()
-            db.commit()
+            _interrupt(db, card_id, attempt_sequence, now)
             return True
 
     def get_active_lease(self, card_id: str) -> ClaimLease | None:
@@ -314,12 +233,69 @@ def get_board_claims_store() -> BoardClaimsStore:
     return BoardClaimsStore(get_sessionmaker())
 
 
-def _lease_held(
-    db: Session, lease: BoardWorkspaceLeaseRow | None, now: datetime
+#: An expired claim's card goes back to ``ready`` while it has attempts
+#: left, else to ``failed`` (decided on the row, not read beforehand).
+_RETRY_OR_FAIL = case(
+    (BoardCardRow.attempt_count >= BoardCardRow.attempt_limit, "failed"),
+    else_="ready",
+)
+
+
+def _take_lease(
+    db: Session, request: ClaimRequest, sequence: int, now: datetime
 ) -> bool:
-    """Whether *lease* still keeps other writers out: unexpired, and its
-    card still holds a claim. A lease left behind by a finished claim
-    (completion once never released it) does not."""
-    if lease is None or lease.expires_at <= now:
-        return False
-    return db.get(BoardClaimLeaseRow, lease.claim_card_id) is not None
+    """Insert the claim's lease, holding its repository if it has one.
+
+    :returns: Whether it was inserted; ``False`` when another active
+        claim holds the repository (once that claim's transaction is
+        settled, if it is still in progress).
+    """
+    taken = db.execute(
+        insert(BoardClaimLeaseRow)
+        .values(
+            card_id=request.card_id,
+            attempt_sequence=sequence,
+            holder_specialist_id=request.specialist_id,
+            workspace_repo=request.workspace_repo,
+            expires_at=now + timedelta(seconds=request.lease_seconds),
+        )
+        .on_conflict_do_nothing(index_elements=["workspace_repo"])
+        .returning(BoardClaimLeaseRow.card_id)
+    )
+    return taken.first() is not None
+
+
+def _end_claim(
+    db: Session, card_id: str, attempt_sequence: int | None = None
+) -> int | None:
+    """Delete *card_id*'s claim lease (only *attempt_sequence*'s, if
+    given).
+
+    :returns: The attempt the deleted lease belonged to, or ``None`` when
+        there was none to delete (or a concurrent caller deleted it
+        first).
+    """
+    statement = delete(BoardClaimLeaseRow).where(
+        BoardClaimLeaseRow.card_id == card_id
+    )
+    if attempt_sequence is not None:
+        statement = statement.where(
+            BoardClaimLeaseRow.attempt_sequence == attempt_sequence
+        )
+    return db.execute(
+        statement.returning(BoardClaimLeaseRow.attempt_sequence)
+    ).scalar_one_or_none()
+
+
+def _interrupt(
+    db: Session, card_id: str, attempt_sequence: int, now: datetime
+) -> None:
+    """Mark an abandoned or released attempt ``interrupted``."""
+    db.execute(
+        update(BoardCardAttemptRow)
+        .where(
+            BoardCardAttemptRow.card_id == card_id,
+            BoardCardAttemptRow.sequence == attempt_sequence,
+        )
+        .values(status="interrupted", ended_at=now)
+    )

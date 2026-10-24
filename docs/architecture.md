@@ -84,10 +84,9 @@ entity reference; this is the operator-relevant shape:
   gate readiness.
 - **Claims and leases.** A specialist claims one `ready` card at a time
   (`ClaimLease`, time-bounded, `board_claim_lease_seconds`). A
-  write-permission card additionally needs a per-repository
-  `WorkspaceLease` (`board_workspace_lease_seconds`) so only one writer can
-  touch a given repo at once — read-only cards may run concurrently, up to
-  `board_max_parallel_read_cards`. A background sweep
+  write-permission card's claim also holds its repository, so only one
+  writer can touch a given repo at once — read-only cards may run
+  concurrently, up to `board_max_parallel_read_cards`. A background sweep
   (`board_recovery_interval_seconds`) reclaims expired leases and applies
   each card's bounded retry/reassign/escalate policy.
 - **Handoff artifacts.** A card's accepted output is retained as an

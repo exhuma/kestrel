@@ -265,7 +265,7 @@ class TestEndToEnd:
                 board_session_factory(tmp_path)
             ),
             roster=roster, max_parallel_read_cards=4,
-            default_lease_seconds=60, default_workspace_lease_seconds=600,
+            default_lease_seconds=60,
         )
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator, gates=gates,

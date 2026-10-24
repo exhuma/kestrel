@@ -63,7 +63,6 @@ def interview_stack(tmp_path: Path):
     claims = ClaimsService(
         store=store, claims_store=BoardClaimsStore(factory), roster=roster,
         max_parallel_read_cards=4, default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
     coordinator = CoordinatorService(
         store, BoardCoordinatorStore(factory), board_service

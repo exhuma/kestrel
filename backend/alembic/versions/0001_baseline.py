@@ -287,6 +287,7 @@ def upgrade() -> None:
         sa.Column("card_id", sa.String(), nullable=False),
         sa.Column("attempt_sequence", sa.Integer(), nullable=False),
         sa.Column("holder_specialist_id", sa.Text(), nullable=False),
+        sa.Column("workspace_repo", sa.Text(), nullable=True),
         sa.Column("expires_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(
             ["card_id"],
@@ -296,6 +297,12 @@ def upgrade() -> None:
             initially="DEFERRED",
         ),
         sa.PrimaryKeyConstraint("card_id", name="pk_board_claim_lease"),
+    )
+    op.create_index(
+        "uq_board_claim_lease_workspace_repo",
+        "board_claim_lease",
+        ["workspace_repo"],
+        unique=True,
     )
     op.create_table(
         "board_event",
@@ -353,20 +360,6 @@ def upgrade() -> None:
         sa.UniqueConstraint("card_id", name="uq_board_security_review_card_id"),
     )
     op.create_table(
-        "board_workspace_lease",
-        sa.Column("repo", sa.String(), nullable=False),
-        sa.Column("claim_card_id", sa.String(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["claim_card_id"],
-            ["board_card.id"],
-            name="fk_board_workspace_lease_claim_card_id",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
-        sa.PrimaryKeyConstraint("repo", name="pk_board_workspace_lease"),
-    )
-    op.create_table(
         "board_human_gate",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("card_id", sa.String(), nullable=False),
@@ -398,7 +391,6 @@ def downgrade() -> None:
     """Drop every table, dependents first."""
     for table in (
         "board_human_gate",
-        "board_workspace_lease",
         "board_security_review",
         "board_event",
         "board_claim_lease",

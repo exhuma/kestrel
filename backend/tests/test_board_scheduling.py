@@ -179,7 +179,6 @@ class TestClaimAndDispatch:
             roster=SpecialistRoster({"developer": _specialist()}),
             max_parallel_read_cards=4,
             default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         backend = _FakeBackend("<RESULT>ok</RESULT>")
 
@@ -210,7 +209,6 @@ class TestClaimAndDispatch:
             roster=SpecialistRoster({"developer": _specialist()}),
             max_parallel_read_cards=4,
             default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         backend = _FakeBackend("<RESULT>ok</RESULT>")
 
@@ -352,7 +350,6 @@ def _dispatch_services(tmp_path: Path, roster: SpecialistRoster) -> tuple[
         roster=roster,
         max_parallel_read_cards=4,
         default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
     artifacts = ArtifactsService(
         store, artifact_store, board_service, content_store

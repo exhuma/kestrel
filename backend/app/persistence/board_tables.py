@@ -158,30 +158,28 @@ class BoardClaimLeaseRow(Base):
     ``card_id`` is the primary key: the row exists only while a claim is
     active, which trivially enforces "one active claim per card" — it is
     deleted on completion, or by recovery once its ``expires_at`` passes.
+
+    A writer's claim also holds its repository: ``workspace_repo`` is
+    unique, so at most one active claim writes to a repository, and the
+    repository is free again as soon as that claim's row is gone.
     """
 
     __tablename__ = "board_claim_lease"
+    __table_args__ = (
+        Index(
+            "uq_board_claim_lease_workspace_repo",
+            "workspace_repo",
+            unique=True,
+        ),
+    )
 
     card_id: Mapped[str] = mapped_column(
         deferred_fk("board_card.id"), primary_key=True
     )
     attempt_sequence: Mapped[int] = mapped_column()
     holder_specialist_id: Mapped[str] = mapped_column(Text)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-
-
-class BoardWorkspaceLeaseRow(Base):
-    """The active repository write lease, if any (data-model.md).
-
-    ``repo`` is the primary key, trivially enforcing "one active write
-    lease per repository" the same way :class:`BoardClaimLeaseRow` does
-    for card claims.
-    """
-
-    __tablename__ = "board_workspace_lease"
-
-    repo: Mapped[str] = mapped_column(primary_key=True)
-    claim_card_id: Mapped[str] = mapped_column(deferred_fk("board_card.id"))
+    #: The repository this claim writes to; ``NULL`` for a reader.
+    workspace_repo: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 

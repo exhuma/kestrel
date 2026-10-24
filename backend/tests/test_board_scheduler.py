@@ -73,7 +73,6 @@ def _service(
         roster=_ROSTER,
         max_parallel_read_cards=max_parallel_read_cards,
         default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
     return service, store
 

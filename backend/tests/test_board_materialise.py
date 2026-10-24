@@ -310,7 +310,6 @@ def test_no_specialist_can_claim_a_manual_task(tmp_path: Path) -> None:
         claims_store=BoardClaimsStore(board_session_factory(tmp_path)),
         roster=SpecialistRoster({"verifier": anyone}),
         max_parallel_read_cards=4, default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
 
     with pytest.raises(NoEligibleCardError):

@@ -38,7 +38,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
 | `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine. The liaison's reading of a ticket reply (feature 046) uses it too; a timeout there makes kestrel ask the person back |
 | `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a card claim lease is held before it is considered abandoned |
-| `KESTREL_BOARD_WORKSPACE_LEASE_SECONDS` | `1800` | How long a repository workspace-write lease is held before recovery may reclaim it |
 | `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
 | `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |

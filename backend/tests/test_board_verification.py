@@ -245,7 +245,6 @@ class TestEndToEndDispatchRouting:
         claims = ClaimsService(
             store=store, claims_store=claims_store, roster=roster,
             max_parallel_read_cards=4, default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         artifacts = ArtifactsService(
             store, artifact_store, board_service, content_store
@@ -301,7 +300,6 @@ class TestEndToEndDispatchRouting:
         claims = ClaimsService(
             store=store, claims_store=claims_store, roster=roster,
             max_parallel_read_cards=4, default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         artifacts = ArtifactsService(
             store, artifact_store, board_service, content_store

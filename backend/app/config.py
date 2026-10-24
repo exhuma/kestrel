@@ -210,9 +210,6 @@ class Settings(BaseSettings):
     #: and eligible for recovery (feature 026,
     #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
     board_claim_lease_seconds: int = Field(default=600, gt=0)
-    #: How long a repository workspace-write lease is held before recovery
-    #: may reclaim it (feature 026, ``KESTREL_BOARD_WORKSPACE_LEASE_SECONDS``).
-    board_workspace_lease_seconds: int = Field(default=1800, gt=0)
     #: Maximum number of read-only board cards that may be claimed and
     #: active at once across the whole process (feature 026,
     #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).

@@ -227,10 +227,9 @@ class ClaimRequest:
     :param specialist_id: The claiming specialist's id.
     :param lease_seconds: How long the claim lease lasts.
     :param backend_id: The backend the attempt will run on, if known.
-    :param workspace_repo: When set, also acquire this repository's write
-        lease; fails the whole claim if it is already held.
-    :param workspace_lease_seconds: Workspace lease duration; defaults to
-        ``lease_seconds`` when unset.
+    :param workspace_repo: When set, the claim also holds this
+        repository's write lease; fails the whole claim if another
+        active claim already holds it.
     """
 
     card_id: str
@@ -238,7 +237,6 @@ class ClaimRequest:
     lease_seconds: float
     backend_id: str | None = None
     workspace_repo: str | None = None
-    workspace_lease_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -307,20 +305,6 @@ class ClaimLease:
     card_id: str
     attempt_sequence: int
     specialist_id: str
-    expires_at: datetime
-
-
-@dataclass(frozen=True)
-class WorkspaceLease:
-    """A repository write lease; at most one active per repository.
-
-    :param repo: The repository this lease guards.
-    :param claim_card_id: The card whose claim holds this lease.
-    :param expires_at: When the lease is considered abandoned.
-    """
-
-    repo: str
-    claim_card_id: str
     expires_at: datetime
 
 
