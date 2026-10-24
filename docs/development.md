@@ -59,7 +59,7 @@ KESTREL_LOG_FORMAT=json uv run python -m app # structured logs
 
 Copy `backend/.env.example` to `backend/.env` and edit. It is gitignored.
 See [Configuration](configuration.md) for every `KESTREL_*` setting, and
-[Backends](backends.md) for dispatching to opencode or a self-hosted LLM.
+[Backends](backends.md) for dispatching to opencode.
 
 ## Tests
 

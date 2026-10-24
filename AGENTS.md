@@ -1,7 +1,7 @@
 # kestrel
 
 Single-operator tool that dispatches and monitors coding-agent sessions
-(Claude Code CLI, opencode, or a self-hosted LLM) from a web UI. FastAPI backend
+(Claude Code CLI or opencode) from a web UI. FastAPI backend
 + Vue 3 / Vuetify frontend.
 
 ## Governance & specs — read before changing code

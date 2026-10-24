@@ -14,7 +14,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from app.config_models import BackendConfig, TaskSourceConfig, TranslationConfig
+from app.config_models import BackendConfig, TaskSourceConfig
 
 _log = logging.getLogger("kestrel.config")
 
@@ -26,7 +26,6 @@ _FILE_ONLY_FIELDS = frozenset(
         "backends",
         "default_session_backend",
         "task_sources",
-        "translation",
     }
 )
 
@@ -199,9 +198,6 @@ class Settings(BaseSettings):
     #: each entry declares a ``type`` and that source's selection criteria.
     #: See :class:`app.config_models.TaskSourceConfig`.
     task_sources: list[TaskSourceConfig] = []
-    #: Dedicated, stateless translation backing service. File-only so it cannot
-    #: be confused with a workflow backend; secrets remain env-backed.
-    translation: TranslationConfig | None = None
     #: Single cadence (seconds) governing every source's re-check loop — the
     #: GitHub reconcile backstop and the Jira poll alike.
     poll_interval_seconds: int = 300
@@ -411,8 +407,6 @@ class Settings(BaseSettings):
             self.task_sources = [
                 TaskSourceConfig(**entry) for entry in data["task_sources"]
             ]
-        if "translation" in data:
-            self.translation = TranslationConfig(**data["translation"])
         # Applicative overrides: file wins, but only for keys it sets.
         for key in _CONFIG_FILE_FIELDS:
             if key in data:

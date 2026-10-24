@@ -92,22 +92,20 @@ def test_registry_builds_default_claude_backend() -> None:
 
 
 def test_registry_applies_configured_capability_override() -> None:
-    """Ensure an on-site coding backend can declare file-edit capability."""
+    """Ensure a backend can declare a narrower capability set."""
     settings = _settings(
         backends=[
             BackendConfig(
                 id="local",
-                type="openai_compat",
-                base_url="http://x/v1",
-                caps=["text", "file_edits"],
+                type="opencode",
+                base_url="http://x",
+                caps=["text"],
             )
         ],
         default_session_backend="local",
     )
     registry = BackendRegistry(settings, SessionRegistry())
-    assert registry.get("local").caps == frozenset(
-        {Capability.TEXT, Capability.FILE_EDITS}
-    )
+    assert registry.get("local").caps == frozenset({Capability.TEXT})
 
 
 def test_registry_unknown_backend_raises() -> None:
@@ -143,12 +141,12 @@ def test_registry_rejects_a_missing_default_at_build() -> None:
 # ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
 
 def _mixed_registry() -> BackendRegistry:
-    """A registry with a file-editing agent and a text-only LLM."""
+    """A registry with a file-editing agent and a text-only backend."""
     settings = _settings(
         backends=[
             BackendConfig(id="claude", type="claude_cli"),
             BackendConfig(
-                id="local", type="openai_compat", base_url="http://x/v1"
+                id="local", type="opencode", base_url="http://x", caps=["text"]
             ),
         ],
     )

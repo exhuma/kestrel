@@ -6,7 +6,6 @@ from functools import lru_cache
 from app.backends.base import Backend, Capability
 from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.limiter import BackendLimiter
-from app.backends.openai_compat import OpenAICompatBackend
 from app.backends.opencode import OpenCodeBackend
 from app.config import BackendConfig, Settings, get_settings
 from app.storage.registry import SessionRegistry, get_registry
@@ -39,10 +38,6 @@ class BackendRegistry:
                 self._session_registry,
                 backend_id=cfg.id,
                 limiter=limiter,
-            )
-        elif cfg.type == "openai_compat":
-            backend = OpenAICompatBackend(
-                self._settings, self._session_registry, cfg, limiter=limiter
             )
         elif cfg.type == "opencode":
             backend = OpenCodeBackend(

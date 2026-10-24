@@ -39,8 +39,8 @@ class Capability(str, Enum):
 
     A backend serves a step when its capabilities are a superset of the
     step's requirement, so a file-editing agent (claude, opencode) can
-    also serve a text-only reasoning step, while a plain LLM (``TEXT``
-    only) cannot serve a step that needs ``FILE_EDITS``.
+    also serve a text-only reasoning step, while a backend limited to ``TEXT``
+    cannot serve a step that needs ``FILE_EDITS``.
     """
 
     TEXT = "text"

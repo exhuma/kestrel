@@ -21,8 +21,7 @@ services:
     # user: "1000:1000"
     ports:
       - "8000:8000"
-    # Reach backends running on the Docker host (Ollama, `opencode serve`,
-    # ...): use http://host.docker.internal:PORT in config.toml, NOT
+    # Reach backends running on the Docker host (`opencode serve`): use http://host.docker.internal:PORT in config.toml, NOT
     # localhost — inside the container localhost is the container itself.
     extra_hosts:
       - "host.docker.internal:host-gateway"

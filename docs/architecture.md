@@ -18,7 +18,7 @@ the built SPA.
 | Component | Responsibility |
 | --- | --- |
 | **FastAPI backend** (`backend/app`) | HTTP API, session/board orchestration, SSE streaming |
-| **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode`, `openai_compat` |
+| **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode` |
 | **Persistence** (`backend/app/persistence`) | SQLite via SQLAlchemy, schema managed by Alembic |
 | **SPA** (`frontend/`) | Vue 3 + Vuetify UI; in the image it is served same-origin by the backend |
 
@@ -28,7 +28,7 @@ the built SPA.
   the adapters talks to. It exposes `start` / `resume` / `run_turn` /
   `terminate` and a `Capability` set (`TEXT`, `FILE_EDITS`, `TOOL_USE`). A
   board specialist is served only by a backend whose capabilities are a
-  superset of its `required_abilities`, so a plain LLM can serve a
+  superset of its `required_abilities`, so a text-only backend can serve a
   text-only role but not `coder`. Adapters never leak a tool's flags or
   output format upward.
 - **A canonical event vocabulary** (`models.py`) normalizes each backend's
@@ -41,8 +41,8 @@ the built SPA.
 
 ## External dependencies
 
-The image bundles only the `claude` CLI (plus Node and git). `opencode` and
-self-hosted LLMs are **external backing services addressed by URL** — started
+The image bundles only the `claude` CLI (plus Node and git). `opencode` is an
+**external backing service addressed by URL** — started
 separately and reached over HTTP, never bundled into the image. This keeps
 the image small and lets a deploy attach or swap backends purely by config.
 

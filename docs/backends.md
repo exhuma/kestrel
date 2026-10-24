@@ -2,7 +2,7 @@
 
 Kestrel dispatches to a pluggable **backend**. By default the only backend is
 the bundled `claude` CLI, so no configuration is needed. To add backends
-(self-hosted LLMs, opencode), write a **TOML file** and point kestrel at it:
+(opencode), write a **TOML file** and point kestrel at it:
 
 ```bash
 KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
@@ -22,9 +22,9 @@ type = "claude_cli"
 
 [[backends]]
 id = "local"
-type = "openai_compat"    # a self-hosted OpenAI-compatible LLM
-base_url = "http://localhost:11434/v1"
-model = "llama3.1:8b"
+type = "opencode"
+base_url = "http://localhost:4096"
+model = "anthropic/claude-sonnet-4"
 ```
 
 Per-**specialist** routing — which backend a given board role (`coder`,
@@ -64,8 +64,8 @@ From the published image, use one of:
 - A **compose service name**, if you run the backend as another service on
   the same compose network (address it as `http://service-name:PORT`).
 
-So a host-run Ollama that you'd reach at `http://localhost:11434/v1` from
-source becomes `http://host.docker.internal:11434/v1` in `config.toml` when
+So a host-run `opencode serve` that you'd reach at `http://localhost:4096`
+from source becomes `http://host.docker.internal:4096` in `config.toml` when
 running the image.
 
 ## Where backends apply
@@ -80,8 +80,9 @@ backend id.
 A specialist only accepts a backend that satisfies its `required_abilities`:
 `coder` needs file-editing (`claude`/`opencode`), since it is the only role
 that holds a repository write lease, while most other roles need only text
-— so a plain LLM may serve them (it just won't read the repo). A bad mapping
-(e.g. a text-only LLM pinned to `coder`) fails capability-checked routing
+— so a backend declared text-only (`caps = ["text"]`) may serve them (it
+just won't read the repo). A bad mapping (e.g. a text-only backend pinned to
+`coder`) fails capability-checked routing
 (`SpecialistBackendPolicy.backend_for`) with a clear error rather than
 silently dispatching anyway.
 
@@ -120,22 +121,6 @@ and `rate_limit_backoff_seconds` must be positive.
 
 The bundled Claude Code CLI. This is the default and needs no fields beyond
 `id` and `type`.
-
-### `openai_compat`
-
-A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). It is
-**text-only** (no file edits or tools); kestrel owns the conversation history
-and replays it each turn.
-
-```toml
-[[backends]]
-id = "local"
-type = "openai_compat"
-base_url = "http://host.docker.internal:11434/v1"   # localhost from source
-model = "llama3.1:8b"
-# api_key = "sk-…"        # or api_key_env = "MY_LLM_KEY" (an exported env var)
-# timeout = 300           # seconds; raise for big/slow models
-```
 
 ### `opencode`
 

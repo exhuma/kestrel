@@ -150,21 +150,6 @@ branch, restart it against the same task — was removed with that driver in
 the Phase 10 clean break and has no board-domain replacement yet; see
 [Architecture](architecture.md#the-work-board-spec-026).)
 
-### Translation
-
-`config.toml` may declare a separate OpenAI-compatible translation service
-(shown below), but nothing in the current board domain calls it — it was
-wired to the deleted feedback-intake subsystem and has no board-domain
-caller yet. Declaring it is a no-op for now.
-
-```toml
-[translation]
-base_url = "https://translation.example.com/v1"
-model = "translation-model"
-api_key_env = "KESTREL_TRANSLATION_API_KEY"
-# timeout = 30.0
-```
-
 ### Decomposed tasks and verification rounds
 
 An approved decomposition (CAB-2) does **not** create tickets in the task
@@ -349,7 +334,7 @@ compose `environment:` block). Kestrel consumes:
 - `KESTREL_JIRA_API_TOKEN`, or the variable a source names in `token_env`;
 - `KESTREL_CODE_HOST_TOKEN`, or the variable named in `code_host_token_env`;
 - per-backend credentials named by a backend's `api_key_env` (for example
-  the opencode server password) and the translation `api_key_env`.
+  the opencode server password).
 
 Claude credentials come from your seeded host login, not from a kestrel
 setting. See [Backends](backends.md) for backend secrets.

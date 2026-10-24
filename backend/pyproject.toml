@@ -93,7 +93,6 @@ extend-immutable-calls = [
 # rename the unused argument instead (see AGENTS.md "Code-quality guardrails").
 # New files get no exemptions.
 [tool.ruff.lint.per-file-ignores]
-"app/backends/openai_compat.py" = ["C901", "PLR2004", "PLW2901"]
 "app/config.py" = ["ARG003", "C901", "PLC0415"]
 "app/logging_config.py" = ["PLC0415"]
 "app/main.py" = ["ARG001", "PLC0415", "PLR0915"]
@@ -151,7 +150,6 @@ extend-immutable-calls = [
 "tests/test_models.py" = ["PLR2004"]
 "tests/test_notifications.py" = ["PLR2004"]
 "tests/test_notifications_router.py" = ["PLR2004"]
-"tests/test_openai_backend.py" = ["ARG001", "PLR2004"]
 "tests/test_opencode_backend.py" = ["PLC0415"]
 "tests/test_prd_delivery.py" = ["ARG002", "PLC0415", "PLR0913"]
 "tests/test_questionnaire.py" = ["PLC0415", "PLR2004"]

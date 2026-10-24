@@ -24,10 +24,9 @@ class BackendConfig(BaseModel):
     """One dispatchable agent backend.
 
     ``type`` selects the adapter; the remaining fields configure it
-    (``base_url``/``model``/``api_key_env`` are used by the HTTP-based
-    backends added in later phases). ``caps`` overrides the adapter's
-    default capabilities when set. This permits an on-site compatible backend
-    to advertise its coding-agent abilities accurately.
+    (``base_url``/``model``/``api_key_env`` are used by the opencode
+    backend). ``caps`` overrides the adapter's default capabilities when
+    set.
 
     ``extra="forbid"``: a stray top-level key placed after a
     ``[[backends]]`` header in the TOML file (e.g. an accidentally
@@ -39,13 +38,12 @@ class BackendConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
+    type: Literal["claude_cli", "opencode"] = "claude_cli"
     base_url: str | None = None
     model: str | None = None
     #: This backend's secret, given directly (fine in a gitignored config
-    #: file): a bearer API key (``openai_compat``) or the HTTP Basic
-    #: password (``opencode``). Prefer ``api_key`` / ``password``; these
-    #: aliases are equivalent.
+    #: file): the HTTP Basic password of an ``opencode`` server. Prefer
+    #: ``api_key`` / ``password``; these aliases are equivalent.
     api_key: str | None = None
     password: str | None = None
     #: Name of an env var holding the secret instead of giving it inline
@@ -55,7 +53,7 @@ class BackendConfig(BaseModel):
     #: HTTP Basic username for a secured ``opencode`` server. Defaults to
     #: opencode's own default ("opencode") when a password is configured.
     username: str | None = None
-    #: Per-request timeout in seconds for HTTP backends (openai/opencode).
+    #: Per-request timeout in seconds for the opencode backend.
     timeout: float | None = None
     #: Maximum in-flight turns across this backend in one kestrel process.
     max_concurrency: int = Field(default=1, ge=1)
@@ -89,26 +87,6 @@ class BackendConfig(BaseModel):
         direct = self.api_key or self.password
         if direct:
             return direct
-        return os.environ.get(self.api_key_env) if self.api_key_env else None
-
-
-class TranslationConfig(BaseModel):
-    """One explicitly configured OpenAI-compatible translation service.
-
-    This is deliberately distinct from ``BackendConfig``: translation makes a
-    single stateless request and must not consume a workflow backend or session.
-    """
-
-    base_url: str
-    model: str
-    api_key: str | None = None
-    api_key_env: str | None = None
-    timeout: float = 30.0
-
-    def secret(self) -> str | None:
-        """Return an inline API key, or the configured environment value."""
-        if self.api_key:
-            return self.api_key
         return os.environ.get(self.api_key_env) if self.api_key_env else None
 
 

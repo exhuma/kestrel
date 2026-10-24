@@ -107,14 +107,6 @@ board_cab1_interview_max_questions = 3
 # production-ready — see app/services/board/dev_reset.py.
 board_dev_actions_enabled = false
 
-# Optional, stateless OpenAI-compatible feedback translation. It is not a
-# workflow backend. Keep its credential in the named environment variable.
-# [translation]
-# base_url = "https://translation.example.com/v1"
-# model = "translation-model"
-# api_key_env = "KESTREL_TRANSLATION_API_KEY"
-# timeout = 30.0
-
 # --- task sources -----------------------------------------------------------
 # Each [[task_sources]] entry declares where kestrel pulls work from. Secrets
 # stay in the environment: an entry names the env var holding its token via
@@ -196,7 +188,7 @@ trigger_label = "kestrel"
 default_session_backend = "claude"
 
 # --- backends ---------------------------------------------------------------
-# Each [[backends]] entry: id, type (claude_cli | openai_compat | opencode),
+# Each [[backends]] entry: id, type (claude_cli | opencode),
 # and per-type fields (base_url, model, api_key_env, username).
 
 [[backends]]
@@ -204,18 +196,6 @@ id = "claude"
 type = "claude_cli"
 # Process-wide cap for this backend id, shared by all workflows and ad-hoc
 # sessions. The default is 1; raise it only when the provider quota allows it.
-# max_concurrency = 1
-
-# A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). Text-only.
-# `api_key` (or api_key_env) sets a bearer token if the endpoint needs one.
-# `timeout` (seconds) is worth raising for big/slow models.
-[[backends]]
-id = "local"
-type = "openai_compat"
-base_url = "http://localhost:11434/v1"
-model = "llama3.1:8b"
-# api_key = "sk-…"
-# timeout = 300
 # max_concurrency = 1
 
 # opencode via `opencode serve`. `model` is "provider/model". For a secured

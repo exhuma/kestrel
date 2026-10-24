@@ -44,7 +44,6 @@ source_modules =
 forbidden_modules =
     app.backends.claude_cli
     app.backends.opencode
-    app.backends.openai_compat
 
 # Constitution Principle VI: documents are modelled, never strings. Parsing and
 # rendering a platform format happen only in the adapter at a system boundary.

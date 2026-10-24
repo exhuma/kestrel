@@ -2,7 +2,7 @@
 
 Dispatch and monitor coding-agent sessions from a web UI: the
 [Claude Code](https://github.com/anthropics/claude-code) CLI, an
-[opencode](https://opencode.ai) server, or a self-hosted LLM. Kestrel is a
+[opencode](https://opencode.ai) server. Kestrel is a
 single-operator tool: a FastAPI backend
 ingests tasks from GitHub, Jira, or local task folders into an event-driven
 **work board** of typed cards claimed by configurable specialist agents (see
@@ -29,8 +29,8 @@ Then open <http://localhost:8000>.
 
 See **[Getting started](docs/getting-started.md)** for prerequisites, volumes,
 and how your host Claude config is used. The Claude login is only needed for
-the `claude_cli` backend; with an opencode or self-hosted backend configured
-you do not need it. To run kestrel on a cluster, see
+the `claude_cli` backend; with an opencode backend configured you do
+not need it. To run kestrel on a cluster, see
 **[Deploying on Kubernetes](docs/deploy-kubernetes.md)**.
 
 ## Documentation
@@ -41,7 +41,7 @@ you do not need it. To run kestrel on a cluster, see
   opencode sidecar behind an authenticating proxy, for a Jira walk-through.
 - [Configuration](docs/configuration.md) — every `KESTREL_*` setting, config
   files, and mounts.
-- [Backends](docs/backends.md) — dispatch to opencode or a self-hosted LLM.
+- [Backends](docs/backends.md) — dispatch to opencode.
 - [GitHub workflow](docs/setup-github-workflow.md) — watch a repo's issues.
 - [Jira workflow](docs/setup-jira-workflow.md) — poll a Jira project's RFCs.
 - [Local tasks workflow](docs/setup-local-tasks.md) — disposable local

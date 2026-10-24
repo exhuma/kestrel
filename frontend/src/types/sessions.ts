@@ -11,7 +11,7 @@ export interface SessionSummary {
 /**
  * One canonical, backend-agnostic timeline event.
  *
- * Every backend (claude CLI, opencode, plain LLMs) maps its native
+ * Every backend (claude CLI, opencode) maps its native
  * output onto this shape server-side, so the UI never parses any one
  * backend's raw event format. Only the fields relevant to `kind` are
  * populated; `native` preserves the original payload for the raw view.

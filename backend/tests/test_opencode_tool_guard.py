@@ -30,7 +30,7 @@ def _part(call_id: str, tool: str = "gitlab_list_project_issues",
 # --- config ------------------------------------------------------------------
 
 def test_an_allowlist_is_rejected_where_it_would_be_ignored() -> None:
-    """Ensure a claude_cli/openai_compat allowlist fails loudly (FR-001)."""
+    """Ensure a claude_cli allowlist fails loudly (FR-001)."""
     with pytest.raises(ValidationError, match="only by opencode"):
         BackendConfig(id="c", type="claude_cli", allowed_tools=["read"])
 

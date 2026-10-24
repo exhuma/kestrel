@@ -121,6 +121,6 @@ misbehaves, restore the backup and pin the previous version tag.
 ## Next steps
 
 - [Configuration](configuration.md) — every setting, config file, and mount.
-- [Backends](backends.md) — dispatch to opencode or a self-hosted LLM.
+- [Backends](backends.md) — dispatch to opencode.
 - [GitHub workflow](setup-github-workflow.md) — watch a repo's issues.
 - [Troubleshooting](troubleshooting.md) — common speed-bumps.

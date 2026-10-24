@@ -1,6 +1,6 @@
 """Domain models: the canonical event vocabulary and session records.
 
-Every agent backend (claude CLI, opencode, plain LLMs) maps its native
+Every agent backend (claude CLI, opencode) maps its native
 output onto :class:`CanonicalEvent` so the registry, persistence, wire
 protocol, and UI never depend on any one backend's event shape. The
 claude-specific mapping lives in :func:`map_claude_line`.

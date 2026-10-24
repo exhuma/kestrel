@@ -49,7 +49,7 @@ Supported MCP server runtimes are the ones bundled in the image: **node/npx**,
 ## A backend at `localhost` is unreachable from the container
 
 Inside the container `localhost` is the container itself, not the Docker host.
-A host-run Ollama or `opencode serve` must be addressed as
+A host-run `opencode serve` must be addressed as
 `http://host.docker.internal:PORT` in `config.toml`, not `localhost`. See
 [Backends → Reaching a backend from the Docker container](backends.md#reaching-a-backend-from-the-docker-container).
 
