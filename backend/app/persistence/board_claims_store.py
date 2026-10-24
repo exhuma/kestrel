@@ -134,6 +134,21 @@ class BoardClaimsStore:
                 )
             )
 
+    def record_session(
+        self, card_id: str, attempt_sequence: int, session_id: str
+    ) -> bool:
+        """Note which backend session an attempt runs, so an operator can
+        go from the attempt to that session's server-log lines.
+
+        :returns: Whether the attempt exists.
+        """
+        with self._factory.begin() as db:
+            attempt = db.get(BoardCardAttemptRow, (card_id, attempt_sequence))
+            if attempt is None:
+                return False
+            attempt.session_id = session_id
+            return True
+
     def complete_attempt(
         self,
         card_id: str,

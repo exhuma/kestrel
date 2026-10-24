@@ -112,6 +112,15 @@ class ClaimsService:
             workspace_lease_seconds=self.default_workspace_lease_seconds,
         )
 
+    def record_session(
+        self, card_id: str, attempt_sequence: int, session_id: str
+    ) -> bool:
+        """Store the backend's session id on an attempt
+        (``BoardClaimsStore.record_session``)."""
+        return self.claims_store.record_session(
+            card_id, attempt_sequence, session_id
+        )
+
     def complete(
         self,
         card_id: str,

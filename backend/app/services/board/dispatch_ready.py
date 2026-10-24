@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.backends.base import PERMISSION_EDIT, PERMISSION_READ_ONLY
 from app.models_board import (
@@ -191,6 +193,25 @@ def _claim_for(
     return backend, card
 
 
+def _session_recorder(
+    claims: ClaimsService, card: WorkCard
+) -> Callable[[str], None]:
+    """A callback that stores the backend's session id on the card's
+    current attempt. It never fails the turn: the id is only a pointer
+    into the server log, so a failed write is logged, not raised."""
+
+    def record(session_id: str) -> None:
+        try:
+            claims.record_session(card.id, card.attempt_count, session_id)
+        except SQLAlchemyError:  # a pointer must not fail the turn
+            _dispatch_log.exception(
+                "card %s: could not record session %s on attempt %d",
+                card.id, session_id, card.attempt_count,
+            )
+
+    return record
+
+
 async def _dispatch_one(
     workflow_id: str,
     services: DispatchServices,
@@ -218,9 +239,13 @@ async def _dispatch_one(
             services.live, workflow_id, specialist.label, card.title,
             on_change=announcer(services.board, workflow_id),
         ) as note_tool:
-            request = card_request(
-                envelope, cwd=cwd, permission_mode=permission_mode,
-                on_tool=note_tool,
+            request = replace(
+                card_request(
+                    envelope, cwd=cwd, permission_mode=permission_mode,
+                    on_tool=note_tool,
+                ),
+                card_id=card.id,
+                on_session_id=_session_recorder(services.claims, card),
             )
             result = await run_card_turn(
                 backend, request, timeout_seconds=timeout_seconds
