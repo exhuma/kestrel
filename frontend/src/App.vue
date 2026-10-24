@@ -1,16 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import { useRouter } from 'vue-router'
-import NotificationCenter from './components/NotificationCenter.vue'
 import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
 import GithubLink from './components/GithubLink.vue'
 import IdentityBadge from './components/IdentityBadge.vue'
 import { useSessions } from './composables/useSessions'
 import { useBoard } from './composables/useBoard'
 import { useConnectivity } from './composables/useConnectivity'
-
-const router = useRouter()
 
 // Shared composable state: the header's loading bar covers every
 // primary fetch. (A fleet-wide live/idle chip was removed: it reflected
@@ -29,13 +25,6 @@ const { reachable, apiBase } = useConnectivity()
 // primary fetch (sessions or board) is in flight (module-vue-vuetify
 // loading-feedback rule).
 const loading = computed(() => sessionsLoading.value || boardLoading.value)
-
-// A notification's request opens directly on that request's cockpit
-// (FR-028), not just the board (feature 029, replacing the old
-// `view = 'board'` toggle-flip).
-function onNotificationNavigate(workflowId: string): void {
-  void router.push({ name: 'cockpit', params: { id: workflowId } })
-}
 
 // Light/dark toggle over Vuetify's two built-in themes.
 const theme = useTheme()
@@ -92,7 +81,6 @@ function toggleTheme() {
       </v-btn>
 
       <SourceHealthIndicator />
-      <NotificationCenter @navigate="onNotificationNavigate" />
       <v-btn
         :icon="isDark ? '$weatherNight' : '$weatherSunny'"
         variant="text"

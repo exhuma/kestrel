@@ -58,7 +58,7 @@ Besides **unified** logging (uvicorn + app logs on one stream,
 (`KESTREL_WORKSPACE_ROOT`, `.kestrel-workspaces` by default) from the
 auto-reloader. A run writes real `.py` files there (git clone, agent edits);
 without the exclude, `--reload` restarts the whole server mid-run and drops
-every open SSE connection (the sidebar/notification streams go blank with
+every open SSE connection (the sidebar streams go blank with
 `ERR_EMPTY_RESPONSE`).
 
 ```bash

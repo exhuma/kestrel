@@ -122,9 +122,6 @@ Do not re-do these:
   via `workflow_call`, no `latest` tag) — near-exemplary.
 - **GitHub link:** `GithubLink.vue` is a textbook implementation of
   module-github-link (env-driven, hides when blank, `rel=noopener`, tested).
-- **Notifications:** signals are classed action-required vs. summary on a quiet
-  in-app SSE surface (no OS interrupts), deterministic templating, pluggable
-  `Notifier` protocol.
 - **Docs:** good audience separation and ~80-col semantic wrapping.
 
 ## Work-packages
@@ -276,8 +273,6 @@ kestrel ever goes multi-user or is exposed beyond localhost.
   (database-postgresql) — deliberate deviation; documented in WP3.
 - **Backend config micro-hygiene** — `KESTREL_HOST/PORT` read via
   `os.environ` in `__main__.py`; promote to `Settings` fields when convenient.
-- **Notification service layer** — `routers/notifications.py` calls the store
-  directly; a thin `NotificationService` would restore strict layering (Low).
 - **i18n label** (github-link) — no i18n infrastructure exists; N/A until one
   is introduced.
 - **Architecture context diagram** (diagrams) — enhancement; if added, follow

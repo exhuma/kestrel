@@ -340,22 +340,6 @@ class BoardInterventionIn(BaseModel):
     answer: str | None = None
 
 
-class NotificationOut(BaseModel):
-    """One notification for the API."""
-
-    id: int
-    workflow_id: str
-    repo: str
-    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003).
-    issue_number: int | None
-    status: str
-    #: Derived from status: "action_required" gate vs terminal "summary".
-    signal_class: str
-    message: str
-    created_at: datetime
-    read: bool
-
-
 class HealthOut(BaseModel):
     """One configured source's current health (feature 014).
 

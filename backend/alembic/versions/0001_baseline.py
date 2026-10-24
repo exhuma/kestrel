@@ -232,25 +232,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_event"),
     )
     op.create_table(
-        "notification",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("workflow_id", sa.String(), nullable=False),
-        sa.Column("repo", sa.String(), nullable=False),
-        sa.Column("issue_number", sa.Integer(), nullable=True),
-        sa.Column("status", sa.String(), nullable=False),
-        sa.Column("message", sa.Text(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("read", sa.Boolean(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["workflow_id"],
-            ["board_workflow.id"],
-            name="fk_notification_workflow_id",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_notification"),
-    )
-    op.create_table(
         "board_artifact",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("producer_card_id", sa.String(), nullable=False),
@@ -461,7 +442,6 @@ def downgrade() -> None:
         "board_card_relation",
         "board_card_attempt",
         "board_artifact",
-        "notification",
         "event",
         "board_inbound_comment",
         "board_external_projection",

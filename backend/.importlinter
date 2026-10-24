@@ -9,7 +9,7 @@ root_package = app
 
 # Constitution Principle II: "routers -> services -> stores, downward only."
 # storage and persistence are coupled peers (persistence reaches storage's bus
-# via the app.notifications leaf), so they are one "stores" tier rather than an
+# via a leaf module), so they are one "stores" tier rather than an
 # ordered pair — modelled as the layer chain below plus the forbidden contract.
 [importlinter:contract:layering]
 name = Backend layering (routers -> services -> persistence, downward only)

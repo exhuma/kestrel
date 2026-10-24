@@ -157,9 +157,10 @@ class Settings(BaseSettings):
     #: bounds a single unresponsive integration so it cannot stall the
     #: rest of the cycle.
     health_check_timeout_seconds: int = 10
-    #: Public base URL of the kestrel web UI, used to build gate-notification
-    #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
-    #: a link. Operator-exposed, same posture as the webhook endpoint.
+    #: Public base URL of the kestrel web UI, used to build deep-links
+    #: in ticket comments (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments
+    #: post without a link. Operator-exposed, same posture as the webhook
+    #: endpoint.
     public_base_url: str = ""
     #: Max verification rounds for one approved CAB-2 task before a
     #: non-clean result escalates to coordinator review (feature 031; the

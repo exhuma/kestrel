@@ -66,7 +66,6 @@ function testRouter() {
 }
 
 const stubs = {
-  NotificationCenter: true,
   SourceHealthIndicator: true,
   IdentityBadge: true,
   GithubLink: true,

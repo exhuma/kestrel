@@ -229,13 +229,11 @@ def create_app() -> FastAPI:
         github_webhook,
         health,
         identity,
-        notifications,
         sessions,
     )
 
     app.include_router(sessions.router)
     app.include_router(board.router)
-    app.include_router(notifications.router)
     app.include_router(health.router)
     app.include_router(identity.router)
     app.include_router(github_webhook.router)

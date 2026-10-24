@@ -675,6 +675,6 @@ owner. Nothing in the announcement or reply code calls
   on-demand manual refresh — a value from before a restart is not more
   trustworthy than "unknown", so nothing is persisted. Displayed as a
   persistent per-source indicator in the app bar (pushed over SSE, the
-  same `list()`-plus-bus pattern as the notification center), so a
+  `list()`-plus-bus pattern), so a
   misconfiguration is visible immediately instead of only surfacing later
   as a failed run.
