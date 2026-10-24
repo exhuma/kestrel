@@ -22,7 +22,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.policy import SpecialistCapabilityError
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
@@ -105,12 +104,11 @@ def _coordinator_specialist() -> SpecialistDefinition:
 def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     board_service = BoardService(store)
     roster = SpecialistRoster(
         {"developer": _specialist(), "coordinator": _coordinator_specialist()}
     )
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
         BoardArtifactContentStore(tmp_path / "artifacts"),

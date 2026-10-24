@@ -14,7 +14,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
-from app.persistence.board_coordinator_store import get_board_coordinator_store
 from app.persistence.board_gate_store import get_board_gate_store
 from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
@@ -107,7 +106,7 @@ def get_claims_service() -> ClaimsService:
 def get_coordinator_service() -> CoordinatorService:
     """Return the process-wide CoordinatorService singleton."""
     return CoordinatorService(
-        get_board_store(), get_board_coordinator_store(), get_board_service(),
+        get_board_store(), get_board_service(),
         # Every gate is mandatory: CAB-1, PRD sign-off and CAB-2 (#70).
         decomposition_required=True,
         prd_gate_required=True,

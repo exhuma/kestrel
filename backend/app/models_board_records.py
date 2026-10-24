@@ -188,23 +188,15 @@ class CompleteOutcome:
 @dataclass(frozen=True)
 class CoordinatorActionRecord:
     """One proposed structured action and its policy outcome (data-model.md
-    "Coordinator Action"; FR-005).
+    "Coordinator Action"; FR-005), the payload of its board event.
 
-    :param id: Stable record identity.
-    :param workflow_id: The workflow this action targets.
-    :param trigger: What woke the coordinator (e.g. ``"card.done"``).
-    :param sequence: Monotonic per-workflow ordering.
-    :param action_payload: The proposed action, JSON-serialized.
+    :param action: The proposed action, JSON-serializable.
     :param validation_decision: ``"accepted"`` or ``"rejected"``.
     :param rejection_reason: Safe reason, when rejected.
     :param applied: Whether the accepted action was actually applied.
     """
 
-    id: str
-    workflow_id: str
-    trigger: str
-    sequence: int
-    action_payload: str
+    action: dict[str, object]
     validation_decision: str
     rejection_reason: str | None = None
     applied: bool = False

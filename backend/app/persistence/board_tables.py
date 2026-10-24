@@ -283,29 +283,6 @@ class BoardSecurityReviewRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class BoardCoordinatorActionRow(Base):
-    """One proposed structured coordinator action and its outcome."""
-
-    __tablename__ = "board_coordinator_action"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    workflow_id: Mapped[str] = mapped_column(
-        deferred_fk("board_workflow.id")
-    )
-    trigger: Mapped[str] = mapped_column(Text)
-    sequence: Mapped[int] = mapped_column()
-    action_payload: Mapped[str] = mapped_column(Text)
-    #: "accepted" | "rejected".
-    validation_decision: Mapped[str] = mapped_column(Text)
-    rejection_reason: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
-    applied_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-
-
 class BoardEventRow(Base):
     """One append-only board history entry (data-model.md "BoardEvent")."""
 

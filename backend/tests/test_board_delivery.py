@@ -15,7 +15,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -232,7 +231,6 @@ class TestEndToEndDelivery:
         factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
         content_store = BoardArtifactContentStore(tmp_path / "artifacts")
@@ -254,7 +252,7 @@ class TestEndToEndDelivery:
             store, artifact_store, board_service, content_store
         )
         coordinator = CoordinatorService(
-            store, coordinator_store, board_service
+            store, board_service
         )
         code_host = _FakeCodeHost(
             str(bare), cr_url="https://github.com/owner/repo/pull/7"

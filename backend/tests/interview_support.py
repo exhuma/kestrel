@@ -10,7 +10,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -65,7 +64,7 @@ def interview_stack(tmp_path: Path):
         max_parallel_read_cards=4, default_lease_seconds=60,
     )
     coordinator = CoordinatorService(
-        store, BoardCoordinatorStore(factory), board_service
+        store, board_service
     )
     services = DispatchServices(
         claims, roster, artifacts, coordinator=coordinator, gates=gates,

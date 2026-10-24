@@ -13,7 +13,6 @@ from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -139,12 +138,11 @@ class TestParsePrdDraft:
 def _setup(tmp_path: Path):
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     gate_store = BoardGateStore(factory)
     artifact_store = BoardArtifactStore(factory)
     content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     board_service = BoardService(store)
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     artifacts = ArtifactsService(
         store, artifact_store, board_service, content_store
     )

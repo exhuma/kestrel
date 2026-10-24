@@ -22,7 +22,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -77,7 +76,6 @@ def _stack(tmp_path: Path, *, cab1: bool) -> tuple[
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     claims_store = BoardClaimsStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     gate_store = BoardGateStore(factory)
     artifact_store = BoardArtifactStore(factory)
     content_store = BoardArtifactContentStore(tmp_path / "artifacts")
@@ -85,7 +83,7 @@ def _stack(tmp_path: Path, *, cab1: bool) -> tuple[
     artifacts = ArtifactsService(
         store, artifact_store, board_service, content_store
     )
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     gates = GatesService(
         store, gate_store, board_service, artifacts,
         required=GateRequirements(prd=True, cab1=cab1),

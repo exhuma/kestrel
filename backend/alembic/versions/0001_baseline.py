@@ -129,26 +129,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("workflow_id", name="pk_board_comment_cursor"),
     )
     op.create_table(
-        "board_coordinator_action",
-        sa.Column("id", sa.String(), nullable=False),
-        sa.Column("workflow_id", sa.String(), nullable=False),
-        sa.Column("trigger", sa.Text(), nullable=False),
-        sa.Column("sequence", sa.Integer(), nullable=False),
-        sa.Column("action_payload", sa.Text(), nullable=False),
-        sa.Column("validation_decision", sa.Text(), nullable=False),
-        sa.Column("rejection_reason", sa.Text(), nullable=True),
-        sa.Column("applied_at", sa.DateTime(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["workflow_id"],
-            ["board_workflow.id"],
-            name="fk_board_coordinator_action_workflow_id",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_board_coordinator_action"),
-    )
-    op.create_table(
         "board_external_projection",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("workflow_id", sa.String(), nullable=False),
@@ -399,7 +379,6 @@ def downgrade() -> None:
         "board_artifact",
         "board_inbound_comment",
         "board_external_projection",
-        "board_coordinator_action",
         "board_comment_cursor",
         "board_card",
         "webhook_delivery",

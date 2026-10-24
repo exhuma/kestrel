@@ -13,7 +13,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -89,7 +88,7 @@ def _rig(tmp_path: Path, *, cap: int = 1) -> _Rig:
     services = DispatchServices(
         claims, roster, artifacts,
         coordinator=CoordinatorService(
-            store, BoardCoordinatorStore(factory), board
+            store, board
         ),
         gates=gates, board=board, unreadable_retry_cap=cap,
     )

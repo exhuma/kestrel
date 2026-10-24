@@ -13,7 +13,6 @@ from app.persistence.board_artifact_content_store import (
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -42,7 +41,6 @@ def _findings_block(*entries: str) -> str:
 def _setup(tmp_path: Path) -> tuple[CoordinatorService, BoardStore, WorkCard]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     board_service = BoardService(store)
     store.create_workflow(
         Workflow(
@@ -64,7 +62,7 @@ def _setup(tmp_path: Path) -> tuple[CoordinatorService, BoardStore, WorkCard]:
         attempt_count=1,
     )
     store.create_card(card)
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     return coordinator, store, card
 
 
@@ -224,7 +222,6 @@ class TestEndToEndDispatchRouting:
         factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
         content_store = BoardArtifactContentStore(tmp_path / "artifacts")
@@ -250,7 +247,7 @@ class TestEndToEndDispatchRouting:
             store, artifact_store, board_service, content_store
         )
         coordinator = CoordinatorService(
-            store, coordinator_store, board_service
+            store, board_service
         )
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator
@@ -278,7 +275,6 @@ class TestEndToEndDispatchRouting:
         factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
         content_store = BoardArtifactContentStore(tmp_path / "artifacts")
@@ -305,7 +301,7 @@ class TestEndToEndDispatchRouting:
             store, artifact_store, board_service, content_store
         )
         coordinator = CoordinatorService(
-            store, coordinator_store, board_service
+            store, board_service
         )
         task_source = _FakeTaskSource()
         services = DispatchServices(
