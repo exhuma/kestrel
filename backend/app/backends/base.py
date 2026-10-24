@@ -48,12 +48,21 @@ class Capability(str, Enum):
     TOOL_USE = "tool_use"
 
 
+#: ``TurnRequest.permission_mode``: the agent may only read and propose.
+PERMISSION_READ_ONLY = "read_only"
+#: ``TurnRequest.permission_mode``: the agent may edit files and run
+#: commands in its working directory.
+PERMISSION_EDIT = "edit"
+
+
 @dataclass
 class TurnRequest:
     """One unit of work handed to a backend."""
 
     prompt: str
     cwd: str
+    #: :data:`PERMISSION_READ_ONLY` or :data:`PERMISSION_EDIT`; each
+    #: backend maps these onto its own tool's flags.
     permission_mode: str
     model: str | None = None
     #: Native session id to resume, or None to start a fresh session.

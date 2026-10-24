@@ -46,7 +46,7 @@ def _settings(**kw: object) -> Settings:
     return Settings(
         claude_bin=kw.pop("claude_bin", "claude"),
         workspace_root=str(kw.pop("workspace_root", "/tmp/ws")),
-        permission_mode="acceptEdits",
+        permission_mode="edit",
         **kw,  # type: ignore[arg-type]
     )
 
@@ -73,7 +73,7 @@ async def test_run_turn_returns_the_result_deliverable(tmp_path: Path) -> None:
         TurnRequest(
             prompt="hi",
             cwd=str(tmp_path / "step"),
-            permission_mode="plan",
+            permission_mode="read_only",
         ),
         on_session_id=seen.append,
     )

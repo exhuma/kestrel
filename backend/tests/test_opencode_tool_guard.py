@@ -183,7 +183,7 @@ async def test_a_looping_turn_is_aborted_and_says_why() -> None:
 
     with pytest.raises(TurnStopped) as stopped:
         await backend.run_turn(TurnRequest(
-            prompt="write the PRD", cwd="", permission_mode="plan",
+            prompt="write the PRD", cwd="", permission_mode="read_only",
             on_tool=told.append,
         ))
 

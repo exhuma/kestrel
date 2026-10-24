@@ -19,7 +19,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_PORT` | `8000` | Uvicorn bind port for `python -m app` |
 | `KESTREL_CLAUDE_BIN` | `claude` | Path/name of the `claude` CLI to spawn |
 | `KESTREL_WORKSPACE_ROOT` | `./.kestrel-workspaces` | Where per-session git workspaces are created (image: `/workspaces`) |
-| `KESTREL_PERMISSION_MODE` | `acceptEdits` | Passed to `claude --permission-mode` for spawned sessions |
+| `KESTREL_PERMISSION_MODE` | `edit` | `edit` or `read_only`; mapped to `claude --permission-mode` (`acceptEdits` / `plan`) for spawned sessions. Any other value is passed to Claude as is |
 | `KESTREL_GITHUB_TOKEN` | _(empty)_ | Token for GitHub ingestion (issues, clone/push, PRs). See [GitHub workflow](setup-github-workflow.md) |
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |

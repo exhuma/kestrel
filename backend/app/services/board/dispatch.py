@@ -15,7 +15,11 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
-from app.backends.base import TurnRequest, TurnResult
+from app.backends.base import (
+    PERMISSION_READ_ONLY,
+    TurnRequest,
+    TurnResult,
+)
 from app.models_board import (
     SpecialistDefinition,
     WorkCard,
@@ -116,7 +120,9 @@ async def classify_input(
     :raises ClassificationError: On timeout, backend failure, or a
         malformed/unparseable result — always fail closed.
     """
-    request = TurnRequest(prompt=envelope, cwd="", permission_mode="plan")
+    request = TurnRequest(
+        prompt=envelope, cwd="", permission_mode=PERMISSION_READ_ONLY
+    )
     try:
         result = await asyncio.wait_for(
             backend.run_turn(request), timeout=timeout_seconds
@@ -231,13 +237,13 @@ def card_request(
     envelope: str,
     *,
     cwd: str = "",
-    permission_mode: str = "plan",
+    permission_mode: str = PERMISSION_READ_ONLY,
     on_tool: Callable[[str], None] | None = None,
 ) -> TurnRequest:
     """A card turn's request: read-only and workspace-less by default.
 
-    :param permission_mode: ``"plan"`` (read-only; right for every
-        text-only role and the coordinator) or ``"acceptEdits"`` for a
+    :param permission_mode: ``"read_only"`` (right for every
+        text-only role and the coordinator) or ``"edit"`` for a
         ``write``-permission card with a real workspace to edit in (see
         :func:`dispatch_ready_work`).
     :param on_tool: Told each tool the agent calls (feature 036).

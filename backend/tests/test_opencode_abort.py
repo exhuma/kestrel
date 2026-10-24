@@ -44,7 +44,7 @@ async def test_a_timed_out_turn_aborts_its_session() -> None:
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(
             backend.run_turn(TurnRequest(
-                prompt="classify", cwd="", permission_mode="plan"
+                prompt="classify", cwd="", permission_mode="read_only"
             )),
             timeout=0.2,
         )

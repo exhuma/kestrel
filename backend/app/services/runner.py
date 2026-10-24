@@ -8,11 +8,19 @@ from typing import AsyncIterator, Callable
 
 from fastapi import Depends
 
+from app.backends.base import PERMISSION_EDIT, PERMISSION_READ_ONLY
 from app.backends.limiter import BackendLimiter
 from app.config import Settings, get_settings
 from app.models import map_claude_line
 from app.services.exceptions import SessionNotFoundError, SessionStartError
 from app.storage.registry import SessionRegistry, get_registry
+
+# Claude Code's own names for the backend-neutral permission modes; any other
+# value (e.g. a configured ``bypassPermissions``) is passed through as is.
+_CLAUDE_PERMISSION_MODES = {
+    PERMISSION_READ_ONLY: "plan",
+    PERMISSION_EDIT: "acceptEdits",
+}
 
 # Strong references to in-flight streaming tasks. A SessionRunner is
 # created per request, so the task cannot live on the instance; the
@@ -108,6 +116,7 @@ class SessionRunner:
             use the CLI's default.
         :returns: The argument vector to pass to the subprocess.
         """
+        mode = permission_mode or self.settings.permission_mode
         argv = [
             self.settings.claude_bin,
             "-p",
@@ -116,7 +125,7 @@ class SessionRunner:
             "stream-json",
             "--verbose",
             "--permission-mode",
-            permission_mode or self.settings.permission_mode,
+            _CLAUDE_PERMISSION_MODES.get(mode, mode),
         ]
         if model is not None:
             argv += ["--model", model]

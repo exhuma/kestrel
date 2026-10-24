@@ -95,7 +95,7 @@ def _runner() -> SessionRunner:
     settings = Settings(
         claude_bin="claude",
         workspace_root="/tmp/ws",
-        permission_mode="acceptEdits",
+        permission_mode="edit",
     )
     return SessionRunner(settings, SessionRegistry())
 
@@ -109,6 +109,24 @@ def test_build_argv_start() -> None:
     assert "--verbose" in argv
     assert "--permission-mode" in argv
     assert "--resume" not in argv
+
+
+def test_build_argv_maps_default_mode_to_claude_flag() -> None:
+    """Ensure the neutral default mode becomes Claude's own name."""
+    argv = _runner().build_argv("hello")
+    assert argv[argv.index("--permission-mode") + 1] == "acceptEdits"
+
+
+def test_build_argv_maps_read_only_mode_to_claude_flag() -> None:
+    """Ensure the neutral read-only mode becomes Claude's plan mode."""
+    argv = _runner().build_argv("hello", permission_mode="read_only")
+    assert argv[argv.index("--permission-mode") + 1] == "plan"
+
+
+def test_build_argv_passes_unknown_mode_through() -> None:
+    """Ensure a Claude-native mode in the settings still reaches Claude."""
+    argv = _runner().build_argv("hello", permission_mode="bypassPermissions")
+    assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
 
 
 def test_build_argv_resume() -> None:
@@ -158,7 +176,7 @@ async def test_start_without_session_id_raises_start_error(tmp_path) -> None:
     settings = Settings(
         claude_bin="true",  # exits 0 with no stdout
         workspace_root=str(tmp_path),
-        permission_mode="acceptEdits",
+        permission_mode="edit",
     )
     runner = SessionRunner(settings, SessionRegistry())
     with pytest.raises(SessionStartError):
@@ -172,7 +190,7 @@ async def test_start_returns_before_subprocess_completes(tmp_path) -> None:
     settings = Settings(
         claude_bin=str(_streaming_claude(tmp_path)),
         workspace_root=str(tmp_path / "ws"),
-        permission_mode="acceptEdits",
+        permission_mode="edit",
     )
     reg = SessionRegistry()
     runner = SessionRunner(settings, reg)
@@ -222,7 +240,7 @@ async def test_run_blocking_streams_and_awaits(tmp_path) -> None:
     settings = Settings(
         claude_bin=str(_streaming_claude(tmp_path)),
         workspace_root=str(tmp_path / "ws"),
-        permission_mode="acceptEdits",
+        permission_mode="edit",
     )
     reg = SessionRegistry()
     runner = SessionRunner(settings, reg)
@@ -230,7 +248,7 @@ async def test_run_blocking_streams_and_awaits(tmp_path) -> None:
 
     seen: list[str] = []
     sid = await runner.run_blocking(
-        "hi", cwd=cwd, permission_mode="plan",
+        "hi", cwd=cwd, permission_mode="read_only",
         on_session_id=lambda s: seen.append(s),
     )
 
@@ -254,13 +272,13 @@ async def test_run_blocking_handles_a_line_over_64kib(tmp_path) -> None:
     settings = Settings(
         claude_bin=str(_oversized_line_claude(tmp_path)),
         workspace_root=str(tmp_path / "ws"),
-        permission_mode="acceptEdits",
+        permission_mode="edit",
     )
     reg = SessionRegistry()
     runner = SessionRunner(settings, reg)
     cwd = str(tmp_path / "step")
 
-    sid = await runner.run_blocking("hi", cwd=cwd, permission_mode="plan")
+    sid = await runner.run_blocking("hi", cwd=cwd, permission_mode="read_only")
 
     assert sid == "big-1"
     rec = reg.get(sid)
@@ -275,9 +293,9 @@ def test_build_argv_permission_mode_override() -> None:
     """Ensure build_argv honours a permission-mode override."""
     settings = Settings(
         claude_bin="claude", workspace_root="/tmp/ws",
-        permission_mode="acceptEdits",
+        permission_mode="edit",
     )
     argv = SessionRunner(settings, SessionRegistry()).build_argv(
-        "p", permission_mode="plan"
+        "p", permission_mode="read_only"
     )
     assert argv[argv.index("--permission-mode") + 1] == "plan"

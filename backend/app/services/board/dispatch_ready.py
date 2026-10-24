@@ -12,6 +12,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from app.backends.base import PERMISSION_EDIT, PERMISSION_READ_ONLY
 from app.models_board import (
     CardKind,
     SpecialistDefinition,
@@ -135,7 +136,7 @@ async def dispatch_ready_work(
     A ``read_only``/``write`` card gets a real, git-backed ``cwd``
     (T041's ``WorkspaceService``) when ``services.workspace`` is
     configured; a ``write`` card additionally runs with
-    ``permission_mode="acceptEdits"`` so a ``FILE_EDITS`` specialist can
+    ``permission_mode="edit"`` so a ``FILE_EDITS`` specialist can
     actually edit. After every role has been tried, one pass also
     attempts any ``ready`` ``delivery`` card (T069) — pushing a cleanly
     verified workflow's branch and opening its change request is a
@@ -329,7 +330,7 @@ async def _resolve_workspace(
     """Resolve a card's ``(cwd, permission_mode)``, provisioning a real
     workspace for ``read_only``/``write`` cards.
 
-    :returns: ``("", "plan")`` for a ``none``-permission card, or once a
+    :returns: ``("", "read_only")`` for a ``none``-permission card, or once a
         real workspace is configured and provisioned; ``None`` if a
         ``read_only``/``write`` card needed one but couldn't get one —
         the caller must then leave the card claimed for recovery rather
@@ -337,7 +338,7 @@ async def _resolve_workspace(
         access its result implicitly claims.
     """
     if card.workspace_permission == WorkspacePermission.NONE.value:
-        return "", "plan"
+        return "", PERMISSION_READ_ONLY
     if services.workspace is None or services.task_sources is None:
         _dispatch_log.warning(
             "workflow %s: card %s needs a workspace but none is "
@@ -365,11 +366,12 @@ async def _resolve_workspace(
         )
         return None
     # A verification card is read_only (it must never edit files/commit)
-    # but still needs to run tests/checks via tool execution, which "plan"
-    # (proposal-only) mode does not reliably support headlessly — so it
+    # but still needs to run tests/checks via tool execution, which a
+    # proposal-only mode does not reliably support headlessly — so it
     # gets the same execution-capable mode a write card does.
     needs_execution = (
         card.workspace_permission == WorkspacePermission.WRITE.value
         or card.kind == CardKind.VERIFICATION.value
     )
-    return cwd, ("acceptEdits" if needs_execution else "plan")
+    mode = PERMISSION_EDIT if needs_execution else PERMISSION_READ_ONLY
+    return cwd, mode

@@ -168,7 +168,7 @@ A `read_only`/`write` card also gets a real workspace (spec 026 T041):
 `app/services/board/workspace.py::WorkspaceService` provisions a per-repo
 shared bare mirror plus one worktree per workflow, cut from it on demand
 and reused (never reset) across a workflow's turns. A `write` card
-additionally dispatches with `permission_mode="acceptEdits"`, so the
+additionally dispatches with `permission_mode="edit"`, so the
 `coder` role can now genuinely read and edit files — its prompt instructs
 it to commit its own work locally. See `tests/test_board_dispatch_workspace.py`.
 

@@ -88,7 +88,7 @@ class TestClassifyInput:
         backend = _FakeBackend(_safe_result())
         await classify_input(backend, "envelope", timeout_seconds=5)
         assert backend.last_request.cwd == ""
-        assert backend.last_request.permission_mode == "plan"
+        assert backend.last_request.permission_mode == "read_only"
 
     @pytest.mark.asyncio
     async def test_malformed_result_fails_closed(

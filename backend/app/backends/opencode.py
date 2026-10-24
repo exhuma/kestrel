@@ -10,6 +10,8 @@ from typing import Callable
 import httpx
 
 from app.backends.base import (
+    PERMISSION_EDIT,
+    PERMISSION_READ_ONLY,
     Backend,
     Capability,
     LivenessResult,
@@ -40,7 +42,6 @@ from app.storage.registry import SessionRegistry
 
 _TASKS: set[asyncio.Task[None]] = set()
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
-_READ_ONLY_MODE = "plan"
 _logger = logging.getLogger(__name__)
 
 
@@ -245,7 +246,9 @@ class OpenCodeBackend(Backend):
             async with self._limiter.slot():
                 await self._turn(session_id, TurnRequest(
                     prompt=prompt, cwd=directory or "",
-                    permission_mode=_READ_ONLY_MODE if read_only else "",
+                    permission_mode=(
+                        PERMISSION_READ_ONLY if read_only else PERMISSION_EDIT
+                    ),
                 ))
         except asyncio.CancelledError:
             raise
@@ -277,7 +280,7 @@ class OpenCodeBackend(Backend):
         loop or past its tool budget (feature 036).
         """
         prompt, directory = req.prompt, req.cwd
-        read_only = req.permission_mode == _READ_ONLY_MODE
+        read_only = req.permission_mode == PERMISSION_READ_ONLY
         guard = ToolLoopGuard(self._tools, req.on_tool)
         seen = {
             self._msg_id(m)

@@ -48,7 +48,7 @@ async def test_run_turn_raises_on_error_result() -> None:
     )
     with pytest.raises(BackendTurnError) as exc:
         await backend.run_turn(
-            TurnRequest(prompt="p", cwd="/tmp", permission_mode="plan")
+            TurnRequest(prompt="p", cwd="/tmp", permission_mode="read_only")
         )
     assert "Not logged in" in str(exc.value)
 
@@ -65,7 +65,7 @@ async def test_run_turn_returns_text_on_ok_result() -> None:
         ),
     )
     result = await backend.run_turn(
-        TurnRequest(prompt="p", cwd="/tmp", permission_mode="plan")
+        TurnRequest(prompt="p", cwd="/tmp", permission_mode="read_only")
     )
     assert result.final_text == "all good"
 

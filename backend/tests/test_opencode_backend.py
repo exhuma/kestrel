@@ -151,7 +151,7 @@ async def test_read_only_turn_disables_file_mutating_tools() -> None:
     """Ensure a read-only (plan) turn tells opencode to disable edit tools."""
     backend, _, seen = _backend(_transcript_handler())
     await backend.run_turn(
-        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="plan")
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="read_only")
     )
     post = next(
         r
@@ -173,7 +173,7 @@ async def test_edit_turn_does_not_restrict_tools() -> None:
     """Ensure an edit-capable turn leaves all tools enabled."""
     backend, _, seen = _backend(_transcript_handler())
     await backend.run_turn(
-        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="acceptEdits")
+        TurnRequest(prompt="do it", cwd="/tmp/s", permission_mode="edit")
     )
     post = next(
         r
