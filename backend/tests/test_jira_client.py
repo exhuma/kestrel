@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import ssl
-from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -98,32 +97,16 @@ async def test_get_field_returns_value_or_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_comment_and_attachment() -> None:
-    """Ensure comment/attachment hit the right paths and headers."""
-    seen = {}
-    bodies = {}
-
+async def test_add_comment_returns_the_comment_url() -> None:
+    """Ensure add_comment posts to the comment path and returns its URL."""
     def handler(req: httpx.Request) -> httpx.Response:
-        seen[req.url.path] = req.headers.get("x-atlassian-token")
-        bodies[req.url.path] = req.content
-        if req.url.path.endswith("/comment"):
-            return httpx.Response(201, json={"self": "https://jira/c/1"})
-        return httpx.Response(200, json=[{"id": "1"}])
+        assert req.url.path == "/rest/api/2/issue/RFC-1/comment"
+        return httpx.Response(201, json={"self": "https://jira/c/1"})
 
     client = _client(handler, auth="basic", email="e", token="t")
     assert await client.add_comment("RFC-1", doc("hi")) == (
         "https://jira/c/1"
     )
-    await client.add_attachment(
-        "RFC-1", "shot.png", b"\x89PNGbytes", "image/png"
-    )
-    assert seen["/rest/api/2/issue/RFC-1/comment"] is None
-    # Attachment carries the XSRF-bypass header.
-    assert seen["/rest/api/2/issue/RFC-1/attachments"] == "no-check"
-    # The raw bytes and declared mimetype ride in the multipart body.
-    attach_body = bodies["/rest/api/2/issue/RFC-1/attachments"]
-    assert b"\x89PNGbytes" in attach_body
-    assert b"image/png" in attach_body
 
 
 @pytest.mark.asyncio
@@ -150,27 +133,6 @@ async def test_error_does_not_leak_token() -> None:
             auth="bearer", token="pat-supersecret",
         ).get_issue("RFC-1")
     assert "pat-supersecret" not in str(exc.value)
-
-
-@pytest.mark.asyncio
-async def test_task_source_publishes_prd_as_attachment() -> None:
-    """Ensure JiraTaskSource.publish_refined attaches PRD.md."""
-    seen = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["path"] = req.url.path
-        return httpx.Response(200, json=[{"id": "1"}])
-
-    src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
-    await src.publish_refined("RFC-1", doc("the PRD"))
-    assert seen["path"].endswith("/issue/RFC-1/attachments")
-    assert src.deep_link_ref("RFC-1") == "https://jira.example/browse/RFC-1"
-
-
-def test_task_source_display_label_is_the_issue_key() -> None:
-    """Ensure JiraTaskSource.display_label is the RFC key (feature 009)."""
-    src = JiraTaskSource(_client(lambda r: httpx.Response(200)))
-    assert src.display_label("RFC-1") == "RFC-1"
 
 
 @pytest.mark.asyncio
@@ -481,20 +443,3 @@ async def test_jira_list_comments_paginates_via_start_at() -> None:
     raw = await client.list_comments("RFC-1")
     assert [c["id"] for c in raw] == ["1", "2"]
     assert pages == [0, 1]
-
-
-@pytest.mark.asyncio
-async def test_jira_acknowledge_always_returns_false() -> None:
-    """Ensure acknowledge never raises and always returns False (no REST
-    v2 reaction endpoint)."""
-
-    def handler(_req: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("must not call Jira")
-
-    src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
-    feedback = Feedback(
-        external_id="jira-comment:RFC-1:1", origin="ticket",
-        author=Person("", "Jane"), body=doc("hi"),
-        created_at=datetime.now(timezone.utc),
-    )
-    assert await src.acknowledge(feedback) is False

@@ -48,21 +48,6 @@ async def test_get_default_branch() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_issue_sends_body() -> None:
-    """Ensure update_issue PATCHes the issue with the new body."""
-    seen = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["method"] = req.method
-        seen["json"] = json.loads(req.content)
-        return httpx.Response(200, json={"number": 7})
-
-    await _client(handler).update_issue("o/r", 7, "new body")
-    assert seen["method"] == "PATCH"
-    assert seen["json"] == {"body": "new body"}
-
-
-@pytest.mark.asyncio
 async def test_create_pull_request_returns_html_url() -> None:
     """Ensure create_pull_request posts a draft PR and returns its url."""
     seen = {}

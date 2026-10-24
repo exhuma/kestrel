@@ -14,12 +14,10 @@ import httpx
 
 from app.document_formats.markdown import render_markdown
 from app.documents import Document
-from app.ports import ChangeRequest, Feedback, RequiredCiStatus
-from app.services import github_reviews
+from app.ports import ChangeRequest, RequiredCiStatus
 from app.services.exceptions import GitHubError
 from app.services.github_ci import required_ci_statuses
 from app.services.http_support import track_client, truncate_body
-from app.services.task_source_utils import parse_iso
 
 
 def parse_github_ref(ref: str) -> tuple[str, int]:
@@ -223,13 +221,6 @@ class GitHubClient:
         resp = await self._request("GET", f"/repos/{repo}")
         return resp.json()["default_branch"]
 
-    async def update_issue(self, repo: str, number: int, body: str) -> None:
-        """Replace an issue's body."""
-        await self._request(
-            "PATCH", f"/repos/{repo}/issues/{number}", json={"body": body}
-        )
-
-
     async def add_label(self, repo: str, number: int, label: str) -> None:
         """Add ``label`` to an issue (a no-op if ``label`` is empty)."""
         if not label:
@@ -299,71 +290,10 @@ class GitHubClient:
                 return comments
             resp = await self._request("GET", nxt["url"])
 
-    async def add_issue_comment_reaction(
-        self, repo: str, comment_id: int, content: str
-    ) -> None:
-        """React to an issue comment (feature 013 acknowledgment, R8)."""
-        await self._request(
-            "POST",
-            f"/repos/{repo}/issues/comments/{comment_id}/reactions",
-            json={"content": content},
-        )
-
     async def get_pull_request(self, repo: str, number: int) -> dict:
         """Fetch a pull request's raw payload (state/merged/html_url)."""
         resp = await self._request("GET", f"/repos/{repo}/pulls/{number}")
         return resp.json()
-
-    async def list_pull_reviews(self, repo: str, number: int) -> list[dict]:
-        """List a pull request's reviews, oldest first, following pagination.
-
-        No server-side ``since`` filter exists for this endpoint; callers
-        filter client-side for cursor exclusivity.
-        """
-        reviews: list[dict] = []
-        resp = await self._request(
-            "GET", f"/repos/{repo}/pulls/{number}/reviews",
-            params={"per_page": 100},
-        )
-        while True:
-            reviews.extend(resp.json())
-            nxt = resp.links.get("next")
-            if not nxt:
-                return reviews
-            resp = await self._request("GET", nxt["url"])
-
-    async def list_pull_review_comments(
-        self, repo: str, number: int, since: str | None = None
-    ) -> list[dict]:
-        """List a pull request's inline review comments, oldest first.
-
-        :param since: GitHub's own ``since=`` filter (an ISO-8601
-            timestamp); server-side only — callers still filter for exact
-            cursor exclusivity themselves (feature 013).
-        """
-        comments: list[dict] = []
-        params: dict[str, object] = {"per_page": 100}
-        if since:
-            params["since"] = since
-        resp = await self._request(
-            "GET", f"/repos/{repo}/pulls/{number}/comments", params=params
-        )
-        while True:
-            comments.extend(resp.json())
-            nxt = resp.links.get("next")
-            if not nxt:
-                return comments
-            resp = await self._request("GET", nxt["url"])
-
-    async def add_pull_review_comment_reaction(
-        self, repo: str, comment_id: int, content: str
-    ) -> None:
-        """React to an inline review comment (feature 013 acknowledgment)."""
-        await self._request(
-            "POST",
-            f"/repos/{repo}/pulls/comments/{comment_id}/reactions",
-            json={"content": content},
-        )
 
     async def create_pull_request(
         self,
@@ -453,45 +383,3 @@ class GitHubCodeHost:
     ) -> list[RequiredCiStatus]:
         """Normalize requested GitHub check-run and commit-status states."""
         return await required_ci_statuses(self._client, repo, number, names)
-
-    async def list_review_comments(
-        self, repo: str, number: int, since: str | None = None
-    ) -> list[Feedback]:
-        """Every reviewer-authored signal on the PR (feature 013, US3).
-
-        Merges PR-conversation comments (the issues endpoint, since a
-        pull request *is* an issue), review summaries, and inline review
-        comments — see :mod:`app.services.github_reviews`.
-        """
-        conversation = await self._client.list_issue_comments(
-            repo, number, since=since
-        )
-        reviews = await self._client.list_pull_reviews(repo, number)
-        review_comments = await self._client.list_pull_review_comments(
-            repo, number, since=since
-        )
-        cutoff = parse_iso(since) if since else None
-        return github_reviews.merge_review_feedback(
-            repo, conversation, reviews, review_comments, cutoff
-        )
-
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """React to the triggering review comment (feature 013, US3)."""
-        parsed = github_reviews.parse_review_external_id(feedback.external_id)
-        if parsed is None:
-            return False
-        kind, repo, comment_id = parsed
-        try:
-            if kind == "comment":
-                await self._client.add_issue_comment_reaction(
-                    repo, comment_id, token
-                )
-            else:
-                await self._client.add_pull_review_comment_reaction(
-                    repo, comment_id, token
-                )
-            return True
-        except Exception:  # noqa: BLE001 — best-effort acknowledgment
-            return False

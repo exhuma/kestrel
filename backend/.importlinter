@@ -66,11 +66,9 @@ forbidden_modules =
 ignore_imports =
     # Task sources and code hosts.
     app.services.github -> app.document_formats.markdown
-    app.services.github_reviews -> app.document_formats.markdown
     app.services.github_tasksource -> app.document_formats.markdown
     app.services.gitlab -> app.document_formats.markdown
     app.services.jira -> app.document_formats.adf
-    app.services.jira -> app.document_formats.markdown
     app.services.jira_client -> app.document_formats.adf
     app.services.jira_client -> app.document_formats.markdown
     app.services.local_task_source -> app.document_formats.markdown

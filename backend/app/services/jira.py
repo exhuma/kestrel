@@ -14,7 +14,6 @@ from typing import Literal
 
 from app.config_models import TaskSourceConfig
 from app.document_formats.adf import parse_adf
-from app.document_formats.markdown import render_markdown
 from app.documents import Document
 from app.ports import (
     CommentPage,
@@ -25,12 +24,7 @@ from app.ports import (
     Task,
 )
 from app.services.jira_client import JiraClient, JiraError, person
-from app.services.task_source_utils import (
-    REFINED,
-    as_posted,
-    parse_iso,
-    with_marker,
-)
+from app.services.task_source_utils import as_posted, parse_iso
 
 __all__ = ["JiraClient", "JiraError", "JiraTaskSource"]
 
@@ -60,7 +54,6 @@ class JiraTaskSource:
             event falls back to the comment footer.
         """
         self._client = client
-        self._base = client._base
         self._config = config
         self._comment_sentinel_enabled = comment_sentinel_enabled
 
@@ -76,29 +69,6 @@ class JiraTaskSource:
         """Post a comment carrying kestrel's ownership marker."""
         return await self._client.add_comment(
             ref, as_posted(body, self._comment_sentinel_enabled)
-        )
-
-    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
-        """Delete a recorded Jira resource when its deployment permits it."""
-        if kind == "source_body":
-            return "cleaned"
-        if kind == "comment" and external_id:
-            await self._client.delete_resource(external_id)
-            return "cleaned"
-        if kind == "subtask":
-            await self._client.delete_issue(external_id)
-            return "cleaned"
-        raise ValueError(f"unsupported Jira cleanup artifact: {kind}")
-
-    async def attach(
-        self, ref: str, name: str, data: bytes, mimetype: str
-    ) -> None:
-        await self._client.add_attachment(ref, name, data, mimetype)
-    async def publish_refined(self, ref: str, content: Document) -> None:
-        """Deliver the approved PRD as a Markdown attachment (FR-011)."""
-        text = render_markdown(with_marker(content, REFINED))
-        await self._client.add_attachment(
-            ref, "PRD.md", text.encode("utf-8"), "text/markdown"
         )
 
     async def create_subtask(
@@ -150,13 +120,6 @@ class JiraTaskSource:
             if url:
                 await self._client.add_remote_link(child_ref, url, obj["title"])
             return
-
-    def display_label(self, ref: str) -> str:
-        """The ref itself: already the issue key, e.g. "RFC-123"."""
-        return ref
-
-    def deep_link_ref(self, ref: str) -> str:
-        return f"{self._base}/browse/{ref}"
 
     async def transition(self, ref: str, event: LifecycleEvent) -> bool:
         """Apply the configured workflow transition and time field.
@@ -230,12 +193,6 @@ class JiraTaskSource:
             body=parse_adf(comment.get("body")),
             created_at=parse_iso(comment["created"]),
         )
-
-    async def acknowledge(
-        self, _feedback: Feedback, _token: str = "eyes"
-    ) -> bool:
-        """Jira REST v2 has no reaction endpoint (feature 013)."""
-        return False
 
 
 def _author(raw: object) -> Person:

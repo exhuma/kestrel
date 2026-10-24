@@ -30,7 +30,6 @@ root-relative path. For example, `frontend/hello/task.json` has reference
 .kestrel-local-tasks/frontend/hello/
 ├── task.json
 ├── comments/
-├── attachments/
 └── children/
 ```
 
@@ -44,8 +43,8 @@ root-relative path. For example, `frontend/hello/task.json` has reference
 ```
 
 Discovery is recursive and sorted by root-relative path. `task.json` is the
-only file that defines a task. Attachments and generated children are written
-only in their owner's `attachments/` and `children/` directories.
+only file that defines a task. Generated children are written only in their
+parent's `children/` directory.
 
 ## Feedback
 

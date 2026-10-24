@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -61,17 +60,6 @@ class LocalTaskSource:
         """Read current task metadata from the task's folder."""
         return json.loads(self._task_path(ref).read_text(encoding="utf-8"))
 
-    def _contained_path(self, ref: str, directory: str, name: str) -> Path:
-        """Return a validated child file path under a task-owned directory."""
-        if not name or PurePosixPath(name).name != name:
-            raise ValueError(f"invalid local task filename: {name}")
-        target_dir = self._task_dir(ref) / directory
-        target = (target_dir / name).resolve()
-        if not target.is_relative_to(target_dir.resolve()):
-            raise ValueError(f"local task filename escapes task: {name}")
-        target_dir.mkdir(parents=True, exist_ok=True)
-        return target
-
     async def get_task(self, ref: str) -> Task:
         """Return the current title and body for a local task."""
         data = self._load(ref)
@@ -104,18 +92,6 @@ class LocalTaskSource:
             suffix += 1
         return path
 
-    async def attach(
-        self, ref: str, name: str, data: bytes, _mimetype: str
-    ) -> None:
-        """Write an attachment under the task's ``attachments`` directory."""
-        self._contained_path(ref, "attachments", name).write_bytes(data)
-
-    async def publish_refined(self, ref: str, content: Document) -> None:
-        """Replace the task body with approved refined content."""
-        data = self._load(ref)
-        data["body"] = render_markdown(content)
-        self._task_path(ref).write_text(json.dumps(data), encoding="utf-8")
-
     async def create_subtask(
         self,
         parent_ref: str,
@@ -143,14 +119,6 @@ class LocalTaskSource:
 
     async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
         """No-op because local child creation copies repository context."""
-
-    def display_label(self, ref: str) -> str:
-        """Return the root-relative local task path without its prefix."""
-        return str(self._task_dir(ref).relative_to(self._root))
-
-    def deep_link_ref(self, _ref: str) -> str:
-        """Return no browser link because tasks are local filesystem data."""
-        return ""
 
     async def transition(self, _ref: str, _event: LifecycleEvent) -> bool:
         """Report no native local-task lifecycle transition support."""
@@ -205,28 +173,3 @@ class LocalTaskSource:
             body=parse_markdown(path.read_text(encoding="utf-8")),
             created_at=created,
         )
-
-    async def acknowledge(
-        self, _feedback: Feedback, _token: str = "eyes"
-    ) -> bool:
-        """Report no reaction capability for local task comments."""
-        return False
-
-    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
-        """Remove a Kestrel-created local file or child task when present."""
-        if kind == "source_body":
-            ref, _, body = external_id.partition("\0")
-            data = self._load(ref)
-            data["body"] = body
-            self._task_path(ref).write_text(json.dumps(data), encoding="utf-8")
-            return "cleaned"
-        path = Path(external_id)
-        if kind == "comment" and path.is_file():
-            path.unlink()
-            return "cleaned"
-        if kind == "subtask":
-            path = self._task_dir(external_id)
-            if path.exists():
-                shutil.rmtree(path)
-                return "cleaned"
-        return "absent"

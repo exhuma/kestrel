@@ -630,8 +630,8 @@ owner. Nothing in the announcement or reply code calls
   (`ingestion.maybe_start_run`, on a `task_ref`) that now creates a board
   workflow rather than a driver run. The load-bearing axis — *task source*
   (the ticket) vs *code host* (the repo) — is realized as two protocols in
-  `app/ports.py`: `TaskSource` (read/comment/attach/deep-link/
-  display-label) and `CodeHost` (default branch, clone remote, open a
+  `app/ports.py`: `TaskSource` (read/comment/create
+  sub-tasks) and `CodeHost` (default branch, clone remote, open a
   merge/pull request). GitHub implements both roles; **Jira** implements
   `TaskSource` and delegates the `CodeHost` role to a configured,
   **self-hostable** git host (GitLab reference; Gitea/Forgejo the same

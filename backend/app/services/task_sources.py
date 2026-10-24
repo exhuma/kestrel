@@ -109,7 +109,6 @@ def build_code_host(
             source.code_host_base_url,
             source.code_host_token() or "",
             verify=source.verify_ssl,
-            is_gitea=source.code_host == "gitea",
         )
     return GitHubCodeHost(github, git_base)
 

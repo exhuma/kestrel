@@ -177,7 +177,7 @@ trigger_label = "kestrel"
 # time_spent_field = ""
 
 # Local: disposable task folders for offline testing. Every task has
-# `task.json`; comments and attachments stay in that folder. Local branches
+# `task.json`; comments stay in that folder. Local branches
 # publish to a local bare repository and do not open a change request.
 # [[task_sources]]
 # type = "local"
