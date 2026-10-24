@@ -47,7 +47,7 @@ def _ignore_developer_dotenv(
     """Keep tests hermetic: never read a developer's ``backend/.env``.
 
     Without this, any ``Settings()`` built in a test would load the local
-    ``.env`` (e.g. one pointing the default session backend at a custom
+    ``.env`` (e.g. one pointing the default backend at a custom
     LLM), silently changing test behavior. Tests that need specific config
     still pass it explicitly.
     """

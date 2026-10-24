@@ -14,7 +14,7 @@ edit. Alongside the applicative settings (see
 the default for specialists:
 
 ```toml
-default_session_backend = "local"
+default_backend = "local"
 
 [[backends]]
 id = "claude"
@@ -33,7 +33,7 @@ Per-**specialist** routing — which backend a given board role (`coder`,
 `specialists/<role>/manifest.toml` (see
 [Architecture → The work board](architecture.md#the-work-board-spec-026)):
 `"default"`
-resolves to `default_session_backend` above; any other value names a
+resolves to `default_backend` above; any other value names a
 specific `[[backends]]` id directly, e.g.:
 
 ```toml
@@ -73,7 +73,7 @@ running the image.
 Every board specialist (`requester`, `pm`,
 `uiux`, `developer`, `infosec`, `dba`, `architect`, `ops`, `qa`,
 `coordinator`, `coder`, `verifier`, `input-security`, `liaison`) uses its own
-manifest's `model_policy` — `"default"` for `default_session_backend`, or a
+manifest's `model_policy` — `"default"` for `default_backend`, or a
 pinned backend id.
 
 A specialist only accepts a backend that satisfies its `required_abilities`:

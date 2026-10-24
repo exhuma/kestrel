@@ -35,7 +35,7 @@ def test_backend_concurrency_and_backoff_reject_invalid_values(
 
 
 def test_backend_config_rejects_unexpected_fields() -> None:
-    """Ensure a stray key (e.g. a misplaced default_session_backend after
+    """Ensure a stray key (e.g. a misplaced default_backend after
     a [[backends]] header) fails loudly instead of being ignored."""
-    with pytest.raises(ValueError, match="default_session_backend"):
-        BackendConfig(id="x", default_session_backend="oc")
+    with pytest.raises(ValueError, match="default_backend"):
+        BackendConfig(id="x", default_backend="oc")

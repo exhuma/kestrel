@@ -106,7 +106,7 @@ entity reference; this is the operator-relevant shape:
   against its approved scope, exercising the change directly rather than
   re-running the coder's own checks), and `input-security` (quarantine
   classification). Each manifest's `model_policy` routes that role to a
-  backend — `"default"` for `default_session_backend`, or a specific
+  backend — `"default"` for `default_backend`, or a specific
   `[[backends]]` id — capability-checked against the role's
   `required_abilities` (`app/policy.py`). See [Backends](backends.md).
 - **The coordinator** is event-driven, not polling: every committed board

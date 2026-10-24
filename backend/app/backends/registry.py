@@ -23,7 +23,7 @@ class BackendRegistry:
             cfg.id: self._build(cfg) for cfg in settings.backends
         }
         # Fail fast on a misconfigured default rather than at first dispatch.
-        self.default_session_backend()
+        self.default_backend()
 
     def _build(self, cfg: BackendConfig) -> Backend:
         backend: Backend
@@ -58,10 +58,10 @@ class BackendRegistry:
                 f"{sorted(self._backends)})"
             ) from None
 
-    def default_session_backend(self) -> Backend:
+    def default_backend(self) -> Backend:
         """Return the backend a ``"default"`` model policy resolves to.
 
-        :raises UnknownBackendError: If ``default_session_backend`` names
+        :raises UnknownBackendError: If ``default_backend`` names
             no configured backend — commonly a TOML ordering mistake: a
             bare key placed after a ``[[backends]]`` header parses as a
             field of that table, not a top-level setting (rejected loudly
@@ -69,15 +69,15 @@ class BackendRegistry:
             simply never changed from its ``"claude"`` default.
         """
         try:
-            return self.get(self._settings.default_session_backend)
+            return self.get(self._settings.default_backend)
         except UnknownBackendError:
             configured = sorted(self._backends)
             raise UnknownBackendError(
-                f"default_session_backend="
-                f"{self._settings.default_session_backend!r} has no "
+                f"default_backend="
+                f"{self._settings.default_backend!r} has no "
                 f"matching `backends` entry (configured ids: "
                 f"{configured}). Check config.toml: "
-                "`default_session_backend` must be set before any "
+                "`default_backend` must be set before any "
                 "[[backends]] table — a bare key placed after an "
                 "array-of-tables header becomes part of that table, "
                 "not a top-level setting."

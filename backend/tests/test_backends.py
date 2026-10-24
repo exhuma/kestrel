@@ -41,7 +41,7 @@ def _settings(**kw: object) -> Settings:
     kw.setdefault(
         "backends", [BackendConfig(id="claude", type="claude_cli")]
     )
-    kw.setdefault("default_session_backend", "claude")
+    kw.setdefault("default_backend", "claude")
     return Settings(
         claude_bin=kw.pop("claude_bin", "claude"),
         workspace_root=str(kw.pop("workspace_root", "/tmp/ws")),
@@ -84,7 +84,7 @@ async def test_run_turn_returns_the_result_deliverable(tmp_path: Path) -> None:
 def test_registry_builds_default_claude_backend() -> None:
     """Ensure the default config yields a resolvable claude backend."""
     registry = BackendRegistry(_settings())
-    assert isinstance(registry.default_session_backend(), ClaudeCliBackend)
+    assert isinstance(registry.default_backend(), ClaudeCliBackend)
     assert registry.get("claude").id == "claude"
 
 
@@ -99,7 +99,7 @@ def test_registry_applies_configured_capability_override() -> None:
                 caps=["text"],
             )
         ],
-        default_session_backend="local",
+        default_backend="local",
     )
     registry = BackendRegistry(settings)
     assert registry.get("local").caps == frozenset({Capability.TEXT})
@@ -117,7 +117,7 @@ def test_registry_unknown_backend_error_lists_configured_ids() -> None:
     registry = BackendRegistry(
         _settings(
             backends=[BackendConfig(id="oc", type="opencode")],
-            default_session_backend="oc",
+            default_backend="oc",
         )
     )
     with pytest.raises(UnknownBackendError, match=r"nope.*\['oc'\]"):
@@ -128,7 +128,7 @@ def test_registry_rejects_a_missing_default_at_build() -> None:
     """Ensure a default pointing at no backend fails fast, not on dispatch."""
     settings = _settings(
         backends=[BackendConfig(id="claude", type="claude_cli")],
-        default_session_backend="ghost",
+        default_backend="ghost",
     )
     with pytest.raises(UnknownBackendError, match=r"ghost.*\['claude'\]"):
         BackendRegistry(settings)

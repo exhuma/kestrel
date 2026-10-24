@@ -30,7 +30,7 @@ class BackendConfig(BaseModel):
 
     ``extra="forbid"``: a stray top-level key placed after a
     ``[[backends]]`` header in the TOML file (e.g. an accidentally
-    reordered ``default_session_backend``) is parsed as an unexpected
+    reordered ``default_backend``) is parsed as an unexpected
     field of *this* table, not a top-level setting — reject it loudly
     here instead of silently dropping it.
     """

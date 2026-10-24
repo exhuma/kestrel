@@ -141,7 +141,7 @@ def test_config_file_supplies_all_backend_fields(tmp_path: Path) -> None:
     """Ensure a TOML config file populates the backend settings."""
     toml = tmp_path / "backends.toml"
     toml.write_text(
-        'default_session_backend = "oc"\n'
+        'default_backend = "oc"\n'
         "\n"
         "[[backends]]\n"
         'id = "claude"\n'
@@ -154,7 +154,7 @@ def test_config_file_supplies_all_backend_fields(tmp_path: Path) -> None:
         'model = "opencode/deepseek-v4-flash-free"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))
-    assert s.default_session_backend == "oc"
+    assert s.default_backend == "oc"
     assert [(b.id, b.type) for b in s.backends] == [
         ("claude", "claude_cli"), ("oc", "opencode")
     ]
@@ -166,7 +166,7 @@ def test_backend_env_vars_are_ignored(
 ) -> None:
     """Ensure backends are file-only: the env vars have no effect.
 
-    ``KESTREL_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND`` were dropped
+    ``KESTREL_BACKENDS`` / ``KESTREL_DEFAULT_BACKEND`` were dropped
     in favour of ``KESTREL_CONFIG_FILE``; setting them must not change
     config.
     """
@@ -174,10 +174,10 @@ def test_backend_env_vars_are_ignored(
         "KESTREL_BACKENDS",
         '[{"id": "ghost", "type": "claude_cli"}]',
     )
-    monkeypatch.setenv("KESTREL_DEFAULT_SESSION_BACKEND", "ghost")
+    monkeypatch.setenv("KESTREL_DEFAULT_BACKEND", "ghost")
     s = Settings(_env_file=None)
     assert [b.id for b in s.backends] == ["claude"]
-    assert s.default_session_backend == "claude"
+    assert s.default_backend == "claude"
 
 
 def test_jira_source_defaults_and_verify_defaults() -> None:
@@ -290,27 +290,27 @@ def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
     """Ensure the new config_file populates the backend settings."""
     toml = tmp_path / "config.toml"
     toml.write_text(
-        'default_session_backend = "oc"\n'
+        'default_backend = "oc"\n'
         "\n"
         "[[backends]]\n"
         'id = "oc"\n'
         'type = "opencode"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))
-    assert s.default_session_backend == "oc"
+    assert s.default_backend == "oc"
     assert [b.id for b in s.backends] == ["oc"]
 
 
-def test_default_session_backend_after_backends_table_fails_loud(
+def test_default_backend_after_backends_table_fails_loud(
     tmp_path: Path,
 ) -> None:
     """Ensure the TOML ordering trap fails at load time, not silently.
 
     A bare key after an array-of-tables header belongs to that table in
-    TOML, not the top level — `default_session_backend` placed after
+    TOML, not the top level — `default_backend` placed after
     `[[backends]]` here is swallowed into the backends entry, so it
     must be rejected loudly (BackendConfig's extra="forbid") rather
-    than silently leaving default_session_backend at its "claude"
+    than silently leaving default_backend at its "claude"
     default.
     """
     toml = tmp_path / "config.toml"
@@ -319,9 +319,9 @@ def test_default_session_backend_after_backends_table_fails_loud(
         'id = "oc"\n'
         'type = "opencode"\n'
         "\n"
-        'default_session_backend = "oc"\n'
+        'default_backend = "oc"\n'
     )
-    with pytest.raises(ValueError, match="default_session_backend"):
+    with pytest.raises(ValueError, match="default_backend"):
         Settings(_env_file=None, config_file=str(toml))
 
 
@@ -331,7 +331,7 @@ def test_config_file_path_is_logged(
     """Ensure the resolved path actually opened is visible in the logs —
     the main diagnostic for "my config edit had no effect"."""
     toml = tmp_path / "config.toml"
-    toml.write_text('default_session_backend = "oc"\n')
+    toml.write_text('default_backend = "oc"\n')
     with caplog.at_level("INFO"):
         Settings(_env_file=None, config_file=str(toml))
     assert f"loading config file: {toml.resolve()}" in caplog.text

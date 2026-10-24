@@ -175,7 +175,7 @@ data:
 
     # Every specialist with model_policy = "default".
     # Set this before the first [[backends]] table.
-    default_session_backend = "oc"
+    default_backend = "oc"
 
     [[task_sources]]
     type = "jira"

@@ -45,7 +45,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         "config file: %s | backends: %s | default backend: %r",
         settings.config_file or "(none)",
         {c.id: c.type for c in settings.backends},
-        settings.default_session_backend,
+        settings.default_backend,
     )
 
     # Board specialist roster (feature 026, FR-009): a missing, malformed,

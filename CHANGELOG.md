@@ -35,6 +35,8 @@ holds the record. Constitution 2.0.0.
 - **Removed:** operator hooks, the `openai_compat` backend and translation,
   the notification centre, issue dismissals, the dev reset/rerun actions,
   the legacy `?run=` deep link, and API endpoints nothing called.
+- **`default_session_backend` is now `default_backend`** in `config.toml`
+  (there are no sessions any more). An old key fails at startup.
 - **Permission modes are backend-neutral:** `KESTREL_PERMISSION_MODE` takes
   `read_only` or `edit` (default `edit`); the Claude backend maps them to its
   own flags.

@@ -480,7 +480,7 @@ def test_registry_builds_an_opencode_backend() -> None:
         backends=[
             BackendConfig(id="oc", type="opencode", base_url="http://oc:4096")
         ],
-        default_session_backend="oc",
+        default_backend="oc",
     )
     registry = BackendRegistry(settings)
     assert isinstance(registry.get("oc"), OpenCodeBackend)

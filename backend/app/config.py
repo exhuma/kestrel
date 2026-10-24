@@ -23,7 +23,7 @@ _log = logging.getLogger("kestrel.config")
 _FILE_ONLY_FIELDS = frozenset(
     {
         "backends",
-        "default_session_backend",
+        "default_backend",
         "task_sources",
     }
 )
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         ``.env``; whatever it omits keeps its env/default value. The
         backend keys are file-only: filtering them out of the env and
         dotenv sources makes any stray ``KESTREL_BACKENDS`` /
-        ``KESTREL_DEFAULT_SESSION_BACKEND`` inert. A missing or malformed
+        ``KESTREL_DEFAULT_BACKEND`` inert. A missing or malformed
         file, or an unknown key in it, fails at startup.
         """
 
@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     otel_service_name: str = "kestrel"
     #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Its
     #: top-level keys are any of these fields, including the file-only
-    #: ``backends`` / ``default_session_backend`` / ``task_sources``.
+    #: ``backends`` / ``default_backend`` / ``task_sources``.
     #: Secrets stay in the environment. Mount it as a volume in Docker;
     #: relative paths resolve against the working directory.
     config_file: str = ""
@@ -133,7 +133,7 @@ class Settings(BaseSettings):
     )
     #: Backend a specialist with ``model_policy = "default"`` runs on.
     #: File-only.
-    default_session_backend: str = "claude"
+    default_backend: str = "claude"
     #: GitHub ingestion (feature 002). The webhook HMAC shared secret
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
     #: off-loopback endpoint (constitution v1.2.0). Never logged.

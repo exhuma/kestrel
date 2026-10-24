@@ -17,7 +17,7 @@ One subdirectory per named role, loaded from `specialists_root`
 | `purpose` | One-line role summary. |
 | `allowed_card_types` | Card kinds this specialist may claim. Empty for a role that never claims a card (e.g. the coordinator, which only proposes actions). |
 | `required_abilities` | Backend `Capability` values this role needs (`text`, `file_edits`, `tool_use` — see `app/backends/base.py`). Validated against the dispatched backend's advertised `caps`, and `file_edits` is required whenever `workspace_permission` is `write`. |
-| `model_policy` | `"default"` uses the configured default session backend/model; a specific backend id pins this role to it. |
+| `model_policy` | `"default"` uses the configured default backend/model; a specific backend id pins this role to it. |
 | `workspace_permission` | `none`, `read_only`, or `write`. `write` requires a repository workspace lease at claim time. |
 | `prompt_file` | Path, relative to this role's directory, to its prompt content. |
 
