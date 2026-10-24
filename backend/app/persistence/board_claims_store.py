@@ -134,26 +134,6 @@ class BoardClaimsStore:
                 )
             )
 
-    def heartbeat_claim(
-        self,
-        card_id: str,
-        *,
-        extend_seconds: float,
-        now: datetime | None = None,
-    ) -> bool:
-        """Extend an active claim's lease so a long-running attempt survives.
-
-        :returns: Whether an active lease was found and extended.
-        """
-        now = now_utc(now)
-        with self._factory.begin() as db:
-            lease = db.get(BoardClaimLeaseRow, card_id)
-            if lease is None:
-                return False
-            lease.expires_at = now + timedelta(seconds=extend_seconds)
-            lease.heartbeat_at = now
-            return True
-
     def complete_attempt(
         self,
         card_id: str,

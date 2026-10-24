@@ -60,13 +60,6 @@ class TestPlanningEligibility:
         record = _plan(service, "wf-1", kind, f"wf-1:{kind}:1", "x")
         assert record.kind == kind
 
-    def test_child_work_is_no_longer_a_kind(self, tmp_path: Path) -> None:
-        """Ensure no child-ticket write-back is ever planned (feature
-        031, FR-021)."""
-        service = _service(tmp_path)
-        with pytest.raises(UnsupportedProjectionKindError):
-            _plan(service, "wf-1", "child_work", "wf-1:child_work:1", "x")
-
     def test_unsupported_kind_is_rejected(self, tmp_path: Path) -> None:
         service = _service(tmp_path)
         with pytest.raises(UnsupportedProjectionKindError):
@@ -151,45 +144,3 @@ class TestRetry:
         assert completed.state == "completed"
         assert completed.error is None
         assert service.retryable() == []
-
-
-class TestCleanupOwnership:
-    """Only completed, externally-identified projections are cleanup-owned."""
-
-    def test_completed_projection_is_owned(self, tmp_path: Path) -> None:
-        service = _service(tmp_path)
-        record = _plan(
-            service, "wf-1", "approved_artifact",
-            "wf-1:approved_artifact:g-1", "x",
-        )
-        service.complete(record.id, external_id="issue-99")
-
-        owned = service.owned_external_ids("wf-1")
-
-        assert owned == [("approved_artifact", "issue-99")]
-
-    def test_pending_projection_is_not_yet_owned(self, tmp_path: Path) -> None:
-        service = _service(tmp_path)
-        _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
-
-        assert service.owned_external_ids("wf-1") == []
-
-    def test_completed_without_an_external_id_is_not_owned(
-        self, tmp_path: Path
-    ) -> None:
-        """A completed projection with no external_id created nothing
-        externally (e.g. an internal-only milestone) — nothing to clean up."""
-        service = _service(tmp_path)
-        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
-        service.complete(record.id)
-
-        assert service.owned_external_ids("wf-1") == []
-
-    def test_ownership_is_scoped_to_its_own_workflow(
-        self, tmp_path: Path
-    ) -> None:
-        service = _service(tmp_path)
-        record = _plan(service, "wf-1", "gate", "wf-1:gate:understanding", "x")
-        service.complete(record.id, external_id="comment-1")
-
-        assert service.owned_external_ids("wf-2") == []

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, Text, false
+from sqlalchemy import DateTime, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.documents import EMPTY_DOCUMENT, Document
@@ -168,9 +168,6 @@ class BoardClaimLeaseRow(Base):
     attempt_sequence: Mapped[int] = mapped_column()
     holder_specialist_id: Mapped[str] = mapped_column(Text)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
-    heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
 
 
 class BoardWorkspaceLeaseRow(Base):
@@ -213,11 +210,6 @@ class BoardArtifactRow(Base):
     mime_type: Mapped[str] = mapped_column(Text, default="text/plain")
     #: At least "untrusted" | "released" | "agent_output" | "operator_approved".
     trust: Mapped[str] = mapped_column(Text)
-    retention: Mapped[str] = mapped_column(Text, default="standard")
-    #: Explicit opt-in for inclusion in the project change (data-model.md).
-    project_material: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=false()
-    )
     #: Exact consumed input-artifact ids, JSON list; never mutable pointers.
     input_artifacts: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime)
@@ -346,22 +338,19 @@ class BoardExternalProjectionRow(Base):
         deferred_fk("board_workflow.id")
     )
     #: "gate" | "escalation" | "approved_artifact" | "delivery" |
-    #: "gate_opened" | "status" | "reply" (a legacy row may still read
-    #: "child_work", no longer written — feature 031).
+    #: "gate_opened" | "status" | "reply".
     kind: Mapped[str] = mapped_column(Text)
     idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
     #: "pending" | "completed" | "retryable_failure".
     state: Mapped[str] = mapped_column(Text, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: Recorded source resource identity, for safe cleanup.
+    #: The source resource kestrel created for this projection.
     external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload_hash: Mapped[str] = mapped_column(Text)
     #: Where to post, and what, so a failed post can be retried (feature
-    #: 046); ``None`` on a row from before the ledger kept them.
-    task_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
-    payload: Mapped[Document | None] = mapped_column(
-        DocumentText, nullable=True
-    )
+    #: 046).
+    task_ref: Mapped[str] = mapped_column(Text)
+    payload: Mapped[Document] = mapped_column(DocumentText)
     #: How many times a retry has taken this row on.
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)

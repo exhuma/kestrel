@@ -166,8 +166,8 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("external_id", sa.Text(), nullable=True),
         sa.Column("payload_hash", sa.Text(), nullable=False),
-        sa.Column("task_ref", sa.Text(), nullable=True),
-        sa.Column("payload", sa.Text(), nullable=True),
+        sa.Column("task_ref", sa.Text(), nullable=False),
+        sa.Column("payload", sa.Text(), nullable=False),
         sa.Column("attempts", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -235,13 +235,6 @@ def upgrade() -> None:
         sa.Column("content_hash", sa.Text(), nullable=False),
         sa.Column("mime_type", sa.Text(), nullable=False),
         sa.Column("trust", sa.Text(), nullable=False),
-        sa.Column("retention", sa.Text(), nullable=False),
-        sa.Column(
-            "project_material",
-            sa.Boolean(),
-            server_default=sa.text("false"),
-            nullable=False,
-        ),
         sa.Column("input_artifacts", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(
@@ -318,7 +311,6 @@ def upgrade() -> None:
         sa.Column("attempt_sequence", sa.Integer(), nullable=False),
         sa.Column("holder_specialist_id", sa.Text(), nullable=False),
         sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.Column("heartbeat_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(
             ["card_id"],
             ["board_card.id"],

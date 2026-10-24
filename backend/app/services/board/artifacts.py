@@ -54,8 +54,6 @@ class ArtifactDraft:
     content: str
     trust: str
     mime_type: str = "text/plain"
-    retention: str = "standard"
-    project_material: bool = False
     input_artifacts: tuple[str, ...] = ()
 
 
@@ -125,7 +123,7 @@ class ArtifactsService:
         content = self.read_content(artifact_id)
         if artifact is None or content is None:
             return None
-        return decode_document(content, artifact.mime_type)
+        return decode_document(content)
 
     def latest_document_for_card(
         self, card_id: str, logical_name: str
@@ -197,8 +195,6 @@ class ArtifactsService:
             content_hash=content_hash,
             trust=draft.trust,
             mime_type=draft.mime_type,
-            retention=draft.retention,
-            project_material=draft.project_material,
             input_artifacts=draft.input_artifacts,
         )
 

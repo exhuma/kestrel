@@ -10,12 +10,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from functools import lru_cache
 
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board_records import HandoffArtifact
-from app.persistence.board_tables import BoardArtifactRow, BoardCardRow
+from app.persistence.board_tables import BoardArtifactRow
 from app.persistence.db import get_sessionmaker, is_unique_violation
 
 
@@ -35,8 +34,6 @@ def _row_to_artifact(row: BoardArtifactRow) -> HandoffArtifact:
         content_hash=row.content_hash,
         trust=row.trust,
         mime_type=row.mime_type,
-        retention=row.retention,
-        project_material=row.project_material,
         input_artifacts=inputs,
     )
 
@@ -65,8 +62,6 @@ class BoardArtifactStore:
             content_hash=artifact.content_hash,
             trust=artifact.trust,
             mime_type=artifact.mime_type,
-            retention=artifact.retention,
-            project_material=artifact.project_material,
             input_artifacts=f"[{','.join(artifact.input_artifacts)}]",
             created_at=now or datetime.now(timezone.utc),
         )
@@ -103,33 +98,6 @@ class BoardArtifactStore:
                 .all()
             )
             return [_row_to_artifact(row) for row in rows]
-
-    def project_material_for_workflow(
-        self, workflow_id: str
-    ) -> tuple[HandoffArtifact, ...]:
-        """Return every project-material artifact for *workflow_id*.
-
-        Only artifacts whose responsible card explicitly opted in
-        (``project_material``) are included; orchestration-only artifacts
-        stay available for recovery but never reach this selection
-        (data-model.md "External Projection": "Routine claims, retries,
-        and card completions cannot create projections").
-        """
-        with self._factory() as db:
-            statement = (
-                select(BoardArtifactRow)
-                .join(
-                    BoardCardRow,
-                    BoardArtifactRow.producer_card_id == BoardCardRow.id,
-                )
-                .where(
-                    BoardCardRow.workflow_id == workflow_id,
-                    BoardArtifactRow.project_material.is_(True),
-                )
-                .order_by(BoardArtifactRow.created_at, BoardArtifactRow.id)
-            )
-            rows = db.scalars(statement).all()
-            return tuple(_row_to_artifact(row) for row in rows)
 
 
 @lru_cache

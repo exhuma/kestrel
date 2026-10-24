@@ -77,6 +77,5 @@ ignore_imports =
     app.services.board.quarantine -> app.document_formats.markdown
     # Persistence.
     app.persistence.document_column -> app.document_formats.document_json
-    app.persistence.document_column -> app.document_formats.markdown
     # The HTTP API.
     app.routers.document_out -> app.document_formats.markdown

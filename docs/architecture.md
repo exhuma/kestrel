@@ -89,10 +89,7 @@ entity reference; this is the operator-relevant shape:
   each card's bounded retry/reassign/escalate policy.
 - **Handoff artifacts.** A card's accepted output is retained as an
   immutable, versioned `HandoffArtifact` (content-addressed under
-  `board_artifacts_root`), with explicit pinned-revision input provenance
-  and a `project_material` flag — set only when the artifact belongs in the
-  eventual code change, so orchestration-only output never leaks into a
-  commit.
+  `board_artifacts_root`), with explicit pinned-revision input provenance.
 - **Specialists** (`specialists/<role>/manifest.toml` + `prompt.md`,
   loaded from `specialists_root`): `requester`, `pm`, `uiux`, `developer`,
   `infosec`, `dba`, `architect`, `ops`, `qa` (read-only `analysis`/`design`

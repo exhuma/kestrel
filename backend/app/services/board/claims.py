@@ -112,15 +112,6 @@ class ClaimsService:
             workspace_lease_seconds=self.default_workspace_lease_seconds,
         )
 
-    def heartbeat(
-        self, card_id: str, *, extend_seconds: float | None = None
-    ) -> bool:
-        """Extend an active claim's lease (see ``BoardClaimsStore``)."""
-        return self.claims_store.heartbeat_claim(
-            card_id,
-            extend_seconds=extend_seconds or self.default_lease_seconds,
-        )
-
     def complete(
         self,
         card_id: str,

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from app.documents import Text, document, paragraph
 from app.models_board import CardRelation, WorkCard, Workflow
 from app.persistence.board_artifact_content_store import (
     BoardArtifactContentStore,
@@ -20,7 +21,7 @@ from app.persistence.board_artifact_content_store import (
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
-from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.artifacts import ArtifactsService
 from app.services.board.gates import (
     GateRequirements,
     GatesService,
@@ -153,10 +154,9 @@ class TestPrdScope:
             id="card-prd", workflow_id="wf-1", kind="prd", title="Draft PRD",
             state="done",
         ))
-        artifact = service._artifacts.store_reference_artifact(ArtifactDraft(
-            producer_card_id="card-prd", logical_name="prd", revision=1,
-            content="the plan", trust="agent_output",
-        ))
+        artifact = service._artifacts.store_document(
+            "card-prd", "prd", 1, document(paragraph(Text("the plan")))
+        )
         card = service.create_gate(
             "wf-1",
             kind="prd_gate",
