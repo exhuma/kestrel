@@ -49,7 +49,6 @@ you do not need it. To run kestrel on a cluster, see
 - [Feedback intake](docs/feedback-intake.md) — removed in the Phase 10
   clean break; kept as a pointer to what replaces it.
 - [Next steps](docs/next-steps.md) — where the open work is tracked.
-- [Operator hooks](docs/hooks.md) — custom actions on lifecycle events.
 - [Troubleshooting](docs/troubleshooting.md) — common speed-bumps.
 - [Observability](docs/observability.md) — logs (text/JSON) and health.
 - [Development](docs/development.md) — run from source and run the tests.

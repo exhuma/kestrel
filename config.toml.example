@@ -133,17 +133,11 @@ trigger_label = "kestrel"
 # the defaults — override only if they clash with an existing label scheme.
 # NOTE: dormant since the Phase 10 clean break (spec 026) removed the fixed
 # driver's lifecycle-notification code; nothing currently applies these
-# labels or invokes hooks_dir below. See docs/setup-github-workflow.md.
+# labels. See docs/setup-github-workflow.md.
 # in_progress_label = "kestrel-in-progress"
 # failed_label = "kestrel-failed"
 # escalated_label = "kestrel-escalated"
 # rejected_label = "kestrel-rejected"
-#
-# Operator hooks (feature 006): a folder of executables invoked at every
-# lifecycle event. SECURITY: a hook inherits kestrel's full environment,
-# including every configured token — only point this at a directory you trust
-# as much as this file itself. See docs/hooks.md before setting this.
-# hooks_dir = "/path/to/hooks/github"
 # Required check-run/status names. Empty or omitted preserves terminal `done`.
 # required_ci_statuses = ["backend", "frontend"]
 
@@ -184,10 +178,6 @@ trigger_label = "kestrel"
 # transition_escalated = ""
 # transition_rejected = ""
 # time_spent_field = ""
-#
-# Operator hooks (feature 006): see the GitHub entry above — same
-# SECURITY note applies (full environment/credential inheritance).
-# hooks_dir = "/path/to/hooks/jira"
 
 # Local: disposable task folders for offline testing. Every task has
 # `task.json`; comments and attachments stay in that folder. Local branches

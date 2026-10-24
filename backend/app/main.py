@@ -63,15 +63,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     roster = get_specialist_roster()
     _logger.info("board specialists loaded: %s", sorted(roster.ids()))
 
-    # Operator-hooks audit trail (feature 006, FR-016): log what's found in
-    # each configured hooks_dir, so an operator has a chance to notice a
-    # script they didn't expect — a nudge, not an access control (a hook
-    # inherits kestrel's full environment, see docs/hooks.md).
-    from app.services.hooks import audit_hooks_dir
-
-    for source in settings.task_sources:
-        audit_hooks_dir(source.hooks_dir)
-
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
     # (its sole transport). Each runs an initial cycle promptly, then every

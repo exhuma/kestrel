@@ -240,10 +240,10 @@ dismissal-setting code was removed with the driver and has no board-domain
 replacement, so there is currently no dismissal to clear or re-trigger by
 cycling the RFC's status.
 
-### Lifecycle sync and operator hooks
+### Lifecycle sync
 
-`transition_start`/`transition_done`/etc., `time_spent_field`, and
-`hooks_dir` are still accepted on a Jira source entry, but nothing currently
-applies them — see [Configuration → Lifecycle sync and operator hooks
-(currently dormant)](configuration.md#lifecycle-sync-and-operator-hooks-currently-dormant).
+`transition_start`/`transition_done`/etc. and `time_spent_field` are still
+accepted on a Jira source entry, but nothing currently applies them — see
+[Configuration → Lifecycle sync
+(currently dormant)](configuration.md#lifecycle-sync-currently-dormant).
 kestrel never transitions the RFC itself; moving it stays with its owners.

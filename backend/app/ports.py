@@ -148,10 +148,9 @@ class LifecycleEvent:
     """One run-lifecycle transition, source-neutral (feature 006).
 
     Built by ``LifecycleTransitioner`` from a ``WorkflowRun`` at each
-    lifecycle-worthy status change and passed to ``TaskSource.transition``
-    and the operator hooks mechanism. ``kind`` is derived from
-    ``run.status`` via a single exclusive mapping — a failed/escalated/
-    rejected run can never produce ``kind="done"``.
+    lifecycle-worthy status change and passed to ``TaskSource.transition``.
+    ``kind`` is derived from ``run.status`` via a single exclusive mapping —
+    a failed/escalated/rejected run can never produce ``kind="done"``.
     """
 
     kind: Literal["start", "done", "failed", "escalated", "rejected"]

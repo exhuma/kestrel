@@ -157,11 +157,6 @@ class TaskSourceConfig(BaseModel):
     code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""
     code_host_token_env: str | None = None
-    #: Both: per-source operator-hooks directory (feature 006). Empty
-    #: disables hook dispatch for this source; see docs/hooks.md for the
-    #: wire format and the credential-exposure trust implication before
-    #: setting this.
-    hooks_dir: str = ""
     #: Required CI check names for change requests from this source. Empty
     #: keeps the historical terminal ``done`` behaviour.
     required_ci_statuses: list[str] = []

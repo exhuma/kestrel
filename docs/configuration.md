@@ -200,17 +200,16 @@ use their own bundled CA set, not the OS trust store). It does **not** affect
 `git` clone/fetch/push, which use the system trust store — install the internal
 CA there for git.
 
-### Lifecycle sync and operator hooks (currently dormant)
+### Lifecycle sync (currently dormant)
 
 Each source still accepts the fields below, and the `TaskSource.transition()`
-methods and hook-invocation code they'd drive still exist, but **nothing in
-the current board domain calls either** — the old driver code that invoked
-them at each lifecycle point (start/done/failed/escalated/rejected) was
-removed in the Phase 10 clean break and has no board-domain replacement yet
-(see [Architecture](architecture.md#the-work-board-spec-026)). Setting these
-fields today has no observable effect: no label is applied, no transition
-fires, and no `hooks_dir` executable runs (only its startup audit-log pass
-still does). They are documented here for when this is wired back up.
+methods they'd drive still exist, but **nothing in the current board domain
+calls them** — the old driver code that invoked them at each lifecycle point
+(start/done/failed/escalated/rejected) was removed in the Phase 10 clean break
+and has no board-domain replacement yet (see
+[Architecture](architecture.md#the-work-board-spec-026)). Setting these fields
+today has no observable effect: no label is applied and no transition fires.
+They are documented here for when this is wired back up.
 
 When it is, the constitution (access model, fourth recorded constraint)
 limits it: kestrel never changes the status of an ingested task. The
@@ -222,7 +221,6 @@ ingested ticket should move on, kestrel asks its owner in a comment.
 | `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels a run would apply as it progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |
 | `transition_start`, `transition_done`, `transition_failed`, `transition_escalated`, `transition_rejected` | jira | Workflow-transition ids that would apply at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
 | `time_spent_field` | jira | Field that would receive active-work seconds (e.g. the builtin `timespent` or a custom field id). Unset ⇒ no native write |
-| `hooks_dir` | both | A directory of operator executables that would be invoked at every lifecycle event. **Security-sensitive** — a hook inherits kestrel's full environment/credentials. See [Operator hooks](hooks.md) before setting this |
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 
