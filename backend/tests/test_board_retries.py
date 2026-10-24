@@ -8,9 +8,6 @@ from pathlib import Path
 import pytest
 
 from app.models_board import CardAction, CardRelation, WorkCard
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -69,7 +66,6 @@ def _rig(tmp_path: Path, *, cap: int = 1) -> _Rig:
     roster = SpecialistRoster({"pm": pm})
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates = GatesService(store, BoardGateStore(factory), board, artifacts)
     store.create_workflow(_WORKFLOW)

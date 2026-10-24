@@ -17,9 +17,6 @@ import pytest
 
 from app.backends.base import TurnRequest, TurnResult
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
@@ -111,7 +108,6 @@ def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
     coordinator = CoordinatorService(store, board_service)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     store.create_workflow(_WORKFLOW)
     scheduling = SchedulingService(
@@ -340,7 +336,6 @@ def _dispatch_services(tmp_path: Path, roster: SpecialistRoster) -> tuple[
     claims_store = BoardClaimsStore(factory)
     board_service = BoardService(store)
     artifact_store = BoardArtifactStore(factory)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     store.create_workflow(_WORKFLOW)
     claims = ClaimsService(
         store=store,
@@ -350,7 +345,7 @@ def _dispatch_services(tmp_path: Path, roster: SpecialistRoster) -> tuple[
         default_lease_seconds=60,
     )
     artifacts = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
     return DispatchServices(claims, roster, artifacts), store
 

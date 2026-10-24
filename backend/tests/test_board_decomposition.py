@@ -10,9 +10,6 @@ from pathlib import Path
 import pytest
 
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -98,11 +95,10 @@ def _setup(tmp_path: Path):
     store = BoardStore(factory)
     gate_store = BoardGateStore(factory)
     artifact_store = BoardArtifactStore(factory)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     board_service = BoardService(store)
     coordinator = CoordinatorService(store, board_service)
     artifacts = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
     gates = GatesService(store, gate_store, board_service, artifacts)
     store.create_workflow(_WORKFLOW)
@@ -226,7 +222,6 @@ class TestEndToEndDispatchRouting:
         gate_store = BoardGateStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
         pm = SpecialistDefinition(
             id="pm", label="pm", purpose="test role",
             allowed_card_types=("analysis", "decomposition"),
@@ -247,7 +242,7 @@ class TestEndToEndDispatchRouting:
             max_parallel_read_cards=4, default_lease_seconds=60,
         )
         artifacts = ArtifactsService(
-            store, artifact_store, board_service, content_store
+            store, artifact_store, board_service
         )
         coordinator = CoordinatorService(
             store, board_service

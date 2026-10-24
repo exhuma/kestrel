@@ -19,9 +19,6 @@ from app.models_board import (
     WorkCard,
     Workflow,
 )
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -64,7 +61,6 @@ def _service(tmp_path: Path) -> _Stores:
     gate_store = BoardGateStore(factory)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates_service = GatesService(store, gate_store, board_service, artifacts)
     store.create_workflow(_WORKFLOW)

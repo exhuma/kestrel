@@ -249,7 +249,6 @@ class TestCardSummary:
             producer_card_id="card-1",
             logical_name="report",
             revision=2,
-            content_ref="board-artifact://abc",
             content_hash="abc",
             trust="agent_output",
         )

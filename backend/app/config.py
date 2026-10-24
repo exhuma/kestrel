@@ -92,10 +92,6 @@ class Settings(BaseSettings):
     port: int = 8000
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
-    #: Durable, content-addressed store for handoff-artifact bodies
-    #: (feature 026, FR-013). Keyed by content hash, so recovery after
-    #: restart can always re-read a card's output.
-    board_artifacts_root: str = "./.kestrel-board-artifacts"
     permission_mode: str = "edit"
     # Directory of the built SPA to serve. Empty (dev default) means the
     # backend is API-only and the SPA is served by the Vite dev server; the

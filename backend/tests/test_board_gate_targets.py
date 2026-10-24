@@ -9,9 +9,6 @@ import pytest
 
 from app.models_board import WorkCard
 from app.models_board_records import HandoffArtifact, HumanGateRecord
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from tests.board_test_support import board_session_factory
@@ -32,16 +29,13 @@ def _interview(tmp_path: Path, store) -> None:
                 title="pm interview (1 question)", state=state,
             )
         )
-    content_ref, content_hash = BoardArtifactContentStore(
-        tmp_path / "artifacts"
-    ).write('{"questions": ["Who uses it?"]}')
     BoardArtifactStore(factory).record(
         HandoffArtifact(
             id="art-questions", producer_card_id="card-ref",
             logical_name="questions", revision=1,
-            content_ref=content_ref, content_hash=content_hash,
-            trust="agent_output",
-        )
+            content_hash="sha256:any", trust="agent_output",
+        ),
+        '{"questions": ["Who uses it?"]}',
     )
     BoardGateStore(factory).create_gate(
         HumanGateRecord(

@@ -22,9 +22,6 @@ from app.config_models import TaskSourceConfig
 from app.documents import Text, document, paragraph
 from app.models_board import CardAction
 from app.models_board_records import IntakeOutcome
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -82,10 +79,9 @@ async def test_intake_gate_resolves_through_interventions(
     claims_store = BoardClaimsStore(factory)
     gate_store = BoardGateStore(factory)
     artifact_store = BoardArtifactStore(factory)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     board_service = BoardService(store)
     artifacts = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
     gates = GatesService(store, gate_store, board_service, artifacts)
     interventions = InterventionsService(

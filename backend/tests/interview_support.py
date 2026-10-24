@@ -5,9 +5,6 @@ from pathlib import Path
 
 from app.documents import Text, document, paragraph
 from app.models_board import SpecialistDefinition, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -44,7 +41,6 @@ def interview_stack(tmp_path: Path):
     board_service = BoardService(store)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates = GatesService(
         store, BoardGateStore(factory), board_service, artifacts,

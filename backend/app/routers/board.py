@@ -15,7 +15,6 @@ from fastapi.responses import StreamingResponse
 from app import sse
 from app.models_board import CardAction
 from app.models_board_records import SecurityReviewRecord
-from app.persistence.board_artifact_content_store import ContentNotFoundError
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,
@@ -144,24 +143,18 @@ async def get_artifact_content(
     It is agent output crossing into the browser: the frontend must never
     let it become live markup (feature 043 FR-005).
 
-    :raises HTTPException: 404 if the artifact, or its stored content, is
-        unknown.
+    :raises HTTPException: 404 if the artifact is unknown.
     """
     artifact = artifact_store.get(artifact_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="unknown artifact")
-    try:
-        if artifact.mime_type == DOCUMENT_MIME:
-            return BoardArtifactContentOut(
-                content=api_markdown(artifacts.read_document(artifact_id)),
-                trust=artifact.trust,
-                mime_type=MARKDOWN_MIME,
-            )
-        content = artifacts.read_content(artifact_id)
-    except ContentNotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail="artifact content missing"
-        ) from exc
+    if artifact.mime_type == DOCUMENT_MIME:
+        return BoardArtifactContentOut(
+            content=api_markdown(artifacts.read_document(artifact_id)),
+            trust=artifact.trust,
+            mime_type=MARKDOWN_MIME,
+        )
+    content = artifacts.read_content(artifact_id)
     return BoardArtifactContentOut(
         content=content or "",
         trust=artifact.trust,

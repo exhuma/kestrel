@@ -10,9 +10,6 @@ import pytest
 
 from app.document_formats.markdown import render_markdown
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_projection_store import BoardProjectionStore
@@ -233,7 +230,6 @@ class TestEndToEndDelivery:
         claims_store = BoardClaimsStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
         projections = ProjectionsService(BoardProjectionStore(factory))
         roster = SpecialistRoster({"verifier": _verifier()})
         store.create_workflow(_workflow())
@@ -249,7 +245,7 @@ class TestEndToEndDelivery:
             max_parallel_read_cards=4, default_lease_seconds=60,
         )
         artifacts = ArtifactsService(
-            store, artifact_store, board_service, content_store
+            store, artifact_store, board_service
         )
         coordinator = CoordinatorService(
             store, board_service

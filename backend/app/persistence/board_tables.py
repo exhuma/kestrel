@@ -203,7 +203,9 @@ class BoardArtifactRow(Base):
     )
     logical_name: Mapped[str] = mapped_column(Text)
     revision: Mapped[int] = mapped_column()
-    content_ref: Mapped[str] = mapped_column(Text)
+    #: The artifact's body (document JSON for a document). Deferred: it is
+    #: read on its own, never with a listing.
+    content: Mapped[str] = mapped_column(Text, deferred=True)
     content_hash: Mapped[str] = mapped_column(Text)
     mime_type: Mapped[str] = mapped_column(Text, default="text/plain")
     #: At least "untrusted" | "released" | "agent_output" | "operator_approved".

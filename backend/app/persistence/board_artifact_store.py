@@ -1,15 +1,17 @@
 """Immutable handoff-artifact persistence (feature 026).
 
 An artifact's ``(producer_card_id, logical_name, revision)`` identity is
-enforced unique by the schema (migration 0027); recording a duplicate is
-therefore rejected with :class:`DuplicateArtifactError` rather than
-silently overwriting a prior revision.
+enforced unique by the schema; recording a duplicate is therefore
+rejected with :class:`DuplicateArtifactError` rather than silently
+overwriting a prior revision. The body is stored on the same row and read
+on its own (:meth:`BoardArtifactStore.read_content`).
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from functools import lru_cache
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,7 +32,6 @@ def _row_to_artifact(row: BoardArtifactRow) -> HandoffArtifact:
         producer_card_id=row.producer_card_id,
         logical_name=row.logical_name,
         revision=row.revision,
-        content_ref=row.content_ref,
         content_hash=row.content_hash,
         trust=row.trust,
         mime_type=row.mime_type,
@@ -45,11 +46,16 @@ class BoardArtifactStore:
         self._factory = factory
 
     def record(
-        self, artifact: HandoffArtifact, *, now: datetime | None = None
+        self,
+        artifact: HandoffArtifact,
+        content: str,
+        *,
+        now: datetime | None = None,
     ) -> HandoffArtifact:
-        """Record one immutable artifact revision.
+        """Record one immutable artifact revision and its body.
 
         :param artifact: The artifact's full identity and provenance.
+        :param content: Its body; ``artifact.content_hash`` is its hash.
         :raises DuplicateArtifactError: if this producer/name/revision
             triple was already recorded.
         """
@@ -58,7 +64,7 @@ class BoardArtifactStore:
             producer_card_id=artifact.producer_card_id,
             logical_name=artifact.logical_name,
             revision=artifact.revision,
-            content_ref=artifact.content_ref,
+            content=content,
             content_hash=artifact.content_hash,
             trust=artifact.trust,
             mime_type=artifact.mime_type,
@@ -84,6 +90,15 @@ class BoardArtifactStore:
         with self._factory() as db:
             row = db.get(BoardArtifactRow, artifact_id)
             return _row_to_artifact(row) if row is not None else None
+
+    def read_content(self, artifact_id: str) -> str | None:
+        """Return one artifact's body, or ``None`` if it does not exist."""
+        with self._factory() as db:
+            return db.scalar(
+                select(BoardArtifactRow.content).where(
+                    BoardArtifactRow.id == artifact_id
+                )
+            )
 
     def list_for_card(self, producer_card_id: str) -> list[HandoffArtifact]:
         """Return every artifact revision produced by *producer_card_id*,

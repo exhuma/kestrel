@@ -12,9 +12,6 @@ from app.documents import (
     paragraph,
 )
 from app.models_board import WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -70,7 +67,6 @@ def _artifacts(tmp_path: Path) -> ArtifactsService:
     ))
     return ArtifactsService(
         store, BoardArtifactStore(factory), BoardService(store),
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
 
 

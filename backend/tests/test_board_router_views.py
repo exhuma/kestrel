@@ -25,9 +25,6 @@ from app.models_board_records import (
     HandoffArtifact,
     HumanGateRecord,
 )
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -87,7 +84,6 @@ def _client(tmp_path: Path) -> _Client:
     board_service = BoardService(store)
     artifacts = ArtifactsService(
         store, artifact_store, board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates_service = GatesService(store, gate_store, board_service, artifacts)
     interventions_service = InterventionsService(
@@ -363,19 +359,17 @@ def _record_artifact(
 ) -> None:
     factory = board_session_factory(tmp_path)
     BoardStore(factory).create_card(_ready_card())  # the producer
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
-    content_ref, content_hash = content_store.write(content)
     BoardArtifactStore(factory).record(
         HandoffArtifact(
             id=artifact_id,
             producer_card_id="card-1",
             logical_name="report",
             revision=1,
-            content_ref=content_ref,
-            content_hash=content_hash,
+            content_hash="sha256:any",
             trust=trust,
             mime_type=mime_type,
-        )
+        ),
+        content,
     )
 
 

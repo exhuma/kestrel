@@ -17,9 +17,6 @@ import pytest
 from app.backends.base import TurnRequest, TurnResult
 from app.documents import Text, document, paragraph
 from app.models_board import SpecialistDefinition, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_gate_store import BoardGateStore
@@ -78,10 +75,9 @@ def _stack(tmp_path: Path, *, cab1: bool) -> tuple[
     claims_store = BoardClaimsStore(factory)
     gate_store = BoardGateStore(factory)
     artifact_store = BoardArtifactStore(factory)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     board_service = BoardService(store)
     artifacts = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
     coordinator = CoordinatorService(store, board_service)
     gates = GatesService(

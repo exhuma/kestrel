@@ -88,9 +88,6 @@ board_ci_poll_interval_seconds = 60.0
 # often comments that failed to post are retried (feature 046).
 board_comment_poll_interval_seconds = 60.0
 board_projection_retry_interval_seconds = 120.0
-# Durable, content-addressed store for handoff-artifact bodies, keyed by
-# content hash. In Docker, point this at a persistent volume.
-board_artifacts_root = "./.kestrel-board-artifacts"
 # Every request passes three human gates, always: CAB-1 (strategic fit),
 # PRD sign-off, and CAB-2 (the approved breakdown). They cannot be switched
 # off (#70).

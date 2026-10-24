@@ -9,9 +9,6 @@ from app.backends.base import Backend
 from app.config import get_settings
 from app.documents import Strong, paragraph
 from app.models_board import CardKind, WorkCard
-from app.persistence.board_artifact_content_store import (
-    get_board_artifact_content_store,
-)
 from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
 from app.persistence.board_gate_store import get_board_gate_store
@@ -120,7 +117,6 @@ def get_artifacts_service() -> ArtifactsService:
         get_board_store(),
         get_board_artifact_store(),
         get_board_service(),
-        get_board_artifact_content_store(),
     )
 
 

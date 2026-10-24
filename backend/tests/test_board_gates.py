@@ -15,9 +15,6 @@ import pytest
 
 from app.documents import Text, document, paragraph
 from app.models_board import CardRelation, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
@@ -54,7 +51,6 @@ def _service(
     gate_store = BoardGateStore(factory)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     store.create_workflow(workflow)
     service = GatesService(

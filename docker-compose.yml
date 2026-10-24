@@ -60,8 +60,7 @@ services:
       start_period: 20s
       retries: 3
     volumes:
-      # Persist the board artifacts and the container's Claude HOME across
-      # restarts.
+      # Persist the container's Claude HOME across restarts.
       - kestrel-data:/data
       # The git repos claude clones and edits, kept browsable on the host.
       # Must exist on the host, owned by the uid:gid the container runs as

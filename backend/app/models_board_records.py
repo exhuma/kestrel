@@ -46,12 +46,11 @@ class HandoffArtifact:
     :param producer_card_id: The card that produced this artifact.
     :param logical_name: Stable name; unique with ``revision``.
     :param revision: Monotonic version for this ``logical_name``.
-    :param content_ref: Durable reference to the content, stored outside
-        board snapshots.
-    :param content_hash: Integrity hash of the referenced content.
+    :param content_hash: SHA-256 of the content (stored with the
+        artifact, read on its own: ``BoardArtifactStore.read_content``).
     :param trust: At least ``untrusted``, ``released``, ``agent_output``,
         or ``operator_approved``.
-    :param mime_type: The referenced content's media type.
+    :param mime_type: The content's media type.
     :param input_artifacts: Exact consumed input-artifact ids, never
         mutable "latest" pointers.
     """
@@ -60,7 +59,6 @@ class HandoffArtifact:
     producer_card_id: str
     logical_name: str
     revision: int
-    content_ref: str
     content_hash: str
     trust: str
     mime_type: str = "text/plain"

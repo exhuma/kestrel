@@ -188,7 +188,7 @@ def upgrade() -> None:
         sa.Column("producer_card_id", sa.String(), nullable=False),
         sa.Column("logical_name", sa.Text(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
-        sa.Column("content_ref", sa.Text(), nullable=False),
+        sa.Column("content", sa.Text(), nullable=False),
         sa.Column("content_hash", sa.Text(), nullable=False),
         sa.Column("mime_type", sa.Text(), nullable=False),
         sa.Column("trust", sa.Text(), nullable=False),
