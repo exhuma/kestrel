@@ -16,7 +16,6 @@ def _payload() -> str:
     return json.dumps({
         "version": 1,
         "plan": "Add the requested setting.",
-        "boundary": "http",
         "acceptance": [{
             "id": "AC-1",
             "parent_prd": "FR-1",

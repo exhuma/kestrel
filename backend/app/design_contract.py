@@ -43,7 +43,6 @@ class DesignContract:
     """The validated, versioned output accepted from the design agent."""
 
     plan: str
-    boundary: str | None
     acceptance: list[AcceptanceScenario]
     tasks: list[TaskNode]
     checks: list[CheckCommand]
@@ -173,18 +172,14 @@ def parse_design_contract(raw: str) -> DesignContract | None:
     if not isinstance(data, dict) or data.get("version") != 1:
         return None
     plan = _string(data.get("plan"))
-    boundary = data.get("boundary")
-    valid_boundary = boundary is None or boundary in {
-        "http", "ui", "both", "none"
-    }
     acceptance = _parse_acceptance(data.get("acceptance"))
     tasks = _parse_tasks(data.get("tasks"))
     checks = _parse_checks(data.get("checks"))
-    if plan is None or not valid_boundary:
+    if plan is None:
         return None
     if acceptance is None or tasks is None or checks is None:
         return None
-    return DesignContract(plan, boundary, acceptance, tasks, checks)
+    return DesignContract(plan, acceptance, tasks, checks)
 
 
 def _json_artifact(items: Sequence[TaskNode | CheckCommand], key: str) -> str:
