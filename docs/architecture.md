@@ -9,7 +9,7 @@ and replaced by the event-driven **work board** described below. Design
 history and the backlog live in the
 [GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
 
-Kestrel is a **single-user** tool that dispatches and monitors coding-agent
+Kestrel is a **single-operator** tool that dispatches and monitors coding-agent
 sessions from a web UI. One process serves both the API and (when packaged)
 the built SPA.
 
@@ -604,11 +604,12 @@ owner. Nothing in the announcement or reply code calls
 
 ## Design trade-offs
 
-- **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool meant to be reachable only from loopback, and it trusts whoever
-  reaches it. The code default of `KESTREL_HOST` and the image default are
-  both `0.0.0.0` so that a published compose port works; the constitution's
-  loopback rule is then met by the port mapping (`127.0.0.1:8000:8000`) or,
+- **Single operator, no sign-in yet.** Until the OIDC sign-in lands,
+  kestrel is meant to be reachable only from loopback, and it trusts
+  whoever reaches it. The code default of `KESTREL_HOST` and the image
+  default are both `0.0.0.0` so that a published compose port works; the
+  constitution's loopback rule is then met by the port mapping
+  (`127.0.0.1:8000:8000`) or,
   in the [Kubernetes guide](deploy-kubernetes.md), by binding `127.0.0.1`
   inside a pod whose only exposed port belongs to an authenticating reverse
   proxy. The API itself performs no authentication; it only reads the

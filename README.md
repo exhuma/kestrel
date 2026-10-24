@@ -3,7 +3,7 @@
 Dispatch and monitor coding-agent sessions from a web UI: the
 [Claude Code](https://github.com/anthropics/claude-code) CLI, an
 [opencode](https://opencode.ai) server, or a self-hosted LLM. Kestrel is a
-single-user tool: a FastAPI backend
+single-operator tool: a FastAPI backend
 ingests tasks from GitHub, Jira, or local task folders into an event-driven
 **work board** of typed cards claimed by configurable specialist agents (see
 [Architecture](docs/architecture.md)), persists everything to SQLite, and

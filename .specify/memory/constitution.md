@@ -1,6 +1,37 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-10-24 (1.6.0 -> 2.0.0, MAJOR): Slim-core redefinition (epic
+#90, issue #85). Principle IV changes from "single-user" to "single operator,
+many participants"; a new principle VII, "State Placement", makes the task
+source and code host the system of record and limits kestrel to operational
+state; PostgreSQL replaces SQLite; the operator UI and API require an OIDC
+sign-in (#79) with two recorded public exceptions, the GitHub webhook and the
+interview form behind an opaque token (#80); kestrel MAY create sub-tasks of
+an ingested task and change their status and time spent. Removed: the
+operator-hooks exception (hooks are removed), the shared-secret access gate,
+and the rerun / fixed-driver text. Redefined principle and removed
+constraints, therefore MAJOR.
+
+Modified sections:
+  - Core Principles -> IV (single operator, many participants)
+  - Technology & Architecture Constraints -> persistence, access model,
+    public-source write posture
+
+Added sections:
+  - Core Principles -> VII. State Placement
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/* ..................... no edit; gates are derived
+    from this file dynamically
+  - AGENTS.md, README.md, docs/architecture.md . single-user wording aligned;
+    the SQLite documentation is rewritten by the PostgreSQL work package
+
+Follow-up TODOs:
+  - Implement the OIDC sign-in (#79) and the form token (#80); until the
+    sign-in lands the API stays loopback-bound.
+
+--------------------------------------------------------------------------------
 Amendment 2026-10-05 (1.5.1 -> 1.6.0, MINOR): Add Principle VI, "Documents
 Are Modelled, Never Strings" (NON-NEGOTIABLE). Every document kestrel handles
 is the abstract `Document` internally; parsing and rendering happen only in
@@ -305,18 +336,20 @@ with a test that reproduces the bug.
 **Rationale**: Tests are the executable specification of intended behaviour and
 the only durable guard against regressions in a fast-moving alpha.
 
-### IV. Deliberate Simplicity & Single-User Scope
+### IV. Deliberate Simplicity & Single Operator
 
-kestrel is single-user by design. YAGNI governs: features, abstractions, and
-dependencies are added only when a present need justifies them, and every new
-npm/Python dependency MUST be justified. Single-user assumptions (e.g. no
-multi-user auth) are intentional and MUST NOT be "fixed" by speculative
-generalisation; the only planned access protection is a shared-secret gate, not
-multi-user authentication. Added complexity MUST be recorded and justified (see
-Governance).
+kestrel has one operator and many participants. The operator runs kestrel and
+signs in to its UI. Participants (reporters, change owners) act from the task
+source, whose identities and permissions kestrel reuses; kestrel keeps no user
+accounts, roles or permissions of its own. YAGNI governs: features,
+abstractions, and dependencies are added only when a present need justifies
+them, and every new npm/Python dependency MUST be justified. Multi-tenant
+features MUST NOT be added by speculative generalisation. Added complexity
+MUST be recorded and justified (see Governance).
 
-**Rationale**: The project's value comes from being a focused personal tool;
-unrequested generality is cost without benefit and erodes the contract.
+**Rationale**: The project's value comes from being a focused tool with one
+operator; unrequested generality is cost without benefit and erodes the
+contract.
 
 ### V. Kit-Aligned Consistency & Observability
 
@@ -371,6 +404,27 @@ platform's syntax into the core and from there into every other platform. One
 internal model, converted only at the edge, makes each adapter the single
 place that knows its platform.
 
+### VII. State Placement (NON-NEGOTIABLE)
+
+Business records live in the task source and the code host; kestrel holds
+operational state only. The task source holds the record; kestrel is the
+engine.
+
+- **Business records** are: the request, its restatement and PRD, every gate
+  decision with its decider and reason, the interview answers, the approved
+  decomposition as sub-tasks, and the sub-tasks' status and time spent. They
+  MUST be written to the task source or code host, and kestrel MUST NOT be the
+  only place they exist.
+- **Operational state** is: claims, leases, attempts, cursors, quarantine, the
+  event log, and caches. It lives in kestrel's database and MAY be lost.
+- **Test**: if kestrel disappears, no business fact is lost, and a person (or
+  another system) can finish the work from the task source and the code host
+  alone.
+
+**Rationale**: A record that only the engine can read ties the work to the
+engine. Keeping the record where the people already are makes kestrel
+replaceable and its database disposable.
+
 ## Technology & Architecture Constraints
 
 The living description of how the system fits together is
@@ -383,7 +437,7 @@ section records only the non-negotiable constraints an agent must honour.
 - **Frontend**: Vue 3 + Vuetify 4 + TypeScript (Vite, npm), in `frontend/`.
   `package.json` is the dependency source of truth. Components use the
   Composition API (`<script setup lang="ts">`).
-- **Persistence**: SQLite via SQLAlchemy 2.x, schema owned by Alembic
+- **Persistence**: PostgreSQL via SQLAlchemy 2.x, schema owned by Alembic
   (`backend/alembic/`). Two deliberate, recorded deviations from the usual
   FastAPI/SQLAlchemy patterns are permitted and MUST be preserved unless this
   constitution is amended: stores own their `Session` lifecycle (a
@@ -392,69 +446,44 @@ section records only the non-negotiable constraints an agent must honour.
 - **Worker agent**: the backend invokes the host's logged-in `claude` CLI as a
   subprocess (OAuth/Max subscription). No `ANTHROPIC_API_KEY` and no Agent SDK.
   Alternative backends (opencode, self-hosted LLM) are dispatched the same way.
-- **Access model**: single concurrent user; the API is unauthenticated and bound
-  to loopback, with **one recorded exception**: the GitHub webhook ingress
-  endpoint (`POST /api/github/webhook`) is intentionally reachable off-loopback so
-  GitHub can deliver events. For that endpoint the authenticity gate is HMAC
-  verification of each delivery's `X-Hub-Signature-256` against a configured shared
-  secret, using a constant-time comparison; a delivery whose signature is missing
-  or does not match MUST be rejected and MUST start no work, and the secret and
-  signatures MUST never be logged. Every other route stays loopback-bound and
-  unauthenticated. How the webhook endpoint is exposed (tunnel, reverse proxy) is
-  the operator's responsibility. The only planned protection is a shared-secret
-  access gate (see `docs/next-steps.md`), not multi-user authentication; the
-  webhook HMAC is that same shared-secret posture applied to the one endpoint that
-  must face the network. Optionally, the web UI may be served at a configured
-  public base URL so that notification deep-links are clickable; this is the same
-  operator-exposure posture and the link MUST carry no secret. **Second recorded
-  exception** (feature 006-task-lifecycle-sync): a task source MAY configure a
-  `hooks_dir` — a filesystem directory of operator-provided executables invoked at
-  workflow-run lifecycle events (start/done/failed/escalated/rejected), git-hook
-  style, with the event as JSON on stdin. Every such invocation inherits kestrel's
-  full process environment, including every configured credential, by deliberate
-  design, so a hook can itself call a ticket tracker's API with kestrel's own
-  token. This is **not** merely "the same trust as host access" — it is a
-  secret-equivalent trust boundary: `hooks_dir` and everything placed in it MUST be
-  treated with the same care as `config.toml`/the secrets it references, and MUST
-  be documented as such wherever an operator configures it. No sandboxing is
-  implemented; the only mitigations are per-invocation isolation (a hard 30-second
-  timeout; one hook's failure, timeout, or malformed output MUST never block
-  another configured hook or the run itself) and a startup audit log listing each
-  configured `hooks_dir`'s executable contents (flagging any that are
-  group/world-writable) so an operator has a chance to notice an unexpected file —
-  a nudge, not an access control. **Third recorded constraint** (feature
-  008-fixture-task-source): every `TaskSource` implementation (`backend/app/ports.py`)
-  declares a `visibility()` capability, `"public"` or `"private"`, static per
-  implementation and never configurable per instance. GitHub and Jira report
-  `"public"` — their tickets are externally shared and MUST only ever move forward in
-  time, the same append-only posture git gives a published branch. The file-backed
-  fixture task source (feature 008) reports `"private"` — local, admin-only, and safe
-  to reset. Kestrel's rerun action — abandon a run, force-delete its branch, and
-  immediately restart it against the same task, discarding and replacing the run's
-  history — MUST be refused unless the run's task source reports `"private"`; this is
-enforced once, centrally, in the service layer (never left to the frontend to
-enforce alone, per Principle II). **Not currently implemented**: the fixed
-driver's `/api/workflows/*` router, the sole implementation of rerun, was
-removed in the Phase 10 clean break (spec 026-autonomous-work-board);
-`visibility()` is still recorded on every board workflow, and this same
-visibility-gated restriction and central-enforcement requirement apply
-unchanged if rerun, or an equivalent local-only destructive action, is
-reintroduced. Delete remains local-only. Cleanup may modify
-a public source solely to remove, close, or restore artifacts Kestrel itself
-created and recorded against that workflow; it MUST NOT alter an untracked
-resource or change the original source task except to restore its exact
-pre-publication state. Artifact cleanup MUST be idempotent: an absent artifact
-is success, while an unresolved required cleanup failure remains recorded for
-retry. Deleting comments/feedback is best-effort and cannot prevent the local
-reset or future polling eligibility. **Fourth recorded constraint**: kestrel
-MUST NOT change the status (workflow state, transition, resolution) of an
-ingested task — the ticket a request was ingested from belongs to its owners,
-and moving it is their decision. Kestrel MAY transition only sub-tasks it
-created itself and recorded against the workflow. Where an ingested task
-should move on, kestrel tells the responsible human in a comment instead.
-Operator-provided `hooks_dir` executables are the operator's own code and
-outside this constraint, but kestrel itself MUST NOT call
-`TaskSource.transition` on an ingested task.
+- **Access model**: the operator UI and API MUST require an OIDC sign-in with
+  a single operator role; until that sign-in lands they stay bound to
+  loopback. Two **recorded public exceptions** are reachable without it:
+  - The GitHub webhook ingress (`POST /api/github/webhook`) is reachable
+    off-loopback so GitHub can deliver events. Its authenticity gate is HMAC
+    verification of each delivery's `X-Hub-Signature-256` against a configured
+    shared secret, using a constant-time comparison; a delivery whose
+    signature is missing or does not match MUST be rejected and MUST start no
+    work, and the secret and signatures MUST never be logged.
+  - The interview form (`/form/<token>`) shows one questionnaire and nothing
+    else. The token is opaque, stored hashed, never logged, grants access to
+    that questionnaire only, and is invalidated once it is completely
+    answered. Answers are untrusted input and pass screening like ticket
+    replies; they are posted to the ticket (Principle VII).
+
+  How these endpoints are exposed (tunnel, reverse proxy) is the operator's
+  responsibility. The optional public base URL for notification deep-links
+  MUST carry no secret.
+- **Public sources**: `TaskSource.visibility()` is `"public"` or `"private"`,
+  static per implementation. GitHub and Jira are `"public"`: their tickets are
+  externally shared and MUST only ever move forward in time. A local
+  destructive action that discards and replaces history, if one is ever
+  introduced, MUST be refused unless the source is `"private"`, enforced once
+  in the service layer (Principle II). Delete remains local-only. Kestrel MAY
+  modify a public source only to:
+  - remove, close, or restore artifacts it created and recorded, without
+    altering an untracked resource or the original task beyond restoring its
+    exact pre-publication state. Cleanup MUST be idempotent: an absent
+    artifact is success, an unresolved required failure stays recorded for
+    retry, and deleting comments is best-effort;
+  - create sub-tasks of an ingested task, change the status of those
+    sub-tasks only (in progress; resolved = coding finished, waiting for
+    merge; done = merged; on GitHub, labels and closing the sub-issue), and
+    write their time-spent field.
+- **No status change on ingested tasks**: kestrel MUST NOT change the status
+  (workflow state, transition, resolution) of an ingested (primary) task. The
+  ticket belongs to its owners, and moving it is their decision. Where it
+  should move on, kestrel tells the responsible human in a comment instead.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -495,4 +524,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.6.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-10-05
+**Version**: 2.0.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-10-24
