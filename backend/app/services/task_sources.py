@@ -36,7 +36,6 @@ def build_task_source_registry(settings: Settings) -> TaskSourceRegistry:
     )
     gh_source = GitHubTaskSource(
         github,
-        settings.public_base_url,
         config_for=settings.github_source_for,
         comment_sentinel_enabled=settings.comment_sentinel_enabled,
     )
@@ -67,7 +66,6 @@ def _register_jira(
     )
     sources["jira-issue"] = JiraTaskSource(
         jira,
-        settings.public_base_url,
         config=entry,
         comment_sentinel_enabled=settings.comment_sentinel_enabled,
     )

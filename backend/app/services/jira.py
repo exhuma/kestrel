@@ -43,7 +43,6 @@ class JiraTaskSource:
     def __init__(
         self,
         client: JiraClient,
-        public_base_url: str = "",
         config: "TaskSourceConfig | None" = None,
         comment_sentinel_enabled: bool = True,
     ) -> None:

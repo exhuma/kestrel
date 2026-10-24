@@ -35,7 +35,6 @@ class GitHubTaskSource:
     def __init__(
         self,
         client: GitHubClient,
-        public_base_url: str = "",
         config_for: "Callable[[str], TaskSourceConfig | None] | None" = None,
         comment_sentinel_enabled: bool = True,
     ) -> None:
@@ -46,7 +45,6 @@ class GitHubTaskSource:
             model's own defaults.
         """
         self._client = client
-        self._public_base_url = public_base_url.rstrip("/")
         self._config_for = config_for
         self._comment_sentinel_enabled = comment_sentinel_enabled
 
