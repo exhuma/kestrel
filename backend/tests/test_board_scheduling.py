@@ -83,7 +83,6 @@ def _specialist(role_id: str = "developer") -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="You are the developer specialist.",
     )
 
@@ -97,7 +96,6 @@ def _coordinator_specialist() -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="none",
-        retry_limit=1,
         prompt="You are the COORDINATOR.",
     )
 

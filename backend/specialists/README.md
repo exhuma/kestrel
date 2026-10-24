@@ -19,7 +19,6 @@ One subdirectory per named role, loaded from `specialists_root`
 | `required_abilities` | Backend `Capability` values this role needs (`text`, `file_edits`, `tool_use` — see `app/backends/base.py`). Validated against the dispatched backend's advertised `caps`, and `file_edits` is required whenever `workspace_permission` is `write`. |
 | `model_policy` | `"default"` uses the configured default session backend/model; a specific backend id pins this role to it. |
 | `workspace_permission` | `none`, `read_only`, or `write`. `write` requires a repository workspace lease at claim time. |
-| `retry_limit` | Maximum attempts before a card claimed by this role escalates. |
 | `prompt_file` | Path, relative to this role's directory, to its prompt content. |
 
 ## Card kinds (this feature's initial vocabulary)

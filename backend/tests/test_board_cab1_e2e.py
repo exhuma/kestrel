@@ -67,7 +67,7 @@ def _persona(role_id: str, *card_types: str) -> SpecialistDefinition:
         id=role_id, label=role_id, purpose="test role",
         allowed_card_types=card_types, required_abilities=(),
         model_policy="default", workspace_permission="read_only",
-        retry_limit=1, prompt=f"You are {role_id}.",
+        prompt=f"You are {role_id}.",
     )
 
 

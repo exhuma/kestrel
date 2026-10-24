@@ -208,7 +208,6 @@ def _verifier() -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="You are the verifier.",
     )
 

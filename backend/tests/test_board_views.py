@@ -53,7 +53,6 @@ def _specialist(role_id: str) -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="do the thing",
     )
 

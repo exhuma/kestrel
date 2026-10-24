@@ -43,7 +43,6 @@ def _specialist(
         model_policy="default",
         workspace_permission="write" if "implementation" in allowed_card_types
         else "read_only",
-        retry_limit=1,
         prompt="do the thing",
     )
 

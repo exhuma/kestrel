@@ -164,7 +164,6 @@ def _specialist(**overrides: object) -> SpecialistDefinition:
         "required_abilities": ("text",),
         "model_policy": "default",
         "workspace_permission": "read_only",
-        "retry_limit": 1,
         "prompt": "Ask about approach.",
     }
     fields.update(overrides)

@@ -61,7 +61,6 @@ class TestValidRoster:
             'required_abilities = ["text"]\n'
             'model_policy = "default"\n'
             'workspace_permission = "read_only"\n'
-            "retry_limit = 1\n"
             'prompt_file = "prompt.md"\n'
         )
         (custom / "prompt.md").write_text("Custom role prompt.\n")
@@ -120,22 +119,20 @@ class TestRosterImmutability:
     def test_reload_reflects_a_changed_role_definition(
         self, tmp_path: Path
     ) -> None:
-        original_limit, changed_limit = 2, 5
         _copy_tree(VALID_SPECIALISTS_ROOT, tmp_path)
         first = load_roster(tmp_path, required_role_ids=_FIXTURE_ROLE_IDS)
-        assert first.get("coder").retry_limit == original_limit
+        assert first.get("coder").label == "Coder"
 
         manifest = tmp_path / "coder" / "manifest.toml"
         manifest.write_text(
             manifest.read_text().replace(
-                f"retry_limit = {original_limit}",
-                f"retry_limit = {changed_limit}",
+                'label = "Coder"', 'label = "Changed"'
             )
         )
         second = load_roster(tmp_path, required_role_ids=_FIXTURE_ROLE_IDS)
 
-        assert first.get("coder").retry_limit == original_limit
-        assert second.get("coder").retry_limit == changed_limit
+        assert first.get("coder").label == "Coder"
+        assert second.get("coder").label == "Changed"
 
 
 def _copy_tree(src: Path, dst: Path) -> None:

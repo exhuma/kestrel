@@ -340,7 +340,6 @@ class SpecialistDefinition:
     :param model_policy: ``"default"`` for the configured default session
         backend, or a specific backend id.
     :param workspace_permission: ``none``, ``read_only``, or ``write``.
-    :param retry_limit: Maximum attempts before escalation.
     :param prompt: The role's prompt content, loaded from its prompt file.
     """
 
@@ -351,6 +350,5 @@ class SpecialistDefinition:
     required_abilities: tuple[str, ...]
     model_policy: str
     workspace_permission: str
-    retry_limit: int
     prompt: str
 

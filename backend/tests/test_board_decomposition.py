@@ -234,7 +234,7 @@ class TestEndToEndDispatchRouting:
             id="pm", label="pm", purpose="test role",
             allowed_card_types=("analysis", "decomposition"),
             required_abilities=(), model_policy="default",
-            workspace_permission="read_only", retry_limit=1,
+            workspace_permission="read_only",
             prompt="You are the pm.",
         )
         roster = SpecialistRoster({"pm": pm})

@@ -234,7 +234,7 @@ def _role(role_id: str, kinds: tuple[str, ...]) -> SpecialistDefinition:
         id=role_id, label=role_id, purpose="test role",
         allowed_card_types=kinds, required_abilities=(),
         model_policy="default", workspace_permission="read_only",
-        retry_limit=1, prompt=f"You are the {role_id}.",
+        prompt=f"You are the {role_id}.",
     )
 
 
