@@ -291,19 +291,28 @@ class BoardStore:
         state: str,
         *,
         wait_reason: str | None = None,
-        now: datetime | None = None,
-    ) -> None:
-        """Set a card's state directly (policy already validated it)."""
+        from_state: str | None = None,
+    ) -> bool:
+        """Set a card's state directly (policy already validated it).
+
+        :param from_state: The state the caller validated the move from:
+            when given, the card moves only if it is still in it, so a
+            move decided on a state the card has left since (another
+            caller moved it meanwhile) is not written over the newer one.
+        :returns: Whether the card was moved.
+        """
+        statement = update(BoardCardRow).where(BoardCardRow.id == card_id)
+        if from_state is not None:
+            statement = statement.where(BoardCardRow.state == from_state)
         with self._factory.begin() as db:
-            db.execute(
-                update(BoardCardRow)
-                .where(BoardCardRow.id == card_id)
-                .values(
+            moved = db.execute(
+                statement.values(
                     state=state,
                     wait_reason=wait_reason,
-                    updated_at=now_utc(now),
+                    updated_at=now_utc(None),
                 )
             )
+            return moved.rowcount == 1
 
     def append_event(
         self, event: BoardEventRecord, *, now: datetime | None = None

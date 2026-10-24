@@ -15,6 +15,7 @@ from datetime import datetime
 from functools import lru_cache
 
 from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -87,14 +88,19 @@ class CommentStore:
         self, workflow_id: str, cursor: str | None,
         *, now: datetime | None = None,
     ) -> None:
-        """Record where reading *workflow_id*'s comments got to."""
+        """Record where reading *workflow_id*'s comments got to.
+
+        One upsert, so two first writes for a request do not collide.
+        """
+        values = {"cursor": cursor, "updated_at": now_utc(now)}
         with self._factory.begin() as db:
-            row = db.get(BoardCommentCursorRow, workflow_id)
-            if row is None:
-                row = BoardCommentCursorRow(workflow_id=workflow_id)
-                db.add(row)
-            row.cursor = cursor
-            row.updated_at = now_utc(now)
+            db.execute(
+                insert(BoardCommentCursorRow)
+                .values(workflow_id=workflow_id, **values)
+                .on_conflict_do_update(
+                    index_elements=["workflow_id"], set_=values
+                )
+            )
 
     def claim(
         self, comment: InboundComment, *, now: datetime | None = None

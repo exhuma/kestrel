@@ -4,13 +4,14 @@ One row per gate card (``card_id`` is unique): a changed PRD or review
 never edits a prior approval, it creates a new revision and a new
 successor gate card instead (data-model.md "Human Gate"), so this store
 never needs to update ``requested_decision``/``target_artifact_id`` after
-creation — only ``decision`` moves from unset to recorded.
+creation — only ``decision`` moves from unset to recorded, once.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from functools import lru_cache
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board_records import HumanGateRecord
@@ -62,19 +63,30 @@ class BoardGateStore:
 
     def record_decision(
         self, card_id: str, decision: str, *, now: datetime | None = None
-    ) -> HumanGateRecord:
-        """Record the operator's decision for *card_id*'s gate."""
+    ) -> HumanGateRecord | None:
+        """Record the operator's decision for *card_id*'s gate, unless it
+        is decided already.
+
+        One conditional ``UPDATE``: of two decisions racing for one gate,
+        the second waits for the first and then finds nothing to update.
+
+        :returns: The decided record, or ``None`` when the gate was
+            already decided (or does not exist).
+        """
         with self._factory.begin() as db:
-            row = (
-                db.query(BoardHumanGateRow)
-                .filter(BoardHumanGateRow.card_id == card_id)
-                .one()
+            row = db.scalar(
+                update(BoardHumanGateRow)
+                .where(
+                    BoardHumanGateRow.card_id == card_id,
+                    BoardHumanGateRow.decision.is_(None),
+                )
+                .values(
+                    decision=decision,
+                    decision_at=now or datetime.now(timezone.utc),
+                )
+                .returning(BoardHumanGateRow)
             )
-            row.decision = decision
-            row.decision_at = now or datetime.now(timezone.utc)
-            db.flush()
-            db.expunge(row)
-            return _row_to_record(row)
+            return _row_to_record(row) if row is not None else None
 
 
 @lru_cache

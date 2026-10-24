@@ -25,7 +25,10 @@ from app.services.board.gate_decision import (
     decision_payload,
     require_reason,
 )
-from app.services.board.interview_answers import check_open
+from app.services.board.interview_answers import (
+    GateNotOpenError,
+    check_open,
+)
 from app.services.board.interview_batch import (
     InterviewBoard,
     maybe_plan_next,
@@ -252,6 +255,10 @@ class GatesService:
             decision, answer,
         )
         require_reason(record.requested_decision, decision, answer)
+        # Recording the decision is what claims the gate: a concurrent
+        # decision that passed the same checks finds it decided here.
+        if self._gate_store.record_decision(card_id, decision) is None:
+            raise GateNotOpenError(f"gate {card_id} is not open")
         if answer is not None:
             self._artifacts.store_reference_artifact(
                 ArtifactDraft(
@@ -262,7 +269,6 @@ class GatesService:
                     trust="operator_approved",
                 )
             )
-        self._gate_store.record_decision(card_id, decision)
         card = self._board_service.transition_card(
             card_id, target.value, event_type=f"gate.{decision}",
             payload=decision_payload(decided_by),
