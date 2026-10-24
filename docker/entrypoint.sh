@@ -9,8 +9,7 @@ set -e
 
 # Fail fast with a clear message if a required path isn't writable by this
 # container's user, instead of a confusing mid-script crash later (a raw
-# `mkdir: Permission denied`, or alembic/sqlite failing deep in a stack
-# trace). The image runs as a non-root user by default (see Dockerfile); the
+# `mkdir: Permission denied` deep in a stack trace). The image runs as a non-root user by default (see Dockerfile); the
 # operator is responsible for provisioning bind-mounted paths (e.g.
 # ./workspaces) owned by that user before starting the container. Named
 # volumes (e.g. /data) don't need this — see

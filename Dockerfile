@@ -61,13 +61,14 @@ ENV KESTREL_VERSION=${KESTREL_VERSION}
 # on every start — slow, and it pollutes the (optionally JSON) log stream.
 ENV UV_NO_SYNC=1
 
-# Runtime defaults. /data (persisted): SQLite DB, the board's handoff
-# artifacts (/data/board-artifacts) + the writable Claude HOME seeded from the
-# host at startup. /workspaces (host bind mount): the git repos
+# Runtime defaults. The database is an external PostgreSQL server: set
+# KESTREL_DATABASE_URL at run time (it carries a password, so the image has
+# no default). /data (persisted): the board's handoff artifacts
+# (/data/board-artifacts) + the writable Claude HOME seeded from the host at
+# startup. /workspaces (host bind mount): the git repos
 # claude clones and edits, kept browsable on the host. /seed (read-only): where
 # the host ~/.claude and ~/.claude.json are mounted for the entrypoint to copy.
 ENV KESTREL_STATIC_DIR=/app/static \
-    KESTREL_DATABASE_URL=sqlite:////data/kestrel.db \
     KESTREL_WORKSPACE_ROOT=/workspaces \
     KESTREL_BOARD_ARTIFACTS_ROOT=/data/board-artifacts \
     CLAUDE_SEED_DIR=/seed \
