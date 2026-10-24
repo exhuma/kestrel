@@ -1,6 +1,7 @@
 """Tests for the claude runner: argv building, stream consume, one turn."""
 from __future__ import annotations
 
+import logging
 import textwrap
 from pathlib import Path
 from typing import AsyncIterator
@@ -143,6 +144,48 @@ async def test_consume_returns_session_id_and_result() -> None:
     assert turn.result is not None
     assert turn.result.text == "done"
     assert seen == ["s1"]
+
+
+@pytest.mark.asyncio
+async def test_consume_logs_events_under_the_session_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure the stream's events and result land in the agent log, each
+    line tagged with the session and card ids."""
+    caplog.set_level(logging.DEBUG, logger="kestrel.agent")
+    lines = [
+        '{"type":"system","subtype":"init","session_id":"s1"}',
+        '{"type":"result","subtype":"success","session_id":"s1",'
+        '"result":"all done","duration_ms":5}',
+    ]
+    await _runner().consume(_lines(lines), _req("/tmp/ws", card_id="c7"))
+
+    records = [r for r in caplog.records if r.name == "kestrel.agent"]
+    assert records
+    assert {r.session_id for r in records} == {"s1"}  # type: ignore[attr-defined]
+    assert {r.card_id for r in records} == {"c7"}  # type: ignore[attr-defined]
+    summary = records[-1]
+    assert summary.levelno == logging.INFO
+    assert "agent turn finished in 5 ms: all done" in summary.getMessage()
+
+
+@pytest.mark.asyncio
+async def test_consume_warns_when_the_result_is_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure an error result is a WARNING carrying the error text."""
+    caplog.set_level(logging.INFO, logger="kestrel.agent")
+    lines = [
+        '{"type":"result","session_id":"s1","is_error":true,'
+        '"result":"Not logged in"}',
+    ]
+    await _runner().consume(_lines(lines), _req("/tmp/ws"))
+
+    (record,) = [
+        r for r in caplog.records
+        if r.name == "kestrel.agent" and r.levelno == logging.WARNING
+    ]
+    assert "Not logged in" in record.getMessage()
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 
 import httpx
@@ -302,6 +303,47 @@ async def test_run_turn_returns_the_final_text() -> None:
         "modelID": "claude-sonnet-4",
     }
     assert body["parts"] == [{"type": "text", "text": "do it"}]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_logs_tools_and_result_under_the_session_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure a turn's tool calls and final text reach the agent log,
+    tagged with the session and card ids."""
+    caplog.set_level(logging.DEBUG, logger="kestrel.agent")
+    backend, _ = _backend(_transcript_handler())
+
+    await backend.run_turn(
+        TurnRequest(
+            prompt="do it", cwd="/tmp/s", permission_mode="n/a",
+            card_id="card-5",
+        )
+    )
+
+    records = [r for r in caplog.records if r.name == "kestrel.agent"]
+    assert {r.session_id for r in records} == {"oc-1"}  # type: ignore[attr-defined]
+    assert {r.card_id for r in records} == {"card-5"}  # type: ignore[attr-defined]
+    text = "\n".join(r.getMessage() for r in records)
+    assert "tool_use read x.py" in text
+    assert "tool_result file body" in text
+    assert "agent turn finished: all done" in text
+
+
+@pytest.mark.asyncio
+async def test_run_turn_reports_the_session_id_before_it_finishes() -> None:
+    """Ensure on_session_id fires with the id the backend assigned."""
+    backend, _ = _backend(_transcript_handler())
+    told: list[str] = []
+
+    await backend.run_turn(
+        TurnRequest(
+            prompt="do it", cwd="/tmp/s", permission_mode="n/a",
+            on_session_id=told.append,
+        )
+    )
+
+    assert told == ["oc-1"]
 
 
 @pytest.mark.asyncio

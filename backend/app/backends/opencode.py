@@ -7,6 +7,7 @@ from typing import Callable
 
 import httpx
 
+from app.backends.agent_log import AgentLog
 from app.backends.base import (
     PERMISSION_READ_ONLY,
     Backend,
@@ -19,7 +20,7 @@ from app.backends.base import (
 from app.backends.limiter import BackendLimiter
 from app.backends.opencode_abort import abort_on_cancel
 from app.backends.opencode_models import split_model
-from app.backends.opencode_parts import assistant_error
+from app.backends.opencode_parts import assistant_error, part_events
 from app.backends.opencode_permissions import (
     OpenCodeConnection,
     directory_params,
@@ -33,6 +34,7 @@ from app.backends.opencode_tools import (
 )
 from app.backends.rate_limit import retry_rate_limited
 from app.config import BackendConfig, Settings
+from app.models import CanonicalEvent, EventKind
 
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
 _logger = logging.getLogger(__name__)
@@ -87,27 +89,37 @@ class OpenCodeBackend(Backend):
     async def _run_turn(self, req: TurnRequest) -> TurnResult:
         """Run an admitted turn, logging any failure before re-raising."""
         sid: str | None = req.resume_id
+        log: AgentLog | None = None
         try:
             if sid is None:
                 sid = await self._create_session(req.cwd)
+            log = AgentLog(sid, req.card_id, self.id)
+            log.started(resumed=req.resume_id is not None)
             if req.on_session_id is not None:
                 req.on_session_id(sid)
-            content = await self._turn(sid, req)
+            content = await self._turn(sid, req, log)
+            log.finished(content)
             return TurnResult(session_id=sid, final_text=content)
         except asyncio.CancelledError:
+            if log is not None:
+                log.failed("the turn was cancelled (timeout or shutdown)")
             abort_on_cancel(self._request, sid, req.cwd)
             raise
-        except Exception:
+        except Exception as exc:
             _logger.exception(
                 "opencode run_turn failed (session=%s, cwd=%s)", sid, req.cwd,
             )
+            if log is not None:
+                log.failed(f"{type(exc).__name__}: {exc}")
             raise
 
     async def list_models(self) -> ModelCatalog:
         """Report unknown until OpenCode exposes a stable catalogue contract."""
         return ModelCatalog(state="unknown")
 
-    async def _turn(self, session_id: str, req: TurnRequest) -> str:
+    async def _turn(
+        self, session_id: str, req: TurnRequest, log: AgentLog
+    ) -> str:
         """Send the prompt and return the text of this turn's new messages.
 
         A turn produces several assistant messages (tool calls then a final
@@ -133,6 +145,7 @@ class OpenCodeBackend(Backend):
             self._msg_id(m)
             for m in await self._messages(session_id, directory)
         }
+        log.event(CanonicalEvent(EventKind.USER_TEXT, session_id, prompt))
         body: dict[str, object] = {"parts": [{"type": "text", "text": prompt}]}
         if self._model is not None:
             body["model"] = self._model
@@ -164,7 +177,10 @@ class OpenCodeBackend(Backend):
                 continue  # user echo
             if self._msg_id(message) in seen:
                 continue  # from an earlier turn
-            texts += self._texts_of(self._msg_parts(message))
+            parts = self._msg_parts(message)
+            for event in (e for p in parts for e in part_events(p, session_id)):
+                log.event(event)
+            texts += self._texts_of(parts)
         return "\n".join(t for t in texts if t)
 
     async def _messages(

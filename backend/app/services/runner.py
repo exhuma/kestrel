@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
+from app.backends.agent_log import AgentLog
 from app.backends.base import (
     PERMISSION_EDIT,
     PERMISSION_READ_ONLY,
@@ -113,25 +114,52 @@ class SessionRunner:
         carrying an id for a fresh start).
 
         :param lines: Async iterator of raw JSONL lines.
-        :param req: The turn being run.
+        :param req: The turn being run; its ``card_id`` tags the log lines.
         :returns: The session id (None if never seen) and the terminal
             ``result`` event (None if the stream sent none).
         """
         session_id = req.resume_id
-        if session_id is not None and req.on_session_id is not None:
-            req.on_session_id(session_id)
+        log = self._open(session_id, req) if session_id else None
         result: CanonicalEvent | None = None
-        async for line in lines:
-            event = map_claude_line(line)
-            if event is None:
-                continue
-            if session_id is None and event.session_id is not None:
-                session_id = event.session_id
-                if req.on_session_id is not None:
-                    req.on_session_id(session_id)
-            if event.kind == EventKind.RESULT:
-                result = event
+        try:
+            async for line in lines:
+                event = map_claude_line(line)
+                if event is None:
+                    continue
+                if session_id is None and event.session_id is not None:
+                    session_id = event.session_id
+                    log = self._open(session_id, req)
+                if log is not None:
+                    log.event(event)
+                if event.kind == EventKind.RESULT:
+                    result = event
+        except asyncio.CancelledError:
+            if log is not None:
+                log.failed("the turn was cancelled (timeout or shutdown)")
+            raise
+        if log is not None:
+            self._log_outcome(log, result)
         return ClaudeTurn(session_id, result)
+
+    def _open(self, session_id: str, req: TurnRequest) -> AgentLog:
+        """Start logging a session the moment its id is known."""
+        log = AgentLog(session_id, req.card_id, backend_id="claude_cli")
+        log.started(resumed=req.resume_id is not None)
+        if req.on_session_id is not None:
+            req.on_session_id(session_id)
+        return log
+
+    @staticmethod
+    def _log_outcome(log: AgentLog, result: CanonicalEvent | None) -> None:
+        """Log how the stream ended: its result, or the lack of one."""
+        if result is None:
+            log.failed("the stream ended without a result event")
+            return
+        log.finished(
+            result.text,
+            is_error=result.is_error,
+            duration_ms=result.duration_ms,
+        )
 
     async def run_blocking(
         self,

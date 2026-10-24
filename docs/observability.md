@@ -40,7 +40,8 @@ for ingestion by a log pipeline (OpenTelemetry collectors, Logstash, Loki,
 ```
 
 `trace_id` (and `span_id`) fields are added to records emitted while a span is
-active (tracing enabled). Exceptions add an `exception` field with the
+active (tracing enabled). Agent records add `session_id` and `card_id` (see
+[Agent output](#agent-output)). Exceptions add an `exception` field with the
 formatted traceback. In `docker-compose.yml`:
 
 ```yaml
@@ -48,6 +49,40 @@ environment:
   KESTREL_LOG_FORMAT: json
   KESTREL_LOG_LEVEL: info
 ```
+
+### Agent output
+
+Kestrel stores nothing of what an agent did: no transcript, no events. The
+server log is the only record, written through one logger, `kestrel.agent`,
+for every backend (Claude CLI, opencode). Each record carries the backend's
+**session id** and, when the turn works for a board card, the **card id** —
+in the message (`session=<id> card=<id> …`) and, with
+`KESTREL_LOG_FORMAT=json`, as `session_id` / `card_id` fields.
+
+| Level | What is logged |
+| --- | --- |
+| `INFO` | A session started or resumed; the turn's result (length-limited) |
+| `WARNING` | An error result, or a turn that ended without one (crash, timeout, stop) |
+| `DEBUG` | Every event of the turn: assistant text, tool calls and results, reasoning |
+
+Free text is cut to 500 characters per line, so a log line stays small
+however much the agent wrote. `DEBUG` also lowers the level for everything
+else; set `KESTREL_LOG_LEVEL=debug` to read a turn step by step, and filter on
+the session id.
+
+To find the output of one card attempt:
+
+1. The attempt row (`board_card_attempt`) stores the session id as soon as the
+   backend reports it, even if the turn later fails:
+
+   ```sql
+   SELECT sequence, backend_id, session_id, status
+   FROM board_card_attempt WHERE card_id = '<card id>' ORDER BY sequence;
+   ```
+
+2. Filter the log by it: `docker compose logs kestrel | grep 'session=<id>'`,
+   or select `session_id = "<id>"` in a JSON log pipeline. A card can also be
+   followed by `card_id` across its attempts.
 
 ## Tracing
 

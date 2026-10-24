@@ -23,6 +23,13 @@ The compose file mounts `~/.claude` and `~/.claude.json` read-only into
 **directory** — both are needed. After re-logging-in on the host, run
 `docker compose restart` so refreshed credentials are re-copied.
 
+## What did the agent do on a card?
+
+Agent output is only in the server log, keyed by session id; see
+[Observability → Agent output](observability.md#agent-output) for how to get
+from a card attempt (`board_card_attempt.session_id`) to its log lines, and
+set `KESTREL_LOG_LEVEL=debug` to see every tool call.
+
 ## MCP servers and plugins
 
 Spawned `claude` sessions pick up **your** user-level MCP servers and plugins

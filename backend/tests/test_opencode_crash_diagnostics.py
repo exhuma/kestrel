@@ -62,6 +62,12 @@ async def test_run_turn_logs_the_session_id_on_resume_failure(
         )
 
     assert "run_turn failed (session=oc-1" in caplog.text
+    (aborted,) = [
+        r for r in caplog.records
+        if r.name == "kestrel.agent" and r.levelno == logging.WARNING
+    ]
+    assert aborted.session_id == "oc-1"  # type: ignore[attr-defined]
+    assert "agent turn aborted" in aborted.getMessage()
 
 
 @pytest.mark.asyncio
