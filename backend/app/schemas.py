@@ -12,17 +12,6 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class ScreenshotOut(BaseModel):
-    """One workflow screenshot for the gallery API."""
-
-    #: Filename within its stage folder (e.g. ``login-01.png``).
-    name: str
-    #: Which stage produced it.
-    stage: Literal["refine", "verify"]
-    #: Relative URL the frontend fetches the image bytes from.
-    url: str
-
-
 class SessionSummary(BaseModel):
     """Summary of one session for the list endpoint.
 
@@ -41,151 +30,332 @@ class SessionSummary(BaseModel):
     workflow: str | None = None
 
 
-class StepSessionOut(BaseModel):
-    """One live session chip for the active workflow step."""
+class SecurityReviewOut(BaseModel):
+    """Safe, read-only view of a quarantine decision (feature 026).
 
-    profile_id: str
-    label: str
-    badge: str
-    session_id: str | None
-    status: str
-    #: A 1-2 word hint of the agent's current activity ("thinking",
-    #: "reading", …), derived live from its event stream; None if idle.
-    activity: str | None = None
-    #: When status is "error", a short failure reason for the chip.
-    error: str | None = None
+    Carries only safe metadata (board-api.md) — never the raw suspect
+    content that triggered the review (FR-025): full suspect input is
+    never copied into an API response, log field, or operator summary.
 
-
-class RoundChipOut(BaseModel):
-    """One frozen chip from a completed workflow round (history)."""
-
-    step: str
-    #: 0-based group number within this step; consecutive chips sharing a
-    #: round_index render as one group, separated from the next.
-    round_index: int
-    profile_id: str
-    label: str
-    badge: str
-    session_id: str | None
-    #: Frozen terminal status: "idle" (succeeded) or "error" — never
-    #: "running".
-    status: str
-    error: str | None = None
-    retired_at: datetime
-
-
-class WorkflowStepOut(BaseModel):
-    """One workflow step for the API."""
-
-    name: str
-    session_id: str | None
-    status: str
-    deliverable: str | None
-    #: Monotonic counter, bumped only on a genuine refine-questionnaire
-    #: change; lets the frontend ignore no-op SSE updates instead of
-    #: resetting in-progress form answers.
-    refine_round: int
-    #: How many code↔verify iterations the verify step has entered (1-based;
-    #: 0 before it runs). Drives the verify chip's remaining-runs indicator.
-    verify_round: int = 0
-    #: The backend id serving this step (e.g. "claude", "oc", "llm"), so
-    #: the UI can show which agent runs each step.
-    backend: str = ""
-    #: How the UI should render ``deliverable``: ``"diff"`` for the code
-    #: step's unified git diff (shown in a diff viewer), ``"markdown"``
-    #: otherwise (prose / questionnaire fall through the markdown path).
-    deliverable_format: str = "markdown"
-
-
-class WorkflowSummary(BaseModel):
-    """Workflow list item."""
-
-    id: str
-    repo: str
-    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003).
-    issue_number: int | None
-    status: str
-    #: Whether rerun is available for this run (feature 008) — true only
-    #: when the run's task source is private (never GitHub/Jira).
-    rerunnable: bool
-    #: Short human-readable ticket identity from the run's task source
-    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-fixture".
-    task_label: str
-
-
-class WorkflowDetail(BaseModel):
-    """Full workflow run for the detail endpoint."""
-
-    id: str
-    repo: str
-    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003),
-    #: whose ticket has no numeric id. The raw ``source``/``task_ref``
-    #: stay internal (FR-026) — ``task_label``/``task_link`` below are the
-    #: derived, UI-safe identity for any source (feature 009).
-    issue_number: int | None
-    issue_title: str
-    status: str
-    branch: str
-    steps: list[WorkflowStepOut]
-    current_session_id: str | None
-    #: Live session chips for the step currently working/awaiting.
-    active_sessions: list[StepSessionOut]
-    #: Frozen chips from every completed round of every step, oldest
-    #: first — the durable history behind active_sessions, so a chip
-    #: stays visible (and clickable) after its round finishes.
-    round_history: list[RoundChipOut]
-    #: The refine interview's current dynamic round cap (grows by one per
-    #: retry round); shown as "Round N / cap".
-    refine_round_cap: int
-    #: Absolute ceiling on refine rounds (retries included); shown as
-    #: "(max M)".
-    refine_max_rounds: int
-    #: The configured cap on code↔verify iterations
-    #: (``max_verify_iterations``); with a step's ``verify_round`` this
-    #: drives the verify chip's "N runs left" progress circle.
-    verify_max_iterations: int
-    #: When true, the UI lets a questionnaire be submitted incomplete
-    #: (a configured safety net); unanswered questions go through blank.
-    allow_incomplete_answers: bool
-    #: Whether rerun is available for this run (feature 008) — true only
-    #: when the run's task source is private (never GitHub/Jira).
-    rerunnable: bool
-    #: Short human-readable ticket identity from the run's task source
-    #: (feature 009), e.g. "owner/name#123", "RFC-123", "hello-fixture".
-    task_label: str
-    #: Browser-navigable link to the ticket, or ``null`` when the source
-    #: has none to offer (feature 009) — e.g. a fixture task.
-    task_link: str | None
-    pr_url: str | None
-    error: str | None
-
-
-class ReplyIn(BaseModel):
-    """Request body to answer the refine interview."""
-
-    text: str
-
-
-class ApproveIn(BaseModel):
-    """Request body to approve a gate, optionally with an edited deliverable."""
-
-    deliverable: str | None = None
-
-
-class RejectIn(BaseModel):
-    """Request body to reject a gate.
-
-    With a refinement prompt the deliverable is regenerated;
-    without one the run ends as rejected.
+    :param id: Stable review identity.
+    :param card_id: The ``security_review`` card this review gates.
+    :param workflow_id: The workflow hosting that card.
+    :param classification_category: The deterministic/classifier finding.
+    :param reason: The deterministic/classifier's own short, safe
+        explanation of *why* — an operator needs this to decide release
+        vs. discard, not just the category.
+    :param review_state: ``pending``, ``released``, or ``discarded``.
+    :param resolution: Operator-recorded resolution note, once decided.
     """
 
-    refinement_prompt: str | None = None
+    id: str
+    card_id: str
+    workflow_id: str
+    classification_category: str
+    reason: str | None = None
+    review_state: Literal["pending", "released", "discarded"]
+    resolution: str | None = None
 
 
-class AnswersIn(BaseModel):
-    """Request body to answer a structured questionnaire."""
+class QuarantineInterventionIn(BaseModel):
+    """Request body to resolve a pending security review (FR-022).
 
-    answers: dict[str, object]
+    Action names match the board-api.md ``CardAction`` vocabulary.
+    """
+
+    action: Literal["release_quarantine", "discard_quarantine"]
+
+
+class BoardRoleRefOut(BaseModel):
+    """One specialist role reference (board-api.md ``CardSummary``)."""
+
+    id: str
+    label: str
+
+
+class BoardOwnerOut(BaseModel):
+    """The specialist currently holding a card's claim, if any."""
+
+    specialist_id: str
+    label: str
+
+
+class BoardLeaseOut(BaseModel):
+    """A claimed card's active lease (board-api.md ``CardSummary``)."""
+
+    expires_at: datetime
+    attempt: int
+
+
+class BoardArtifactRefOut(BaseModel):
+    """A safe pointer to one card's latest artifact — never its content."""
+
+    id: str
+    label: str
+    revision: int
+
+
+class WorkCardGateOut(BaseModel):
+    """A gate card's decision detail (board-api.md ``CardSummary``).
+
+    Lets the frontend tell an "approve/reject" gate
+    (``requested_decision`` of ``confirm_understanding``,
+    ``approve_prd``, or ``approve_decomposition``) apart from an
+    "answer these questions" gate (``answer``), and shows a decision
+    already recorded rather than only the pending ask.
+
+    :param requested_decision: Safe, closed description of what's asked
+        (``HumanGateRecord.requested_decision``).
+    :param decision: ``None`` until the operator decides; then
+        ``"approved"`` or ``"rejected"``.
+    :param round: This gate's 1-based interview round (feature 029 A3),
+        or ``None`` if it is not a round-capped ``refinement_gate``.
+    :param cap: The configured round cap in force when ``round`` is set.
+    :param target_artifact: What the gate asks about — the interview's
+        questions, the PRD draft, the CAB-2 proposal, the strategic-fit
+        answers (``HumanGateRecord.target_artifact_id``). It belongs to
+        the card that produced it, never to the gate card itself, so it
+        is not the gate's ``latest_artifact``. ``None`` when the gate
+        has no target.
+    :param persona: For an interview gate, the profile whose human
+        answers it (feature 038).
+    """
+
+    requested_decision: str
+    decision: str | None = None
+    round: int | None = None
+    cap: int | None = None
+    target_artifact: BoardArtifactRefOut | None = None
+    persona: BoardRoleRefOut | None = None
+
+
+class AwaitingOut(BaseModel):
+    """Who a card waits on, and for what (feature 035), as codes the
+    frontend phrases (``app.services.board.awaiting``). ``role`` names
+    the profile whose human answers an interview (feature 038)."""
+
+    actor: Literal["requester", "cab", "you", "operator", "role"]
+    ask: str
+    role: BoardRoleRefOut | None = None
+
+
+class WorkCardSummaryOut(BaseModel):
+    """One card's board-visible state (board-api.md ``CardSummary``).
+
+    :param dependency_count: How many ``dependency``-kind edges this card
+        has, not their resolution — the detail view carries the full
+        relationship list.
+    :param allowed_actions: This card's currently valid interventions
+        (``app.services.board.interventions.allowed_actions_for``).
+    :param security_review_id: The pending review this ``security_review``
+        card gates, when it has one — lets the frontend address
+        ``POST /security-reviews/{id}/resolve`` (release/discard-quarantine
+        stay off ``allowed_actions``/``interventions``, see
+        ``app.services.board.interventions``).
+    :param gate: This card's gate decision detail, for a gate-kind card
+        that has one recorded (``app.models_board.GATE_CARD_KINDS``).
+    """
+
+    id: str
+    title: str
+    card_type: str
+    state: str
+    eligible_roles: list[BoardRoleRefOut]
+    owner: BoardOwnerOut | None = None
+    lease: BoardLeaseOut | None = None
+    waiting_reason: str | None = None
+    dependency_count: int
+    latest_artifact: BoardArtifactRefOut | None = None
+    allowed_actions: list[str]
+    security_review_id: str | None = None
+    gate: WorkCardGateOut | None = None
+    awaiting: AwaitingOut | None = None
+
+
+class BoardArtifactContentOut(BaseModel):
+    """One artifact's full content, trust level and media type.
+
+    ``content`` is agent output crossing into the browser: the frontend
+    must never let it become live markup (Markdown only with raw HTML
+    escaped, feature 043 FR-005) and must visibly distinguish
+    ``agent_output`` from ``operator_approved`` via ``trust``.
+
+    :param content: The artifact's raw stored content.
+    :param trust: At least ``untrusted``, ``released``, ``agent_output``,
+        or ``operator_approved`` (mirrors ``HandoffArtifact.trust``).
+    :param mime_type: The content's media type, e.g. ``text/markdown``
+        or ``application/json`` (``HandoffArtifact.mime_type``).
+    """
+
+    content: str
+    trust: str
+    mime_type: str = "text/plain"
+
+
+class WorkCardRelationOut(BaseModel):
+    """One directed edge in a workflow's card graph."""
+
+    card_id: str
+    depends_on_card_id: str
+    kind: str
+
+
+#: How a request stands overall (feature 040; ``phases.outcome_of``).
+Outcome = Literal["in_progress", "done", "failed", "cancelled"]
+
+
+class PhaseStatusOut(BaseModel):
+    """One spine step and its status (feature 034) — display-only, like
+    the phase projection itself.
+
+    :param status: ``done``, ``active``, ``waiting``, ``problem``,
+        ``skipped``, ``cancelled`` (where a cancelled request stopped;
+        feature 040) or ``upcoming``.
+    """
+
+    name: str
+    status: Literal[
+        "done", "active", "waiting", "problem", "skipped", "cancelled",
+        "upcoming",
+    ]
+
+
+class RequestActivityOut(BaseModel):
+    """What a request is doing right now (feature 033) — see
+    ``app.services.board.activity.RequestActivity``. Structured, not
+    phrased: the frontend words it.
+
+    :param state: ``working``, ``problem``, ``waiting``, ``queued``,
+        ``done`` or ``stalled``.
+    :param actor: Who is working, or who queued work is for.
+    :param subject: The card concerned, by title.
+    :param detail: For ``problem``: the safe recorded reason.
+    :param reason: For ``stalled``: ``interrupted_screening``,
+        ``interrupted_claim`` or ``nothing_ready``.
+    :param since: When this state began (UTC), as far as is known.
+    :param tool: For ``working``: the last tool the agent called
+        (feature 036).
+    :param tool_calls: For ``working``: tool calls the turn has made.
+    """
+
+    state: Literal[
+        "working", "problem", "waiting", "queued", "done", "cancelled",
+        "stalled",
+    ]
+    actor: str | None = None
+    subject: str | None = None
+    detail: str | None = None
+    reason: str | None = None
+    since: datetime | None = None
+    tool: str | None = None
+    tool_calls: int | None = None
+
+
+class BoardSnapshotOut(BaseModel):
+    """One workflow's full board (board-api.md "Board Snapshot").
+
+    ``revision`` is the client's optimistic-concurrency token: every
+    intervention against a card in this snapshot must echo it back as
+    ``expected_revision``. ``phase``/``stage`` are a pure, derived,
+    display-only projection (``app.services.board.phases``) — never a
+    driver: they never decide what happens next. ``title`` (feature 029
+    A2) falls back to ``task_label`` when unrecorded. ``task_body``
+    (feature 030) is the request as screened once at intake and frozen
+    since — a later edit to the source ticket is not reflected. It is on
+    the snapshot only, never on :class:`WorkflowSummaryOut`: every board
+    row carrying a full issue body would bloat the listing for nothing.
+    ``change_request_url`` (feature 043) is where delivery opened the
+    change request, or ``None``.
+    """
+
+    id: str
+    revision: int
+    task_label: str
+    title: str
+    status: str
+    cards: list[WorkCardSummaryOut]
+    relationships: list[WorkCardRelationOut]
+    state_counts: dict[str, int]
+    phase: str
+    stage: str
+    outcome: Outcome = "in_progress"
+    task_body: str = ""
+    change_request_url: str | None = None
+    activity: RequestActivityOut | None = None
+    phases: list[PhaseStatusOut] = []
+
+
+class WorkflowSummaryOut(BaseModel):
+    """One workflow's row in the board collection listing.
+
+    ``phase``/``stage`` are a pure, derived, display-only projection
+    (``app.services.board.phases``) — never a driver. ``title`` (feature
+    029 A2) falls back to ``task_label`` when unrecorded.
+
+    :param cap_exhausted: Whether an interview round cap has been hit
+        without a usable answer (feature 029 A4) — the board's
+        ``cap-reached`` treatment.
+    :param open_manual_task_count: How many ``manual_task`` cards are
+        neither done nor cancelled (feature 031) — the stage board's
+        "N manual tasks assigned to you".
+    """
+
+    id: str
+    task_label: str
+    title: str
+    status: str
+    state_counts: dict[str, int]
+    action_required_count: int
+    phase: str
+    stage: str
+    outcome: Outcome = "in_progress"
+    cap_exhausted: bool = False
+    open_manual_task_count: int = 0
+    activity: RequestActivityOut | None = None
+    awaiting: list[AwaitingOut] = []
+
+
+class BoardInterventionIn(BaseModel):
+    """Request body for one card intervention (board-api.md
+    "Intervention").
+
+    ``expected_revision`` is mandatory (optimistic concurrency): a stale
+    value is rejected with 409 rather than silently applying to a board
+    state the operator never actually saw.
+    """
+
+    action: Literal[
+        "retry",
+        "cancel",
+        "reassign",
+        "resolve_gate",
+        "request_coordinator_review",
+        "complete_manual_task",
+    ]
+    expected_revision: int
+    decision: str | None = None
+    #: Free-text response for a ``resolve_gate`` action (T078) — a
+    #: ``refinement_gate``'s answer, or a ``prd_gate`` rejection's
+    #: feedback for `pm`'s redraft. Ignored for every other action.
+    answer: str | None = None
+
+
+class BoardEventOut(BaseModel):
+    """One board-history entry (data-model.md "Board Event"), safe for
+    the narrative feed.
+
+    :param specialist: The role eligible to own this event's card, when
+        it has one — derived from the card's eligible roles at read
+        time, not a recorded actor (feature 026 never records who
+        actually acted on an event). A workflow-level event (no card) or
+        an operator-resolved gate (no eligible role) carries ``None``.
+    """
+
+    event_type: str
+    card_id: str | None
+    payload: str
+    created_at: datetime | None
+    specialist: BoardRoleRefOut | None = None
 
 
 class NotificationOut(BaseModel):

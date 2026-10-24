@@ -40,16 +40,19 @@ EOF
 # 2) The threshold-bearing regions of backend/pyproject.toml (grep the diff
 #    hunks so ordinary dependency edits to that file do NOT trip the guard).
 if printf '%s\n' "$changed" | grep -qx 'backend/pyproject.toml'; then
-  if git diff "$RANGE" -- backend/pyproject.toml \
-      | grep -E '^[-+]' \
-      | grep -qE 'max-complexity|max-args|max-branches|max-statements|max-returns|max-locals|per-file-ignores|extend-immutable-calls|lint\.(mccabe|pylint|flake8-bugbear)|select[[:space:]]*='; then
+  # Here-strings, not pipes: under pipefail an early `grep -q` exit
+  # SIGPIPEs the producer and turns a match into a failure.
+  pyproject_diff="$(git diff "$RANGE" -- backend/pyproject.toml \
+      | grep -E '^[-+]')"
+  if grep -qE 'max-complexity|max-args|max-branches|max-statements|max-returns|max-locals|per-file-ignores|extend-immutable-calls|lint\.(mccabe|pylint|flake8-bugbear)|select[[:space:]]*=' <<<"$pyproject_diff"; then
     reasons+="  - backend/pyproject.toml (Ruff threshold / grandfather section)"$'\n'
   fi
 fi
 
 # 3) In-source grandfather markers being added or removed anywhere.
-if git diff "$RANGE" | grep -E '^[-+]' \
-    | grep -qE 'pylint: disable=too-many-lines|TODO\(quality\)'; then
+changed_lines="$(git diff "$RANGE" | grep -E '^[-+]')"
+if grep -qE 'pylint: disable=too-many-lines|TODO\(quality\)' \
+    <<<"$changed_lines"; then
   reasons+="  - a grandfather marker (pylint disable / TODO(quality))"$'\n'
 fi
 
@@ -57,7 +60,8 @@ if [ -z "$reasons" ]; then
   exit 0
 fi
 
-if git log --format='%B' "$RANGE" 2>/dev/null | grep -qF '[quality-override]'; then
+messages="$(git log --format='%B' "$RANGE" 2>/dev/null)"
+if grep -qF '[quality-override]' <<<"$messages"; then
   echo "config-guard: threshold/grandfather config changed, and a" \
        "[quality-override] trailer is present — allowing."
   exit 0

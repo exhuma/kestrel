@@ -23,37 +23,24 @@ class SessionStartError(Exception):
     """Raised when a session subprocess yields no session id."""
 
 
-class WorkflowNotFoundError(Exception):
-    """Raised when an operation targets an unknown workflow id."""
-
-    def __init__(self, workflow_id: str) -> None:
-        """
-        :param workflow_id: The workflow id that was not found.
-        """
-        self.workflow_id = workflow_id
-        super().__init__(f"unknown workflow: {workflow_id}")
-
-
-class InvalidWorkflowStateError(Exception):
-    """Raised when reply/approve/reject hits the wrong phase."""
-
-
-class RerunNotAllowedError(Exception):
-    """Raised when rerun is attempted on a non-private task source."""
-
-    def __init__(self, workflow_id: str) -> None:
-        """
-        :param workflow_id: The workflow id rerun was refused for.
-        """
-        self.workflow_id = workflow_id
-        super().__init__(
-            f"rerun not allowed for workflow: {workflow_id}"
-        )
-
-
 class GitHubError(Exception):
     """Raised when a GitHub API call fails."""
 
 
 class GitError(Exception):
     """Raised when a git subprocess fails."""
+
+
+class UnconfirmedDirectPromptError(Exception):
+    """A direct session prompt was not explicitly confirmed (FR-023).
+
+    A direct session prompt intentionally addresses an agent, so it is
+    not automatically quarantined like external/gate input — but it
+    still requires an explicit, recorded injection-risk confirmation
+    before dispatch.
+    """
+
+
+class DirectPromptTooLargeError(Exception):
+    """A direct session prompt exceeded the configured input bound
+    (FR-023)."""

@@ -14,8 +14,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from app.config_models import BackendConfig, TaskSourceConfig
-from app.models_workflow import Step
+from app.config_models import BackendConfig, TaskSourceConfig, TranslationConfig
 
 _log = logging.getLogger("kestrel.config")
 
@@ -23,7 +22,12 @@ _log = logging.getLogger("kestrel.config")
 # named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
-    {"backends", "step_backends", "default_session_backend", "task_sources"}
+    {
+        "backends",
+        "default_session_backend",
+        "task_sources",
+        "translation",
+    }
 )
 
 # Applicative (non-secret) settings the TOML config file may override. Unlike
@@ -34,6 +38,29 @@ _CONFIG_FILE_FIELDS = frozenset(
     {
         "poll_interval_seconds",
         "max_verify_iterations",
+        "max_ci_repair_iterations",
+        "port",
+        "database_url",
+        "workspace_root",
+        "board_artifacts_root",
+        "comment_sentinel_enabled",
+        "feedback_marker",
+        "specialists_root",
+        "board_input_max_bytes",
+        "board_input_security_timeout_seconds",
+        "board_turn_timeout_seconds",
+        "board_claim_lease_seconds",
+        "board_workspace_lease_seconds",
+        "board_max_parallel_read_cards",
+        "board_recovery_interval_seconds",
+        "board_ci_poll_interval_seconds",
+        "board_comment_poll_interval_seconds",
+        "board_projection_retry_interval_seconds",
+        "board_cab1_interview_max_questions",
+        "board_unreadable_retry_cap",
+        "health_check_interval_seconds",
+        "health_check_timeout_seconds",
+        "board_dev_actions_enabled",
     }
 )
 
@@ -98,10 +125,10 @@ class Settings(BaseSettings):
     reload: bool = False
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
-    #: Durable directory holding workflow screenshots after a run's worktree
-    #: is torn down (see ``services/workflows/screenshots.py``). Keyed by run
-    #: id; in Docker point this at the ``/data`` volume so shots survive.
-    screenshots_root: str = "./.kestrel-screenshots"
+    #: Durable, content-addressed store for handoff-artifact bodies
+    #: (feature 026, FR-013). Keyed by content hash, so recovery after
+    #: restart can always re-read a card's output.
+    board_artifacts_root: str = "./.kestrel-board-artifacts"
     permission_mode: str = "acceptEdits"
     # Directory of the built SPA to serve. Empty (dev default) means the
     # backend is API-only and the SPA is served by the Vite dev server; the
@@ -111,7 +138,6 @@ class Settings(BaseSettings):
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
     database_url: str = "sqlite:///./kestrel.db"
-    model_overrides: dict[str, str] = {}
     #: Console log verbosity (``KESTREL_LOG_LEVEL``): debug/info/warning/…
     log_level: str = "info"
     #: Console log format (``KESTREL_LOG_FORMAT``): ``text`` for
@@ -128,8 +154,8 @@ class Settings(BaseSettings):
     #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
     otel_service_name: str = "kestrel"
     #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Holds the
-    #: backend config (``backends`` / ``step_backends`` /
-    #: ``default_session_backend``) and applicative overrides (see
+    #: backend config (``backends`` / ``default_session_backend``) and
+    #: applicative overrides (see
     #: ``_CONFIG_FILE_FIELDS``: ``watched_repos``, ``trigger_label``, …).
     #: Secrets stay in the environment. Mount it as a volume in Docker;
     #: relative paths resolve against the working directory.
@@ -143,11 +169,6 @@ class Settings(BaseSettings):
     backends: list[BackendConfig] = Field(
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
-    #: Per-workflow-step backend assignment (step name -> backend id).
-    #: File-only; steps not listed use the step's default backend. Sub-step
-    #: keys (e.g. ``refine.reconcile``) route a single refine sub-agent to
-    #: its own backend, falling back to the ``refine`` step's backend.
-    step_backends: dict[str, str] = {}
     #: Backend used for ad-hoc ``/api/sessions`` dispatch. File-only.
     default_session_backend: str = "claude"
     #: Refinement robustness knobs (help on cheaper/local models; all
@@ -174,10 +195,13 @@ class Settings(BaseSettings):
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
     #: off-loopback endpoint (constitution v1.2.0). Never logged.
     webhook_secret: str = ""
-    #: Configured task sources (GitHub / Jira). File-only (like ``backends``);
+    #: Configured task sources (GitHub / Jira / local). File-only (like
     #: each entry declares a ``type`` and that source's selection criteria.
     #: See :class:`app.config_models.TaskSourceConfig`.
     task_sources: list[TaskSourceConfig] = []
+    #: Dedicated, stateless translation backing service. File-only so it cannot
+    #: be confused with a workflow backend; secrets remain env-backed.
+    translation: TranslationConfig | None = None
     #: Single cadence (seconds) governing every source's re-check loop — the
     #: GitHub reconcile backstop and the Jira poll alike.
     poll_interval_seconds: int = 300
@@ -197,8 +221,12 @@ class Settings(BaseSettings):
     #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
     #: The default token env var for a ``jira`` task source.
     jira_api_token: str = ""
-    #: Max code↔verify iterations before the loop escalates (feature 003).
+    #: Max verification rounds for one approved CAB-2 task before a
+    #: non-clean result escalates to coordinator review (feature 031; the
+    #: same knob feature 003's fixed driver used for its code↔verify loop).
     max_verify_iterations: int = 3
+    #: Independent cap for repair attempts triggered by required CI failures.
+    max_ci_repair_iterations: int = Field(default=2, ge=0)
     #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,
     #: every prompt/result exchanged between the coder and the verifier is
     #: appended to a plain-text transcript next to the run's worktree, and
@@ -206,24 +234,108 @@ class Settings(BaseSettings):
     #: stay inspectable — only an explicit abandon still removes them. Off
     #: by default: a personal tool should not silently accumulate worktrees.
     workflow_debug: bool = False
-    #: Trigger token a ticket comment or PR review must contain, whole-token
-    #: and case-insensitive, for kestrel to act on it at all (feature 013,
-    #: ``KESTREL_FEEDBACK_MARKER``). Unmarked feedback is never even
-    #: recorded — the primary self-triggering-loop guard (constitution's
-    #: recorded self-feedback-loop risk).
+    #: The plain-text marker a ticket reply must contain, as a whole word
+    #: and case-insensitive, for kestrel to act on it (feature 046,
+    #: ``KESTREL_FEEDBACK_MARKER``). Plain text, not a Jira mention: kestrel
+    #: has no service account yet and posts as the operator.
     feedback_marker: str = "@kestrel"
-    #: Authors whose marked feedback is still discarded before it reaches
-    #: persistence (feature 013) — the second independent self-loop guard,
-    #: alongside GitHub's ``user.type == "Bot"`` detection. Empty by
-    #: default; an operator adds kestrel's own configured identity here if
-    #: it ever posts comments as an authenticated user rather than a bot.
-    feedback_ignore_authors: list[str] = []
-    #: How many days after a run goes terminal (done/failed/rejected/
-    #: escalated/decomposed) ``FeedbackPollService`` keeps re-polling it
-    #: for review/ticket feedback (feature 013), rather than polling every
-    #: finished run forever. A run still non-terminal is always polled
-    #: regardless of this setting.
-    feedback_window_days: int = 14
+    #: Mark every Kestrel-authored comment with its ownership marker
+    #: (``KESTREL_COMMENT_SENTINEL_ENABLED``). Kestrel recognises its own
+    #: comments by that marker, not by author, because it posts through the
+    #: operator's account; disable only for an incompatible source. How the
+    #: marker looks is each source adapter's concern (feature 046).
+    comment_sentinel_enabled: bool = True
+    #: Root directory of file-backed specialist definitions (feature 026,
+    #: ``KESTREL_SPECIALISTS_ROOT``): one subdirectory per named role, each
+    #: holding a manifest and prompt file. Relative paths resolve against the
+    #: working directory; the board's specialist loader (see
+    #: ``services/board/specialists.py``) treats this as a trust boundary and
+    #: refuses to load a manifest that resolves outside it.
+    specialists_root: str = "./specialists"
+    #: Maximum size in bytes of one untrusted board input (task body,
+    #: feedback item, gate/questionnaire answer, or direct session prompt)
+    #: accepted before board intake (feature 026,
+    #: ``KESTREL_BOARD_INPUT_MAX_BYTES``). Oversized input is quarantined
+    #: rather than truncated, so no partial untrusted content is ever used.
+    board_input_max_bytes: int = Field(default=65536, gt=0)
+    #: Timeout in seconds for the input-security specialist's classification
+    #: call (feature 026, ``KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS``). A
+    #: timeout is treated as a malformed result and fails closed into
+    #: quarantine.
+    board_input_security_timeout_seconds: float = Field(default=30.0, gt=0)
+    #: Timeout in seconds for one agent turn on the board — the
+    #: coordinator's, or any specialist's on a card
+    #: (``KESTREL_BOARD_TURN_TIMEOUT_SECONDS``). Separate from the input-
+    #: security timeout: a coder's turn legitimately runs for minutes,
+    #: and a slow local model needs far more than a classification does.
+    #: Defaults to the claim lease, past which recovery would reclaim the
+    #: card anyway.
+    board_turn_timeout_seconds: float = Field(default=600.0, gt=0)
+    #: How long a card claim lease is held before it is considered abandoned
+    #: and eligible for recovery (feature 026,
+    #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
+    board_claim_lease_seconds: int = Field(default=600, gt=0)
+    #: How long a repository workspace-write lease is held before recovery
+    #: may reclaim it (feature 026, ``KESTREL_BOARD_WORKSPACE_LEASE_SECONDS``).
+    board_workspace_lease_seconds: int = Field(default=1800, gt=0)
+    #: Maximum number of read-only board cards that may be claimed and
+    #: active at once across the whole process (feature 026,
+    #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).
+    board_max_parallel_read_cards: int = Field(default=4, gt=0)
+    #: How many times a card whose result cannot be read (malformed
+    #: JSON, a missing block) is tried again on its own before it is
+    #: escalated to the coordinator (feature 042,
+    #: ``KESTREL_BOARD_UNREADABLE_RETRY_CAP``). ``0`` escalates at once.
+    board_unreadable_retry_cap: int = Field(default=1, ge=0)
+    #: How often the recovery sweep checks for expired claim leases
+    #: (feature 026, ``KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS``).
+    board_recovery_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often the CI-poll sweep checks each delivered workflow's
+    #: required CI status (feature 026, T052,
+    #: ``KESTREL_BOARD_CI_POLL_INTERVAL_SECONDS``). Only matters for a
+    #: source/repo with ``required_ci_statuses`` configured — a workflow
+    #: with none configured is never polled regardless.
+    board_ci_poll_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often ticket comments of active requests are read for replies
+    #: (feature 046, ``KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS``).
+    board_comment_poll_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often comments that failed to post are retried (feature 046,
+    #: ``KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS``).
+    board_projection_retry_interval_seconds: float = Field(
+        default=120.0, gt=0
+    )
+    #: The strategic-fit interview's hard question cap (feature 027,
+    #: ``KESTREL_BOARD_CAB1_INTERVIEW_MAX_QUESTIONS``) — keeps the
+    #: pre-CAB-1 interview light, unlike the deeper post-approval
+    #: refinement interviews it precedes.
+    board_cab1_interview_max_questions: int = Field(default=3, gt=0)
+    #: Max refinement-interview rounds per persona per workflow (feature
+    #: 028, ``KESTREL_BOARD_REFINEMENT_ROUND_CAP``). ``1`` (the default)
+    #: is today's exact behavior — one round per persona, no follow-up.
+    #: Above ``1``, a persona whose answers leave genuine ambiguity gets
+    #: a further round, up to this cap, before PRD drafting starts.
+    board_refinement_round_cap: int = Field(default=1, ge=1)
+    #: Max PRD redraft attempts per workflow after a ``prd_gate``
+    #: rejection (feature 028, ``KESTREL_BOARD_PRD_REDRAFT_CAP``). ``1``
+    #: (the default) allows exactly one redraft per rejection, matching
+    #: today's single-redraft behavior; a further rejection past the cap
+    #: escalates to the operator instead of redrafting again.
+    board_prd_redraft_cap: int = Field(default=1, ge=1)
+    #: Max redrafts of `pm`'s restatement after the operator rejects the
+    #: understanding (feature 032, ``KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP``).
+    #: A further rejection past the cap opens a coordinator review instead
+    #: of another redraft. ``0`` never redrafts.
+    board_understanding_redraft_cap: int = Field(default=2, ge=0)
+    #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
+    #: endpoints (feature 026, T069,
+    #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —
+    #: **temporary, dev-only**: lets a local-task-source dry run be
+    #: repeated without restarting kestrel or hand-editing the database.
+    #: Restricted at call time to a workflow whose source is ``private``
+    #: regardless of this flag. Meant to be deleted, not hardened, once
+    #: the board is production-ready — see
+    #: ``app/services/board/dev_reset.py``'s module docstring.
+    board_dev_actions_enabled: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""
@@ -233,9 +345,11 @@ class Settings(BaseSettings):
         """The configured Jira task sources."""
         return [s for s in self.task_sources if s.type == "jira"]
 
-    def fixture_sources(self) -> list[TaskSourceConfig]:
-        """The configured fixture task sources (feature 008)."""
-        return [s for s in self.task_sources if s.type == "fixture"]
+    def local_sources(self) -> list[TaskSourceConfig]:
+        """Return the configured local task sources."""
+        return [
+            source for source in self.task_sources if source.type == "local"
+        ]
 
     def github_source_for(self, repo: str) -> TaskSourceConfig | None:
         """The GitHub source whose allow-list has ``repo`` (first match)."""
@@ -244,11 +358,20 @@ class Settings(BaseSettings):
                 return source
         return None
 
+    def required_ci_statuses_for(self, source: str, repo: str) -> list[str]:
+        """Return the configured required CI checks for a run's source."""
+        if source == "github-issue":
+            config = self.github_source_for(repo)
+            return config.required_ci_statuses if config else []
+        if source == "jira-issue" and self.jira_sources():
+            return self.jira_sources()[0].required_ci_statuses
+        return []
+
     @model_validator(mode="after")
     def _apply_config_file(self) -> Settings:
         """Overlay config from the TOML file when one is set.
 
-        The file owns the backend keys (``backends`` / ``step_backends`` /
+        The file owns the backend keys (``backends`` /
         ``default_session_backend``) and may override the applicative keys
         in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
         omits keeps its env/default value, so the file wins only where it
@@ -261,6 +384,10 @@ class Settings(BaseSettings):
         path_str = self.config_file
         if not path_str:
             if not self.backends_file:
+                _log.info(
+                    "no config file configured (KESTREL_CONFIG_FILE/"
+                    "KESTREL_BACKENDS_FILE unset) — using built-in defaults"
+                )
                 return self
             _log.warning(
                 "KESTREL_BACKENDS_FILE is deprecated; use KESTREL_CONFIG_FILE."
@@ -269,6 +396,7 @@ class Settings(BaseSettings):
         path = Path(path_str)
         if not path.is_file():
             raise ValueError(f"config_file not found: {path}")
+        _log.info("loading config file: %s", path.resolve())
         try:
             data = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as exc:
@@ -277,14 +405,14 @@ class Settings(BaseSettings):
             self.backends = [
                 BackendConfig(**entry) for entry in data["backends"]
             ]
-        if "step_backends" in data:
-            self.step_backends = dict(data["step_backends"])
         if "default_session_backend" in data:
             self.default_session_backend = data["default_session_backend"]
         if "task_sources" in data:
             self.task_sources = [
                 TaskSourceConfig(**entry) for entry in data["task_sources"]
             ]
+        if "translation" in data:
+            self.translation = TranslationConfig(**data["translation"])
         # Applicative overrides: file wins, but only for keys it sets.
         for key in _CONFIG_FILE_FIELDS:
             if key in data:
@@ -332,33 +460,6 @@ class Settings(BaseSettings):
                 )
         return self
 
-    @model_validator(mode="after")
-    def _validate_step_backends(self) -> Settings:
-        """Validate that step_backends keys are valid workflow step names.
-
-        Fails fast if any invalid step names are configured, providing a
-        clear error message with the valid options. This prevents silent
-        fallbacks to default backends when step names don't match.
-        """
-        if not self.step_backends:
-            return self
-        valid_steps = {str(s) for s in Step.sequence()}
-        invalid_steps = set(self.step_backends.keys()) - valid_steps
-        # A dotted sub-step reference like "refine.reconcile" is valid as
-        # long as its top-level step ("refine") is itself a valid step —
-        # only flag it when that top-level prefix is not.
-        main_invalid = {
-            s.split(".")[0] for s in invalid_steps
-            if s.split(".")[0] not in valid_steps
-        }
-        if main_invalid:
-            valid_list = ", ".join(sorted(valid_steps))
-            invalid_list = ", ".join(sorted(main_invalid))
-            raise ValueError(
-                f"Invalid step names in step_backends: {invalid_list!r}. "
-                f"Valid steps are: {valid_list}."
-            )
-        return self
 
 
 @lru_cache

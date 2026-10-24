@@ -1,0 +1,96 @@
+<script setup lang="ts">
+// The rail says **what** the request produced (FR-014): the durable set,
+// in pipeline order, including the entries not yet reached. Opening one
+// shows its content in `ArtifactDialog`; the pull request instead opens
+// the change request on its code host (feature 043).
+import { computed, ref } from 'vue'
+import { railItems, type ArtifactRailItem } from '../../lib/artifacts'
+import type { WorkCardSummary } from '../../types/workflows'
+import ArtifactDialog from './ArtifactDialog.vue'
+
+const props = defineProps<{
+  cards: WorkCardSummary[]
+  /** The snapshot's `task_body`, behind the "Original request" entry. */
+  taskBody?: string
+  /** Where delivery opened the change request, if it has. */
+  changeRequestUrl?: string | null
+}>()
+
+const items = computed(() =>
+  railItems(props.cards, props.taskBody, props.changeRequestUrl ?? null),
+)
+
+const openItem = ref<ArtifactRailItem | null>(null)
+
+/** Theme colour per state; unproduced entries stay neutral so the rail
+ *  reads as a plan rather than as a list of problems. */
+const STATE_COLORS: Readonly<Record<string, string>> = {
+  'Awaiting your decision': 'warning',
+  Quarantined: 'error',
+  Failed: 'error',
+  Cancelled: 'error',
+  Rejected: 'warning',
+  Approved: 'success',
+  Produced: 'success',
+}
+
+function stateColor(state: string): string | undefined {
+  return STATE_COLORS[state]
+}
+
+function open(item: ArtifactRailItem): void {
+  if (item.available && !item.href) openItem.value = item
+}
+
+/** A resolved gate's decision, shown in the dialog (FR-007). */
+function decisionOf(item: ArtifactRailItem | null): string | null {
+  const state = item?.state
+  return state === 'Approved' || state === 'Rejected' ? state : null
+}
+</script>
+
+<template>
+  <v-sheet class="pa-2" rounded>
+    <div class="text-subtitle-2 px-2 py-1">Artifacts</div>
+    <v-list density="compact" nav>
+      <v-list-item
+        v-for="item in items"
+        :key="item.kind"
+        :prepend-icon="item.icon"
+        :title="item.label"
+        :disabled="!item.available"
+        :active="openItem?.kind === item.kind"
+        :href="item.href ?? undefined"
+        :target="item.href ? '_blank' : undefined"
+        :rel="item.href ? 'noopener noreferrer' : undefined"
+        @click="open(item)"
+      >
+        <template #append>
+          <v-chip
+            size="x-small"
+            variant="tonal"
+            :color="stateColor(item.state)"
+          >
+            {{ item.state }}
+          </v-chip>
+          <v-icon
+            v-if="item.href"
+            icon="$openInNew"
+            size="small"
+            class="ml-1"
+            aria-label="opens in a new tab"
+          />
+        </template>
+      </v-list-item>
+    </v-list>
+
+    <ArtifactDialog
+      :artifact-id="openItem?.artifactId ?? null"
+      :direct-content="openItem?.directContent ?? null"
+      :note="openItem?.note ?? null"
+      :label="openItem?.label ?? ''"
+      :decision="decisionOf(openItem)"
+      @close="openItem = null"
+    />
+  </v-sheet>
+</template>

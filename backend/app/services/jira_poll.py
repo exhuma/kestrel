@@ -8,6 +8,7 @@ left the qualifying filter — the Jira re-trigger gesture (FR-033), scoped by t
 source's issue-key prefix. One service instance is bound to one ``jira`` task
 source (feature 004).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -143,7 +144,8 @@ class JiraPollService:
             _log.exception("jira: poll query failed")
             return
         _log.info("jira: %d qualifying RFC(s)", len(tasks))
-        self._clear_stale_dismissals({t.ref for t in tasks})
+        qualifying = {task.ref for task in tasks}
+        self._clear_stale_dismissals(qualifying)
         for task in tasks:
             await self._ingest(task)
 
@@ -193,7 +195,7 @@ class JiraPollService:
 
 def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
     """Construct one JiraPollService from a jira task-source entry."""
-    from app.services.workflows import build_code_host
+    from app.services.task_sources import build_code_host
 
     settings = get_settings()
     github = GitHubClient(
@@ -207,6 +209,7 @@ def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
         email=source.email,
         token=source.token() or "",
         verify=source.verify_ssl,
+        deployment=source.deployment,
     )
     return JiraPollService(
         source,
@@ -221,6 +224,5 @@ def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
 def get_jira_poll_services() -> tuple[JiraPollService, ...]:
     """One JiraPollService per configured Jira task source."""
     return tuple(
-        _build_jira_service(source)
-        for source in get_settings().jira_sources()
+        _build_jira_service(source) for source in get_settings().jira_sources()
     )

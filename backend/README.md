@@ -18,8 +18,7 @@ logs (not just uvicorn access logs) on one stream; `KESTREL_LOG_LEVEL`
 
 Config via `KESTREL_*` env vars or `backend/.env`
 (`KESTREL_DATABASE_URL`, `KESTREL_CLAUDE_BIN`,
-`KESTREL_WORKSPACE_ROOT`, `KESTREL_PERMISSION_MODE`,
-`KESTREL_MODEL_OVERRIDES`).
+`KESTREL_WORKSPACE_ROOT`, `KESTREL_PERMISSION_MODE`).
 
 ## Tests
 

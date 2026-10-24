@@ -5,10 +5,11 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_workflow import WorkflowRun
+from app.models_board_records import AcceptedTaskIntake
 from app.ports import Task
 from app.services.ingestion import IngestionService
 from app.services.jira_poll import JiraPollService
+from tests.intake_doubles import FakeIntakeBoard, fake_board_intake
 from tests.test_jira_poll import (
     _FakeCodeHost,
     _FakeDismissals,
@@ -16,27 +17,27 @@ from tests.test_jira_poll import (
 )
 
 
-class _RecordingWorkflows:
-    """A WorkflowService stand-in that records created runs by task_ref."""
+class _FakeTaskSource:
+    async def get_task(self, ref):
+        return Task(ref=ref, title="t", body="b")
 
+    def visibility(self):
+        return "public"
+
+
+class _FakeTaskSources:
     def __init__(self) -> None:
-        self.runs: list[WorkflowRun] = []
-
-    def list(self) -> list[WorkflowRun]:
-        return self.runs
-
-    async def create(self, repo, issue_number=None, *, source="manual",
-                     task_ref=None, base_branch=None) -> str:
-        rid = f"wf-{len(self.runs)}"
-        self.runs.append(WorkflowRun(
-            id=rid, repo=repo, issue_number=issue_number, source=source,
-            task_ref=task_ref or f"{repo}#{issue_number}",
-        ))
-        return rid
+        self.sources = {"jira-issue": _FakeTaskSource()}
+        self.code_hosts: dict[str, object] = {}
 
 
-def _poll(jira, wf, dismissals) -> JiraPollService:
-    ingestion = IngestionService(Settings(_env_file=None), wf, dismissals)
+def _poll(jira, dismissals, board=None) -> JiraPollService:
+    ingestion = IngestionService(
+        Settings(_env_file=None),
+        _FakeTaskSources(),
+        dismissals,
+        fake_board_intake(board=board),
+    )
     cfg = TaskSourceConfig(
         type="jira", base_url="https://jira.example",
         jql='project = "RFC"', key="RFC", repo_field="cf1",
@@ -50,51 +51,32 @@ def _poll(jira, wf, dismissals) -> JiraPollService:
 async def test_overlapping_cycles_start_one_run_per_rfc() -> None:
     """Ensure two poll cycles start exactly one run per qualifying RFC."""
     jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
-    wf, dis = _RecordingWorkflows(), _FakeDismissals()
-    poll = _poll(jira, wf, dis)
+    dis = _FakeDismissals()
+    board = FakeIntakeBoard()
+    poll = _poll(jira, dis, board)
     await poll.run_cycle()
     await poll.run_cycle()  # second cycle observes the same RFC
-    assert [r.task_ref for r in wf.runs] == ["RFC-1"]
+    assert [c.task_ref for c in board.calls] == ["RFC-1"]
 
 
 @pytest.mark.asyncio
 async def test_restart_with_existing_run_starts_no_duplicate() -> None:
-    """Ensure a pre-existing run (survived restart) blocks a new one."""
+    """Ensure a pre-existing board workflow (survived restart) blocks a
+    new one for the same ticket."""
     jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
-    wf, dis = _RecordingWorkflows(), _FakeDismissals()
-    # Simulate a run rehydrated from the DB after restart.
-    wf.runs.append(WorkflowRun(
-        id="wf-old", repo="team/svc", issue_number=None,
-        source="jira-issue", task_ref="RFC-1",
-    ))
-    await _poll(jira, wf, dis).run_cycle()
-    assert len(wf.runs) == 1  # no duplicate
-
-
-@pytest.mark.asyncio
-async def test_recover_fails_jira_run_in_coding() -> None:
-    """Ensure a Jira run in a transient phase is failed loudly on restart."""
-    from app.services.workflows import _TRANSIENT, WorkflowService
-    from app.storage.registry import SessionRegistry
-    from app.storage.workflow_registry import WorkflowRegistry
-    from tests.conftest import (
-        _FakeGit,
-        _FakeGitHub,
-        _FakeNotifier,
-        _FakeRunner,
+    dis = _FakeDismissals()
+    board = FakeIntakeBoard()
+    # Simulate a workflow rehydrated from the DB after restart.
+    _workflow, card = board.open_screening(
+        AcceptedTaskIntake(
+            source="jira-issue",
+            task_ref="RFC-1",
+            repo="team/svc",
+            base_branch="main",
+            source_visibility="private",
+            title="t",
+        )
     )
-
-    assert "coding" in _TRANSIENT and "verifying" in _TRANSIENT
-    reg = WorkflowRegistry()
-    reg.create(WorkflowRun(
-        id="wf-1", repo="team/svc", issue_number=None, source="jira-issue",
-        task_ref="RFC-1", status="coding",
-    ))
-    svc = WorkflowService(
-        settings=Settings(git_base="https://github.com", github_token="t"),
-        sessions=SessionRegistry(), workflows=reg,
-        backends=_FakeRunner(SessionRegistry(), []), git=_FakeGit(),
-        github=_FakeGitHub(), notifier=_FakeNotifier(),
-    )
-    await svc.recover()
-    assert svc.get("wf-1").status == "failed"
+    board.settle_screening(card.id, "done", event_type="x", wake=False)
+    await _poll(jira, dis, board).run_cycle()
+    assert len(board.workflows) == 1  # no duplicate

@@ -1,20 +1,7 @@
-"""opencode backend, via its HTTP server (``opencode serve``).
-
-A file-editing agent ({TEXT, FILE_EDITS}) reached over opencode's HTTP
-API: a session is created with ``POST /session`` and a turn is run with
-the synchronous ``POST /session/:id/message``, which blocks until the
-assistant finishes and returns the full list of message ``parts``. Those
-parts are mapped onto canonical events for the timeline.
-
-Point ``base_url`` at a running ``opencode serve`` (default
-``http://localhost:4096``). Live token-by-token streaming via the
-server-wide ``/event`` SSE, and an auto-started ``serve`` supervisor,
-are deferred; the synchronous turn already yields the full transcript.
-"""
+"""OpenCode HTTP server backend."""
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -26,85 +13,60 @@ from app.backends.base import (
     Backend,
     Capability,
     LivenessResult,
+    ModelCatalog,
     TurnRequest,
     TurnResult,
+    TurnStopped,
 )
+from app.backends.limiter import BackendLimiter
+from app.backends.opencode_abort import abort_on_cancel
+from app.backends.opencode_models import split_model
+from app.backends.opencode_parts import assistant_error, tool_summary
 from app.backends.opencode_permissions import (
-    DENY_WRITE_TOOLS,
     OpenCodeConnection,
     permission_handler,
-    run_permission_loop,
 )
+from app.backends.opencode_tools import (
+    ToolLoopGuard,
+    ToolPolicy,
+    guard_watch,
+    tools_map,
+)
+from app.backends.rate_limit import retry_rate_limited
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
 from app.storage.registry import SessionRegistry
 
 _TASKS: set[asyncio.Task[None]] = set()
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
-
-#: The claude-style permission mode that means "read-only, no edits". The
-#: workflow passes this for the refine and plan steps; opencode maps it to a
-#: read-only turn. Anything else is treated as edit-capable.
 _READ_ONLY_MODE = "plan"
 _logger = logging.getLogger(__name__)
-
-
-def _split_model(model: str | None) -> dict[str, str] | None:
-    """Parse a ``provider/model`` string into opencode's model object."""
-    if not model or "/" not in model:
-        return None
-    provider, _, model_id = model.partition("/")
-    return {"providerID": provider, "modelID": model_id}
-
-
-def _tool_summary(tool_input: object) -> str | None:
-    """Summarise a tool call's input (file_path/path/command first)."""
-    if not isinstance(tool_input, dict):
-        return None
-    for key in ("file_path", "path", "command", "filePath"):
-        value = tool_input.get(key)
-        if isinstance(value, str):
-            return value
-    return json.dumps(tool_input) if tool_input else None
-
-
-def _assistant_error(response: object) -> str | None:
-    """Extract an OpenCode assistant error message from a message response."""
-    if not isinstance(response, dict):
-        return None
-    info = response.get("info")
-    if not isinstance(info, dict):
-        return None
-    error = info.get("error")
-    if not isinstance(error, dict):
-        return None
-    data = error.get("data")
-    if isinstance(data, dict) and isinstance(data.get("message"), str):
-        return data["message"]
-    name = error.get("name")
-    return name if isinstance(name, str) else "unknown assistant error"
 
 
 class OpenCodeBackend(Backend):
     """Dispatches turns to an ``opencode serve`` HTTP endpoint."""
 
     caps = frozenset({Capability.TEXT, Capability.FILE_EDITS})
-
     def __init__(
         self,
         settings: Settings,
         registry: SessionRegistry,
         cfg: BackendConfig,
         client: httpx.AsyncClient | None = None,
+        limiter: BackendLimiter | None = None,
     ) -> None:
         self.id = cfg.id
         self.settings = settings
         self.registry = registry
         self._base_url = (cfg.base_url or "http://localhost:4096").rstrip("/")
-        self._model = _split_model(cfg.model)
+        self._model = split_model(cfg.model)
         self._client = client  # injectable for tests
         self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
+        self._limiter = limiter or BackendLimiter(cfg.max_concurrency)
+        self._rate_limit_retries = cfg.rate_limit_retries
+        self._rate_limit_backoff_seconds = cfg.rate_limit_backoff_seconds
         self._live: dict[str, asyncio.Task[None]] = {}
+        self._tools = ToolPolicy.of(cfg)
         # HTTP Basic auth for a secured `opencode serve`; username defaults
         # to opencode's own. The password may be given inline (password/
         # api_key) or via api_key_env.
@@ -121,7 +83,6 @@ class OpenCodeBackend(Backend):
             request=self._request,
         )
 
-    # ---- Backend protocol ---------------------------------------------
     async def start(self, prompt: str) -> str:
         cwd = os.path.join(
             self.settings.workspace_root, "session-" + uuid.uuid4().hex[:8]
@@ -149,7 +110,17 @@ class OpenCodeBackend(Backend):
         self,
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
+        on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
+        async with self._limiter.slot(on_queue_change):
+            return await self._run_turn(req, on_session_id)
+
+    async def _run_turn(
+        self,
+        req: TurnRequest,
+        on_session_id: Callable[[str], None] | None,
+    ) -> TurnResult:
+        """Run an admitted workflow turn and record any terminal failure."""
         sid: str | None = req.resume_id
         try:
             if sid is None:
@@ -158,9 +129,11 @@ class OpenCodeBackend(Backend):
                 self.registry.create(sid, req.cwd)
             if on_session_id is not None:
                 on_session_id(sid)
-            read_only = req.permission_mode == _READ_ONLY_MODE
-            content = await self._turn(sid, req.prompt, req.cwd, read_only)
+            content = await self._turn(sid, req)
             return TurnResult(session_id=sid, final_text=content)
+        except asyncio.CancelledError:
+            abort_on_cancel(self._request, sid, req.cwd)
+            raise
         except Exception as exc:
             _logger.exception(
                 "opencode run_turn failed (session=%s, cwd=%s)", sid, req.cwd,
@@ -183,13 +156,17 @@ class OpenCodeBackend(Backend):
         """
         if self.registry.get(session_id) is None:
             self.registry.create(session_id, cwd)
+        message = str(exc).strip()
+        if not message:
+            message = "opencode turn ended without an error message"
+            _logger.error("opencode turn failed without a diagnostic")
         self.registry.append_event(
             session_id,
             CanonicalEvent(
                 kind=EventKind.RESULT,
                 session_id=session_id,
                 is_error=True,
-                text=str(exc),
+                text=message,
             ),
         )
 
@@ -226,23 +203,14 @@ class OpenCodeBackend(Backend):
             reason="opencode session no longer exists — likely crashed",
         )
 
-    # ---- internals ----------------------------------------------------
+    async def list_models(self) -> ModelCatalog:
+        """Report unknown until OpenCode exposes a stable catalogue contract."""
+        return ModelCatalog(state="unknown")
+
     def _session_dir(self, session_id: str) -> str | None:
         """Return the working directory recorded for a session, if any."""
         record = self.registry.get(session_id)
         return record.cwd if record is not None else None
-
-    # ---- permissions --------------------------------------------------
-    async def _permission_loop(
-        self, session_id: str, directory: str | None, read_only: bool
-    ) -> None:
-        """Stream ``/event`` and answer this session's permission prompts.
-
-        Delegates to :mod:`app.backends.opencode_permissions`; kept as a
-        thin method so callers/tests can address it on the backend
-        instance without reaching into that module directly.
-        """
-        await run_permission_loop(self._conn, session_id, directory, read_only)
 
     def _schedule(
         self,
@@ -272,7 +240,11 @@ class OpenCodeBackend(Backend):
         read_only: bool,
     ) -> None:
         try:
-            await self._turn(session_id, prompt, directory, read_only)
+            async with self._limiter.slot():
+                await self._turn(session_id, TurnRequest(
+                    prompt=prompt, cwd=directory or "",
+                    permission_mode=_READ_ONLY_MODE if read_only else "",
+                ))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"
@@ -283,10 +255,7 @@ class OpenCodeBackend(Backend):
             )
             self._record_turn_error(session_id, directory or "", exc)
 
-    async def _turn(
-        self, session_id: str, prompt: str, directory: str | None,
-        read_only: bool,
-    ) -> str:
+    async def _turn(self, session_id: str, req: TurnRequest) -> str:
         """Send the prompt, map this turn's new messages, append a RESULT.
 
         A turn produces several assistant messages (tool calls then a final
@@ -300,12 +269,14 @@ class OpenCodeBackend(Backend):
         (the checked-out repo) so opencode's file tools act there rather than
         in the ``opencode serve`` process's own cwd.
 
-        On a ``read_only`` turn the file-mutating tools are disabled for the
-        message so the agent cannot edit the workspace. Throughout the turn a
-        concurrent handler answers opencode's permission prompts (approve
-        reads/bash, reject edits on a read-only turn) so a headless server
-        never blocks waiting for a human to click "allow".
+        Read-only turns disable write/delegation tools. A concurrent permission
+        handler keeps headless turns from blocking on tool approval, and
+        feeds the turn's tool calls to a loop guard that aborts it on a
+        loop or past its tool budget (feature 036).
         """
+        prompt, directory = req.prompt, req.cwd
+        read_only = req.permission_mode == _READ_ONLY_MODE
+        guard = ToolLoopGuard(self._tools, req.on_tool)
         seen = {
             self._msg_id(m)
             for m in await self._messages(session_id, directory)
@@ -319,18 +290,26 @@ class OpenCodeBackend(Backend):
         body: dict[str, object] = {"parts": [{"type": "text", "text": prompt}]}
         if self._model is not None:
             body["model"] = self._model
-        if read_only:
-            body["tools"] = {tool: False for tool in DENY_WRITE_TOOLS}
+        tools = tools_map(self._tools, read_only)
+        if tools is not None:
+            body["tools"] = tools
         async with permission_handler(
-            self._conn, session_id, directory, read_only
+            self._conn, session_id, directory, read_only,
+            guard_watch(self._conn, session_id, directory, guard),
         ):
-            response = await self._request(
-                "POST",
-                f"/session/{session_id}/message",
-                json=body,
-                directory=directory,
+            response = await retry_rate_limited(
+                lambda: self._request(
+                    "POST",
+                    f"/session/{session_id}/message",
+                    json=body,
+                    directory=directory,
+                ),
+                self._rate_limit_retries,
+                self._rate_limit_backoff_seconds,
             )
-        error = _assistant_error(response)
+        if guard.tripped is not None:
+            raise TurnStopped(guard.tripped)
+        error = assistant_error(response)
         if error is not None:
             raise RuntimeError(f"opencode assistant failed: {error}")
         texts: list[str] = []
@@ -411,7 +390,7 @@ class OpenCodeBackend(Backend):
                         tool_input=(
                             tool_input if isinstance(tool_input, dict) else None
                         ),
-                        tool_summary=_tool_summary(tool_input),
+                        tool_summary=tool_summary(tool_input),
                         native=part,
                     ),
                 )

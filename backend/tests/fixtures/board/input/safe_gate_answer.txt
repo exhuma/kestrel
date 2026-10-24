@@ -1,0 +1,2 @@
+Yes, please proceed with the plain-text export format described in the PRD.
+No changes to the acceptance criteria are needed.

@@ -1,0 +1,344 @@
+"""The board application service (feature 026, FR-005).
+
+Reads, revision increments, policy-mediated transitions, and safe event
+append. This is the *only* path that mutates card state directly from a
+known-good decision — coordinator actions, interventions, and recovery all
+route through it rather than touching ``BoardStore`` themselves, so policy
+is enforced consistently regardless of what triggered the transition.
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from typing import Callable
+
+from app.documents import Document
+from app.models_board import (
+    CardRelation,
+    CardState,
+    WorkCard,
+    Workflow,
+)
+from app.models_board_records import (
+    AcceptedTaskIntake,
+    BoardEventRecord,
+)
+from app.persistence.board_store import BoardStore
+from app.services.board.intake import screening_card
+from app.services.board.policy import PolicyViolation, is_valid_transition
+from app.services.board.understanding_redraft import understanding_card
+from app.storage.workflow_bus import WorkflowBus
+
+
+class BoardService:
+    """Policy-mediated reads, transitions, and event append."""
+
+    def __init__(
+        self,
+        store: BoardStore,
+        bus: WorkflowBus | None = None,
+        *,
+        on_mutation: Callable[[str], None] | None = None,
+        on_gate_opened: Callable[[str], None] | None = None,
+    ) -> None:
+        """
+        :param on_mutation: Called with the workflow id after every
+            committed mutation — the coordinator's event-driven wake
+            trigger (FR-004: card creation, completion, and other board
+            changes). Decoupled from any particular scheduling
+            implementation the same way ``bus`` is decoupled from SSE.
+        :param on_gate_opened: Called with the workflow id after a gate
+            opens (feature 046). Separate from *on_mutation* because a
+            gate opening is for a human to act on, not a change for the
+            coordinator to react to.
+        """
+        self._store = store
+        self._bus = bus
+        self._on_mutation = on_mutation
+        self._on_gate_opened = on_gate_opened
+
+    def get_workflow(self, workflow_id: str) -> Workflow | None:
+        """Return one workflow by id, or ``None`` if it does not exist."""
+        return self._store.get_workflow(workflow_id)
+
+    def list_workflows(self, *, newest_first: bool = False) -> list[Workflow]:
+        """Return every workflow (board collection listing)."""
+        return self._store.list_workflows(newest_first=newest_first)
+
+    def get_card(self, card_id: str) -> WorkCard | None:
+        """Return one card by id, or ``None`` if it does not exist."""
+        return self._store.get_card(card_id)
+
+    def list_cards(self, workflow_id: str) -> list[WorkCard]:
+        """Return every card belonging to *workflow_id*."""
+        return self._store.list_cards(workflow_id)
+
+    def list_relations(self, workflow_id: str) -> list[CardRelation]:
+        """Return every relation among *workflow_id*'s cards."""
+        return self._store.list_relations(workflow_id)
+
+    def list_events(self, workflow_id: str) -> list[BoardEventRecord]:
+        """Return every board event for *workflow_id*, oldest first."""
+        return self._store.list_events(workflow_id)
+
+    def create_workflow_from_intake(
+        self, intake: AcceptedTaskIntake, *, notify: bool = True
+    ) -> Workflow:
+        """Create a workflow for a safety-cleared task (FR-001).
+
+        Does *not* create the initial understanding-gate card — that
+        needs a ``HumanGateRecord`` alongside it, which only
+        ``GatesService`` can write, and ``GatesService`` already holds a
+        ``BoardService`` (importing it back here would cycle). The
+        caller creates the gate immediately after this returns (see
+        ``IngestionService._start_via_board``).
+
+        :param notify: ``False`` creates it silently — no live-view
+            tick, no coordinator wake. Intake (feature 032) creates the
+            request before screening and announces it once its screening
+            card exists; the coordinator must not wake for content that
+            has not been screened.
+        :raises WorkflowAlreadyExistsError: If this (source, task_ref)
+            already has a workflow — the durable de-dup guard for a
+            ticket delivered by both a webhook and a poll cycle.
+        """
+        workflow = Workflow(
+            id=f"wf-{uuid.uuid4().hex[:8]}",
+            source=intake.source,
+            task_ref=intake.task_ref,
+            repo=intake.repo,
+            base_branch=intake.base_branch,
+            source_visibility=intake.source_visibility,
+            title=intake.title,
+            task_body=intake.body,
+        )
+        self._store.create_workflow(workflow)
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=workflow.id, event_type="workflow.created"
+            )
+        )
+        if notify:
+            self.announce(workflow.id)
+            if self._on_mutation is not None:
+                self._on_mutation(workflow.id)
+        return workflow
+
+    def announce(self, workflow_id: str) -> None:
+        """Tell live board views that *workflow_id* changed outside this
+        service — e.g. a quarantine written straight to its own store
+        (#66) — without waking the coordinator: nothing for it to do."""
+        if self._bus is not None:
+            self._bus.publish(workflow_id)
+
+    def transition_card(
+        self,
+        card_id: str,
+        target_state: str,
+        *,
+        event_type: str,
+        wait_reason: str | None = None,
+        payload: str = "{}",
+    ) -> WorkCard:
+        """Move a card to *target_state* if policy allows it.
+
+        :param card_id: The card to transition.
+        :param target_state: The state to move it to.
+        :param event_type: A safe, closed event-type identifier recorded
+            for this transition.
+        :param wait_reason: Safe explanation, when entering a waiting state.
+        :param payload: Safe event payload (JSON), e.g. who decided a gate
+            (feature 046).
+        :raises PolicyViolation: if the card is unknown or the transition
+            is not allowed from its current state.
+        """
+        card = self._store.get_card(card_id)
+        if card is None:
+            raise PolicyViolation(f"unknown card: {card_id}")
+        from_state = CardState(card.state)
+        to_state = CardState(target_state)
+        if not is_valid_transition(from_state, to_state):
+            raise PolicyViolation(
+                f"cannot transition card {card_id} from {card.state} "
+                f"to {target_state}"
+            )
+        self._store.set_card_state(
+            card_id, target_state, wait_reason=wait_reason
+        )
+        self._after_mutation(card.workflow_id, card_id, event_type, payload)
+        return self._store.get_card(card_id)
+
+    def record_recovery_event(
+        self, card_id: str, event_type: str
+    ) -> WorkCard | None:
+        """Record a recovery-driven event for a card the recovery sweep
+        already moved (``BoardClaimsStore.expire_leases``).
+
+        The bulk lease-expiry sweep enforces its own two valid
+        destinations (``ready`` or ``failed``) directly at the store
+        layer rather than one card at a time through
+        :meth:`transition_card`; this appends the event, bumps the
+        revision, and wakes the coordinator afterward (FR-004's claim-
+        expiry wake trigger) so recovery is visible the same way any
+        other mutation is.
+
+        :returns: The card's current state, or ``None`` if it no longer
+            exists.
+        """
+        card = self._store.get_card(card_id)
+        if card is None:
+            return None
+        self._after_mutation(card.workflow_id, card_id, event_type)
+        return card
+
+    def record_event(self, card_id: str, event_type: str) -> WorkCard | None:
+        """Record *event_type* for a card that is already where it
+        belongs — e.g. an interview card its result already completed
+        (feature 038). Same effects as :meth:`record_recovery_event`."""
+        return self.record_recovery_event(card_id, event_type)
+
+    def record_gate_opened(self, card: WorkCard) -> None:
+        """Record that the gate *card* now waits for a human (feature
+        046): the ``gate.opened`` event, a revision bump, a live-view
+        tick, and the hook that tells the people who must answer. The
+        coordinator is not woken: there is nothing for it to do."""
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=card.workflow_id,
+                card_id=card.id,
+                event_type="gate.opened",
+                payload=json.dumps({"gate_kind": card.kind}),
+            )
+        )
+        self._store.bump_workflow_revision(card.workflow_id)
+        self.announce(card.workflow_id)
+        if self._on_gate_opened is not None:
+            self._on_gate_opened(card.workflow_id)
+
+    def record_attempt(
+        self, card: WorkCard, event_type: str, payload: str
+    ) -> None:
+        """Record *card*, another attempt at unreadable work (feature
+        042), with why: one commit that wakes the coordinator and
+        dispatch."""
+        self._after_mutation(card.workflow_id, card.id, event_type, payload)
+
+    def open_screening(
+        self, intake: AcceptedTaskIntake
+    ) -> tuple[Workflow, WorkCard]:
+        """Create a picked-up request and its in-progress screening card,
+        then show it (feature 032, FR-001). Nothing wakes: the content
+        is not screened yet.
+
+        :raises WorkflowAlreadyExistsError: See
+            :meth:`create_workflow_from_intake`.
+        """
+        workflow = self.create_workflow_from_intake(intake, notify=False)
+        card = screening_card(workflow.id)
+        self._store.create_card(card)
+        self.announce(workflow.id)
+        return workflow, card
+
+    def pass_screening(
+        self,
+        workflow_id: str,
+        *,
+        title: str,
+        body: Document,
+        card_id: str | None,
+    ) -> None:
+        """Give a screened request its content and start understanding
+        (FR-003): `pm`'s restatement card, then one commit that wakes
+        the coordinator. *card_id* is the screening card to complete, or
+        ``None`` when continuing after a quarantine release (FR-005)."""
+        self._store.record_intake(workflow_id, title=title, task_body=body)
+        self._store.create_card(understanding_card(workflow_id))
+        if card_id is None:
+            self._after_mutation(workflow_id, None, "screening.released")
+            return
+        self.settle_screening(
+            card_id, CardState.DONE.value,
+            event_type="screening.passed", wake=True,
+        )
+
+    def settle_screening(
+        self, card_id: str, state: str, *, event_type: str, wake: bool
+    ) -> None:
+        """End a request's screening card (feature 032, research R3).
+
+        A system card that never passes through ``review``, so its state
+        is set directly rather than through the transition policy. One
+        commit: event, revision, live views, and — when *wake* — the
+        coordinator, which a passed screening now has work for and a
+        quarantine does not.
+        """
+        card = self._store.get_card(card_id)
+        if card is None:
+            raise PolicyViolation(f"unknown card: {card_id}")
+        self._store.set_card_state(card_id, state)
+        if wake:
+            self._after_mutation(card.workflow_id, card_id, event_type)
+            return
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=card.workflow_id, card_id=card_id,
+                event_type=event_type,
+            )
+        )
+        self._store.bump_workflow_revision(card.workflow_id)
+        self.announce(card.workflow_id)
+
+    def record_problem(
+        self,
+        workflow_id: str,
+        *,
+        event_type: str,
+        detail: str,
+        card_id: str | None = None,
+    ) -> None:
+        """Record that an agent turn failed, so the request can say so
+        (feature 033, FR-004) — durably, in its feed.
+
+        Written once: a problem that is already the latest event (the
+        same failure on every retry) is not recorded again. It neither
+        bumps the revision nor fires ``on_mutation``, since a failure is
+        not a change for the coordinator to react to.
+
+        :param detail: A short, safe reason — never untrusted content.
+        """
+        events = self._store.list_events(workflow_id)
+        payload = json.dumps({"detail": detail})
+        latest = events[-1] if events else None
+        if latest is not None and (
+            latest.event_type, latest.card_id, latest.payload
+        ) == (event_type, card_id, payload):
+            return
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=workflow_id, card_id=card_id,
+                event_type=event_type, payload=payload,
+            )
+        )
+        self.announce(workflow_id)
+
+    def _after_mutation(
+        self,
+        workflow_id: str,
+        card_id: str | None,
+        event_type: str,
+        payload: str = "{}",
+    ) -> None:
+        """Append the event, bump the revision, and notify subscribers."""
+        self._store.append_event(
+            BoardEventRecord(
+                workflow_id=workflow_id,
+                card_id=card_id,
+                event_type=event_type,
+                payload=payload,
+            )
+        )
+        self._store.bump_workflow_revision(workflow_id)
+        if self._bus is not None:
+            self._bus.publish(workflow_id)
+        if self._on_mutation is not None:
+            self._on_mutation(workflow_id)

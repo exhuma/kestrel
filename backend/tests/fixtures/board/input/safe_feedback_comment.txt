@@ -1,0 +1,2 @@
+@kestrel the button label should read "Copy link" instead of "Copy URL" to
+match the rest of the UI's terminology.

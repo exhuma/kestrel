@@ -1,8 +1,6 @@
 <script setup lang="ts">
-// Two-pane console shell shared by WorkflowPanel and SessionPanel: a fixed
-// navigation rail on the left and the main stage on the right. Extracted after
-// both panels existed (rule-of-two), so it captures exactly the duplicated
-// layout scaffold and nothing speculative. Rail content goes in the `rail`
+// Two-pane console shell used by SessionPanel: a fixed navigation rail on
+// the left and the main stage on the right. Rail content goes in the `rail`
 // slot; the stage is the default slot.
 </script>
 

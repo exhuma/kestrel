@@ -1,11 +1,10 @@
-# Jira workflow (feature 003)
+# Jira workflow
 
-Kestrel can ingest change requests (RFCs) from a Jira project and drive them
-through the **describe → refine → gap_analysis → design → code → verify →
-change request** workflow (see [Architecture](architecture.md) for the full
-pipeline). Ingestion is **poll-only** — kestrel polls Jira outbound over HTTPS
-and exposes **no inbound endpoint**, so no tunnel or reverse proxy is needed
-and no off-loopback exception is introduced.
+Kestrel can ingest change requests (RFCs) from a Jira project into the
+**work board** (see [Architecture](architecture.md#the-work-board-spec-026)
+for the domain model). Ingestion is **poll-only** — kestrel polls Jira
+outbound over HTTPS and exposes **no inbound endpoint**, so no tunnel or
+reverse proxy is needed and no off-loopback exception is introduced.
 
 ## Configure
 
@@ -19,6 +18,7 @@ poll_interval_seconds = 300            # how often every source is re-checked
 [[task_sources]]
 type = "jira"
 base_url = "https://jira.internal.example.com"
+deployment = "server"                 # cloud (ADF/v3) | server (text/v2)
 auth = "basic"                         # basic (Cloud email+API token) | bearer (Server/DC PAT)
 email = "you@example.com"              # basic only
 jql = 'project = "RFC" AND status = "Ready for Kestrel"'  # the whole query, yours to write
@@ -26,6 +26,7 @@ key = "RFC"                            # issue-key prefix; scopes dismissals onl
 verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 repo_field = "customfield_10050"       # optional; holds owner/name[@base_branch]
 repo_link_text = "Repository"          # web-link title to resolve the repo (default)
+change_owner_field = "customfield_10051"  # optional; user field naming the change owner
 code_host = "gitlab"                   # github | gitlab | gitea (self-hostable)
 code_host_base_url = "https://gitlab.internal.example.com"
 # token_env = "KESTREL_JIRA_API_TOKEN"           # default; the API token (Cloud) / PAT
@@ -43,6 +44,23 @@ repository resolution are configuration. You write the entire JQL (there is no
 separate project key); `key` is only the issue-key prefix used to scope the
 re-trigger gesture.
 
+Set `deployment = "cloud"` for an `atlassian.net` site. Cloud requests use
+REST v3 and render Kestrel's controlled Markdown as Atlassian Document Format
+(ADF), including review gates, requested-change summaries, and lifecycle
+footers. Jira Server/DC keeps REST v2 and plain-text bodies with
+`deployment = "server"`.
+
+### The change owner
+
+`change_owner_field` names the Jira **user** field that holds the person who
+decides, for the organisation, whether a request goes ahead (the "change
+owner"). Leave it out and kestrel simply has no change owner for that source.
+The field is read on every announcement, so a change owner set or changed on
+the ticket takes effect at the next comment.
+
+The reporter is whoever Jira says reported the issue; there is nothing to
+configure for them.
+
 ### Target repository resolution
 
 Each RFC names its target code repository either in the configured
@@ -50,8 +68,8 @@ Each RFC names its target code repository either in the configured
 web/remote link on the issue whose title matches `repo_link_text` (default
 "Repository") — the field is optional. On each poll cycle kestrel resolves
 the repo and probes the code host for reachability. If neither resolves or
-the repo is unreachable, kestrel starts no run and posts a comment on the
-RFC.
+the repo is unreachable, kestrel starts no run and only logs it (nothing is
+posted on the RFC, since the poll would repeat the comment every cycle).
 
 The web link must be an **`http(s)://`** URL (Jira rejects `git@…`/`ssh://` in
 the link field). Kestrel parses `owner/name` from it, host-aware per the
@@ -86,86 +104,146 @@ uv run python -m app poll
 
 ### Verify grounding
 
-The verifier weighs evidence it observes itself by launching and exercising
-the running, modified project — real HTTP requests for an API boundary,
-browser-driven interaction for a UI boundary — rather than re-running the
-coder's own checks; durable test coverage is the coder's TDD responsibility.
-The one applicable knob is the iteration cap:
+The `verifier` specialist's design intent is to weigh evidence it observes
+itself by exercising the running, modified project directly, rather than
+re-running the coder's own checks — durable test coverage is the coder's TDD
+responsibility. The board now runs a real automated claim→turn→accept loop
+(spec 026 T034), so this is observable end-to-end against a live RFC, not
+just an intended contract.
 
-```bash
-KESTREL_MAX_VERIFY_ITERATIONS=3
-```
+## The flow, from a human's point of view, today
 
-A failing observation forces a reject; the feedback is fed back to the coder.
-On exhausting the iteration limit the run **escalates** — it posts a comment
-on the RFC and stops rather than shipping unverified work.
+1. Create/transition an RFC so it matches the qualifying filter, with the
+   repo field set. Kestrel notices it within one poll interval.
+2. Kestrel screens the RFC's content through the fail-closed input-security
+   quarantine. Safe content creates a board **Workflow** and its initial
+   cards; suspect content instead creates a quarantined security review that
+   only an operator can release or discard, in the Kestrel UI.
+3. From here the RFC tells people when it is their turn (see
+   [What the ticket shows](#what-the-ticket-shows)), and they answer **on
+   the ticket** with a reply ([Replying on the
+   ticket](#replying-on-the-ticket)): confirming the understanding and the
+   PRD (the reporter) and relaying the CAB decisions (the change owner).
+   Interview questions are answered on kestrel's short forms, reached by a
+   link. Watching card state, retrying or reassigning a card and resolving
+   a quarantined review stay in the Kestrel UI (the Board), which can also
+   answer any gate. A resolved gate, an escalation, an approved PRD, and a
+   clean verification's delivery each post one comment back to the RFC;
+   day-to-day card-by-card progress is still Board-only. See
+   [Architecture → Specialist dispatch, delivery, and write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078)
+   for the full list of what projects and what doesn't.
 
-## The flow, from a human's point of view
+This replaces the old fixed driver's `describe → refine →
+technical_analysis → design → code → verify` sequence and its native Jira
+Sub-task decomposition — removed in the Phase 10 clean break, then rebuilt
+on the board's own terms (spec 026 T068/T078): refinement/PRD/decomposition
+gates exist again, resolved on the ticket or on the Board. An approved
+decomposition (CAB-2) creates no child tickets or Sub-tasks: its tasks become
+cards inside the request's own workflow, and the RFC gets one breakdown
+comment (feature 031).
 
-1. Create/transition an RFC so it matches the qualifying filter, with the repo
-   field set. Kestrel notices it within one poll interval and starts a run.
-2. Kestrel first restates its understanding of the RFC and asks you to confirm
-   or correct it (a thin comment + deep-link) — before any clarifying
-   question is asked.
-3. If refinement needs clarification, kestrel posts a **thin** comment on the
-   RFC with a deep-link to the kestrel questionnaire — answer there. The
-   questions stay business-altitude: this phase never asks about
-   implementation or architecture.
-4. When the requirements document is ready it is **attached** to the RFC
-   (`PRD.md`) and kestrel asks for approval (a thin comment + deep-link).
-   Approve/reject in the UI.
-5. On approval, kestrel performs technical analysis and decomposes the
-   approved work into one or more independent, self-contained follow-up
-   RFCs — each a native Jira **Sub-task** linked to the parent — plus an
-   attached technical-analysis summary. The original RFC's run then ends;
-   kestrel does not implement it directly.
-6. To implement a follow-up sub-task, transition **it** into the qualifying
-   filter the same way you would any RFC. Kestrel recognizes it as already
-   scoped and starts directly at `design` — no repeat of steps 2-5. From
-   there the design → code → verify loop runs autonomously; on success a
-   change request is opened and its link is posted to the sub-task RFC, and
-   on exhaustion the run escalates to it.
+### What the ticket shows
 
-### Scoping `jql` so follow-up sub-tasks aren't picked up on creation
+kestrel comments on the ticket whenever a person is needed, so nobody has to
+watch the Board. Each comment is short and plain, shows what is being decided,
+and ends with a link to the request in kestrel (when `public_base_url` is
+set; without it the link is left out). A comment is posted **once**: if Jira
+cannot be reached, kestrel keeps the comment and posts it later, without ever
+posting it twice.
 
-A follow-up sub-task is created without any status/label kestrel controls —
-it starts wherever your Jira Sub-task creation defaults land it. **Write
-your `jql` so a newly created sub-task does not already qualify** (e.g. keep
-the same `status = "Ready for Kestrel"` gate you use for top-level RFCs, so a
-sub-task is only picked up once a human deliberately transitions it, exactly
-like step 6 above). Kestrel does not inspect issue type or parentage when
-matching `jql` — this is operator-authored query scope, the same posture the
-project already takes for `hooks_dir` and other operator-configured trust
-boundaries (see the constitution's Access model).
+| When | Comment | Mentions |
+| --- | --- | --- |
+| The understanding gate opens | The restatement in full, asking to confirm or correct it | the reporter |
+| The strategic interview or an interview round opens | How many questions and from which profiles, with a link to the form; nothing is asked on the ticket | the reporter |
+| The PRD gate opens | The PRD in full | the reporter |
+| CAB-1 opens | "Ready for CAB": the strategic-fit answers | the change owner |
+| CAB-2 opens | "Ready for CAB": the executive summary, with totals, risks and the task table | the change owner |
+| The work is delivered | The change request link; the ticket should move on | the change owner |
+| The request fails, or stops because a decision was rejected | What failed or was rejected; the ticket should move on | the change owner |
+| CI fails or is repaired; a card is escalated | A plain status line | nobody |
 
-### Re-running a rejected RFC
+All interview rounds that open together get one comment. If the ticket has no
+change owner set, the "ready for CAB" comment says so and nobody is mentioned:
+the CAB decision is then taken in the kestrel UI.
 
-Rejecting a PRD (or abandoning a run) records a dismissal so polling won't
-silently re-create it. The **re-trigger gesture** is the RFC leaving and
-re-entering the qualifying filter (e.g. a status change out of and back into the
-JQL): once it no longer qualifies the dismissal is cleared, so re-qualifying it
-starts a fresh run.
+**kestrel never changes the status of the ticket.** It does not move, close or
+resolve an RFC; where the RFC should move on, it says so in a comment to the
+change owner, and moving it stays with its owners. **CAB members are never
+mentioned**: kestrel does not know who they are, and only the change owner is
+asked to take the decision.
 
-### Lifecycle sync
+### When a gate is decided
 
-As a run progresses, kestrel can apply configured workflow transitions
-(`transition_start`/`transition_done`/etc.) and write active time to a
-configured field — every Jira workflow is different, so none of this is
-guessed; unset fields fall back to a comment footer. See [Configuration →
-Task sources](configuration.md#task-sources) for the fields, and
-[Operator hooks](hooks.md) for the escape hatch when your instance needs
-a custom transition or action kestrel doesn't natively support.
+kestrel says what was decided in one plain sentence per gate and outcome.
+It says it once, whether the decision was taken on the ticket or in the
+kestrel UI:
 
-### Steering a run with feedback
+| Gate | Approved | Rejected |
+| --- | --- | --- |
+| Understanding | Understanding confirmed. | Understanding corrected, kestrel is rewriting it. |
+| CAB-1 | CAB approved the strategic fit. | CAB declined the strategic fit; this request stops here. |
+| PRD | PRD signed off. | PRD sent back with feedback, kestrel is revising it. |
+| CAB-2 | CAB approved the plan; work starts. | CAB declined the plan. |
 
-A marked comment (default trigger: `@kestrel`) on the RFC redirects the run
-it started — applied immediately if the run is parked at a gate, queued
-until the next boundary otherwise. Jira's REST API has no comment-reaction
-endpoint, so — unlike GitHub — kestrel does **not** react to the triggering
-comment; that's expected, not a missed acknowledgment. Amending the same
-merge/pull request from a review comment is supported when the configured
-`code_host` is `gitlab` or `github` (via `award_emoji`/reactions
-respectively); a `gitea` code host does not yet support reading review
-comments back. See [Feedback intake](feedback-intake.md) for the full
-behaviour, including what a `done` RFC reactivating vs. a linked successor
-run looks like.
+When the decision was taken by a reply, the sentence comes in the answer to
+that reply, after a thank-you to the person who wrote it.
+
+**Interviews say nothing when they are resolved.** Submitting answers on the
+form is not a decision, so a line like "approved" would mislead. The next
+comment (the "ready for CAB" comment after the strategic interview, the
+next round or the PRD after a refinement) is the acknowledgement.
+
+### Replying on the ticket
+
+Anyone entitled to decide can answer a decision by replying on the ticket
+with the reply marker (`@kestrel` by default, see
+[`KESTREL_FEEDBACK_MARKER`](configuration.md#environment-variables)) and
+what they mean, for example `@kestrel approved`, or `@kestrel no, because
+...`. kestrel reads new comments every `board_comment_poll_interval_seconds`
+(60 by default) and answers each reply once, mentioning its author.
+
+- **Who decides.** The reporter decides the understanding and the PRD. The
+  change owner decides CAB-1 and CAB-2. Both are read from the ticket when
+  the reply is read, compared by account. Anyone else is told they cannot
+  decide this here, and nothing changes. With no change owner on the ticket
+  nobody is entitled to a CAB decision there; it is taken in kestrel.
+- **A no needs a reason** for the understanding and the PRD. If a rejection
+  has none, or kestrel cannot tell what was meant, it asks again and decides
+  nothing.
+- **Only replies written after the announcement count.** A reply counts
+  only if it was written after kestrel posted the comment announcing that
+  gate. Older comments (written before it, or all of a thread's history the
+  first time kestrel reads it) are left alone and get no answer. While an
+  announcement has not been posted yet (Jira was unreachable and kestrel is
+  retrying), nothing written counts either: reply again once the
+  announcement is there. kestrel's clock and Jira's are not compared with
+  any tolerance, so a badly skewed clock can make a reply that is seconds
+  old count late or not at all.
+- **Security screening.** Each reply passes the same input screening as a
+  new request. A suspicious reply is held: the ticket says so, kestrel acts
+  on nothing, and the operator releases or discards it in the kestrel UI.
+- **Already decided.** A reply to a gate decided meanwhile (in the UI, or by
+  an earlier reply) is told by whom, and never decides the next gate.
+- **Interviews** are never answered on the ticket. A reply there gets a
+  pointer to the form.
+- Names in the audit trail ("Rita Reporter decided via Jira") are the display
+  names Jira reported when the reply was read.
+- The reply is read only while `comment_sentinel_enabled` is on, because
+  kestrel needs its ownership marker to tell its own comments from replies.
+
+### Re-triggering an RFC
+
+The old fixed driver recorded a "dismissal" when a PRD was rejected or a run
+abandoned, so polling wouldn't silently re-create it, clearing that
+dismissal only once the RFC left and re-entered the qualifying filter. That
+dismissal-setting code was removed with the driver and has no board-domain
+replacement, so there is currently no dismissal to clear or re-trigger by
+cycling the RFC's status.
+
+### Lifecycle sync and operator hooks
+
+`transition_start`/`transition_done`/etc., `time_spent_field`, and
+`hooks_dir` are still accepted on a Jira source entry, but nothing currently
+applies them — see [Configuration → Lifecycle sync and operator hooks
+(currently dormant)](configuration.md#lifecycle-sync-and-operator-hooks-currently-dormant).
+kestrel never transitions the RFC itself; moving it stays with its owners.

@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.ports import Feedback
-from app.services.feedback.timeparse import parse_iso
+from app.document_formats.markdown import parse_markdown
+from app.ports import Feedback, Person
+from app.services.task_source_utils import parse_iso
 
 #: A PR-conversation comment lives on the very same issues endpoint a
 #: ticket comment does, so it shares that reaction endpoint too.
@@ -35,8 +36,8 @@ def _conversation_feedback(repo: str, comment: dict) -> Feedback | None:
     return Feedback(
         external_id=f"{_PR_COMMENT_PREFIX}{repo}#{comment['id']}",
         origin="review",
-        author=user.get("login", ""),
-        body=comment.get("body") or "",
+        author=Person(user.get("login", ""), user.get("login", "")),
+        body=parse_markdown(comment.get("body") or ""),
         created_at=parse_iso(comment["created_at"]),
     )
 
@@ -47,11 +48,13 @@ def _review_feedback(repo: str, review: dict) -> Feedback | None:
     if not body.strip() or not submitted:
         return None
     user = review.get("user") or {}
+    if user.get("type") == "Bot":
+        return None
     return Feedback(
         external_id=f"{_PR_REVIEW_PREFIX}{repo}#{review['id']}",
         origin="review",
-        author=user.get("login", ""),
-        body=body,
+        author=Person(user.get("login", ""), user.get("login", "")),
+        body=parse_markdown(body),
         created_at=parse_iso(submitted),
     )
 
@@ -63,8 +66,8 @@ def _review_comment_feedback(repo: str, comment: dict) -> Feedback | None:
     return Feedback(
         external_id=f"{_PR_REVIEW_COMMENT_PREFIX}{repo}#{comment['id']}",
         origin="review",
-        author=user.get("login", ""),
-        body=comment.get("body") or "",
+        author=Person(user.get("login", ""), user.get("login", "")),
+        body=parse_markdown(comment.get("body") or ""),
         created_at=parse_iso(comment["created_at"]),
     )
 
@@ -94,7 +97,7 @@ def merge_review_feedback(
     )
     items = [
         item for item in mapped
-        if item is not None and (cutoff is None or item.created_at > cutoff)
+        if item is not None and (cutoff is None or item.created_at >= cutoff)
     ]
     items.sort(key=lambda item: item.created_at)
     return items

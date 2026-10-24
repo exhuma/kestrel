@@ -9,15 +9,17 @@ import httpx
 import pytest
 
 from app.config_models import TaskSourceConfig
-from app.ports import Feedback, LifecycleEvent, Task
+from app.documents import Marker, Text, document, paragraph
+from app.ports import Feedback, LifecycleEvent, Person, Task
 from app.services.jira import JiraClient, JiraError, JiraTaskSource
-from app.services.workflow_text import has_subtask_sentinel
+from tests.document_helpers import doc
 
 
 def _client(handler, **kw) -> JiraClient:
     client = JiraClient("https://jira.example", **kw)
+    version = "3" if kw.get("deployment") == "cloud" else "2"
     client._http = httpx.AsyncClient(
-        base_url="https://jira.example/rest/api/2",
+        base_url=f"https://jira.example/rest/api/{version}",
         transport=httpx.MockTransport(handler),
         auth=client._http.auth,
     )
@@ -63,13 +65,15 @@ async def test_search_parses_issues_and_paginates() -> None:
         })
 
     page_size = 25
-    tasks = await _client(handler, auth="basic", email="e", token="t").search(
+    tasks = await _client(
+        handler, auth="basic", email="e", token="t", deployment="cloud"
+    ).search(
         'project = "RFC"', fields=["summary", "description"],
         max_results=page_size,
     )
     assert tasks == [
-        Task(ref="RFC-1", title="One", body="d1"),
-        Task(ref="RFC-2", title="Two", body=""),
+        Task(ref="RFC-1", title="One", body=doc("d1")),
+        Task(ref="RFC-2", title="Two", body=document()),
     ]
     assert [s["method"] for s in seen] == ["POST", "POST"]
     assert seen[0]["path"].endswith("/search/jql")
@@ -107,7 +111,9 @@ async def test_add_comment_and_attachment() -> None:
         return httpx.Response(200, json=[{"id": "1"}])
 
     client = _client(handler, auth="basic", email="e", token="t")
-    assert await client.add_comment("RFC-1", "hi") == "https://jira/c/1"
+    assert await client.add_comment("RFC-1", doc("hi")) == (
+        "https://jira/c/1"
+    )
     await client.add_attachment(
         "RFC-1", "shot.png", b"\x89PNGbytes", "image/png"
     )
@@ -156,7 +162,7 @@ async def test_task_source_publishes_prd_as_attachment() -> None:
         return httpx.Response(200, json=[{"id": "1"}])
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
-    await src.publish_refined("RFC-1", "the PRD")
+    await src.publish_refined("RFC-1", doc("the PRD"))
     assert seen["path"].endswith("/issue/RFC-1/attachments")
     assert src.deep_link_ref("RFC-1") == "https://jira.example/browse/RFC-1"
 
@@ -180,7 +186,9 @@ async def test_client_create_subtask_posts_native_subtask_issue() -> None:
         return httpx.Response(201, json={"key": "RFC-2"})
 
     client = _client(handler, auth="basic", email="e", token="t")
-    key = await client.create_subtask("RFC-1", "RFC", "Do the thing", "body")
+    key = await client.create_subtask(
+        "RFC-1", "RFC", "Do the thing", doc("body")
+    )
     assert key == "RFC-2"
     assert seen["method"] == "POST"
     assert seen["path"].endswith("/issue")
@@ -189,7 +197,7 @@ async def test_client_create_subtask_posts_native_subtask_issue() -> None:
     assert fields["parent"] == {"key": "RFC-1"}
     assert fields["project"] == {"key": "RFC"}
     assert fields["summary"] == "Do the thing"
-    assert fields["description"] == "body"
+    assert fields["description"] == "body"  # Server: Markdown text
 
 
 @pytest.mark.asyncio
@@ -204,11 +212,82 @@ async def test_task_source_create_subtask_derives_project_key() -> None:
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
     ref = await src.create_subtask(
-        "RFC-1", "Do the thing", "Self-contained body <!-- kestrel:subtask -->"
+        "RFC-1", "Do the thing",
+        document(paragraph(Text("Self-contained body")), Marker("subtask")),
     )
     assert ref == "RFC-2"
     assert seen["body"]["fields"]["project"] == {"key": "RFC"}
-    assert has_subtask_sentinel(seen["body"]["fields"]["description"])
+    assert "<!-- kestrel:subtask -->" in seen["body"]["fields"]["description"]
+
+
+@pytest.mark.asyncio
+async def test_task_source_subtask_inherits_parent_repo_field() -> None:
+    """Ensure a child receives its parent's configured repository field."""
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path, req.url.query, req.content))
+        if req.method == "GET":
+            return httpx.Response(
+                200,
+                json={"fields": {"customfield_1": "team/service@stable"}},
+            )
+        return httpx.Response(201, json={"key": "RFC-2"})
+
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"),
+        config=_config(repo_field="customfield_1"),
+    )
+
+    assert await src.create_subtask("RFC-1", "Child", doc("body")) == (
+        "RFC-2"
+    )
+    assert [(method, path) for method, path, _, _ in seen] == [
+        ("GET", "/rest/api/2/issue/RFC-1"),
+        ("POST", "/rest/api/2/issue"),
+    ]
+    assert json.loads(seen[1][3])["fields"]["customfield_1"] == (
+        "team/service@stable"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_source_subtask_inherits_parent_repository_link() -> None:
+    """Ensure a child copies the repository link when no field is configured."""
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path, req.content))
+        if req.method == "GET":
+            return httpx.Response(200, json=[{
+                "object": {
+                    "title": "Repository",
+                    "url": "https://gitlab.example/team/service",
+                }
+            }])
+        if req.url.path.endswith("/issue"):
+            return httpx.Response(201, json={"key": "RFC-2"})
+        return httpx.Response(201, json={})
+
+    src = JiraTaskSource(
+        _client(handler, auth="basic", email="e", token="t"),
+        config=_config(repo_field=""),
+    )
+
+    assert await src.create_subtask("RFC-1", "Child", doc("body")) == (
+        "RFC-2"
+    )
+    assert [(method, path) for method, path, _ in seen] == [
+        ("POST", "/rest/api/2/issue"),
+        ("GET", "/rest/api/2/issue/RFC-1/remotelink"),
+        ("POST", "/rest/api/2/issue/RFC-2/remotelink"),
+    ]
+    assert json.loads(seen[-1][2]) == {
+        "object": {
+            "title": "Repository",
+            "url": "https://gitlab.example/team/service",
+        }
+    }
 
 
 def _config(**overrides) -> TaskSourceConfig:
@@ -327,22 +406,22 @@ async def test_jira_list_comments_maps_fields_and_mints_external_id() -> None:
         )
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
-    items = await src.list_comments("RFC-1")
+    items = (await src.list_comments("RFC-1")).comments
     assert items == [
         Feedback(
             external_id="jira-comment:RFC-1:42",
             origin="ticket",
-            author="Jane Reviewer",
-            body="hi",
+            author=Person("", "Jane Reviewer"),
+            body=doc("hi"),
             created_at=items[0].created_at,
         )
     ]
 
 
 @pytest.mark.asyncio
-async def test_jira_list_comments_since_cursor_excludes_prior_item() -> None:
-    """Ensure a second call using the first call's newest cursor never
-    re-returns that same comment (round-trip exclusivity)."""
+async def test_jira_list_comments_since_cursor_includes_same_time_items(
+) -> None:
+    """A cursor re-read includes all same-time comments for ID-based dedup."""
 
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -355,18 +434,23 @@ async def test_jira_list_comments_since_cursor_excludes_prior_item() -> None:
                     _jira_comment(
                         comment_id="2", created="2026-01-02T00:00:00.000+0000"
                     ),
+                    _jira_comment(
+                        comment_id="3", created="2026-01-02T00:00:00.000+0000"
+                    ),
                 ],
-                "startAt": 0, "maxResults": 50, "total": 2,
+                "startAt": 0, "maxResults": 50, "total": 3,
             },
         )
 
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
     first = await src.list_comments("RFC-1")
-    cursor = first[-1].created_at.isoformat()
+    cursor = first.cursor
 
-    second = await src.list_comments("RFC-1", since=cursor)
+    second = (await src.list_comments("RFC-1", since=cursor)).comments
 
-    assert [i.external_id for i in second] == []
+    assert [i.external_id for i in second] == [
+        "jira-comment:RFC-1:2", "jira-comment:RFC-1:3",
+    ]
 
 
 @pytest.mark.asyncio
@@ -410,6 +494,7 @@ async def test_jira_acknowledge_always_returns_false() -> None:
     src = JiraTaskSource(_client(handler, auth="basic", email="e", token="t"))
     feedback = Feedback(
         external_id="jira-comment:RFC-1:1", origin="ticket",
-        author="Jane", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("", "Jane"), body=doc("hi"),
+        created_at=datetime.now(timezone.utc),
     )
     assert await src.acknowledge(feedback) is False

@@ -1,0 +1,11 @@
+# workspace_permission = "write" requires the "file_edits" ability, which
+# this manifest does not declare.
+id = "broken"
+label = "Broken"
+purpose = "Fixture role with a write permission but no file_edits ability."
+allowed_card_types = ["implementation"]
+required_abilities = ["text"]
+model_policy = "default"
+workspace_permission = "write"
+retry_limit = 1
+prompt_file = "prompt.md"

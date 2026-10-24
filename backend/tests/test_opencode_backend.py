@@ -17,7 +17,9 @@ import httpx
 import pytest
 
 from app.backends.base import Capability, TurnRequest
-from app.backends.opencode import OpenCodeBackend, _split_model
+from app.backends.opencode import OpenCodeBackend
+from app.backends.opencode_models import split_model
+from app.backends.opencode_permissions import run_permission_loop
 from app.backends.registry import BackendRegistry
 from app.config import BackendConfig, Settings
 from app.models import EventKind
@@ -157,7 +159,13 @@ async def test_read_only_turn_disables_file_mutating_tools() -> None:
         if r.url.path == "/session/oc-1/message" and r.method == "POST"
     )
     tools = json.loads(post.content)["tools"]
-    assert tools == {"edit": False, "write": False, "patch": False}
+    assert tools == {
+        "edit": False,
+        "write": False,
+        "patch": False,
+        "question": False,
+        "task": False,
+    }
 
 
 @pytest.mark.asyncio
@@ -187,7 +195,7 @@ async def test_permission_loop_approves_a_read() -> None:
         return httpx.Response(200, json=True)
 
     backend, _, seen = _backend(handler)
-    await backend._permission_loop("s1", "/tmp/s", read_only=True)
+    await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=True)
     assert _reply_for(seen) == {"response": "once"}
     assert seen[-1].url.path == "/session/s1/permissions/per_1"
 
@@ -204,7 +212,7 @@ async def test_permission_loop_rejects_edit_on_read_only_turn() -> None:
         return httpx.Response(200, json=True)
 
     backend, _, seen = _backend(handler)
-    await backend._permission_loop("s1", "/tmp/s", read_only=True)
+    await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=True)
     assert _reply_for(seen) == {"response": "reject"}
     assert seen[-1].url.path == "/session/s1/permissions/per_9"
 
@@ -221,7 +229,7 @@ async def test_permission_loop_allows_edit_when_editable() -> None:
         return httpx.Response(200, json=True)
 
     backend, _, seen = _backend(handler)
-    await backend._permission_loop("s1", "/tmp/s", read_only=False)
+    await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=False)
     assert _reply_for(seen) == {"response": "once"}
     assert seen[-1].url.path == "/session/s1/permissions/per_2"
 
@@ -241,7 +249,9 @@ async def test_permission_reply_failure_fails_the_turn() -> None:
 
     backend, _, _ = _backend(handler)
     with pytest.raises(RuntimeError, match="permission handling failed"):
-        await backend._permission_loop("oc-1", "/tmp/s", read_only=False)
+        await run_permission_loop(
+            backend._conn, "oc-1", "/tmp/s", read_only=False
+        )
 
 
 @pytest.mark.asyncio
@@ -256,17 +266,17 @@ async def test_permission_loop_ignores_other_sessions() -> None:
         return httpx.Response(200, json=True)
 
     backend, _, seen = _backend(handler)
-    await backend._permission_loop("s1", "/tmp/s", read_only=True)
+    await run_permission_loop(backend._conn, "s1", "/tmp/s", read_only=True)
     assert not [r for r in seen if "/permission/" in r.url.path]
 
 
 def test_split_model_parses_provider_and_model() -> None:
     """Ensure provider/model strings become opencode's model object."""
-    assert _split_model("anthropic/claude-sonnet-4") == {
+    assert split_model("anthropic/claude-sonnet-4") == {
         "providerID": "anthropic", "modelID": "claude-sonnet-4",
     }
-    assert _split_model("just-a-model") is None
-    assert _split_model(None) is None
+    assert split_model("just-a-model") is None
+    assert split_model(None) is None
 
 
 def test_backend_can_edit_files() -> None:

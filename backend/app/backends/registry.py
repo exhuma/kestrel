@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.backends.base import Backend
+from app.backends.base import Backend, Capability
 from app.backends.claude_cli import ClaudeCliBackend
+from app.backends.limiter import BackendLimiter
 from app.backends.openai_compat import OpenAICompatBackend
 from app.backends.opencode import OpenCodeBackend
 from app.config import BackendConfig, Settings, get_settings
@@ -30,21 +31,30 @@ class BackendRegistry:
         self.default_session_backend()
 
     def _build(self, cfg: BackendConfig) -> Backend:
+        backend: Backend
+        limiter = BackendLimiter(cfg.max_concurrency)
         if cfg.type == "claude_cli":
-            return ClaudeCliBackend(
-                self._settings, self._session_registry, backend_id=cfg.id
+            backend = ClaudeCliBackend(
+                self._settings,
+                self._session_registry,
+                backend_id=cfg.id,
+                limiter=limiter,
             )
-        if cfg.type == "openai_compat":
-            return OpenAICompatBackend(
-                self._settings, self._session_registry, cfg
+        elif cfg.type == "openai_compat":
+            backend = OpenAICompatBackend(
+                self._settings, self._session_registry, cfg, limiter=limiter
             )
-        if cfg.type == "opencode":
-            return OpenCodeBackend(
-                self._settings, self._session_registry, cfg
+        elif cfg.type == "opencode":
+            backend = OpenCodeBackend(
+                self._settings, self._session_registry, cfg, limiter=limiter
             )
-        raise NotImplementedError(
-            f"backend type {cfg.type!r} is not implemented yet"
-        )
+        else:
+            raise NotImplementedError(
+                f"backend type {cfg.type!r} is not implemented yet"
+            )
+        if cfg.caps is not None:
+            backend.caps = frozenset(Capability(cap) for cap in cfg.caps)
+        return backend
 
     def get(self, backend_id: str) -> Backend:
         """
@@ -57,11 +67,35 @@ class BackendRegistry:
         try:
             return self._backends[backend_id]
         except KeyError:
-            raise UnknownBackendError(backend_id) from None
+            raise UnknownBackendError(
+                f"{backend_id!r} (configured backend ids: "
+                f"{sorted(self._backends)})"
+            ) from None
 
     def default_session_backend(self) -> Backend:
-        """Return the backend used for ad-hoc ``/api/sessions`` dispatch."""
-        return self.get(self._settings.default_session_backend)
+        """Return the backend used for ad-hoc ``/api/sessions`` dispatch.
+
+        :raises UnknownBackendError: If ``default_session_backend`` names
+            no configured backend — commonly a TOML ordering mistake: a
+            bare key placed after a ``[[backends]]`` header parses as a
+            field of that table, not a top-level setting (rejected loudly
+            by ``BackendConfig``'s ``extra="forbid"``), or the key was
+            simply never changed from its ``"claude"`` default.
+        """
+        try:
+            return self.get(self._settings.default_session_backend)
+        except UnknownBackendError:
+            configured = sorted(self._backends)
+            raise UnknownBackendError(
+                f"default_session_backend="
+                f"{self._settings.default_session_backend!r} has no "
+                f"matching `backends` entry (configured ids: "
+                f"{configured}). Check config.toml: "
+                "`default_session_backend` must be set before any "
+                "[[backends]] table — a bare key placed after an "
+                "array-of-tables header becomes part of that table, "
+                "not a top-level setting."
+            ) from None
 
     def all(self) -> list[Backend]:
         """Return every configured backend."""

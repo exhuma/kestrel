@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { renderMarkdown } from '../../src/lib/markdown'
+import { isStructured, renderMarkdown } from '../../src/lib/markdown'
 
 describe('renderMarkdown', () => {
   it('renders headings, emphasis and lists as HTML', () => {
@@ -19,7 +19,9 @@ describe('renderMarkdown', () => {
 
   it('renders a markdown link as an anchor', () => {
     const html = renderMarkdown('[docs](https://example.com)')
-    expect(html).toContain('<a href="https://example.com">docs</a>')
+    expect(html).toContain('href="https://example.com"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noopener noreferrer"')
   })
 
   it('escapes raw HTML in the source instead of emitting live tags', () => {
@@ -36,5 +38,23 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('[click](javascript:alert(1))')
     // markdown-it's validateLink rejects the unsafe href, so no live link.
     expect(html).not.toContain('href="javascript:')
+  })
+})
+
+describe('isStructured', () => {
+  it('treats a JSON media type as structured', () => {
+    expect(isStructured('application/json', 'anything')).toBe(true)
+  })
+
+  it('treats JSON content stored as plain text as structured', () => {
+    expect(isStructured('text/plain', '{"questions": []}')).toBe(true)
+  })
+
+  it.each([
+    ['text/markdown', '# PRD'],
+    ['text/plain', 'Just prose.'],
+    ['text/plain', '[link](https://example.com)'],
+  ])('renders %s %j as Markdown', (mime, content) => {
+    expect(isStructured(mime, content)).toBe(false)
   })
 })

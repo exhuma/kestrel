@@ -20,9 +20,10 @@ from tests.test_jira_poll import (
     _FakeDismissals as _JiraDismissals,
 )
 from tests.test_reconcile import (
+    _board_intake,
     _FakeDismissals,
     _FakeGitHub,
-    _FakeWorkflows,
+    _FakeTaskSources,
 )
 
 
@@ -30,16 +31,25 @@ from tests.test_reconcile import (
 async def test_reconcile_list_work_items_starts_no_run() -> None:
     """Ensure the GitHub listing returns items and starts no run."""
     source = TaskSourceConfig(type="github", watched_repos=["o/r"])
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
+    board_intake = _board_intake()
     ingestion = IngestionService(
-        Settings(_env_file=None, task_sources=[source]), wf, dis
+        Settings(_env_file=None, task_sources=[source]),
+        _FakeTaskSources(),
+        dis,
+        board_intake,
     )
     svc = ReconcileService(
-        source, _FakeGitHub(issues=[Issue(5, "Fix", "b")]), ingestion, dis
+        source,
+        _FakeGitHub(
+            issues=[Issue(5, "Fix", "b", labels=frozenset({"kestrel"}))]
+        ),
+        ingestion,
+        dis,
     )
     items = await svc.list_work_items()
     assert items == [WorkItem("github-issue", "o/r#5", "Fix", "o/r")]
-    assert wf.created == []
+    assert board_intake.board.calls == []
 
 
 @pytest.mark.asyncio
@@ -67,10 +77,9 @@ def test_configured_poll_sources_gates_on_type(
     """Ensure a PollSource is yielded per configured type, none when empty."""
     monkeypatch.setattr(poll_source, "get_reconcile_services", lambda: ("R",))
     monkeypatch.setattr(poll_source, "get_jira_poll_services", lambda: ("J",))
-    monkeypatch.setattr(poll_source, "get_feedback_poll_service", lambda: "F")
     monkeypatch.setattr(poll_source, "get_health_poll_service", lambda: "H")
     gh = TaskSourceConfig(type="github", watched_repos=["o/r"])
     jira = TaskSourceConfig(type="jira", base_url="https://j", jql="q", key="R")
     assert poll_source.configured_poll_sources(Settings(_env_file=None)) == []
     both = Settings(_env_file=None, task_sources=[gh, jira])
-    assert poll_source.configured_poll_sources(both) == ["R", "J", "F", "H"]
+    assert poll_source.configured_poll_sources(both) == ["R", "J", "H"]

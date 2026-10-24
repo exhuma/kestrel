@@ -7,7 +7,7 @@ const { items, refresh, recheck, start, stop } = useSourceHealth()
 
 onMounted(() => {
   // Reliable baseline via plain fetch, independent of the SSE stream
-  // actually connecting — see WorkflowPanel.vue for the same pattern.
+  // actually connecting.
   void refresh()
   start()
 })

@@ -6,37 +6,19 @@ source-neutral ``task_ref`` ``"owner/name#123"``.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
 
 import httpx
 
-from app.ports import ChangeRequest, Feedback
+from app.document_formats.markdown import render_markdown
+from app.documents import Document
+from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services import github_reviews
 from app.services.exceptions import GitHubError
-from app.services.feedback.timeparse import parse_iso
-
-#: Extracts a PR/MR number from the tail of a change-request URL —
-#: GitHub's ``.../pull/123`` or GitLab's ``.../merge_requests/123``.
-_CR_NUMBER_RE = re.compile(r"/(?:pull|merge_requests)/(\d+)(?:[/?#]|$)")
-
-
-def change_request_number(url: str) -> int | None:
-    """
-    Extract a pull/merge-request number from an existing ``run.pr_url``.
-
-    Used to backfill ``pr_number``-less rows persisted before that column
-    existed, with no migration data-fix (data-model.md). Never raises.
-
-    :param url: A change-request URL, or ``""``/``None``/anything malformed.
-    :returns: The trailing number, or ``None`` when ``url`` doesn't match.
-    """
-    if not url:
-        return None
-    match = _CR_NUMBER_RE.search(url)
-    return int(match.group(1)) if match else None
+from app.services.github_ci import required_ci_statuses
+from app.services.task_source_utils import parse_iso
 
 
 def parse_github_ref(ref: str) -> tuple[str, int]:
@@ -60,6 +42,10 @@ class Issue:
     number: int
     title: str
     body: str
+    state: Literal["open", "closed"] = "open"
+    labels: frozenset[str] = frozenset()
+    #: The login of whoever opened the issue ("" when unknown).
+    author: str = ""
 
 
 class GitHubClient:
@@ -129,14 +115,13 @@ class GitHubClient:
     async def check_health(self) -> bool:
         """Best-effort reachability + auth probe (feature 014).
 
-        A single cheap, repo-independent, authenticated call. Never
-        raises: any failure (network, auth, timeout, malformed response)
-        is caught and reported as ``False``.
+        A single cheap, repo-independent, authenticated call.
+
+        :raises httpx.HTTPError: When GitHub cannot be reached; the health
+            service logs why.
+        :raises GitHubError: When it answers with a failure (e.g. 401).
         """
-        try:
-            await self._request("GET", "/user")
-        except Exception:  # noqa: BLE001 — health checks never raise
-            return False
+        await self._request("GET", "/user")
         return True
 
     async def get_issue(self, repo: str, number: int) -> Issue:
@@ -147,6 +132,11 @@ class GitHubClient:
             number=data["number"],
             title=data.get("title", ""),
             body=data.get("body") or "",
+            state="closed" if data.get("state") == "closed" else "open",
+            labels=frozenset(
+                label["name"] for label in data.get("labels", [])
+            ),
+            author=(data.get("user") or {}).get("login", ""),
         )
 
     async def create_issue_comment(
@@ -163,17 +153,36 @@ class GitHubClient:
     async def list_issues_by_label(
         self, repo: str, label: str, *, state: str = "open"
     ) -> list[Issue]:
+        """List real issues carrying ``label``, following pagination."""
+        return await self._list_issues(
+            repo, state=state, params={"labels": label}
+        )
+
+    async def list_issues(
+        self, repo: str, *, state: str = "open"
+    ) -> list[Issue]:
+        """List every real issue in ``repo``, following pagination."""
+        return await self._list_issues(repo, state=state)
+
+    async def _list_issues(
+        self,
+        repo: str,
+        *,
+        state: str,
+        params: dict[str, str] | None = None,
+    ) -> list[Issue]:
         """
-        List issues carrying ``label``, following pagination.
+        List real issues matching ``params``, following pagination.
 
         The issues API also returns pull requests; those (items with a
         ``pull_request`` key) are excluded so only real issues are returned.
         """
         issues: list[Issue] = []
+        request_params = {"state": state, "per_page": 100, **(params or {})}
         resp = await self._request(
             "GET",
             f"/repos/{repo}/issues",
-            params={"labels": label, "state": state, "per_page": 100},
+            params=request_params,
         )
         while True:
             for item in resp.json():
@@ -184,6 +193,14 @@ class GitHubClient:
                         number=item["number"],
                         title=item.get("title", ""),
                         body=item.get("body") or "",
+                        state=(
+                            "closed"
+                            if item.get("state") == "closed"
+                            else "open"
+                        ),
+                        labels=frozenset(
+                            label["name"] for label in item.get("labels", [])
+                        ),
                     )
                 )
             nxt = resp.links.get("next")
@@ -201,6 +218,7 @@ class GitHubClient:
         await self._request(
             "PATCH", f"/repos/{repo}/issues/{number}", json={"body": body}
         )
+
 
     async def add_label(self, repo: str, number: int, label: str) -> None:
         """Add ``label`` to an issue (a no-op if ``label`` is empty)."""
@@ -370,6 +388,10 @@ class GitHubCodeHost:
     async def get_default_branch(self, repo: str) -> str:
         return await self._client.get_default_branch(repo)
 
+    def supports_change_requests(self) -> bool:
+        """Report GitHub pull-request support."""
+        return True
+
     async def check_health(self) -> bool:
         """Delegates to the shared client — same connection/credential
         as this profile's task source, when GitHub plays both roles."""
@@ -377,6 +399,10 @@ class GitHubCodeHost:
 
     def clone_remote(self, repo: str) -> str:
         return f"{self._git_base}/{repo}.git"
+
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """The raw content of *path* on *branch* (feature 043)."""
+        return f"{self._git_base}/{repo}/raw/{quote(branch)}/{quote(path)}"
 
     def git_credential(self) -> tuple[str, str]:
         return ("x-access-token", self._client.token)
@@ -388,11 +414,12 @@ class GitHubCodeHost:
         head: str,
         base: str,
         title: str,
-        body: str,
+        body: Document,
         draft: bool = True,
     ) -> str:
+        rendered = render_markdown(body)
         return await self._client.create_pull_request(
-            repo, head=head, base=base, title=title, body=body, draft=draft
+            repo, head=head, base=base, title=title, body=rendered, draft=draft
         )
 
     async def get_change_request(
@@ -409,6 +436,12 @@ class GitHubCodeHost:
         return ChangeRequest(
             number=number, state=state, url=data.get("html_url") or ""
         )
+
+    async def required_ci_statuses(
+        self, repo: str, number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Normalize requested GitHub check-run and commit-status states."""
+        return await required_ci_statuses(self._client, repo, number, names)
 
     async def list_review_comments(
         self, repo: str, number: int, since: str | None = None
@@ -451,5 +484,3 @@ class GitHubCodeHost:
             return True
         except Exception:  # noqa: BLE001 — best-effort acknowledgment
             return False
-
-

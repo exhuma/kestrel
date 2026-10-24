@@ -15,22 +15,42 @@ deterministic checks (tests, lint) are deliberately not part of this: that
 coverage is the coder's TDD responsibility, not something verify
 re-measures.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol
+
+from app.documents import Document
+
+
+@dataclass(frozen=True)
+class Person:
+    """Someone on a task source, by their account there (feature 046).
+
+    ``account_id`` is what the source identifies them by (a Jira
+    ``accountId``, a GitHub login); ``display_name`` is for people to read.
+    """
+
+    account_id: str
+    display_name: str = ""
 
 
 @dataclass
 class Task:
-    """A source ticket: its native ref plus title/body text."""
+    """A source ticket: its native ref, title, body and people."""
 
     #: Source-native ticket id (also the run's ``task_ref``): GitHub
     #: ``"owner/name#123"``, Jira the issue key ``"RFC-123"``.
     ref: str
     title: str
-    body: str
+    body: Document
+    #: Who filed the ticket, when the source says (feature 046).
+    reporter: Person | None = None
+    #: The ticket's change owner, from a configured field (Jira, feature
+    #: 046); ``None`` when unset or the source has no such notion.
+    change_owner: Person | None = None
 
 
 @dataclass
@@ -53,20 +73,42 @@ class WorkItem:
 class Feedback:
     """One piece of marker-gated feedback read from a ticket or PR review.
 
-    The port-level read result — not itself a database row (the persisted
-    form is ``FeedbackItemRow``, ``persistence/tables.py``). ``external_id``
-    is source-native and adapter-minted (e.g. GitHub's
-    ``"gh-issue-comment:8812"``, Jira's ``"jira-comment:{issue}:{id}"``): it
-    is what makes cross-transport dedup possible (feature 013, R3/R6) — the
-    same webhook-vs-poll race a ``feedback_item`` primary key already
-    guards against for other event classes in this project.
+    The port-level read result. ``external_id`` is source-native and
+    adapter-minted (e.g. GitHub's ``"gh-issue-comment:8812"``, Jira's
+    ``"jira-comment:{issue}:{id}"``): it is what makes cross-transport
+    dedup possible (feature 013, R3/R6).
     """
 
     external_id: str
     origin: Literal["ticket", "review"]
-    author: str
-    body: str
+    author: Person
+    body: Document
     created_at: datetime
+
+
+@dataclass
+class CommentPage:
+    """Comments read from a ticket, and where to continue next time.
+
+    ``cursor`` is opaque and owned by the adapter (feature 046): the caller
+    stores it and passes it back. Reading may repeat the last comment;
+    callers deduplicate by ``Feedback.external_id``.
+    """
+
+    comments: list[Feedback]
+    cursor: str | None
+
+
+class SubtaskContextError(Exception):
+    """A child was created but its required source context was not completed.
+
+    ``task_ref`` lets the workflow checkpoint the created child before surfacing
+    the failure, so a retry can repair it without creating another child.
+    """
+
+    def __init__(self, task_ref: str) -> None:
+        super().__init__(f"subtask context incomplete for {task_ref}")
+        self.task_ref = task_ref
 
 
 @dataclass
@@ -87,35 +129,18 @@ class ChangeRequest:
     url: str = ""
 
 
-@dataclass
-class Observation:
-    """One self-reported outcome the verifier weighs.
+@dataclass(frozen=True)
+class RequiredCiStatus:
+    """One required check's normalized result for a change request.
 
-    ``kind`` distinguishes the boundary exercised: ``"http"`` (a real
-    request against the running API) or ``"ui"`` (a browser-driven
-    interaction). ``detail`` is a bounded excerpt — never full logs, never
-    secrets.
+    ``state`` is intentionally small: providers may expose many native
+    terminal names, but callers only need to decide whether to wait, repair,
+    or declare technical readiness.
     """
 
     name: str
-    kind: Literal["http", "ui"]
-    passed: bool
+    state: Literal["pending", "passed", "failed"]
     detail: str = ""
-
-
-@dataclass
-class Evidence:
-    """The evidence bundle for one verify round (empty ⇒ judgment-only)."""
-
-    observations: list[Observation] = field(default_factory=list)
-
-    def all_passed(self) -> bool:
-        """Return whether every observation passed (vacuously true if empty)."""
-        return all(o.passed for o in self.observations)
-
-    def failures(self) -> list[Observation]:
-        """Return failing observations (the failing-observation invariant)."""
-        return [o for o in self.observations if not o.passed]
 
 
 @dataclass
@@ -140,20 +165,6 @@ class LifecycleEvent:
     deep_link: str = ""
 
 
-class Acknowledgeable(Protocol):
-    """Shared by ``TaskSource`` and ``CodeHost`` (feature 013): whichever
-    one a piece of ``Feedback`` actually came from is acknowledged the
-    same way, so callers (``FeedbackIntakeService``, the poll transport)
-    don't need to know or care which port they're holding."""
-
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """Best-effort reaction on the triggering comment/note. Returns
-        ``False`` (never raises) when the source has no such capability."""
-        ...
-
-
 class TaskSource(Protocol):
     """The ticket role, keyed by an opaque source-native ``ref``."""
 
@@ -161,8 +172,12 @@ class TaskSource(Protocol):
         """Fetch the ticket's current title/body."""
         ...
 
-    async def post_comment(self, ref: str, body: str) -> str:
-        """Post a comment; return its URL (best-effort caller)."""
+    async def post_comment(self, ref: str, body: Document) -> str:
+        """Post a comment marked as kestrel's own; return its URL.
+
+        The adapter adds the ownership marker (``Marker("posted")``)
+        unless comment marking is disabled for this source.
+        """
         ...
 
     async def attach(
@@ -176,23 +191,40 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def publish_refined(self, ref: str, content: str) -> None:
+    async def publish_refined(self, ref: str, content: Document) -> None:
         """Record the approved PRD on the ticket (update body / attach)."""
         ...
 
     async def create_subtask(
-        self, parent_ref: str, title: str, body: str
+        self,
+        parent_ref: str,
+        title: str,
+        body: Document,
     ) -> str:
         """Create a follow-up task linked to ``parent_ref`` (feature 012).
 
-        ``body`` is already final and self-contained (the caller has
-        already run the completeness check) and already carries the
-        ``SUBTASK_SENTINEL`` marker. Implementations MUST create the
-        ticket without satisfying this source's own ingestion-trigger
-        condition (e.g. GitHub: no ``trigger_label``), so publishing a
-        follow-up task never itself starts a new run.
+        **Currently unused** (feature 031): approved decomposition tasks
+        stay cards inside the request's workflow and are no longer
+        published. Kept, with every adapter, for mirroring those cards
+        back to the task source as sub-tasks (GitHub #64).
+
+        ``body`` is final and self-contained; any ``Marker`` blocks in it
+        are preserved through the source's own write/read round trip (the
+        caller decides *which* markers, the adapter *how* they look).
+        Implementations MUST create the ticket without satisfying this
+        source's own ingestion-trigger condition (e.g. GitHub: no
+        ``trigger_label``), so publishing a follow-up task never itself
+        starts a new run.
 
         :returns: The new ticket's source-native ref.
+        """
+        ...
+
+    async def complete_subtask(self, parent_ref: str, task_ref: str) -> None:
+        """Ensure an existing child has source context needed for discovery.
+
+        May raise :class:`SubtaskContextError` after a remote write failure;
+        callers retain ``task_ref`` and retry this operation rather than create.
         """
         ...
 
@@ -216,6 +248,10 @@ class TaskSource(Protocol):
 
     async def transition(self, ref: str, event: LifecycleEvent) -> bool:
         """Best-effort native lifecycle-status transition (feature 006).
+
+        **Only for sub-tasks kestrel created itself.** Kestrel MUST NOT
+        change the status of an ingested task (constitution, access model,
+        fourth recorded constraint); it asks the owner in a comment instead.
 
         Attempts the platform's native status mechanism for
         ``event.kind`` (e.g. a label, a workflow transition). When
@@ -253,14 +289,13 @@ class TaskSource(Protocol):
 
     async def list_comments(
         self, ref: str, since: str | None = None
-    ) -> list[Feedback]:
-        """Comments on ``ref``, newest-cursor-forward (feature 013).
+    ) -> CommentPage:
+        """Comments on ``ref``, oldest first, from cursor ``since``.
 
-        ``since`` is this adapter's own opaque cursor (from a prior call's
-        ``Feedback`` items, or a persisted ``feedback_cursor`` row), or
-        ``None`` to read from the beginning. The port stays ignorant of
-        each source's own pagination scheme (GitHub's ``since=``
-        timestamp, Jira's ``startAt``, fixture's line offset).
+        ``since`` is the ``cursor`` of a previous page, or ``None`` to read
+        from the beginning. The port stays ignorant of each source's own
+        pagination scheme; comments carrying kestrel's ownership marker
+        are included and left to the caller to skip (feature 046).
         """
         ...
 
@@ -279,9 +314,18 @@ class TaskSource(Protocol):
 
         A single cheap, read-only, ticket-independent call (e.g. "who am
         I") — never a specific ``ref``, since this checks the adapter
-        itself, not any one ticket. MUST NOT raise: any failure (network,
-        auth, timeout, malformed response) is caught internally and
-        reported as ``False`` (contracts/health-check-port.md).
+        itself, not any one ticket. A failure (network, TLS, auth,
+        timeout) raises: the health service treats any exception as
+        unhealthy and logs why (contracts/health-check-port.md).
+        """
+        ...
+
+    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
+        """Remove or restore a recorded resource and return its final state.
+
+        Returns ``"cleaned"``, ``"closed"``, or ``"absent"``. A source
+        without a cleanup capability may raise, allowing the caller to retain
+        required cleanup work while best-effort entries are reported.
         """
         ...
 
@@ -302,12 +346,21 @@ class CodeHost(Protocol):
         """The HTTPS git remote a worktree clones/fetches from."""
         ...
 
-    def git_credential(self) -> tuple[str, str]:
+    def git_credential(self) -> tuple[str, str] | None:
         """The ``(username, token)`` for git-over-HTTPS Basic auth.
 
         ``x-access-token`` for GitHub, ``oauth2`` for GitLab — the username
         git's smart-HTTP endpoint expects alongside the code-host token.
         """
+        ...
+
+    def supports_change_requests(self) -> bool:
+        """Whether this host can open and provide change-request reviews."""
+        ...
+
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """A URL serving *path*'s raw content on *branch* — how a change
+        request's body shows a committed screenshot (feature 043)."""
         ...
 
     async def open_change_request(
@@ -317,20 +370,29 @@ class CodeHost(Protocol):
         head: str,
         base: str,
         title: str,
-        body: str,
+        body: Document,
         draft: bool = True,
     ) -> str:
         """Open a pull/merge request; return its URL."""
         ...
 
-    async def get_change_request(
-        self, repo: str, number: int
-    ) -> ChangeRequest:
+    async def get_change_request(self, repo: str, number: int) -> ChangeRequest:
         """Fetch a pull/merge request's current lifecycle state.
 
         The read a review-feedback resume decides on (feature 013,
         US3/US4): an ``open`` request resumes the same branch, a
         ``merged``/``closed`` one instead starts a linked successor.
+        """
+        ...
+
+    async def required_ci_statuses(
+        self, repo: str, number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Return normalized states for the requested CR checks.
+
+        The result contains one entry for every requested name. A check not
+        yet reported is ``pending``; no provider-specific status leaks above
+        this boundary.
         """
         ...
 
@@ -361,8 +423,8 @@ class CodeHost(Protocol):
         """Best-effort reachability + auth probe (feature 014).
 
         A single cheap, read-only, repo-independent call (e.g. "who am
-        I"). MUST NOT raise: any failure (network, auth, timeout,
-        malformed response) is caught internally and reported as
-        ``False`` (contracts/health-check-port.md).
+        I"). A failure (network, TLS, auth, timeout) raises: the health
+        service treats any exception as unhealthy and logs why
+        (contracts/health-check-port.md).
         """
         ...

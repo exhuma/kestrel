@@ -1,6 +1,91 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-10-05 (1.5.1 -> 1.6.0, MINOR): Add Principle VI, "Documents
+Are Modelled, Never Strings" (NON-NEGOTIABLE). Every document kestrel handles
+is the abstract `Document` internally; parsing and rendering happen only in
+the adapter at a system boundary (task sources, code hosts, agent backends,
+persistence, the HTTP API), never in core code, and never as a format
+round-trip inside an adapter. Prompted by the Jira-first alpha: Jira Cloud
+requires ADF, and string-typed documents leak platform syntax into the core.
+Existing violations are named as debt.
+The same amendment records a fourth access-model constraint: kestrel never
+changes the status of an ingested task, only of sub-tasks it created itself;
+it asks the responsible human in a comment instead. Feature 006's
+`TaskSource.transition` port and `transition_*` settings remain, restricted
+to kestrel-created sub-tasks (nothing calls them today). A new principle and
+a new constraint, therefore MINOR.
+
+Added sections:
+  - Core Principles -> VI. Documents Are Modelled, Never Strings
+  - Technology & Architecture Constraints -> access model: fourth recorded
+    constraint (no status changes on an ingested task)
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... no edit; gates are derived
+    from this file dynamically
+  - .specify/templates/spec-template.md ...... no edit; no section changed
+  - .specify/templates/tasks-template.md ..... no edit
+  - AGENTS.md ................................ consistent; defers to this file
+
+Follow-up TODOs:
+  - Add the import-linter contract (only adapters import parse/render).
+  - Remove the named violations; the Jira-first alpha plan schedules this.
+
+--------------------------------------------------------------------------------
+Amendment 2026-09-24 (1.5.0 -> 1.5.1, PATCH): Correct a factual drift left by
+the Phase 10 clean break (spec 026-autonomous-work-board): the fixed six-step
+workflow driver and its `/api/workflows/*` router — the sole implementation of
+"Kestrel's rerun action" referenced in the access model's third recorded
+constraint — were removed. No principle or binding constraint is added,
+removed, or redefined: the visibility()-gated restriction on any local-only
+destructive action remains binding for if/when such an action is
+reintroduced; only the constraint's description is updated to state plainly
+that no such action exists in the current board-domain implementation.
+Therefore PATCH, per the same class of change as the 1.0.0 -> 1.0.1 amendment
+below.
+
+Modified sections:
+  - Technology & Architecture Constraints -> access-model third constraint:
+    added a note that rerun is not currently implemented, without altering
+    the underlying restriction.
+
+Templates & docs reviewed for consistency:
+  - docs/architecture.md, docs/configuration.md, docs/setup-local-tasks.md,
+    README.md ... updated in the same pass to drop the "Rerun action" as a
+    currently offered feature (see those files' own history for detail).
+
+Follow-up TODOs: none.
+
+--------------------------------------------------------------------------------
+Amendment 2026-09-15 (1.4.0 -> 1.5.0, MINOR): Permit tightly scoped cleanup
+writes for artifacts Kestrel itself created and durably recorded. The prior
+public-source constraint made delete/cleanup local-only so externally shared
+tickets could never be rewritten. That made a reset incomplete: approved PRDs,
+comments, attachments, and generated sub-tasks survived, and the next poll did
+not see the original task state. Cleanup may now delete, close, or restore only
+a Kestrel-owned artifact with a durable workflow-artifact record; it must never
+change the original task beyond restoring its exact pre-publication state.
+Missing artifacts are successful cleanup, required failures remain tracked for
+retry, and comment/feedback deletion is explicitly best-effort. This is a
+material expansion of the public-source write posture, therefore MINOR.
+
+Modified sections:
+  - Technology & Architecture Constraints -> access-model third constraint
+    expanded with ownership, idempotency, restoration, and failure boundaries.
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/plan-template.md ...... no edit; dynamic check
+  - .specify/templates/spec-template.md ...... no edit; no section changed
+  - .specify/templates/tasks-template.md ..... no edit; tasks can represent it
+  - AGENTS.md ................................ consistent; defers constraints
+  - docs/architecture.md .................... update during implementation to
+    document cleanup artifact ownership and lifecycle.
+
+Follow-up TODOs:
+  - Update operator-facing cleanup documentation during implementation.
+
+--------------------------------------------------------------------------------
 Amendment 2026-08-10 (1.3.0 → 1.4.0, MINOR): Record the visibility/rerun constraint
 introduced by feature 008-fixture-task-source in "Technology & Architecture
 Constraints". Every `TaskSource` implementation (`backend/app/ports.py`) now declares
@@ -248,6 +333,44 @@ documented template).
 observability are what let a single maintainer move quickly without breaking
 trust in the running system.
 
+### VI. Documents Are Modelled, Never Strings (NON-NEGOTIABLE)
+
+Every document kestrel handles — ticket bodies, comments it reads or posts,
+PR/MR bodies and review comments, gate announcements, artifacts such as the
+restatement, PRD and executive summary, and agent-authored text — MUST be
+modelled internally as the abstract `Document` (`backend/app/documents.py`: a
+closed set of inline and block constructs).
+
+- **Parse and render only at a system boundary**, inside that boundary's
+  adapter: task sources and code hosts (Jira ADF in and out; GitHub and
+  GitLab Markdown in and out), agent backends (agent-authored Markdown is
+  parsed when the result is accepted), persistence (Document serialisation)
+  and the HTTP API to the frontend.
+- **Core and board code MUST NOT** build, concatenate, append to or inspect
+  raw Markdown, ADF or wiki-markup strings, and MUST NOT pass `str` where a
+  document is meant: ports take `Document`, never `Document | str`.
+- **No round-trips inside an adapter.** An adapter renders the `Document` it
+  is given straight to its platform format; it MUST NOT render to another
+  format and re-parse (e.g. to Markdown, to append a sentinel). Sentinels and
+  markers are `Document` constructs.
+- **Inbound content stays structured.** An adapter converts what it reads
+  into a `Document`; port types do not flatten it to plain text. A consumer
+  that needs plain text asks the `Document` for it.
+- **Enforced mechanically** where a tool can: an import-linter contract
+  allows only adapter modules to import the parse and render functions.
+
+Code that predates this principle and violates it is known debt to remove,
+never precedent to copy: the ports' `Document | str` parameters,
+`JiraTaskSource.post_comment` rendering to Markdown and re-parsing to append
+its sentinel, `Task.body` and `Feedback.body` flattened to plain text, and
+board projections posting plain strings.
+
+**Rationale**: Platforms disagree on format — Jira Cloud requires ADF, and
+Markdown sent to it is not rendered — so a string-typed document leaks one
+platform's syntax into the core and from there into every other platform. One
+internal model, converted only at the edge, makes each adapter the single
+place that knows its platform.
+
 ## Technology & Architecture Constraints
 
 The living description of how the system fits together is
@@ -309,11 +432,29 @@ section records only the non-negotiable constraints an agent must honour.
   to reset. Kestrel's rerun action — abandon a run, force-delete its branch, and
   immediately restart it against the same task, discarding and replacing the run's
   history — MUST be refused unless the run's task source reports `"private"`; this is
-  enforced once, centrally, in the service layer (never left to the frontend to
-  enforce alone, per Principle II). The existing delete/cleanup actions were already
-  safe for public sources (they act only on kestrel's local state, never on the
-  remote ticket) and this constraint does not change that; it only formalizes the
-  guarantee and extends it to gate rerun.
+enforced once, centrally, in the service layer (never left to the frontend to
+enforce alone, per Principle II). **Not currently implemented**: the fixed
+driver's `/api/workflows/*` router, the sole implementation of rerun, was
+removed in the Phase 10 clean break (spec 026-autonomous-work-board);
+`visibility()` is still recorded on every board workflow, and this same
+visibility-gated restriction and central-enforcement requirement apply
+unchanged if rerun, or an equivalent local-only destructive action, is
+reintroduced. Delete remains local-only. Cleanup may modify
+a public source solely to remove, close, or restore artifacts Kestrel itself
+created and recorded against that workflow; it MUST NOT alter an untracked
+resource or change the original source task except to restore its exact
+pre-publication state. Artifact cleanup MUST be idempotent: an absent artifact
+is success, while an unresolved required cleanup failure remains recorded for
+retry. Deleting comments/feedback is best-effort and cannot prevent the local
+reset or future polling eligibility. **Fourth recorded constraint**: kestrel
+MUST NOT change the status (workflow state, transition, resolution) of an
+ingested task — the ticket a request was ingested from belongs to its owners,
+and moving it is their decision. Kestrel MAY transition only sub-tasks it
+created itself and recorded against the workflow. Where an ingested task
+should move on, kestrel tells the responsible human in a comment instead.
+Operator-provided `hooks_dir` executables are the operator's own code and
+outside this constraint, but kestrel itself MUST NOT call
+`TaskSource.transition` on an ingested task.
 - **Run modes**: a bundled Docker image (backend + built SPA + `claude` CLI)
   and a run-from-source developer flow (uv / vite) MUST both remain working.
 
@@ -354,4 +495,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 1.4.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-08-10
+**Version**: 1.6.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-10-05

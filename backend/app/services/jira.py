@@ -1,23 +1,38 @@
-"""Async Jira REST client + ``TaskSource`` adapter (feature 003).
+"""Jira ``TaskSource`` adapter (feature 003).
 
-Jira is a *task source* whose code lives in a separate repository. This client
-reuses ``httpx`` (no new dependency) and targets the REST **v2** API, whose
-plain-text comment/description bodies keep the integration simple and work on
-self-hosted Jira Server/DC — the sovereignty target. Auth is configurable:
-``basic`` (Cloud — email + API token) or ``bearer`` (Server/DC — PAT). The
-token is a secret and is never logged.
+Jira is a *task source* whose code lives in a separate repository. The REST
+client is :mod:`app.services.jira_client`; this adapter maps the port onto
+it. Comments are Documents carrying kestrel's ownership marker, rendered
+once by the client (ADF on Cloud); comments read back are Documents with
+their authors' accounts (feature 046).
 """
+
 from __future__ import annotations
 
 import logging
 from typing import Literal
 
-import httpx
-
 from app.config_models import TaskSourceConfig
-from app.ports import Feedback, LifecycleEvent, Task
-from app.services.exceptions import GitError
-from app.services.feedback.timeparse import parse_iso
+from app.document_formats.adf import parse_adf
+from app.document_formats.markdown import render_markdown
+from app.documents import Document
+from app.ports import (
+    CommentPage,
+    Feedback,
+    LifecycleEvent,
+    Person,
+    SubtaskContextError,
+    Task,
+)
+from app.services.jira_client import JiraClient, JiraError, person
+from app.services.task_source_utils import (
+    REFINED,
+    as_posted,
+    parse_iso,
+    with_marker,
+)
+
+__all__ = ["JiraClient", "JiraError", "JiraTaskSource"]
 
 _log = logging.getLogger("kestrel.jira")
 
@@ -31,206 +46,6 @@ _TRANSITION_FIELD = {
 }
 
 
-class JiraError(GitError):
-    """A Jira REST call failed."""
-
-
-class JiraClient:
-    """Thin async wrapper over the Jira REST v2 API."""
-
-    def __init__(
-        self,
-        base_url: str,
-        *,
-        auth: str = "basic",
-        email: str = "",
-        token: str = "",
-        verify: bool = True,
-    ) -> None:
-        self._base = base_url.rstrip("/")
-        self._auth_mode = auth
-        self._email = email
-        self._token = token
-        http_auth = (
-            httpx.BasicAuth(email, token)
-            if auth == "basic" and token
-            else None
-        )
-        self._http = httpx.AsyncClient(
-            base_url=f"{self._base}/rest/api/2", auth=http_auth, verify=verify
-        )
-
-    def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if self._auth_mode == "bearer" and self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        if extra:
-            headers.update(extra)
-        return headers
-
-    async def _request(self, method: str, path: str, **kw) -> httpx.Response:
-        headers = kw.pop("headers", None) or self._headers()
-        resp = await self._http.request(method, path, headers=headers, **kw)
-        if resp.status_code >= 300:
-            # Redact: neither the token nor Basic credentials are echoed.
-            raise JiraError(
-                f"{method} {path} -> {resp.status_code}: {resp.text}"
-            )
-        return resp
-
-    async def check_health(self) -> bool:
-        """Best-effort reachability + auth probe (feature 014).
-
-        A single cheap, issue-independent, authenticated call. Never
-        raises: any failure (network, auth, timeout, malformed response)
-        is caught and reported as ``False``.
-        """
-        try:
-            await self._request("GET", "/myself")
-        except Exception:  # noqa: BLE001 — health checks never raise
-            return False
-        return True
-
-    @staticmethod
-    def _to_task(issue: dict) -> Task:
-        fields = issue.get("fields") or {}
-        return Task(
-            ref=issue["key"],
-            title=fields.get("summary") or "",
-            body=fields.get("description") or "",
-        )
-
-    async def search(
-        self, jql: str, *, fields: list[str], max_results: int = 50
-    ) -> list[Task]:
-        """Return the qualifying issues for ``jql`` as ``Task``s.
-
-        Uses the enhanced ``/search/jql`` endpoint (Jira Cloud removed the
-        legacy ``/search``). Pagination is token-based: the old ``startAt``/
-        ``total`` model is gone, so every page is followed via
-        ``nextPageToken`` until the response reports ``isLast``. Collecting
-        every page keeps the poll's dismissal-clear logic correct.
-        """
-        body = {"jql": jql, "fields": fields, "maxResults": max_results}
-        issues: list[dict] = []
-        token: str | None = None
-        while True:
-            page = await self._search_page(body, token)
-            issues.extend(page.get("issues", []))
-            token = None if page.get("isLast") else page.get("nextPageToken")
-            if not token:
-                break
-        return [self._to_task(i) for i in issues]
-
-    async def _search_page(
-        self, body: dict, token: str | None
-    ) -> dict:
-        """POST one enhanced-search page; ``token`` continues a prior page."""
-        payload = body if token is None else {**body, "nextPageToken": token}
-        resp = await self._request("POST", "/search/jql", json=payload)
-        return resp.json()
-
-    async def get_issue(self, key: str) -> Task:
-        """Fetch a single issue's summary/description."""
-        resp = await self._request(
-            "GET", f"/issue/{key}", params={"fields": "summary,description"}
-        )
-        return self._to_task(resp.json())
-
-    async def get_field(self, key: str, field: str) -> str | None:
-        """Read one field's scalar value (the repo-resolution field)."""
-        resp = await self._request(
-            "GET", f"/issue/{key}", params={"fields": field}
-        )
-        value = (resp.json().get("fields") or {}).get(field)
-        if value is None:
-            return None
-        return value if isinstance(value, str) else str(value)
-
-    async def get_remote_links(self, key: str) -> list[dict]:
-        """Return the issue's remote/web links (raw ``object.url``/title)."""
-        resp = await self._request("GET", f"/issue/{key}/remotelink")
-        data = resp.json()
-        return data if isinstance(data, list) else []
-
-    async def add_comment(self, key: str, body: str) -> str:
-        """Post a comment; return its API URL."""
-        resp = await self._request(
-            "POST", f"/issue/{key}/comment", json={"body": body}
-        )
-        return resp.json().get("self", "")
-
-    async def add_attachment(
-        self, key: str, name: str, data: bytes, mimetype: str
-    ) -> None:
-        """Attach a binary file to the issue. Requires the XSRF header."""
-        await self._request(
-            "POST",
-            f"/issue/{key}/attachments",
-            headers=self._headers({"X-Atlassian-Token": "no-check"}),
-            files={"file": (name, data, mimetype)},
-        )
-
-    async def create_subtask(
-        self, parent_key: str, project_key: str, summary: str, body: str
-    ) -> str:
-        """Create a native Sub-task issue linked to ``parent_key``.
-
-        Jira's own subdivision primitive (distinct from a plain linked
-        issue) — feature 012's follow-up tasks use it so the parent/child
-        relationship is native, not just a body reference.
-        """
-        resp = await self._request(
-            "POST",
-            "/issue",
-            json={
-                "fields": {
-                    "project": {"key": project_key},
-                    "summary": summary,
-                    "description": body,
-                    "issuetype": {"name": "Sub-task"},
-                    "parent": {"key": parent_key},
-                }
-            },
-        )
-        return resp.json()["key"]
-
-    async def transition_issue(self, key: str, transition_id: str) -> None:
-        """Apply a configured workflow transition (feature 006)."""
-        await self._request(
-            "POST",
-            f"/issue/{key}/transitions",
-            json={"transition": {"id": transition_id}},
-        )
-
-    async def set_field(self, key: str, field: str, value: object) -> None:
-        """Write one field's value (e.g. a time-tracking field)."""
-        await self._request(
-            "PUT", f"/issue/{key}", json={"fields": {field: value}}
-        )
-
-    async def list_comments(self, key: str) -> list[dict]:
-        """Fetch every comment on an issue, oldest first (feature 013).
-
-        Paginates via ``startAt``/``total`` (the v2 comment endpoint's own
-        scheme) until every page has been read; typical RFC comment
-        volume is small enough that this is always one or two calls.
-        """
-        comments: list[dict] = []
-        start = 0
-        while True:
-            resp = await self._request(
-                "GET", f"/issue/{key}/comment",
-                params={"orderBy": "created", "startAt": start},
-            )
-            data = resp.json()
-            page = data.get("comments", [])
-            comments.extend(page)
-            start += len(page)
-            if not page or start >= data.get("total", start):
-                return comments
-
-
 class JiraTaskSource:
     """``TaskSource`` adapter over :class:`JiraClient` (RFC tickets)."""
 
@@ -239,6 +54,7 @@ class JiraTaskSource:
         client: JiraClient,
         public_base_url: str = "",
         config: "TaskSourceConfig | None" = None,
+        comment_sentinel_enabled: bool = True,
     ) -> None:
         """
         :param config: This source's config, carrying its lifecycle
@@ -249,35 +65,94 @@ class JiraTaskSource:
         self._client = client
         self._base = client._base
         self._config = config
+        self._comment_sentinel_enabled = comment_sentinel_enabled
 
     async def get_task(self, ref: str) -> Task:
-        return await self._client.get_issue(ref)
+        """The issue, with its reporter and configured change owner."""
+        field = self._config.change_owner_field if self._config else ""
+        return await self._client.get_issue(ref, field)
 
     async def check_health(self) -> bool:
         return await self._client.check_health()
 
-    async def post_comment(self, ref: str, body: str) -> str:
-        return await self._client.add_comment(ref, body)
+    async def post_comment(self, ref: str, body: Document) -> str:
+        """Post a comment carrying kestrel's ownership marker."""
+        return await self._client.add_comment(
+            ref, as_posted(body, self._comment_sentinel_enabled)
+        )
+
+    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
+        """Delete a recorded Jira resource when its deployment permits it."""
+        if kind == "source_body":
+            return "cleaned"
+        if kind == "comment" and external_id:
+            await self._client.delete_resource(external_id)
+            return "cleaned"
+        if kind == "subtask":
+            await self._client.delete_issue(external_id)
+            return "cleaned"
+        raise ValueError(f"unsupported Jira cleanup artifact: {kind}")
 
     async def attach(
         self, ref: str, name: str, data: bytes, mimetype: str
     ) -> None:
         await self._client.add_attachment(ref, name, data, mimetype)
-
-    async def publish_refined(self, ref: str, content: str) -> None:
-        """Deliver the approved PRD as an attachment on the RFC (FR-011)."""
+    async def publish_refined(self, ref: str, content: Document) -> None:
+        """Deliver the approved PRD as a Markdown attachment (FR-011)."""
+        text = render_markdown(with_marker(content, REFINED))
         await self._client.add_attachment(
-            ref, "PRD.md", content.encode("utf-8"), "text/markdown"
+            ref, "PRD.md", text.encode("utf-8"), "text/markdown"
         )
 
     async def create_subtask(
-        self, parent_ref: str, title: str, body: str
+        self,
+        parent_ref: str,
+        title: str,
+        body: Document,
     ) -> str:
-        """Create a native Sub-task issue in the parent's project."""
+        """Create a child that inherits its parent's repository binding."""
         project_key = parent_ref.split("-", 1)[0]
-        return await self._client.create_subtask(
-            parent_ref, project_key, title, body
+        repo_field = self._config.repo_field if self._config else ""
+        extra_fields = await self._repository_fields(parent_ref, repo_field)
+        child_ref = await self._client.create_subtask(
+            parent_ref, project_key, title, body, extra_fields
         )
+        await self.complete_subtask(parent_ref, child_ref)
+        return child_ref
+
+    async def complete_subtask(self, parent_ref: str, task_ref: str) -> None:
+        """Repair an existing child's repository binding when it uses links."""
+        if not self._config or self._config.repo_field:
+            return
+        try:
+            await self._copy_repository_link(parent_ref, task_ref)
+        except Exception as exc:
+            raise SubtaskContextError(task_ref) from exc
+
+    async def _repository_fields(
+        self, parent_ref: str, repo_field: str
+    ) -> dict[str, object] | None:
+        """Return the parent field binding when configured and populated."""
+        if not repo_field:
+            return None
+        value = await self._client.get_field(parent_ref, repo_field)
+        return {repo_field: value} if value and value.strip() else None
+
+    async def _copy_repository_link(
+        self, parent_ref: str, child_ref: str
+    ) -> None:
+        """Copy the configured repository link when no field binding exists."""
+        wanted = (
+            self._config.repo_link_text if self._config else "Repository"
+        ).casefold()
+        for link in await self._client.get_remote_links(parent_ref):
+            obj = link.get("object") or {}
+            if (obj.get("title") or "").casefold() != wanted:
+                continue
+            url = obj.get("url") or ""
+            if url:
+                await self._client.add_remote_link(child_ref, url, obj["title"])
+            return
 
     def display_label(self, ref: str) -> str:
         """The ref itself: already the issue key, e.g. "RFC-123"."""
@@ -331,26 +206,29 @@ class JiraTaskSource:
 
     async def list_comments(
         self, ref: str, since: str | None = None
-    ) -> list[Feedback]:
-        """List an RFC's comments as ``Feedback`` (feature 013).
+    ) -> CommentPage:
+        """An RFC's comments from cursor ``since``, oldest first.
 
-        ``since`` is an ISO-8601 cutoff, filtered client-side after
-        fetching every comment (Jira REST v2 has no server-side time
-        filter on this endpoint).
+        The cursor is the last comment's ``created`` timestamp, filtered
+        client-side (the endpoint has no time filter). The boundary
+        comment is read again; callers deduplicate by external id.
         """
         raw = await self._client.list_comments(ref)
         cutoff = parse_iso(since) if since else None
         items = [self._to_feedback(ref, c) for c in raw]
-        return [f for f in items if cutoff is None or f.created_at > cutoff]
+        comments = [
+            f for f in items if cutoff is None or f.created_at >= cutoff
+        ]
+        cursor = raw[-1]["created"] if raw else since
+        return CommentPage(comments, cursor)
 
     @staticmethod
     def _to_feedback(ref: str, comment: dict) -> Feedback:
-        author = (comment.get("author") or {}).get("displayName", "")
         return Feedback(
             external_id=f"jira-comment:{ref}:{comment['id']}",
             origin="ticket",
-            author=author,
-            body=comment.get("body") or "",
+            author=_author(comment.get("author")),
+            body=parse_adf(comment.get("body")),
             created_at=parse_iso(comment["created"]),
         )
 
@@ -359,3 +237,13 @@ class JiraTaskSource:
     ) -> bool:
         """Jira REST v2 has no reaction endpoint (feature 013)."""
         return False
+
+
+def _author(raw: object) -> Person:
+    """A comment's author; without an account, only their name is known
+    (an empty ``account_id`` never matches anyone)."""
+    found = person(raw)
+    if found is not None:
+        return found
+    name = raw.get("displayName") if isinstance(raw, dict) else ""
+    return Person("", str(name or ""))

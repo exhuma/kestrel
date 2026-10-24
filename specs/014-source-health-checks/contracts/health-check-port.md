@@ -10,11 +10,13 @@ Present on both `TaskSource` and `CodeHost` (`backend/app/ports.py`).
 
 ## Behavior every implementation MUST satisfy
 
-- **Never raises.** Any failure — connection refused, DNS failure, TLS
-  error, timeout, HTTP 4xx/5xx, malformed response body — is caught
-  internally and reported as `return False`. A caller iterating multiple
-  adapters' health MUST be able to call this with no `try`/`except` of
-  its own.
+- **Raises on failure** *(amended 2026-10-12)*. Any failure — connection
+  refused, DNS failure, TLS error, timeout, HTTP 4xx/5xx — propagates as
+  the adapter's exception. The one caller, `HealthPollService`, treats any
+  exception as unhealthy and logs its reason (once per change, with the
+  traceback) to the server log. Originally this said "never raises,
+  returns `False`"; adapters then swallowed every cause, and an operator
+  saw "unreachable" with nothing in the log to say why.
 - **No required arguments beyond `self`.** The check is about the
   adapter's own reachability/authentication, not about any particular
   repo or ticket — it MUST NOT depend on any specific `ref`/`repo` value

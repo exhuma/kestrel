@@ -1,5 +1,16 @@
 # Operator hooks (feature 006)
 
+**Currently dormant.** The mechanism below is unchanged in shape, but the
+old fixed driver's lifecycle-notification code that invoked a `hooks_dir`
+executable at each lifecycle event was removed in the Phase 10 clean break
+(spec 026-autonomous-work-board) and has no board-domain replacement yet —
+see [Architecture → Specialist dispatch, delivery, and
+write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078).
+Today, configuring `hooks_dir` only gets you the startup audit-log pass (the
+executables it finds are logged, and flagged if group/world-writable); no
+hook is ever actually invoked. This page documents the wire format for when
+that's wired back up.
+
 Kestrel pushes a run's lifecycle status ("in progress", "done", or a
 failure terminal) and its active/wait time back to a task's ticket —
 natively where the platform supports it (a GitHub label, a configured

@@ -17,13 +17,11 @@ from app.middleware import (
     SecurityHeadersMiddleware,
     VersionHeaderMiddleware,
 )
-from app.questionnaire import AnswerValidationError
 from app.services.exceptions import (
-    InvalidWorkflowStateError,
-    RerunNotAllowedError,
+    DirectPromptTooLargeError,
     SessionNotFoundError,
     SessionStartError,
-    WorkflowNotFoundError,
+    UnconfirmedDirectPromptError,
 )
 
 # Unified logging (see app.logging_config) configures the root logger, so a
@@ -37,7 +35,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.backends.registry import get_backend_registry
     from app.config import get_settings
     from app.logging_config import configure_logging
-    from app.services.workflows import get_workflow_service
 
     settings = get_settings()
     # Apply unified logging here, at startup, so it survives however the app
@@ -51,10 +48,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # check when a session runs on the wrong backend.
     get_backend_registry()
     _logger.info(
-        "backends: %s | ad-hoc sessions dispatch to: %r",
+        "config file: %s | backends: %s | ad-hoc sessions dispatch to: %r",
+        settings.config_file or settings.backends_file or "(none)",
         {c.id: c.type for c in settings.backends},
         settings.default_session_backend,
     )
+
+    # Board specialist roster (feature 026, FR-009): a missing, malformed,
+    # or incomplete roster must block startup before any task can be
+    # ingested, not fail later on first dispatch. Only ids are logged —
+    # never prompt content.
+    from app.services.board.bootstrap import get_specialist_roster
+
+    roster = get_specialist_roster()
+    _logger.info("board specialists loaded: %s", sorted(roster.ids()))
 
     # Operator-hooks audit trail (feature 006, FR-016): log what's found in
     # each configured hooks_dir, so an operator has a chance to notice a
@@ -64,14 +71,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     for source in settings.task_sources:
         audit_hooks_dir(source.hooks_dir)
-
-    # recover() already isolates each run's own recovery; this is a second,
-    # outer safety net so a bug in recovery itself degrades to "runs may be
-    # stuck until fixed" rather than the whole app failing to boot.
-    try:
-        await get_workflow_service().recover()
-    except Exception:
-        _logger.exception("workflow recovery failed; continuing startup")
 
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
@@ -83,6 +82,37 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(src.run_forever())
         for src in configured_poll_sources(settings)
     ]
+
+    # Board claim-expiry recovery (feature 026, FR-004/FR-012): runs
+    # unconditionally alongside the poll loops above, since it recovers
+    # abandoned specialist claims rather than polling any task source.
+    from app.services.board.bootstrap import (
+        get_ci_poll_service,
+        get_projection_retry_service,
+        get_recovery_service,
+    )
+
+    poll_tasks.append(asyncio.create_task(get_recovery_service().run_forever()))
+
+    # Board required-CI polling (feature 026, T052): also runs
+    # unconditionally — a workflow with no required_ci_statuses configured
+    # for its source/repo is simply never eligible, so this is a no-op
+    # sweep for a deployment that hasn't configured any.
+    poll_tasks.append(asyncio.create_task(get_ci_poll_service().run_forever()))
+
+    # Posting again what a task source refused (feature 046): a comment
+    # that failed to post waits in the projection ledger for this loop.
+    poll_tasks.append(
+        asyncio.create_task(get_projection_retry_service().run_forever())
+    )
+
+    # Replies on the ticket (feature 046): an @kestrel reply from the
+    # entitled person decides the open gate.
+    from app.services.board.bootstrap_replies import get_comment_poll_service
+
+    poll_tasks.append(
+        asyncio.create_task(get_comment_poll_service().run_forever())
+    )
 
     try:
         yield
@@ -114,48 +144,19 @@ def _register_exception_handlers(app: FastAPI) -> None:
             status_code=502, content={"detail": "session start failed"}
         )
 
-    @app.exception_handler(WorkflowNotFoundError)
-    async def _workflow_not_found(
-        request: Request, exc: WorkflowNotFoundError
+    @app.exception_handler(UnconfirmedDirectPromptError)
+    async def _unconfirmed_direct_prompt(
+        request: Request, exc: UnconfirmedDirectPromptError
     ) -> JSONResponse:
-        """Map an unknown workflow to HTTP 404."""
-        return JSONResponse(
-            status_code=404, content={"detail": "unknown workflow"}
-        )
+        """Map a missing injection-risk confirmation to HTTP 400."""
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    @app.exception_handler(InvalidWorkflowStateError)
-    async def _invalid_workflow_state(
-        request: Request, exc: InvalidWorkflowStateError
+    @app.exception_handler(DirectPromptTooLargeError)
+    async def _direct_prompt_too_large(
+        request: Request, exc: DirectPromptTooLargeError
     ) -> JSONResponse:
-        """Map an invalid workflow transition to HTTP 409."""
-        return JSONResponse(status_code=409, content={"detail": str(exc)})
-
-    @app.exception_handler(RerunNotAllowedError)
-    async def _rerun_not_allowed(
-        request: Request, exc: RerunNotAllowedError
-    ) -> JSONResponse:
-        """Map a rerun refusal (non-private task source) to HTTP 403."""
-        return JSONResponse(
-            status_code=403,
-            content={
-                "detail": (
-                    "rerun is not available for this workflow's task source"
-                )
-            },
-        )
-
-    @app.exception_handler(AnswerValidationError)
-    async def _invalid_answers(
-        request: Request, exc: AnswerValidationError
-    ) -> JSONResponse:
-        """Map invalid questionnaire answers to HTTP 422."""
-        return JSONResponse(
-            status_code=422,
-            content={
-                "detail": "invalid answers",
-                "errors": exc.errors,
-            },
-        )
+        """Map an oversized direct prompt to HTTP 413."""
+        return JSONResponse(status_code=413, content={"detail": str(exc)})
 
 
 def create_app() -> FastAPI:
@@ -233,22 +234,25 @@ def create_app() -> FastAPI:
         )
 
     from app.routers import (
+        board,
         github_webhook,
         health,
         identity,
         notifications,
-        screenshots,
         sessions,
-        workflows,
     )
 
     app.include_router(sessions.router)
-    app.include_router(workflows.router)
-    app.include_router(screenshots.router)
+    app.include_router(board.router)
     app.include_router(notifications.router)
     app.include_router(health.router)
     app.include_router(identity.router)
     app.include_router(github_webhook.router)
+    if get_settings().board_dev_actions_enabled:
+        # Temporary, dev-only (T069) — see board_dev.py's module docstring.
+        from app.routers import board_dev
+
+        app.include_router(board_dev.router)
 
     # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op
     # unless KESTREL_OTEL_ENABLED: instruments the app + logging so spans and

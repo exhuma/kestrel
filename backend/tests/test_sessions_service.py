@@ -46,25 +46,15 @@ def _service() -> tuple[SessionService, SessionRegistry, _FakeRunner]:
     return SessionService(runner, registry), registry, runner  # type: ignore[arg-type]
 
 
-def test_list_summaries_links_session_to_workflow_by_workspace() -> None:
-    """Ensure a session is attributed to the run whose workspace it
-    ran in, and carries a creation timestamp."""
-    from app.models_workflow import WorkflowRun
-    from app.storage.workflow_registry import WorkflowRegistry
-
-    registry = SessionRegistry()
-    workflows = WorkflowRegistry()
-    workflows.create(
-        WorkflowRun(id="wf-1", repo="o/r", issue_number=7,
-                    workspace="/ws/wf-1")
-    )
-    service = SessionService(_FakeRunner(), registry, workflows)  # type: ignore[arg-type]
-    registry.create("s1", "/ws/wf-1")        # ran in the run's workspace
-    registry.create("s2", "/ws/session-ab")  # a free-form session
+def test_list_summaries_carries_no_workflow_attribution() -> None:
+    """No workflow-registry/workspace attribution exists post-board-
+    migration; every summary's ``workflow`` field is ``None``, and the
+    creation timestamp is still populated."""
+    service, registry, _runner = _service()
+    registry.create("s1", "/ws/session-1")
 
     by_id = {s.session_id: s for s in service.list_summaries()}
-    assert by_id["s1"].workflow == "o/r#7"
-    assert by_id["s2"].workflow is None
+    assert by_id["s1"].workflow is None
     assert by_id["s1"].created_at is not None
 
 
@@ -72,7 +62,7 @@ def test_list_summaries_links_session_to_workflow_by_workspace() -> None:
 async def test_start_delegates_to_runner() -> None:
     """Ensure start forwards the prompt to the runner."""
     service, _, runner = _service()
-    sid = await service.start("hello")
+    sid = await service.start("hello", confirmed_injection_risk=True)
     assert sid == "new-1"
     assert runner.calls == [("start", "hello")]
 
@@ -91,7 +81,7 @@ async def test_resume_resets_status_to_running() -> None:
     service, registry, runner = _service()
     registry.create("s1", "/tmp/s1")
     registry.set_status("s1", "idle")
-    sid = await service.resume("s1", "again")
+    sid = await service.resume("s1", "again", confirmed_injection_risk=True)
     assert sid == "s1"
     assert registry.get("s1").status == "running"
     assert runner.calls == [("resume", "s1", "again")]

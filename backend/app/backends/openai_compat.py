@@ -21,9 +21,12 @@ from app.backends.base import (
     Backend,
     Capability,
     LivenessResult,
+    ModelCatalog,
+    ModelInfo,
     TurnRequest,
     TurnResult,
 )
+from app.backends.limiter import BackendLimiter
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
 from app.storage.registry import SessionRegistry
@@ -46,6 +49,7 @@ class OpenAICompatBackend(Backend):
         registry: SessionRegistry,
         cfg: BackendConfig,
         client: httpx.AsyncClient | None = None,
+        limiter: BackendLimiter | None = None,
     ) -> None:
         self.id = cfg.id
         self.settings = settings
@@ -54,6 +58,7 @@ class OpenAICompatBackend(Backend):
         self._model = cfg.model or "llama3"
         self._api_key = cfg.secret()
         self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
+        self._limiter = limiter or BackendLimiter(cfg.max_concurrency)
         self._client = client  # injectable for tests
         self._live: dict[str, asyncio.Task[None]] = {}
 
@@ -76,14 +81,16 @@ class OpenAICompatBackend(Backend):
         self,
         req: TurnRequest,
         on_session_id: Callable[[str], None] | None = None,
+        on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
-        sid = req.resume_id or ("llm-" + uuid.uuid4().hex[:8])
-        if self.registry.get(sid) is None:
-            self.registry.create(sid, req.cwd)
-        if on_session_id is not None:
-            on_session_id(sid)
-        content = await self._turn(sid, req.prompt)
-        return TurnResult(session_id=sid, final_text=content)
+        async with self._limiter.slot(on_queue_change):
+            sid = req.resume_id or ("llm-" + uuid.uuid4().hex[:8])
+            if self.registry.get(sid) is None:
+                self.registry.create(sid, req.cwd)
+            if on_session_id is not None:
+                on_session_id(sid)
+            content = await self._turn(sid, req.prompt)
+            return TurnResult(session_id=sid, final_text=content)
 
     def terminate(self, session_id: str) -> bool:
         task = self._live.get(session_id)
@@ -92,13 +99,35 @@ class OpenAICompatBackend(Backend):
             return True
         return False
 
-    async def check_alive(self, _session_id: str) -> LivenessResult:
+    async def check_alive(self, session_id: str) -> LivenessResult:
         """No independent remote-liveness signal — always alive.
 
         This endpoint has no server-side session to probe; kestrel owns
         the conversation entirely.
         """
+        del session_id
         return LivenessResult(alive=True)
+
+    async def list_models(self) -> ModelCatalog:
+        """Discover models and planning metadata from ``GET /models``."""
+        headers = (
+            {"Authorization": f"Bearer {self._api_key}"}
+            if self._api_key
+            else {}
+        )
+        client = self._client or httpx.AsyncClient(timeout=self._timeout)
+        try:
+            response = await client.get(
+                f"{self._base_url}/models", headers=headers
+            )
+            response.raise_for_status()
+            models = _model_infos(response.json())
+            return ModelCatalog(state="available", models=models)
+        except (httpx.HTTPError, ValueError, TypeError):
+            return ModelCatalog(state="unknown")
+        finally:
+            if self._client is None:
+                await client.aclose()
 
     # ---- internals ----------------------------------------------------
     def _schedule(self, session_id: str, prompt: str) -> None:
@@ -117,7 +146,8 @@ class OpenAICompatBackend(Backend):
     async def _safe_turn(self, session_id: str, prompt: str) -> None:
         """Run a turn, surfacing any failure as a failed RESULT event."""
         try:
-            await self._turn(session_id, prompt)
+            async with self._limiter.slot():
+                await self._turn(session_id, prompt)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # never leave the session stuck "running"
@@ -304,3 +334,34 @@ class OpenAICompatBackend(Backend):
                 f"unexpected response from {self._base_url}: "
                 f"{str(data)[:200]}"
             ) from exc
+
+
+def _model_infos(payload: object) -> tuple[ModelInfo, ...]:
+    """Translate an OpenAI-compatible catalogue into model descriptors."""
+    items = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("model response has no data list")
+    result: list[ModelInfo] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise ValueError("model response has an invalid entry")
+        result.append(
+            ModelInfo(
+                id=item["id"],
+                coding_quality=_positive_float(item.get("coding_quality")),
+                input_cost_per_million=_positive_float(
+                    item.get("input_cost_per_million")
+                ),
+                output_cost_per_million=_positive_float(
+                    item.get("output_cost_per_million")
+                ),
+            )
+        )
+    return tuple(result)
+
+
+def _positive_float(value: object) -> float | None:
+    """Return a positive numeric metadata value, otherwise no usable value."""
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value)
+    return None

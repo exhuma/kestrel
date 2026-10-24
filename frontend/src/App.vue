@@ -1,50 +1,41 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import WorkflowPanel from './components/WorkflowPanel.vue'
+import { useRouter } from 'vue-router'
 import NotificationCenter from './components/NotificationCenter.vue'
 import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
 import GithubLink from './components/GithubLink.vue'
 import IdentityBadge from './components/IdentityBadge.vue'
-import PanelLoading from './components/PanelLoading.vue'
-import PanelError from './components/PanelError.vue'
 import { useSessions } from './composables/useSessions'
-import { useWorkflows } from './composables/useWorkflows'
+import { useBoard } from './composables/useBoard'
 import { useConnectivity } from './composables/useConnectivity'
 
-// Workflows is the default view; the raw sessions view is a secondary
-// debugging affordance, so its code is fetched on demand (a separate chunk).
-// The default initial load therefore excludes SessionPanel's code (SC-006),
-// with a loading spinner while it fetches and a clear error if that fails
-// (FR-009).
-const SessionPanel = defineAsyncComponent({
-  loader: () => import('./components/SessionPanel.vue'),
-  loadingComponent: PanelLoading,
-  errorComponent: PanelError,
-  delay: 200,
-})
+const router = useRouter()
 
-// Shared composable state: the header reflects fleet-wide status.
-const { sessions, loading: sessionsLoading } = useSessions()
-const { loading: workflowsLoading } = useWorkflows()
+// Shared composable state: the header's loading bar covers every
+// primary fetch. (A fleet-wide live/idle chip was removed: it reflected
+// ad-hoc sessions only, and read "idle" while board requests worked —
+// each request's own activity line says that now, feature 033.)
+const { loading: sessionsLoading } = useSessions()
+const { loading: boardLoading } = useBoard()
 
 // Registered once, here, before any child's onMounted fetch runs — every
 // api.* call anywhere in the app feeds this, so a request that can't even
 // reach the backend (wrong port, backend down) surfaces as a persistent
 // banner instead of failing silently in the console.
 const { reachable, apiBase } = useConnectivity()
-const running = computed(() =>
-  sessions.value.some((s) => s.status === 'running'),
-)
 
 // Page-level loading: a thin indeterminate bar under the app bar while any
-// primary fetch (sessions or workflows) is in flight (module-vue-vuetify
+// primary fetch (sessions or board) is in flight (module-vue-vuetify
 // loading-feedback rule).
-const loading = computed(() => sessionsLoading.value || workflowsLoading.value)
+const loading = computed(() => sessionsLoading.value || boardLoading.value)
 
-// Workflows lead; the raw sessions view is kept only as a debugging
-// affordance (the muted toggle in the header).
-const view = ref<'sessions' | 'workflows'>('workflows')
+// A notification's request opens directly on that request's cockpit
+// (FR-028), not just the board (feature 029, replacing the old
+// `view = 'board'` toggle-flip).
+function onNotificationNavigate(workflowId: string): void {
+  void router.push({ name: 'cockpit', params: { id: workflowId } })
+}
 
 // Light/dark toggle over Vuetify's two built-in themes.
 const theme = useTheme()
@@ -72,58 +63,36 @@ function toggleTheme() {
     <v-app-bar flat border>
       <template #prepend>
         <!-- Theme-matched mark: the dark-outlined logo reads on the light
-             theme, the plain-fill logo reads on the dark theme. -->
-        <img
-          :src="isDark ? '/logo-dark.svg' : '/logo-bright.svg'"
-          alt="kestrel logo"
-          height="32"
-          class="ms-2"
-        />
+             theme, the plain-fill logo reads on the dark theme. It links
+             home, to the board. -->
+        <router-link
+          :to="{ name: 'board' }"
+          aria-label="kestrel home"
+          class="d-flex ms-2"
+        >
+          <img
+            :src="isDark ? '/logo-dark.svg' : '/logo-bright.svg'"
+            alt="kestrel logo"
+            height="32"
+          />
+        </router-link>
       </template>
-      <v-app-bar-title>
-        kestrel
-        <span class="text-medium-emphasis text-caption ms-2"
-          >mission control</span
-        >
-      </v-app-bar-title>
+      <v-app-bar-title> kestrel </v-app-bar-title>
 
-      <v-btn-toggle
-        v-model="view"
-        mandatory
-        variant="outlined"
-        divided
-        density="comfortable"
-        class="me-4"
+      <v-btn :to="{ name: 'board' }" size="small" class="text-none me-1">
+        Board
+      </v-btn>
+      <v-btn
+        :to="{ name: 'sessions' }"
+        size="small"
+        class="text-none me-4"
+        title="Raw agent sessions (debugging)"
       >
-        <v-btn value="workflows" size="small" class="text-none"
-          >Workflows</v-btn
-        >
-        <v-btn
-          value="sessions"
-          size="small"
-          class="text-none"
-          title="Raw agent sessions (debugging)"
-        >
-          <span aria-hidden="true">‹/›</span>&nbsp;sessions
-        </v-btn>
-      </v-btn-toggle>
-
-      <v-chip
-        :color="running ? 'success' : undefined"
-        variant="tonal"
-        label
-        class="me-2"
-      >
-        <v-icon
-          :icon="running ? '$circle' : '$circleOutline'"
-          size="x-small"
-          start
-        />
-        {{ running ? 'live' : 'idle' }}
-      </v-chip>
+        <span aria-hidden="true">‹/›</span>&nbsp;sessions
+      </v-btn>
 
       <SourceHealthIndicator />
-      <NotificationCenter @navigate="view = 'workflows'" />
+      <NotificationCenter @navigate="onNotificationNavigate" />
       <v-btn
         :icon="isDark ? '$weatherNight' : '$weatherSunny'"
         variant="text"
@@ -143,8 +112,7 @@ function toggleTheme() {
     </v-app-bar>
 
     <v-main class="stageroot">
-      <SessionPanel v-if="view === 'sessions'" />
-      <WorkflowPanel v-else />
+      <RouterView />
     </v-main>
   </v-app>
 </template>

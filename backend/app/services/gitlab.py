@@ -11,14 +11,18 @@ from urllib.parse import quote
 
 import httpx
 
-from app.ports import ChangeRequest, Feedback
+from app.document_formats.markdown import parse_markdown, render_markdown
+from app.documents import Document
+from app.ports import ChangeRequest, Feedback, Person, RequiredCiStatus
+from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
-from app.services.feedback.timeparse import parse_iso
+from app.services.task_source_utils import parse_iso
 
 #: Prefix minted onto every MR-note ``Feedback.external_id`` (feature 013,
 #: US3) — carries the repo and MR iid so ``acknowledge`` can reconstruct
 #: the award-emoji endpoint from just the ``Feedback`` object.
 _NOTE_ID_PREFIX = "gl-note:"
+_DISCUSSION_NOTE_ID_PREFIX = "gl-discussion-note:"
 
 #: GitLab's own three MR states, mapped 1:1 onto ``ChangeRequest.state``
 #: ("opened" is GitLab's spelling; the port uses "open" everywhere else).
@@ -43,7 +47,27 @@ def _parse_note_external_id(external_id: str) -> tuple[str, int, int] | None:
     return repo, int(mr_iid), int(note_id)
 
 
-def _note_feedback(repo: str, number: int, note: dict) -> Feedback | None:
+def _parse_discussion_note_external_id(
+    external_id: str,
+) -> tuple[str, int, str, int] | None:
+    """Recover a discussion note's location from its minted external id."""
+    if not external_id.startswith(_DISCUSSION_NOTE_ID_PREFIX):
+        return None
+    rest = external_id[len(_DISCUSSION_NOTE_ID_PREFIX):]
+    parts = rest.rsplit("#", 3)
+    if len(parts) != 4:
+        return None
+    repo, mr_iid, discussion, note_id = parts
+    if not (
+        repo and mr_iid.isdigit() and discussion and note_id.isdigit()
+    ):
+        return None
+    return repo, int(mr_iid), discussion, int(note_id)
+
+
+def _note_feedback(
+    repo: str, number: int, note: dict, discussion_id: str = ""
+) -> Feedback | None:
     """Map one raw MR note to review-origin ``Feedback``.
 
     System notes (GitLab's auto-generated activity log entries — "changed
@@ -51,16 +75,31 @@ def _note_feedback(repo: str, number: int, note: dict) -> Feedback | None:
     the same way GitHub's Bot-typed comments are (research.md R6): they
     are not reviewer-authored signal.
     """
-    if note.get("system"):
+    if note.get("system") or _deleted_author(note.get("author")):
         return None
-    author = note.get("author") or {}
+    author = note["author"]
+    prefix = _DISCUSSION_NOTE_ID_PREFIX if discussion_id else _NOTE_ID_PREFIX
+    location = f"#{discussion_id}" if discussion_id else ""
     return Feedback(
-        external_id=f"{_NOTE_ID_PREFIX}{repo}#{number}#{note['id']}",
+        external_id=f"{prefix}{repo}#{number}{location}#{note['id']}",
         origin="review",
-        author=author.get("username", ""),
-        body=note.get("body") or "",
+        author=Person(author.get("username", ""), author.get("name", "")),
+        body=parse_markdown(note.get("body") or ""),
         created_at=parse_iso(note["created_at"]),
     )
+
+
+def _deleted_author(author: object) -> bool:
+    """Return whether a GitLab note's author is absent or marked deleted."""
+    if not isinstance(author, dict):
+        return True
+    return bool(author.get("deleted") or author.get("state") == "deleted")
+
+
+def _is_inline_discussion(discussion: dict) -> bool:
+    """Return whether any note anchors this GitLab discussion to a diff."""
+    notes = discussion.get("notes", [])
+    return any(note.get("position") is not None for note in notes)
 
 
 class GitLabCodeHost:
@@ -116,25 +155,32 @@ class GitLabCodeHost:
         resp = await self._request("GET", f"/projects/{self._pid(repo)}")
         return resp.json()["default_branch"]
 
+    def supports_change_requests(self) -> bool:
+        """Report GitLab and Gitea merge-request support."""
+        return True
+
     async def check_health(self) -> bool:
         """Best-effort reachability + auth probe (feature 014).
 
         A single cheap, project-independent, authenticated call — same
         endpoint shape for a real GitLab instance and a Gitea instance
         (this adapter already assumes GitLab-API-compatible endpoints for
-        both, e.g. ``get_default_branch``). Never raises: any failure
-        (network, auth, timeout, malformed response) is caught and
-        reported as ``False``.
+        both, e.g. ``get_default_branch``).
+
+        :raises httpx.HTTPError: When the host cannot be reached; the
+            health service logs why.
+        :raises GitLabError: When it answers with a failure (e.g. 401).
         """
-        try:
-            await self._request("GET", "/user")
-        except Exception:  # noqa: BLE001 — health checks never raise
-            return False
+        await self._request("GET", "/user")
         return True
 
     def clone_remote(self, repo: str) -> str:
         """The HTTPS git remote a worktree clones/fetches from."""
         return f"{self._base}/{repo}.git"
+
+    def file_url(self, repo: str, branch: str, path: str) -> str:
+        """The raw content of *path* on *branch* (feature 043)."""
+        return f"{self._base}/{repo}/-/raw/{quote(branch)}/{quote(path)}"
 
     def git_credential(self) -> tuple[str, str]:
         """``oauth2`` + the PAT — GitLab's git-over-HTTPS token scheme."""
@@ -147,7 +193,7 @@ class GitLabCodeHost:
         head: str,
         base: str,
         title: str,
-        body: str,
+        body: Document,
         draft: bool = True,
     ) -> str:
         """Open a merge request and return its ``web_url``.
@@ -155,6 +201,7 @@ class GitLabCodeHost:
         GitLab signals a draft MR with a ``Draft:`` title prefix.
         """
         mr_title = f"Draft: {title}" if draft else title
+        description = render_markdown(body)
         resp = await self._request(
             "POST",
             f"/projects/{self._pid(repo)}/merge_requests",
@@ -162,7 +209,7 @@ class GitLabCodeHost:
                 "source_branch": head,
                 "target_branch": base,
                 "title": mr_title,
-                "description": body,
+                "description": description,
             },
         )
         return resp.json()["web_url"]
@@ -181,6 +228,21 @@ class GitLabCodeHost:
             number=number, state=state, url=data.get("web_url") or ""
         )
 
+    async def required_ci_statuses(
+        self, repo: str, number: int, names: list[str]
+    ) -> list[RequiredCiStatus]:
+        """Normalize requested GitLab pipeline-job states for an MR."""
+        path = f"/projects/{self._pid(repo)}/merge_requests/{number}/pipelines"
+        pipelines = (await self._request("GET", path)).json()
+        if not pipelines:
+            return [RequiredCiStatus(name, "pending") for name in names]
+        pipeline_id = pipelines[0]["id"]
+        jobs = await self._list_pages(
+            f"/projects/{self._pid(repo)}/pipelines/{pipeline_id}/jobs"
+        )
+        by_name = {job.get("name"): job for job in jobs}
+        return [gitlab_status(name, by_name.get(name)) for name in names]
+
     async def list_review_comments(
         self, repo: str, number: int, since: str | None = None
     ) -> list[Feedback]:
@@ -192,19 +254,43 @@ class GitLabCodeHost:
         """
         if self._is_gitea:
             return []
-        resp = await self._request(
-            "GET",
-            f"/projects/{self._pid(repo)}/merge_requests/{number}/notes",
-            params={"order_by": "created_at", "sort": "asc"},
-        )
+        path = f"/projects/{self._pid(repo)}/merge_requests/{number}"
+        notes = await self._list_pages(f"{path}/notes")
+        discussions = await self._list_pages(f"{path}/discussions")
         cutoff = parse_iso(since) if since else None
-        mapped = (
-            _note_feedback(repo, number, note) for note in resp.json()
+        mapped = [_note_feedback(repo, number, note) for note in notes]
+        mapped.extend(
+            _note_feedback(repo, number, note, discussion["id"])
+            for discussion in discussions
+            if _is_inline_discussion(discussion)
+            for note in discussion.get("notes", [])
         )
-        return [
-            item for item in mapped
-            if item is not None and (cutoff is None or item.created_at > cutoff)
-        ]
+        items = {
+            item.external_id: item for item in mapped if item is not None
+        }.values()
+        return sorted(
+            (item for item in items
+             if cutoff is None or item.created_at >= cutoff),
+            key=lambda item: item.created_at,
+        )
+
+    async def _list_pages(self, path: str) -> list[dict]:
+        """Read every ascending GitLab page at ``path``."""
+        page = 1
+        items: list[dict] = []
+        while True:
+            resp = await self._request(
+                "GET", path,
+                params={
+                    "order_by": "created_at", "sort": "asc",
+                    "per_page": 100, "page": page,
+                },
+            )
+            items.extend(resp.json())
+            next_page = resp.headers.get("x-next-page")
+            if not next_page:
+                return items
+            page = int(next_page)
 
     async def acknowledge(
         self, feedback: Feedback, token: str = "eyes"
@@ -217,14 +303,22 @@ class GitLabCodeHost:
         if self._is_gitea:
             return False
         parsed = _parse_note_external_id(feedback.external_id)
-        if parsed is None:
+        discussion = _parse_discussion_note_external_id(feedback.external_id)
+        if parsed is None and discussion is None:
             return False
-        repo, mr_iid, note_id = parsed
+        if parsed is not None:
+            repo, mr_iid, note_id = parsed
+            path = f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
+            path += f"/notes/{note_id}/award_emoji"
+        elif discussion is not None:
+            repo, mr_iid, discussion_id, note_id = discussion
+            path = f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
+            path += f"/discussions/{discussion_id}/notes/{note_id}/award_emoji"
+        else:
+            return False
         try:
             await self._request(
-                "POST",
-                f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
-                f"/notes/{note_id}/award_emoji",
+                "POST", path,
                 json={"name": token},
             )
             return True

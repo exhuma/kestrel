@@ -1,7 +1,7 @@
 {
   "name": "kestrel-frontend",
   "private": true,
-  "version": "2026.9.8-alpha.2",
+  "version": "2026.10.12-alpha.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
-    "diff2html": "^3.4.56",
-    "markdown-it": "^14.3.0",
+    "markdown-it": "^14.3.2",
     "vue": "^3.5.39",
+    "vue-router": "^4.6.4",
     "vuetify": "^4.1.2"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/test-utils": "^2.4.6",

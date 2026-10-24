@@ -112,3 +112,20 @@ version](configuration.md#health-and-version).
 
 `GET /api/backends` reports the configured backends and the ad-hoc-session
 default — useful to confirm a mounted `config.toml` took effect.
+
+### Task-source and code-host health
+
+The status icon in the top bar shows each configured source (Jira, GitHub,
+the GitLab or Gitea code host) as healthy or unreachable, re-checked every
+`health_check_interval_seconds`. The UI deliberately shows no cause. The
+cause goes to the server log at WARNING, with the traceback, when a source
+becomes unreachable or its reason changes:
+
+```text
+WARNING  kestrel.health: health: jira unreachable: ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] ...
+INFO     kestrel.health: health: jira reachable again
+```
+
+The same failure repeated on later checks is logged at DEBUG only, so the log
+is not flooded. Search for `health:` to find these lines. With JSON logging
+the traceback is in the `exception` field.

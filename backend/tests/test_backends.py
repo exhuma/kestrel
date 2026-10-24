@@ -10,7 +10,8 @@ from app.backends.base import Capability, TurnRequest
 from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.registry import BackendRegistry, UnknownBackendError
 from app.config import BackendConfig, Settings
-from app.policy import BackendCapabilityError, BackendPolicy
+from app.models_board import SpecialistDefinition
+from app.policy import SpecialistBackendPolicy, SpecialistCapabilityError
 from app.storage.registry import SessionRegistry
 
 
@@ -90,10 +91,42 @@ def test_registry_builds_default_claude_backend() -> None:
     assert registry.get("claude").id == "claude"
 
 
+def test_registry_applies_configured_capability_override() -> None:
+    """Ensure an on-site coding backend can declare file-edit capability."""
+    settings = _settings(
+        backends=[
+            BackendConfig(
+                id="local",
+                type="openai_compat",
+                base_url="http://x/v1",
+                caps=["text", "file_edits"],
+            )
+        ],
+        default_session_backend="local",
+    )
+    registry = BackendRegistry(settings, SessionRegistry())
+    assert registry.get("local").caps == frozenset(
+        {Capability.TEXT, Capability.FILE_EDITS}
+    )
+
+
 def test_registry_unknown_backend_raises() -> None:
     """Ensure resolving an unconfigured backend id raises."""
     registry = BackendRegistry(_settings(), SessionRegistry())
     with pytest.raises(UnknownBackendError):
+        registry.get("nope")
+
+
+def test_registry_unknown_backend_error_lists_configured_ids() -> None:
+    """Ensure the error names what IS configured, not just what's missing."""
+    registry = BackendRegistry(
+        _settings(
+            backends=[BackendConfig(id="oc", type="opencode")],
+            default_session_backend="oc",
+        ),
+        SessionRegistry(),
+    )
+    with pytest.raises(UnknownBackendError, match=r"nope.*\['oc'\]"):
         registry.get("nope")
 
 
@@ -103,11 +136,11 @@ def test_registry_rejects_a_missing_default_at_build() -> None:
         backends=[BackendConfig(id="claude", type="claude_cli")],
         default_session_backend="ghost",
     )
-    with pytest.raises(UnknownBackendError):
+    with pytest.raises(UnknownBackendError, match=r"ghost.*\['claude'\]"):
         BackendRegistry(settings, SessionRegistry())
 
 
-# ---- BackendPolicy (per-step selection + capability subsumption) ----
+# ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
 
 def _mixed_registry() -> BackendRegistry:
     """A registry with a file-editing agent and a text-only LLM."""
@@ -122,66 +155,50 @@ def _mixed_registry() -> BackendRegistry:
     return BackendRegistry(settings, SessionRegistry())
 
 
-def test_policy_default_backend_serves_every_step() -> None:
-    """Ensure the default backend is used for steps without an override."""
-    policy = BackendPolicy(_mixed_registry(), {}, "claude")
-    for step in ("refine", "design", "code", "verify"):
-        assert policy.backend_for(step).id == "claude"
+
+def _specialist(**overrides: object) -> SpecialistDefinition:
+    """A minimal valid specialist definition, with any field overridden."""
+    fields: dict[str, object] = {
+        "id": "developer",
+        "label": "Engineering",
+        "purpose": "Analysis",
+        "allowed_card_types": ("analysis",),
+        "required_abilities": ("text",),
+        "model_policy": "default",
+        "workspace_permission": "read_only",
+        "retry_limit": 1,
+        "prompt": "Ask about approach.",
+    }
+    fields.update(overrides)
+    return SpecialistDefinition(**fields)
 
 
-def test_policy_per_step_override() -> None:
-    """Ensure a step-specific backend overrides the default."""
-    policy = BackendPolicy(_mixed_registry(), {"refine": "local"}, "claude")
-    assert policy.backend_for("refine").id == "local"   # text-only, ok
-    assert policy.backend_for("code").id == "claude"
+def test_specialist_policy_uses_default_backend() -> None:
+    """A ``"default"`` model_policy resolves to the default session backend."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
+    assert policy.backend_for(_specialist()).id == "claude"
 
 
-def test_policy_text_only_backend_rejected_for_implement() -> None:
-    """Ensure a text-only backend can't be routed to a file-editing step."""
-    policy = BackendPolicy(
-        _mixed_registry(), {"code": "local"}, "claude"
+def test_specialist_policy_pinned_backend_wins() -> None:
+    """A specialist pinned to a specific backend id resolves to it."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
+    backend = policy.backend_for(_specialist(model_policy="local"))
+    assert backend.id == "local"
+
+
+def test_specialist_policy_rejects_missing_capability() -> None:
+    """A text-only backend cannot serve a specialist that needs file edits."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "local")
+    with pytest.raises(SpecialistCapabilityError):
+        policy.backend_for(
+            _specialist(required_abilities=("text", "file_edits"))
+        )
+
+
+def test_specialist_policy_allows_satisfied_capability() -> None:
+    """A file-editing backend can serve a specialist that needs file edits."""
+    policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
+    backend = policy.backend_for(
+        _specialist(required_abilities=("text", "file_edits"))
     )
-    with pytest.raises(BackendCapabilityError):
-        policy.backend_for("code")
-
-
-def test_policy_text_only_backend_allowed_for_reasoning() -> None:
-    """Ensure a text-only backend may serve reasoning steps (subsumption)."""
-    policy = BackendPolicy(
-        _mixed_registry(), {"refine": "local", "design": "local"}, "claude"
-    )
-    assert policy.backend_for("refine").id == "local"
-    assert policy.backend_for("design").id == "local"
-
-
-def test_policy_backends_lists_all() -> None:
-    """Ensure the policy can enumerate every backend (for termination)."""
-    policy = BackendPolicy(_mixed_registry(), {}, "claude")
-    assert {b.id for b in policy.backends()} == {"claude", "local"}
-
-
-def test_policy_substep_falls_back_to_parent_backend() -> None:
-    """Ensure a dotted sub-step inherits the parent step's backend."""
-    policy = BackendPolicy(_mixed_registry(), {"refine": "local"}, "claude")
-    assert policy.backend_for("refine.reconcile").id == "local"
-
-
-def test_policy_substep_override_wins() -> None:
-    """Ensure a sub-step can be routed to its own backend."""
-    policy = BackendPolicy(
-        _mixed_registry(),
-        {"refine": "local", "refine.reconcile": "claude"},
-        "claude",
-    )
-    assert policy.backend_for("refine.reconcile").id == "claude"
-    assert policy.backend_for("refine.generate").id == "local"  # parent
-
-
-def test_policy_substep_inherits_parent_capability() -> None:
-    """Ensure a sub-step is capability-checked against its parent step,
-    so a text-only backend can't sneak into a code sub-step."""
-    policy = BackendPolicy(
-        _mixed_registry(), {"code.fix": "local"}, "claude"
-    )
-    with pytest.raises(BackendCapabilityError):
-        policy.backend_for("code.fix")
+    assert backend.id == "claude"

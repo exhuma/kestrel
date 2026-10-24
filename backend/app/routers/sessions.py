@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import sse
+from app.backends.registry import BackendRegistry, get_backend_registry
 from app.config import Settings, get_settings
 from app.schemas import SessionSummary
 from app.services.sessions import SessionService, get_session_service
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/api")
 @router.get("/backends")
 async def list_backends(
     settings: Settings = Depends(get_settings),
+    registry: BackendRegistry = Depends(get_backend_registry),
 ) -> dict[str, object]:
     """
     Report the effective backend configuration.
@@ -35,8 +37,42 @@ async def list_backends(
     return {
         "default_session_backend": settings.default_session_backend,
         "backends": [
-            {"id": b.id, "type": b.type, "model": b.model}
+            {
+                "id": b.id,
+                "type": b.type,
+                "model": b.model,
+                "capabilities": sorted(
+                    c.value for c in registry.get(b.id).caps
+                ),
+            }
             for b in settings.backends
+        ],
+    }
+
+
+@router.get("/backends/{backend_id}/models")
+async def list_backend_models(
+    backend_id: str,
+    registry: BackendRegistry = Depends(get_backend_registry),
+) -> dict[str, object]:
+    """Return one configured backend's discovered model catalogue."""
+    try:
+        catalogue = await registry.get(backend_id).list_models()
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail="backend not found"
+        ) from exc
+    return {
+        "backend_id": backend_id,
+        "state": catalogue.state,
+        "models": [
+            {
+                "id": model.id,
+                "coding_quality": model.coding_quality,
+                "input_cost_per_million": model.input_cost_per_million,
+                "output_cost_per_million": model.output_cost_per_million,
+            }
+            for model in catalogue.models
         ],
     }
 
@@ -46,9 +82,15 @@ class PromptIn(BaseModel):
     Request body carrying a single prompt string.
 
     :param prompt: The prompt text to send to the claude session.
+    :param confirmed_injection_risk: Explicit operator confirmation of the
+        injection-risk warning shown for a direct prompt (FR-023). A
+        direct prompt intentionally addresses an agent, so it is not
+        automatically quarantined like external/gate input — but
+        dispatch is refused until this is set.
     """
 
     prompt: str
+    confirmed_injection_risk: bool = False
 
 
 class SessionOut(BaseModel):
@@ -73,7 +115,10 @@ async def create_session(
     :param service: Session service, injected.
     :returns: The id of the newly started session.
     """
-    session_id = await service.start(body.prompt)
+    session_id = await service.start(
+        body.prompt,
+        confirmed_injection_risk=body.confirmed_injection_risk,
+    )
     return SessionOut(session_id=session_id)
 
 
@@ -91,7 +136,11 @@ async def resume_session(
     :param service: Session service, injected.
     :returns: The id of the resumed session.
     """
-    sid = await service.resume(session_id, body.prompt)
+    sid = await service.resume(
+        session_id,
+        body.prompt,
+        confirmed_injection_risk=body.confirmed_injection_risk,
+    )
     return SessionOut(session_id=sid)
 
 

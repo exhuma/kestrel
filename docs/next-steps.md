@@ -1,46 +1,32 @@
 # Next steps
 
-Status as of 2026-07-15: **first alpha shipped.** The MVP workflow (GitHub
-issue → refine → clarify → plan → implement → draft PR, with human approval
-gates and pause/resume at every stage) is complete, persisted, and verified
-end-to-end against real GitHub issues and PRs. Kestrel is packaged as a
-CalVer-tagged Docker image (`Dockerfile`, `docker-compose.yml`,
-`.github/workflows/release.yml`).
+The backlog lives in the
+[GitHub issue tracker](https://github.com/exhuma/kestrel/issues); this page
+only points at where the open work is grouped.
 
-**The backlog now lives in the
-[GitHub issue tracker](https://github.com/exhuma/kestrel/issues).** The local
-plan/spec history (`docs/superpowers/`) was removed in favour of issues; the
-milestones it tracked (M-A, M-B, M-D, M-E, M-F, M-G) are all delivered and the
-remaining work was filed as issues.
+## Exploration epics
 
-## Where the outstanding work is tracked
+- [#75](https://github.com/exhuma/kestrel/issues/75) — integrations
+  (more task sources, code hosts and notifiers).
+- [#76](https://github.com/exhuma/kestrel/issues/76) — operations
+  (deployment, backup, upgrades).
+- [#77](https://github.com/exhuma/kestrel/issues/77) — observability
+  (metrics, traces; see also [`qm-alignment.md`](qm-alignment.md)).
+- [#78](https://github.com/exhuma/kestrel/issues/78) — impact investigation.
+- [#81](https://github.com/exhuma/kestrel/issues/81) — access and identity:
+  today everyone an authenticating proxy lets through can do everything.
 
-- **[#20 · M-C GitHub ingestion & repo ops](https://github.com/exhuma/kestrel/issues/20)**
-  — webhook ingress (HMAC + dedup), poll reconciliation, per-run `git worktree`
-  isolation. The largest remaining feature; turns kestrel from "click to start
-  a run" into "notices new/updated issues on its own."
-- **Optional / on-demand back-ends** —
-  [#21 access gate](https://github.com/exhuma/kestrel/issues/21),
-  [#22 more Notifier back-ends](https://github.com/exhuma/kestrel/issues/22),
-  [#23 Planka source](https://github.com/exhuma/kestrel/issues/23),
-  [#24 Zammad source](https://github.com/exhuma/kestrel/issues/24).
-- **[#25 · Retry/resume path for a failed run](https://github.com/exhuma/kestrel/issues/25)**
-  — the state machine has no in-place transition to re-enter a `failed` run.
-- **[#26 · DX / demo polish](https://github.com/exhuma/kestrel/issues/26)**
-  — dev-server defaults and the >500 kB bundle-size warning.
-- **[#27 · Small contained backend/UI fixes](https://github.com/exhuma/kestrel/issues/27)**
-  — a checklist of quick, safe-to-defer cleanups.
+## Follow-up of the Jira ticket conversation (feature 046)
 
-Deferred, single-user-scope kit deviations (application metrics, live trace
-collector, rate limiting, etc.) remain recorded in
-[`qm-alignment.md`](qm-alignment.md); the metrics item is tracked on
-[#17](https://github.com/exhuma/kestrel/issues/17).
+Open items after the first Jira alpha are tracked in GitHub
+[#80](https://github.com/exhuma/kestrel/issues/80). The walk-through that
+validates the feature is `specs/046-jira-first-alpha/quickstart.md`.
 
-## Explicitly out of scope (by design, not gaps)
+## Out of scope by design
 
-- **Multi-user / auth** — single-user by design; the access gate (#21) is the
-  only planned protection, and it's explicitly *not* multi-user auth.
-- **Auto-merging the PR** — the workflow opens a draft PR only; merging is a
-  manual human action on GitHub (the review gate, by design).
-- **Incremental commits during implement** — the implement step makes one
-  commit at the end, not as the agent works.
+- **Multi-user authorisation.** Kestrel is single-user. A reverse proxy can
+  authenticate people (see [Deploying on Kubernetes](deploy-kubernetes.md)),
+  but kestrel itself does not tell them apart (#81).
+- **Auto-merging.** Kestrel opens a change request; merging stays a human act.
+- **Moving an ingested ticket.** Kestrel never changes the status of a ticket
+  it ingested (constitution, access model).

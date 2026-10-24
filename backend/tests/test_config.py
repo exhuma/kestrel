@@ -1,10 +1,12 @@
 """Tests for application settings."""
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
 
+from app import config
 from app.config import Settings
 from app.config_models import BackendConfig, TaskSourceConfig
 
@@ -143,9 +145,6 @@ def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
     toml.write_text(
         'default_session_backend = "oc"\n'
         "\n"
-        "[step_backends]\n"
-        'code = "claude"\n'
-        "\n"
         "[[backends]]\n"
         'id = "claude"\n'
         'type = "claude_cli"\n'
@@ -158,7 +157,6 @@ def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
     )
     s = Settings(_env_file=None, backends_file=str(toml))
     assert s.default_session_backend == "oc"
-    assert s.step_backends == {"code": "claude"}
     assert [(b.id, b.type) for b in s.backends] == [
         ("claude", "claude_cli"), ("oc", "opencode")
     ]
@@ -170,20 +168,18 @@ def test_backend_env_vars_are_ignored(
 ) -> None:
     """Ensure backends are file-only: the env vars have no effect.
 
-    ``KESTREL_BACKENDS`` / ``KESTREL_STEP_BACKENDS`` /
-    ``KESTREL_DEFAULT_SESSION_BACKEND`` were dropped in favour of
-    ``KESTREL_BACKENDS_FILE``; setting them must not change config.
+    ``KESTREL_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND`` were dropped
+    in favour of ``KESTREL_BACKENDS_FILE``; setting them must not change
+    config.
     """
     monkeypatch.setenv(
         "KESTREL_BACKENDS",
         '[{"id": "ghost", "type": "claude_cli"}]',
     )
     monkeypatch.setenv("KESTREL_DEFAULT_SESSION_BACKEND", "ghost")
-    monkeypatch.setenv("KESTREL_STEP_BACKENDS", '{"plan": "ghost"}')
     s = Settings(_env_file=None)
     assert [b.id for b in s.backends] == ["claude"]
     assert s.default_session_backend == "claude"
-    assert s.step_backends == {}
 
 
 def test_jira_source_defaults_and_verify_defaults() -> None:
@@ -308,17 +304,59 @@ def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
     toml.write_text(
         'default_session_backend = "oc"\n'
         "\n"
-        "[step_backends]\n"
-        'code = "claude"\n'
-        "\n"
         "[[backends]]\n"
         'id = "oc"\n'
         'type = "opencode"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))
     assert s.default_session_backend == "oc"
-    assert s.step_backends == {"code": "claude"}
     assert [b.id for b in s.backends] == ["oc"]
+
+
+def test_default_session_backend_after_backends_table_fails_loud(
+    tmp_path: Path,
+) -> None:
+    """Ensure the TOML ordering trap fails at load time, not silently.
+
+    A bare key after an array-of-tables header belongs to that table in
+    TOML, not the top level — `default_session_backend` placed after
+    `[[backends]]` here is swallowed into the backends entry, so it
+    must be rejected loudly (BackendConfig's extra="forbid") rather
+    than silently leaving default_session_backend at its "claude"
+    default.
+    """
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        "[[backends]]\n"
+        'id = "oc"\n'
+        'type = "opencode"\n'
+        "\n"
+        'default_session_backend = "oc"\n'
+    )
+    with pytest.raises(ValueError, match="default_session_backend"):
+        Settings(_env_file=None, config_file=str(toml))
+
+
+def test_config_file_path_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ensure the resolved path actually opened is visible in the logs —
+    the main diagnostic for "my config edit had no effect"."""
+    toml = tmp_path / "config.toml"
+    toml.write_text('default_session_backend = "oc"\n')
+    with caplog.at_level("INFO"):
+        Settings(_env_file=None, config_file=str(toml))
+    assert f"loading config file: {toml.resolve()}" in caplog.text
+
+
+def test_missing_config_file_setting_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure an unset config_file/backends_file is visible in the logs,
+    not just a silent fall-through to the claude-only default."""
+    with caplog.at_level("INFO"):
+        Settings(_env_file=None)
+    assert "no config file configured" in caplog.text
 
 
 def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
@@ -347,6 +385,8 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
     assert jira.key == "RFC" and jira.jql == "project = RFC"
     assert jira.verify_ssl is False  # opt-out parsed from the file
     assert gh.verify_ssl is True  # default
+
+
 
 
 def test_poll_interval_settable_via_config_file(
@@ -409,89 +449,32 @@ def test_config_file_takes_precedence_over_backends_file(
     assert s.default_session_backend == "cfg"
 
 
-def test_step_backends_rejects_invalid_step_names(tmp_path: Path) -> None:
-    """Ensure invalid step names in step_backends fail fast with clear error."""
-    toml = tmp_path / "config.toml"
-    toml.write_text(
-        "[step_backends]\n"
-        'plan = "claude"\n'
-        'implement = "claude"\n'
-    )
-    with pytest.raises(ValueError) as exc:
-        Settings(_env_file=None, config_file=str(toml))
-    msg = str(exc.value)
-    assert "Invalid step names" in msg
-    assert "plan" in msg
-    assert "implement" in msg
-    assert "design" in msg
-    assert "code" in msg
+def test_cab1_interview_max_questions_defaults_to_three() -> None:
+    """Ensure the CAB-1 strategic interview's question cap defaults low."""
+    assert Settings(_env_file=None).board_cab1_interview_max_questions == 3
 
 
-def test_step_backends_accepts_valid_step_names(tmp_path: Path) -> None:
-    """Ensure valid step names are accepted without error."""
-    toml = tmp_path / "config.toml"
-    toml.write_text(
-        "[step_backends]\n"
-        'refine = "claude"\n'
-        'design = "claude"\n'
-        'code = "claude"\n'
-        'verify = "claude"\n'
+def test_cab1_interview_max_questions_rejects_non_positive() -> None:
+    """Ensure a non-positive question cap fails validation loudly."""
+    with pytest.raises(
+        ValueError, match="board_cab1_interview_max_questions"
+    ):
+        Settings(_env_file=None, board_cab1_interview_max_questions=0)
+
+
+
+
+def test_every_documented_top_level_key_is_read_from_the_file() -> None:
+    """Ensure config.toml.example documents nothing the loader silently
+    ignores (#70: CAB-1's switch and cap, and the health-check timings,
+    were documented but never read)."""
+    example = tomllib.loads(
+        (Path(__file__).parents[2] / "config.toml.example").read_text()
     )
-    s = Settings(_env_file=None, config_file=str(toml))
-    assert s.step_backends == {
-        "refine": "claude",
-        "design": "claude",
-        "code": "claude",
-        "verify": "claude",
+    scalars = {
+        key for key, value in example.items()
+        if not isinstance(value, (dict, list))
     }
+    readable = config._CONFIG_FILE_FIELDS | config._FILE_ONLY_FIELDS
 
-
-def test_step_backends_accepts_partial_valid_steps(tmp_path: Path) -> None:
-    """Ensure omitting some steps is allowed (they use defaults)."""
-    toml = tmp_path / "config.toml"
-    toml.write_text(
-        "[step_backends]\n"
-        'refine = "haiku"\n'
-        'code = "sonnet"\n'
-    )
-    s = Settings(_env_file=None, config_file=str(toml))
-    assert s.step_backends == {"refine": "haiku", "code": "sonnet"}
-
-
-def test_step_backends_empty_is_valid(tmp_path: Path) -> None:
-    """Ensure an empty step_backends section is valid."""
-    toml = tmp_path / "config.toml"
-    toml.write_text("[step_backends]\n")
-    s = Settings(_env_file=None, config_file=str(toml))
-    assert s.step_backends == {}
-
-
-def test_step_backends_allows_sub_step_names(tmp_path: Path) -> None:
-    """Ensure dotted sub-step names like 'refine.reconcile' are allowed."""
-    toml = tmp_path / "config.toml"
-    toml.write_text(
-        "[step_backends]\n"
-        'refine = "claude"\n'
-        '"refine.reconcile" = "haiku"\n'
-        'code = "sonnet"\n'
-    )
-    s = Settings(_env_file=None, config_file=str(toml))
-    assert s.step_backends == {
-        "refine": "claude",
-        "refine.reconcile": "haiku",
-        "code": "sonnet",
-    }
-
-
-def test_step_backends_rejects_invalid_sub_step_names(tmp_path: Path) -> None:
-    """Ensure invalid sub-steps (e.g. 'plan.xyz') are rejected."""
-    toml = tmp_path / "config.toml"
-    toml.write_text(
-        "[step_backends]\n"
-        'plan.xyz = "claude"\n'
-    )
-    with pytest.raises(ValueError) as exc:
-        Settings(_env_file=None, config_file=str(toml))
-    msg = str(exc.value)
-    assert "Invalid step names" in msg
-    assert "plan" in msg
+    assert scalars - readable == set()

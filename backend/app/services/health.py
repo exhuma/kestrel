@@ -21,13 +21,30 @@ from typing import Awaitable, Callable
 
 from app.config import get_settings
 from app.ports import WorkItem
-from app.services.workflows import get_workflow_service
+from app.services.task_sources import get_task_source_registry
 from app.storage.health_bus import HealthBus
 
 _log = logging.getLogger("kestrel.health")
 
-#: One entry's check: no arguments, never raises, ``True`` iff healthy.
+#: One entry's check: no arguments, ``True`` iff healthy. It may raise; any
+#: exception means unhealthy, and its reason is logged (never exposed).
 CheckFn = Callable[[], Awaitable[bool]]
+
+#: The most characters of a failure's message the log keeps (an error body
+#: can be a whole HTML page).
+_MAX_REASON = 500
+#: What a check that returned ``False`` without an exception is logged as.
+_NO_DETAIL = "reported unhealthy (no detail)"
+
+
+def _reason(exc: BaseException, timeout: float) -> str:
+    """A one-line, bounded description of why a check failed."""
+    if isinstance(exc, TimeoutError):
+        return f"timed out after {timeout:g} s"
+    text = " ".join(str(exc).split()) or "(no message)"
+    if len(text) > _MAX_REASON:
+        text = f"{text[:_MAX_REASON]}…"
+    return f"{type(exc).__name__}: {text}"
 
 
 class HealthState(str, Enum):
@@ -85,6 +102,10 @@ class HealthPollService:
         self.store = HealthStore(self._names)
         self.bus = HealthBus()
         self._locks = {name: asyncio.Lock() for name in self._names}
+        #: Each unhealthy entry's last logged reason, so a failure is
+        #: logged once per change rather than every cycle. Log-only: the
+        #: API never exposes it (feature 014).
+        self._reasons: dict[str, str] = {}
 
     @property
     def name(self) -> str:
@@ -122,10 +143,34 @@ class HealthPollService:
             timeout = get_settings().health_check_timeout_seconds
             try:
                 healthy = await asyncio.wait_for(check_fn(), timeout)
-            except Exception:  # noqa: BLE001 — a bad check must not raise
-                _log.exception("health check failed for %s", name)
+            except Exception as exc:
+                reason = _reason(exc, timeout)
+                _log.log(
+                    self._level_for(name, reason),
+                    "health: %s unreachable: %s", name, reason, exc_info=exc,
+                )
                 healthy = False
+            else:
+                self._log_outcome(name, healthy)
             self.store.set(name, healthy)
+
+    def _level_for(self, name: str, reason: str) -> int:
+        """WARNING when *name* became unhealthy or its reason changed;
+        DEBUG for the same failure again."""
+        changed = self._reasons.get(name) != reason
+        self._reasons[name] = reason
+        return logging.WARNING if changed else logging.DEBUG
+
+    def _log_outcome(self, name: str, healthy: bool) -> None:
+        """Log a check that returned without raising: a recovery, or a
+        failure that gave no reason."""
+        if not healthy:
+            _log.log(
+                self._level_for(name, _NO_DETAIL),
+                "health: %s unreachable: %s", name, _NO_DETAIL,
+            )
+        elif self._reasons.pop(name, None) is not None:
+            _log.info("health: %s reachable again", name)
 
     async def run_forever(self) -> None:
         """Run a cycle immediately, then every configured interval."""
@@ -137,28 +182,28 @@ class HealthPollService:
 def _health_checks() -> list[tuple[str, CheckFn]]:
     """The hand-curated list of what to check (research.md R6).
 
-    Reuses the exact adapter instances ``WorkflowService`` already holds
-    — not fresh ones — so a GitHub profile's task-source and code-host
-    roles, which share one underlying ``GitHubClient``, are registered
-    once rather than as two indicators for the same connection. Only
-    registered for a role that is actually configured (``settings``'s own
-    ``*_sources()`` helpers), so an operator who never set up GitHub
-    never sees a "github" entry at all.
+    Reuses the exact adapter instances the shared task-source registry
+    already holds — not fresh ones — so a GitHub profile's task-source
+    and code-host roles, which share one underlying ``GitHubClient``, are
+    registered once rather than as two indicators for the same
+    connection. Only registered for a role that is actually configured
+    (``settings``'s own ``*_sources()`` helpers), so an operator who
+    never set up GitHub never sees a "github" entry at all.
     """
     settings = get_settings()
-    service = get_workflow_service()
+    registry = get_task_source_registry()
     checks: list[tuple[str, CheckFn]] = []
     if settings.github_sources():
-        gh = service.sources["github-issue"].check_health
+        gh = registry.sources["github-issue"].check_health
         checks.append(("github", gh))
     if settings.jira_sources():
-        checks.append(("jira", service.sources["jira-issue"].check_health))
+        checks.append(("jira", registry.sources["jira-issue"].check_health))
         code_host_label = settings.jira_sources()[0].code_host
-        code_host_check = service.code_hosts["jira-issue"].check_health
+        code_host_check = registry.code_hosts["jira-issue"].check_health
         checks.append((code_host_label, code_host_check))
-    if settings.fixture_sources():
-        fixture = service.sources["fixture-issue"].check_health
-        checks.append(("fixture", fixture))
+    if settings.local_sources():
+        local = registry.sources["local-task"].check_health
+        checks.append(("local", local))
     return checks
 
 

@@ -1,4 +1,4 @@
-"""Tests for the Notifier protocol, templates, and persistence."""
+"""Tests for the notification record's signal classification and store."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,8 +8,7 @@ from alembic.config import Config
 from sqlalchemy.orm import sessionmaker
 
 from alembic import command
-from app.models_workflow import WorkflowRun
-from app.notifications import InAppNotifier, render_message, signal_class
+from app.notifications import signal_class
 from app.persistence.notification_store import NotificationStore
 
 
@@ -28,28 +27,11 @@ def _store(tmp_path: Path) -> NotificationStore:
     return NotificationStore(sessionmaker(bind=sa.create_engine(url)))
 
 
-def _run(status: str) -> WorkflowRun:
-    return WorkflowRun(id="wf-1", repo="o/r", issue_number=5, status=status)
-
-
 def test_migrations_create_notification_table(tmp_path: Path) -> None:
     """Ensure migrations create the notification table."""
     url = _migrate(tmp_path / "t.db")
     names = set(sa.inspect(sa.create_engine(url)).get_table_names())
     assert "notification" in names
-
-
-def test_render_message_for_known_statuses() -> None:
-    """Ensure known statuses render a specific, repo-scoped message."""
-    msg = render_message(_run("awaiting_refine_approval"))
-    assert "o/r#5" in msg
-    assert "review" in msg.lower()
-
-
-def test_render_message_falls_back_for_unknown_status() -> None:
-    """Ensure an unrecognised status still renders something useful."""
-    msg = render_message(_run("some_future_status"))
-    assert "o/r#5" in msg
 
 
 def test_signal_class_splits_gates_from_summaries() -> None:
@@ -58,57 +40,6 @@ def test_signal_class_splits_gates_from_summaries() -> None:
     assert signal_class("awaiting_refine_input") == "action_required"
     assert signal_class("done") == "summary"
     assert signal_class("failed") == "summary"
-
-
-def test_in_app_notifier_records_awaiting_status(tmp_path: Path) -> None:
-    """Ensure an awaiting_* status is recorded."""
-    store = _store(tmp_path)
-    notifier = InAppNotifier(store)
-    notifier.notify(_run("awaiting_plan_approval"))
-    items = store.list_all()
-    assert len(items) == 1
-    assert items[0].workflow_id == "wf-1"
-    assert items[0].repo == "o/r"
-    assert items[0].issue_number == 5
-    assert items[0].status == "awaiting_plan_approval"
-    assert items[0].read is False
-
-
-def test_in_app_notifier_records_jira_run_without_issue_number(
-    tmp_path: Path,
-) -> None:
-    """A Jira run (issue_number=None) persists — no NOT NULL crash (004)."""
-    store = _store(tmp_path)
-    run = WorkflowRun(
-        id="wf-j", repo="acme/gw", issue_number=None,
-        source="jira-issue", task_ref="RFC-1",
-        status="awaiting_refine_input",
-    )
-    InAppNotifier(store).notify(run)
-    items = store.list_all()
-    assert len(items) == 1
-    assert items[0].issue_number is None
-    assert items[0].workflow_id == "wf-j"
-
-
-def test_in_app_notifier_records_done_and_failed(tmp_path: Path) -> None:
-    """Ensure done and failed statuses are recorded."""
-    store = _store(tmp_path)
-    notifier = InAppNotifier(store)
-    notifier.notify(_run("done"))
-    notifier.notify(_run("failed"))
-    assert len(store.list_all()) == 2
-
-
-def test_in_app_notifier_ignores_transient_and_rejected(
-    tmp_path: Path,
-) -> None:
-    """Ensure transient and rejected statuses are not recorded."""
-    store = _store(tmp_path)
-    notifier = InAppNotifier(store)
-    for status in ("pending", "cloning", "refining", "rejected"):
-        notifier.notify(_run(status))
-    assert store.list_all() == []
 
 
 def test_store_list_all_orders_newest_first(tmp_path: Path) -> None:

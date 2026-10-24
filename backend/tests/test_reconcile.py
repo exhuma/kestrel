@@ -5,31 +5,32 @@ import pytest
 
 from app.config import Settings
 from app.config_models import TaskSourceConfig
-from app.models_workflow import WorkflowRun
+from app.ports import Task
 from app.services.exceptions import GitHubError
 from app.services.github import Issue
-from app.services.ingestion import IngestionService
+from app.services.ingestion import BoardIntake, IngestionService
 from app.services.reconcile import ReconcileService
+from tests.intake_doubles import fake_board_intake
 
 
-class _FakeWorkflows:
+class _FakeTaskSource:
+    async def get_task(self, ref):
+        return Task(ref=ref, title="t", body="b")
+
+    def visibility(self):
+        return "public"
+
+
+class _FakeTaskSources:
+    """A minimal ``TaskSourceRegistry`` double."""
+
     def __init__(self) -> None:
-        self.runs: list[WorkflowRun] = []
-        self.created: list[tuple[str, int]] = []
+        self.sources = {"github-issue": _FakeTaskSource()}
+        self.code_hosts: dict[str, object] = {}
 
-    def list(self) -> list[WorkflowRun]:
-        return self.runs
 
-    async def create(self, repo, issue_number=None, *, source="manual",
-                     task_ref=None, base_branch=None):
-        rid = f"wf-{len(self.created)}"
-        self.created.append((repo, issue_number))
-        self.runs.append(
-            WorkflowRun(id=rid, repo=repo, issue_number=issue_number,
-                        source=source,
-                        task_ref=task_ref or f"{repo}#{issue_number}")
-        )
-        return rid
+def _board_intake() -> BoardIntake:
+    return fake_board_intake()
 
 
 class _FakeDismissals:
@@ -56,38 +57,61 @@ class _FakeGitHub:
         self.calls = 0
 
     async def list_issues_by_label(self, repo, label, *, state="open"):
+        del repo, label, state
+        self.calls += 1
+        if self._fail:
+            raise GitHubError("unreachable")
+        return list(self._issues)
+
+    async def list_issues(self, repo, *, state="open"):
+        del repo, state
         self.calls += 1
         if self._fail:
             raise GitHubError("unreachable")
         return list(self._issues)
 
 
-def _svc(github, wf, dismissals) -> ReconcileService:
+def _svc(github, dismissals, board_intake=None) -> ReconcileService:
     source = TaskSourceConfig(
         type="github", watched_repos=["o/r"], trigger_label="kestrel"
     )
     settings = Settings(_env_file=None, task_sources=[source])
-    ingestion = IngestionService(settings, wf, dismissals)
+    ingestion = IngestionService(
+        settings,
+        _FakeTaskSources(),
+        dismissals,
+        board_intake or _board_intake(),
+    )
     return ReconcileService(source, github, ingestion, dismissals)
 
 
 @pytest.mark.asyncio
 async def test_starts_missing_run_once_and_is_idempotent() -> None:
     """Ensure a labelled issue starts one run; a second cycle starts none."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
-    svc = _svc(_FakeGitHub(issues=[Issue(5, "t", "b")]), wf, dis)
+    dis = _FakeDismissals()
+    board_intake = _board_intake()
+    svc = _svc(
+        _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
+        dis,
+        board_intake=board_intake,
+    )
     await svc.run_cycle()
     await svc.run_cycle()
-    assert wf.created == [("o/r", 5)]
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
 
 @pytest.mark.asyncio
 async def test_dismissed_issue_is_skipped() -> None:
     """Ensure a dismissed, still-labelled issue is not started."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     dis.add("o/r#5")
-    await _svc(_FakeGitHub(issues=[Issue(5, "t", "b")]), wf, dis).run_cycle()
-    assert wf.created == []
+    board_intake = _board_intake()
+    await _svc(
+        _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
+        dis,
+        board_intake=board_intake,
+    ).run_cycle()
+    assert board_intake.board.calls == []
     # Still labelled ⇒ dismissal stays.
     assert dis.is_dismissed("o/r#5") is True
 
@@ -95,21 +119,43 @@ async def test_dismissed_issue_is_skipped() -> None:
 @pytest.mark.asyncio
 async def test_dismissal_cleared_when_label_removed() -> None:
     """Ensure a dismissal for an unlabelled issue is cleared."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
+    dis = _FakeDismissals()
     dis.add("o/r#9")  # dismissed, but no longer labelled
-    await _svc(_FakeGitHub(issues=[Issue(5, "t", "b")]), wf, dis).run_cycle()
+    board_intake = _board_intake()
+    await _svc(
+        _FakeGitHub(issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))]),
+        dis,
+        board_intake=board_intake,
+    ).run_cycle()
     assert dis.is_dismissed("o/r#9") is False
-    assert wf.created == [("o/r", 5)]
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
 
 
 @pytest.mark.asyncio
 async def test_github_failure_is_isolated_and_recoverable() -> None:
     """Ensure a failing cycle starts nothing and the next cycle recovers."""
-    wf, dis = _FakeWorkflows(), _FakeDismissals()
-    github = _FakeGitHub(issues=[Issue(5, "t", "b")], fail=True)
-    svc = _svc(github, wf, dis)
+    dis = _FakeDismissals()
+    github = _FakeGitHub(
+        issues=[Issue(5, "t", "b", labels=frozenset({"kestrel"}))], fail=True
+    )
+    board_intake = _board_intake()
+    svc = _svc(github, dis, board_intake=board_intake)
     await svc.run_cycle()  # must not raise
-    assert wf.created == []
+    assert board_intake.board.calls == []
     github._fail = False
     await svc.run_cycle()
-    assert wf.created == [("o/r", 5)]
+    assert [c.task_ref for c in board_intake.board.calls] == ["o/r#5"]
+
+
+@pytest.mark.asyncio
+async def test_a_closed_issue_starts_nothing() -> None:
+    """Ensure a closed issue is ignored, labelled or not."""
+    board_intake = _board_intake()
+    await _svc(
+        _FakeGitHub(issues=[Issue(
+            5, "t", "b", state="closed", labels=frozenset({"kestrel"})
+        )]),
+        _FakeDismissals(),
+        board_intake=board_intake,
+    ).run_cycle()
+    assert board_intake.board.calls == []

@@ -22,7 +22,9 @@ task dev     # run the backend (:8000) and frontend (:5173) dev servers
 ```
 
 Run `task --list` to see every task (`task backend` / `task frontend` run one
-side on its own). The manual equivalents:
+side on its own). `task dev` selects root `config.toml`; its `port` setting
+overrides the task's `KESTREL_PORT` fallback, and the frontend's API base must
+match it. The manual equivalents:
 
 ```bash
 # Backend — API on http://localhost:8000

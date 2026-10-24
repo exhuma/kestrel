@@ -3,18 +3,26 @@
 # Point kestrel at this file with KESTREL_CONFIG_FILE (see README). Copy to
 # `config.toml` and edit. It holds two kinds of settings:
 #
-#   1. Applicative (non-secret) config — watched repos, cadences, the verify
-#      iteration cap. These may also be given as KESTREL_* env vars; this
-#      file wins where it sets a key, and env fills in the rest.
-#   2. Backend routing (`default_session_backend`, `[step_backends]`,
-#      `[[backends]]`). These are file-only — the matching env vars are
-#      inert.
+#   1. Applicative (non-secret) config — watched repos, cadences, board
+#      lease/recovery timings. These may also be given as KESTREL_* env
+#      vars; this file wins where it sets a key, and env fills in the rest.
+#   2. Backend routing (`default_session_backend`, `[[backends]]`). These
+#      are file-only — the matching env vars are inert. Per-specialist
+#      routing (which backend a given role — coder, verifier, requester,
+#      ...  — dispatches to) is not set here: it is each role's
+#      `model_policy` field in its `specialists/<role>/manifest.toml`
+#      ("default" for `default_session_backend` above, or a specific
+#      backend id from `[[backends]]`).
 #
 # SECRETS STAY IN THE ENVIRONMENT: KESTREL_GITHUB_TOKEN,
 # KESTREL_WEBHOOK_SECRET, KESTREL_JIRA_API_TOKEN, KESTREL_CODE_HOST_TOKEN, and
 # per-backend api keys/passwords are never put here (except a backend's inline
 # `api_key`/`password`, which is tolerated only because this file is
 # gitignored).
+#
+# NOTE ON THE BIND ADDRESS: KESTREL_HOST (environment only, not a key in this
+# file) defaults to 0.0.0.0. Behind an authenticating reverse proxy in the same
+# pod (see docs/deploy-kubernetes.md) set KESTREL_HOST=127.0.0.1.
 #
 # NOTE ON base_url IN DOCKER: inside the container `localhost` is the
 # container, not the host. To reach a backend running on the Docker host,
@@ -32,8 +40,80 @@ health_check_interval_seconds = 60
 # How long a single source's health check may take before it's given up on
 # as unhealthy, so one unresponsive integration can't stall the others.
 health_check_timeout_seconds = 10
-# Max code↔verify iterations before the loop escalates.
+# Max verification rounds for one approved CAB-2 task before a failing
+# verification escalates to coordinator review instead of another fix.
 max_verify_iterations = 3
+# Max CI-triggered repair attempts. This does not consume verify iterations.
+max_ci_repair_iterations = 2
+# Mark Kestrel-generated comments so kestrel never acts on its own. Needed
+# while kestrel posts through the operator's account (no service account yet).
+# With it off, ticket replies are not read at all.
+comment_sentinel_enabled = true
+# A ticket reply must contain this plain-text marker (whole word, any case)
+# for kestrel to act on it (feature 046).
+feedback_marker = "@kestrel"
+
+# --- work board (feature 026) -----------------------------------------------
+# Root of file-backed specialist definitions: one subdirectory per named role
+# (requester, pm, uiux, developer, infosec, dba, architect, ops, qa,
+# coordinator, coder, verifier, input-security, liaison), each holding a
+# manifest and prompt file. Treated as a trust boundary: a manifest resolving
+# outside this root is refused.
+specialists_root = "./specialists"
+# Maximum size in bytes of one untrusted board input (task body, feedback
+# item, gate/questionnaire answer, direct session prompt) accepted before
+# intake. Oversized input is quarantined rather than truncated.
+board_input_max_bytes = 65536
+# Timeout in seconds for the input-security specialist's classification call.
+# A timeout fails closed into quarantine, the same as a malformed result.
+board_input_security_timeout_seconds = 30.0
+# Timeout in seconds for one agent turn on the board: the coordinator's, or a
+# specialist's on a card. Kept separate from the screening timeout above,
+# because a coder's turn legitimately runs for minutes, and a slow local model
+# needs far longer than a classification does.
+board_turn_timeout_seconds = 600.0
+# How long a card claim lease is held before it is considered abandoned and
+# eligible for retry/reassignment/escalation on recovery.
+board_claim_lease_seconds = 600
+# How long a repository workspace-write lease is held before recovery may
+# reclaim it.
+board_workspace_lease_seconds = 1800
+# Maximum number of read-only board cards claimed and active at once.
+board_max_parallel_read_cards = 4
+# How often the recovery sweep checks for expired claim leases.
+board_recovery_interval_seconds = 60.0
+# How often the CI-poll sweep checks each delivered workflow's required
+# CI status (T052). Only matters where required_ci_statuses (below) is
+# configured for a source; otherwise this sweep is a no-op.
+board_ci_poll_interval_seconds = 60.0
+# How often ticket comments of active requests are read for replies, and how
+# often comments that failed to post are retried (feature 046).
+board_comment_poll_interval_seconds = 60.0
+board_projection_retry_interval_seconds = 120.0
+# Durable, content-addressed store for handoff-artifact bodies, keyed by
+# content hash. In Docker, point this at a persistent volume.
+board_artifacts_root = "./.kestrel-board-artifacts"
+# Every request passes three human gates, always: CAB-1 (strategic fit),
+# PRD sign-off, and CAB-2 (the approved breakdown). They cannot be switched
+# off (#70).
+# The strategic-fit interview's hard question cap — keeps the pre-CAB-1
+# interview light, unlike the deeper post-approval refinement interviews
+# it precedes.
+board_cab1_interview_max_questions = 3
+# Enable the temporary /api/board/workflows/{id}/dev/{cleanup,rerun}
+# routes, for repeating a local-task-source dry run without restarting
+# kestrel. Off by default; restricted to private-visibility workflows
+# regardless. Meant to be deleted, not hardened, once the board is
+# production-ready — see app/services/board/dev_reset.py.
+board_dev_actions_enabled = false
+
+# Optional, stateless OpenAI-compatible feedback translation. It is not a
+# workflow backend. Keep its credential in the named environment variable.
+# [translation]
+# base_url = "https://translation.example.com/v1"
+# model = "translation-model"
+# api_key_env = "KESTREL_TRANSLATION_API_KEY"
+# timeout = 30.0
 
 # --- task sources -----------------------------------------------------------
 # Each [[task_sources]] entry declares where kestrel pulls work from. Secrets
@@ -51,6 +131,9 @@ trigger_label = "kestrel"
 #
 # Lifecycle sync (feature 006): labels applied as a run progresses. These are
 # the defaults — override only if they clash with an existing label scheme.
+# NOTE: dormant since the Phase 10 clean break (spec 026) removed the fixed
+# driver's lifecycle-notification code; nothing currently applies these
+# labels or invokes hooks_dir below. See docs/setup-github-workflow.md.
 # in_progress_label = "kestrel-in-progress"
 # failed_label = "kestrel-failed"
 # escalated_label = "kestrel-escalated"
@@ -61,6 +144,8 @@ trigger_label = "kestrel"
 # including every configured token — only point this at a directory you trust
 # as much as this file itself. See docs/hooks.md before setting this.
 # hooks_dir = "/path/to/hooks/github"
+# Required check-run/status names. Empty or omitted preserves terminal `done`.
+# required_ci_statuses = ["backend", "frontend"]
 
 # Jira: poll one instance with a whole JQL query (you write the project clause
 # yourself). The target repo is resolved from `repo_field` or a web link titled
@@ -68,6 +153,7 @@ trigger_label = "kestrel"
 # [[task_sources]]
 # type = "jira"
 # base_url = "https://acme.atlassian.net"
+# deployment = "cloud"                # "cloud" (ADF/v3) | "server" (text/v2)
 # auth = "basic"                       # "basic" (Cloud) | "bearer" (Server/DC PAT)
 # email = "me@acme.com"
 # jql = 'project = "RFC" AND status = "Ready"'
@@ -77,12 +163,17 @@ trigger_label = "kestrel"
 #                                       # REST calls (self-signed/internal CA)
 # repo_field = "customfield_10050"      # optional; else a titled web link is used
 # repo_link_text = "Repository"         # web-link title to match (default)
+# change_owner_field = "customfield_10051"  # user field naming the change
+#                                       # owner: told when the issue is ready
+#                                       # for CAB or should move on, relays CAB
+#                                       # decisions (feature 046)
 # code_host = "github"                  # "github" | "gitlab" | "gitea"
 # code_host_base_url = ""               # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
 #
 # Lifecycle sync (feature 006): Jira workflow-transition ids for each
-# lifecycle point (look these up via your instance's issue transitions
+# lifecycle point (dormant — see the NOTE on the GitHub entry above; look
+# these up via your instance's issue transitions
 # endpoint/admin UI — every workflow is different, so none are guessed).
 # Unset = no native transition for that point; falls back to a comment
 # footer. Optionally write active time to a field (the builtin "timespent"
@@ -98,32 +189,21 @@ trigger_label = "kestrel"
 # SECURITY note applies (full environment/credential inheritance).
 # hooks_dir = "/path/to/hooks/jira"
 
-# Fixture (feature 008): local, disposable tasks for testing/retrying the
-# pipeline without touching a real GitHub issue or Jira ticket — one JSON
-# file per task under `fixtures_dir`, admin-authored and admin-edited
-# directly on disk. Rerun is available only for runs from this kind of
-# source (never for GitHub/Jira). Branches/change-requests still target a
-# real repo, via the same code_host fields Jira uses above.
+# Local: disposable task folders for offline testing. Every task has
+# `task.json`; comments and attachments stay in that folder. Local branches
+# publish to a local bare repository and do not open a change request.
 # [[task_sources]]
-# type = "fixture"
-# fixtures_dir = "/path/to/kestrel-fixtures"
-# code_host = "github"                  # "github" | "gitlab" | "gitea"
-# code_host_base_url = ""               # for a self-hosted gitlab/gitea
-# code_host_token_env = "KESTREL_CODE_HOST_TOKEN"
+# type = "local"
+# tasks_dir = "/path/to/kestrel-local-tasks"
+# code_host = "local"
 
 # --- backend routing --------------------------------------------------------
-# Backend used for ad-hoc /api/sessions dispatch.
+# Backend used for ad-hoc /api/sessions dispatch, and the "default" a
+# specialist's model_policy resolves to (see the header note above).
+# Must be set before any [[backends]] table below — TOML parses a bare
+# key after an array-of-tables header as part of that table, not a
+# top-level setting.
 default_session_backend = "claude"
-
-# Per-workflow-step backend (step -> backend id); steps omitted use the
-# default above. The workflow sequence is: refine → design → code → verify.
-# The `code` step edits a per-run workspace, so keep it on an agent that
-# honours the working directory (claude).
-[step_backends]
-refine  = "claude"
-design  = "claude"
-code    = "claude"
-verify  = "claude"
 
 # --- backends ---------------------------------------------------------------
 # Each [[backends]] entry: id, type (claude_cli | openai_compat | opencode),
@@ -132,6 +212,9 @@ verify  = "claude"
 [[backends]]
 id = "claude"
 type = "claude_cli"
+# Process-wide cap for this backend id, shared by all workflows and ad-hoc
+# sessions. The default is 1; raise it only when the provider quota allows it.
+# max_concurrency = 1
 
 # A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). Text-only.
 # `api_key` (or api_key_env) sets a bearer token if the endpoint needs one.
@@ -143,6 +226,7 @@ base_url = "http://localhost:11434/v1"
 model = "llama3.1:8b"
 # api_key = "sk-…"
 # timeout = 300
+# max_concurrency = 1
 
 # opencode via `opencode serve`. `model` is "provider/model". For a secured
 # server (OPENCODE_SERVER_PASSWORD), give the password inline via `password`
@@ -156,3 +240,18 @@ model = "anthropic/claude-sonnet-4"
 # username = "opencode"
 # password = "changeme"
 # api_key_env = "OPENCODE_SERVER_PASSWORD"   # alternative to `password`
+# max_concurrency = 1          # shared by all workflows/sessions using "oc"
+# rate_limit_retries = 3       # retry HTTP 429 this many times
+# rate_limit_backoff_seconds = 2.0  # exponential base when no Retry-After
+# Tools (feature 036). Every opencode tool is available by default —
+# including any MCP server in your opencode config (GitLab, Jira, …), which
+# no kestrel specialist needs: the ticket is already in its prompt. List the
+# tools turns may use; everything else is hidden from the model. opencode
+# tool names, wildcards allowed. Read-only turns still cannot write.
+# An MCP server's tools are named "<server>_<tool>", <server> being its key
+# in your opencode config: "playwright_*" allows a "playwright" server.
+# allowed_tools = ["read", "grep", "glob", "list", "bash", "edit", "todowrite"]
+# A turn is aborted, and the request says why, once it calls one tool with
+# the same input this many times, or makes this many tool calls in total.
+# max_repeated_tool_calls = 5
+# max_tool_calls = 150

@@ -11,12 +11,10 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from app.ports import Feedback
-from app.services.github import (
-    GitHubClient,
-    GitHubCodeHost,
-    change_request_number,
-)
+from app.documents import Text, document, paragraph
+from app.ports import Feedback, Person
+from app.services.change_requests import change_request_number
+from app.services.github import GitHubClient, GitHubCodeHost
 
 _GITHUB_PR_NUMBER = 42
 _GITLAB_MR_NUMBER = 7
@@ -127,7 +125,9 @@ async def test_list_review_comments_merges_and_tags_origin() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     items = await host.list_review_comments("o/r", _PR_NUMBER)
     assert {i.origin for i in items} == {"review"}
-    assert [i.body for i in items] == ["conv", "review summary", "inline"]
+    assert [i.body.plain_text() for i in items] == [
+        "conv", "review summary", "inline",
+    ]
     assert items[0].external_id == "gh-pr-comment:o/r#1"
     assert items[1].external_id == "gh-pr-review:o/r#55"
     assert items[2].external_id == "gh-pr-review-comment:o/r#2"
@@ -147,9 +147,8 @@ async def test_list_review_comments_excludes_empty_review_body() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_review_comments_since_cursor_excludes_prior_item() -> None:
-    """Ensure a second call with the first call's newest cursor never
-    re-returns that same item (round-trip exclusivity)."""
+async def test_list_review_comments_since_cursor_rereads_boundary() -> None:
+    """Ensure a second call re-reads the cursor boundary for deduplication."""
     handler = _pr_router(
         conversation=[
             _comment(comment_id=1, created="2026-01-01T00:00:00Z"),
@@ -162,7 +161,23 @@ async def test_list_review_comments_since_cursor_excludes_prior_item() -> None:
 
     second = await host.list_review_comments("o/r", _PR_NUMBER, since=cursor)
 
-    assert second == []
+    assert [item.external_id for item in second] == ["gh-pr-comment:o/r#2"]
+
+
+@pytest.mark.asyncio
+async def test_list_review_comments_excludes_bot_review_summaries() -> None:
+    """Ensure a bot-authored review summary is not actionable feedback."""
+    handler = _pr_router(reviews=[{
+        "id": 55, "body": "@kestrel automated review",
+        "user": {"login": "bot", "type": "Bot"},
+        "submitted_at": "2026-01-02T00:00:00Z",
+    }])
+
+    items = await GitHubCodeHost(
+        _client(handler), "https://github.com"
+    ).list_review_comments("o/r", _PR_NUMBER)
+
+    assert items == []
 
 
 @pytest.mark.asyncio
@@ -177,7 +192,8 @@ async def test_codehost_acknowledge_reacts_to_pr_conversation_comment() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     feedback = Feedback(
         external_id="gh-pr-comment:o/r#3", origin="review",
-        author="octocat", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("octocat"), body=document(paragraph(Text("hi"))),
+        created_at=datetime.now(timezone.utc),
     )
     assert await host.acknowledge(feedback) is True
     assert seen["url"].endswith("/repos/o/r/issues/comments/3/reactions")
@@ -195,7 +211,8 @@ async def test_codehost_acknowledge_reacts_to_inline_review_comment() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     feedback = Feedback(
         external_id="gh-pr-review-comment:o/r#4", origin="review",
-        author="octocat", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("octocat"), body=document(paragraph(Text("hi"))),
+        created_at=datetime.now(timezone.utc),
     )
     assert await host.acknowledge(feedback) is True
     assert seen["url"].endswith("/repos/o/r/pulls/comments/4/reactions")
@@ -212,6 +229,7 @@ async def test_codehost_acknowledge_review_summary_has_no_endpoint() -> None:
     host = GitHubCodeHost(_client(handler), "https://github.com")
     feedback = Feedback(
         external_id="gh-pr-review:o/r#55", origin="review",
-        author="octocat", body="hi", created_at=datetime.now(timezone.utc),
+        author=Person("octocat"), body=document(paragraph(Text("hi"))),
+        created_at=datetime.now(timezone.utc),
     )
     assert await host.acknowledge(feedback) is False

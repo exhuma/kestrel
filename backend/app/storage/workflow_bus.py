@@ -5,6 +5,12 @@ but carries no payload: a publish is only a *tick* telling subscribers
 "this run changed, re-read it". The SSE route re-serialises the current
 detail on each tick, so a subscriber always sees the latest snapshot and
 can never drift out of order with the store.
+
+Shared, id-agnostic, by both the fixed-driver ``WorkflowRun`` and the
+board domain's ``Workflow`` (feature 026): ``BoardService`` publishes a
+tick on every committed mutation the same way, keyed by the board
+workflow's id. No board SSE route consumes it until a later phase, but
+the tick is safe to publish with zero subscribers.
 """
 from __future__ import annotations
 

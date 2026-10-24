@@ -1,0 +1,4 @@
+Add a "Copy link" button next to each workflow card in the board view so an
+operator can share a direct link to that card without opening its detail
+panel. The button should copy the card's permalink to the clipboard and show
+a brief confirmation toast.

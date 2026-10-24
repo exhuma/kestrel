@@ -4,25 +4,28 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
-from app.models_workflow import WorkflowRun
+from app.ports import Task
 from app.services.ingestion import IngestionService
+from tests.intake_doubles import fake_board_intake
 
 
-class _Workflows:
+class _TaskSource:
+    async def get_task(self, ref):
+        return Task(ref=ref, title="t", body="b")
+
+    def visibility(self):
+        return "public"
+
+
+class _FakeTaskSources:
+    """A minimal ``TaskSourceRegistry`` double."""
+
     def __init__(self) -> None:
-        self.runs: list[WorkflowRun] = []
-
-    def list(self):
-        return self.runs
-
-    async def create(self, repo, issue_number=None, *, source="manual",
-                     task_ref=None, base_branch=None):
-        rid = f"wf-{len(self.runs)}"
-        self.runs.append(WorkflowRun(
-            id=rid, repo=repo, issue_number=issue_number, source=source,
-            task_ref=task_ref or f"{repo}#{issue_number}",
-        ))
-        return rid
+        self.sources = {
+            "jira-issue": _TaskSource(),
+            "github-issue": _TaskSource(),
+        }
+        self.code_hosts: dict[str, object] = {}
 
 
 class _Dismissals:
@@ -38,7 +41,10 @@ class _Dismissals:
 
 def _svc(dismissed=()) -> IngestionService:
     return IngestionService(
-        Settings(jira_project="RFC"), _Workflows(), _Dismissals(dismissed)
+        Settings(jira_project="RFC"),
+        _FakeTaskSources(),
+        _Dismissals(dismissed),
+        fake_board_intake(),
     )
 
 

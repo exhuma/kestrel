@@ -25,12 +25,22 @@ class _FakeService:
         self._start_error = start_error
         self._known = known
 
-    async def start(self, prompt: str) -> str:
+    async def start(
+        self, prompt: str, *, confirmed_injection_risk: bool = False
+    ) -> str:
+        del confirmed_injection_risk
         if self._start_error:
             raise SessionStartError("no session id")
         return "fake-1"
 
-    async def resume(self, session_id: str, prompt: str) -> str:
+    async def resume(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        confirmed_injection_risk: bool = False,
+    ) -> str:
+        del confirmed_injection_risk
         if not self._known:
             raise SessionNotFoundError(session_id)
         return session_id
@@ -158,8 +168,32 @@ async def test_backends_endpoint_reports_effective_config() -> None:
     # Hermetic default config (see tests/conftest.py): claude only.
     assert body["default_session_backend"] == "claude"
     assert body["backends"] == [
-        {"id": "claude", "type": "claude_cli", "model": None}
+        {
+            "id": "claude",
+            "type": "claude_cli",
+            "model": None,
+            "capabilities": ["file_edits", "text"],
+        }
     ]
+
+
+@pytest.mark.asyncio
+async def test_backend_models_reports_unknown_catalogue() -> None:
+    """Ensure an unsupported configured catalogue is explicitly unknown."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/backends/claude/models")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "backend_id": "claude", "state": "unknown", "models": []
+    }
+
+
+@pytest.mark.asyncio
+async def test_unknown_backend_models_returns_not_found() -> None:
+    """Ensure catalogue lookup distinguishes absent and unknown backends."""
+    async with _client(_FakeService()) as client:
+        resp = await client.get("/api/backends/missing/models")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

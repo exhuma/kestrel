@@ -1,0 +1,9 @@
+id = "liaison"
+label = "Liaison"
+purpose = "Reads a reply on the ticket and says whether it approves or rejects the open decision, and why."
+allowed_card_types = []
+required_abilities = []
+model_policy = "default"
+workspace_permission = "none"
+retry_limit = 1
+prompt_file = "prompt.md"

@@ -1,0 +1,9 @@
+id = "coordinator"
+label = "Coordinator"
+purpose = "Fixture coordinator role for board specialist-loader tests."
+allowed_card_types = []
+required_abilities = []
+model_policy = "default"
+workspace_permission = "none"
+retry_limit = 1
+prompt_file = "prompt.md"

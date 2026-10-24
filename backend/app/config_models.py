@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: Default env var holding each source type's token when ``token_env`` is unset.
 _DEFAULT_TOKEN_ENV = {
@@ -26,8 +26,17 @@ class BackendConfig(BaseModel):
     ``type`` selects the adapter; the remaining fields configure it
     (``base_url``/``model``/``api_key_env`` are used by the HTTP-based
     backends added in later phases). ``caps`` overrides the adapter's
-    default capabilities when set.
+    default capabilities when set. This permits an on-site compatible backend
+    to advertise its coding-agent abilities accurately.
+
+    ``extra="forbid"``: a stray top-level key placed after a
+    ``[[backends]]`` header in the TOML file (e.g. an accidentally
+    reordered ``default_session_backend``) is parsed as an unexpected
+    field of *this* table, not a top-level setting — reject it loudly
+    here instead of silently dropping it.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
@@ -48,7 +57,32 @@ class BackendConfig(BaseModel):
     username: str | None = None
     #: Per-request timeout in seconds for HTTP backends (openai/opencode).
     timeout: float | None = None
+    #: Maximum in-flight turns across this backend in one kestrel process.
+    max_concurrency: int = Field(default=1, ge=1)
+    #: Maximum OpenCode retries after a provider rate-limit response.
+    rate_limit_retries: int = Field(default=3, ge=0)
+    #: Base delay for OpenCode rate-limit exponential backoff, in seconds.
+    rate_limit_backoff_seconds: float = Field(default=2.0, gt=0)
     caps: list[str] | None = None
+    #: The only tools this backend's turns may use, by the backend's own
+    #: tool names (wildcards allowed, e.g. ``"gitlab_*"``). Unset keeps
+    #: every tool the backend offers. ``opencode`` only (feature 036).
+    allowed_tools: list[str] | None = None
+    #: Abort a turn after this many tool calls (opencode; feature 036).
+    max_tool_calls: int = Field(default=150, ge=1)
+    #: Abort a turn once one tool is called this many times with the
+    #: same input — a model stuck in a loop (opencode; feature 036).
+    max_repeated_tool_calls: int = Field(default=5, ge=2)
+
+    @model_validator(mode="after")
+    def _tools_only_where_honoured(self) -> BackendConfig:
+        """Reject an allowlist a backend would silently ignore."""
+        if self.allowed_tools is not None and self.type != "opencode":
+            raise ValueError(
+                f"backend {self.id!r}: allowed_tools is supported only by "
+                f"opencode backends, not {self.type!r}"
+            )
+        return self
 
     def secret(self) -> str | None:
         """The resolved secret: an inline value, else the named env var."""
@@ -58,8 +92,28 @@ class BackendConfig(BaseModel):
         return os.environ.get(self.api_key_env) if self.api_key_env else None
 
 
+class TranslationConfig(BaseModel):
+    """One explicitly configured OpenAI-compatible translation service.
+
+    This is deliberately distinct from ``BackendConfig``: translation makes a
+    single stateless request and must not consume a workflow backend or session.
+    """
+
+    base_url: str
+    model: str
+    api_key: str | None = None
+    api_key_env: str | None = None
+    timeout: float = 30.0
+
+    def secret(self) -> str | None:
+        """Return an inline API key, or the configured environment value."""
+        if self.api_key:
+            return self.api_key
+        return os.environ.get(self.api_key_env) if self.api_key_env else None
+
+
 class TaskSourceConfig(BaseModel):
-    """One configured origin of work items (a GitHub or Jira source).
+    """One configured origin of work items.
 
     ``type`` discriminates the entry; the per-type fields below carry that
     source's selection criteria and (for Jira) its repository-resolution and
@@ -68,7 +122,7 @@ class TaskSourceConfig(BaseModel):
     lives in the file-only ``task_sources`` list.
     """
 
-    type: Literal["github", "jira", "fixture"]
+    type: Literal["github", "jira", "local"]
     #: Name of the env var holding this source's token; defaults per type.
     token_env: str | None = None
     #: Verify TLS certificates on this source's REST/API calls (Jira and the
@@ -82,6 +136,8 @@ class TaskSourceConfig(BaseModel):
     #: Jira: instance URL, auth, and the one whole JQL selecting qualifying
     #: RFCs (folds the former project key + filter).
     base_url: str = ""
+    #: Jira deployment API/body variant. Cloud requires API v3 and ADF text.
+    deployment: Literal["cloud", "server"] = "server"
     auth: Literal["basic", "bearer"] = "basic"
     email: str = ""
     jql: str = ""
@@ -92,8 +148,13 @@ class TaskSourceConfig(BaseModel):
     #: repo is resolved from a web link titled ``repo_link_text``.
     repo_field: str = ""
     repo_link_text: str = "Repository"
+    #: Jira: the user-picker custom field naming the issue's change owner
+    #: (e.g. ``customfield_10050``; feature 046). The change owner is told
+    #: when the issue is ready for CAB or should move on, and relays CAB
+    #: decisions. Unset ⇒ no change owner; CAB decisions go through the UI.
+    change_owner_field: str = ""
     #: Jira: code host for resolved repos and its (self-hosted) URL + token env.
-    code_host: Literal["github", "gitlab", "gitea"] = "github"
+    code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""
     code_host_token_env: str | None = None
     #: Both: per-source operator-hooks directory (feature 006). Empty
@@ -101,6 +162,9 @@ class TaskSourceConfig(BaseModel):
     #: wire format and the credential-exposure trust implication before
     #: setting this.
     hooks_dir: str = ""
+    #: Required CI check names for change requests from this source. Empty
+    #: keeps the historical terminal ``done`` behaviour.
+    required_ci_statuses: list[str] = []
     #: GitHub: labels applied at each lifecycle event (feature 006). The
     #: in-progress label is added at run start and removed at every
     #: terminal; the matching terminal label is added on that terminal.
@@ -121,12 +185,10 @@ class TaskSourceConfig(BaseModel):
     #: "timespent" or a custom field id). Unset ⇒ no native write; active
     #: time falls back to the comment footer like every other source.
     time_spent_field: str = ""
-    #: Fixture (feature 008): directory of local, disposable task files, one
-    #: JSON file per task. Code hosting for fixture tasks reuses the
-    #: code_host/code_host_base_url/code_host_token_env fields above (the
-    #: same fields Jira uses) — a fixture entry still targets a real,
-    #: reachable repository.
-    fixtures_dir: str = ""
+    #: Local tasks are root-contained directories, each with ``task.json``.
+    #: Their code host is always local; ``code_repo`` is an absolute bare
+    #: repository path and never needs a credential.
+    tasks_dir: str = ""
 
     @model_validator(mode="after")
     def _check_required(self) -> TaskSourceConfig:
@@ -139,8 +201,10 @@ class TaskSourceConfig(BaseModel):
             raise ValueError(
                 "jira task source requires base_url, jql, and key"
             )
-        if self.type == "fixture" and not self.fixtures_dir:
-            raise ValueError("fixture task source requires fixtures_dir")
+        if self.type == "local" and not self.tasks_dir:
+            raise ValueError("local task source requires tasks_dir")
+        if self.type == "local" and self.code_host != "local":
+            raise ValueError("local task source requires code_host = local")
         return self
 
     def token(self) -> str | None:

@@ -1,0 +1,9 @@
+id = "verifier"
+label = "Verifier"
+purpose = "Fixture verifier role for board specialist-loader tests."
+allowed_card_types = ["verification"]
+required_abilities = ["text"]
+model_policy = "default"
+workspace_permission = "read_only"
+retry_limit = 2
+prompt_file = "prompt.md"
