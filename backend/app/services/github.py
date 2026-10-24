@@ -7,7 +7,7 @@ source-neutral ``task_ref`` ``"owner/name#123"``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
@@ -18,6 +18,7 @@ from app.ports import ChangeRequest, Feedback, RequiredCiStatus
 from app.services import github_reviews
 from app.services.exceptions import GitHubError
 from app.services.github_ci import required_ci_statuses
+from app.services.http_support import track_client, truncate_body
 from app.services.task_source_utils import parse_iso
 
 
@@ -62,7 +63,8 @@ class GitHubClient:
         """
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self._http = httpx.AsyncClient(base_url=self.base_url, verify=verify)
+        client = httpx.AsyncClient(base_url=self.base_url, verify=verify)
+        self._http = track_client(client)
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -79,13 +81,21 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    async def _request(self, method: str, path: str, **kw) -> httpx.Response:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+    ) -> httpx.Response:
         resp = await self._http.request(
-            method, path, headers=self._headers(), **kw
+            method, path, headers=self._headers(), params=params, json=json
         )
         if resp.status_code >= 300:
             raise GitHubError(
-                f"{method} {path} -> {resp.status_code}: {resp.text}"
+                f"{method} {path} -> {resp.status_code}: "
+                f"{truncate_body(resp.text)}"
                 f"{self._auth_hint(resp.status_code)}"
             )
         return resp
@@ -246,7 +256,8 @@ class GitHubClient:
         )
         if resp.status_code >= 300 and resp.status_code != 404:
             raise GitHubError(
-                f"DELETE labels/{label} -> {resp.status_code}: {resp.text}"
+                f"DELETE labels/{label} -> {resp.status_code}: "
+                f"{truncate_body(resp.text)}"
             )
 
     async def create_issue(self, repo: str, title: str, body: str) -> int:

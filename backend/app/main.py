@@ -112,6 +112,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        from app.services.http_support import close_tracked_clients
+
+        await close_tracked_clients()
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
