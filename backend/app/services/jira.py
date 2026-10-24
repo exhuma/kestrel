@@ -40,9 +40,6 @@ _log = logging.getLogger("kestrel.jira")
 _TRANSITION_FIELD = {
     "start": "transition_start",
     "done": "transition_done",
-    "failed": "transition_failed",
-    "escalated": "transition_escalated",
-    "rejected": "transition_rejected",
 }
 
 
@@ -175,8 +172,10 @@ class JiraTaskSource:
         return status_ok
 
     async def _apply_transition(self, ref: str, event: LifecycleEvent) -> bool:
-        field = _TRANSITION_FIELD[event.kind]
-        transition_id = getattr(self._config, field, "") if self._config else ""
+        field = _TRANSITION_FIELD.get(event.kind)
+        if not field or not self._config:
+            return False
+        transition_id = getattr(self._config, field, "")
         if not transition_id:
             return False
         try:

@@ -159,37 +159,14 @@ class Settings(BaseSettings):
     #: Secrets stay in the environment. Mount it as a volume in Docker;
     #: relative paths resolve against the working directory.
     config_file: str = ""
-    #: Deprecated alias for ``config_file`` (``KESTREL_BACKENDS_FILE``);
-    #: honoured only when ``config_file`` is unset, with a warning.
-    backends_file: str = ""
     #: Dispatchable agent backends. File-only (see ``_FILE_ONLY_FIELDS``):
-    #: resolved from ``backends_file`` or left at this claude-only default,
+    #: resolved from the config file or left at this claude-only default,
     #: never from the environment.
     backends: list[BackendConfig] = Field(
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
     #: Backend used for ad-hoc ``/api/sessions`` dispatch. File-only.
     default_session_backend: str = "claude"
-    #: Refinement robustness knobs (help on cheaper/local models; all
-    #: default to today's behaviour). ``refine_samples`` runs the
-    #: coordinator and generators N times and unions the result to reduce
-    #: variance; ``refine_critic`` adds an adversarial completeness pass
-    #: after reconciliation; ``reconcile_mode`` selects how aggressively
-    #: questions are consolidated: ``rewrite`` (LLM consolidating
-    #: rewriter), ``dedup`` (coverage-safe within-audience duplicate
-    #: removal, no LLM), or ``off`` (keep the pooled questions as-is).
-    refine_samples: int = 1
-    refine_critic: bool = False
-    reconcile_mode: Literal["rewrite", "dedup", "off"] = "rewrite"
-    #: Capture UI mockups during a uiux refine round
-    #: (``KESTREL_MOCKUPS_ENABLED``). Off by default — not yet well
-    #: implemented, per manual-testing feedback on feature 012.
-    mockups_enabled: bool = False
-    #: Safety net (``KESTREL_ALLOW_INCOMPLETE_ANSWERS``): when true, a
-    #: questionnaire may be submitted with required questions left
-    #: unanswered (sent blank). Provided answers are still validated for
-    #: well-formedness. Off by default.
-    allow_incomplete_answers: bool = False
     #: GitHub ingestion (feature 002). The webhook HMAC shared secret
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
     #: off-loopback endpoint (constitution v1.2.0). Never logged.
@@ -214,22 +191,12 @@ class Settings(BaseSettings):
     #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
     #: a link. Operator-exposed, same posture as the webhook endpoint.
     public_base_url: str = ""
-    #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
-    #: The default token env var for a ``jira`` task source.
-    jira_api_token: str = ""
     #: Max verification rounds for one approved CAB-2 task before a
     #: non-clean result escalates to coordinator review (feature 031; the
     #: same knob feature 003's fixed driver used for its code↔verify loop).
     max_verify_iterations: int = 3
     #: Independent cap for repair attempts triggered by required CI failures.
     max_ci_repair_iterations: int = Field(default=2, ge=0)
-    #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,
-    #: every prompt/result exchanged between the coder and the verifier is
-    #: appended to a plain-text transcript next to the run's worktree, and
-    #: the worktree is never auto-deleted (done/escalated/failed) so both
-    #: stay inspectable — only an explicit abandon still removes them. Off
-    #: by default: a personal tool should not silently accumulate worktrees.
-    workflow_debug: bool = False
     #: The plain-text marker a ticket reply must contain, as a whole word
     #: and case-insensitive, for kestrel to act on it (feature 046,
     #: ``KESTREL_FEEDBACK_MARKER``). Plain text, not a Jira mention: kestrel
@@ -371,24 +338,18 @@ class Settings(BaseSettings):
         ``default_session_backend``) and may override the applicative keys
         in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
         omits keeps its env/default value, so the file wins only where it
-        speaks. Prefers ``config_file``; ``backends_file`` is a deprecated
-        alias honoured with a warning. A missing or malformed file fails
+        speaks. A missing or malformed file fails
         fast at startup. Defined before the completeness-warning validators
         (after-validators run in definition order) so they see the file's
         final values.
         """
         path_str = self.config_file
         if not path_str:
-            if not self.backends_file:
-                _log.info(
-                    "no config file configured (KESTREL_CONFIG_FILE/"
-                    "KESTREL_BACKENDS_FILE unset) — using built-in defaults"
-                )
-                return self
-            _log.warning(
-                "KESTREL_BACKENDS_FILE is deprecated; use KESTREL_CONFIG_FILE."
+            _log.info(
+                "no config file configured (KESTREL_CONFIG_FILE unset) — "
+                "using built-in defaults"
             )
-            path_str = self.backends_file
+            return self
         path = Path(path_str)
         if not path.is_file():
             raise ValueError(f"config_file not found: {path}")

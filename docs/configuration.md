@@ -25,7 +25,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
 | `KESTREL_DATABASE_URL` | `sqlite:///./kestrel.db` | SQLAlchemy database URL (image: `sqlite:////data/kestrel.db`) |
-| `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). `KESTREL_BACKENDS_FILE` is a deprecated alias |
+| `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
@@ -61,16 +61,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP` | `2` | Redrafts of the restated understanding after a rejection; a further rejection opens a coordinator review. `0` never redrafts |
 | `KESTREL_BOARD_DEV_ACTIONS_ENABLED` | `false` | Temporary dev-only cleanup/rerun routes, restricted to private (local-task) workflows. Leave off in a real deployment |
 
-**Vestigial settings, not currently read by anything.** A handful of
-`Settings` fields survive from the deleted fixed driver purely because
-nobody has removed them yet from `backend/app/config.py`: `workflow_debug`,
-`refine_samples`, `refine_critic`, `reconcile_mode`,
-`allow_incomplete_answers`, and `mockups_enabled`. Setting their
-`KESTREL_*` env var or `config.toml` key is accepted at startup but has
-**no effect** — nothing in the codebase reads any of them outside
-`config.py` itself. They described the old driver's debug transcript and
-refine-interview robustness knobs, none of which exist post-Phase-10; do
-not rely on any of them. (This is a known cleanup gap, tracked separately.)
 Ticket replies marked with `@kestrel` do exist again since feature 046; they
 use `feedback_marker`, which is a live setting listed above.
 
@@ -204,7 +194,7 @@ ingested ticket should move on, kestrel asks its owner in a comment.
 | Field | Source type | Purpose |
 | --- | --- | --- |
 | `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels a run would apply as it progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |
-| `transition_start`, `transition_done`, `transition_failed`, `transition_escalated`, `transition_rejected` | jira | Workflow-transition ids that would apply at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
+| `transition_start`, `transition_done` | jira | Workflow-transition ids that would apply at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
 | `time_spent_field` | jira | Field that would receive active-work seconds (e.g. the builtin `timespent` or a custom field id). Unset ⇒ no native write |
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
@@ -241,8 +231,7 @@ The recommended layout keeps the two kinds of settings apart:
   overrides such as `poll_interval_seconds` and the `board_*` settings,
   pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
   mount it and set the env var (see [Backends](backends.md)). Read once at
-  startup — restart after editing. (`KESTREL_BACKENDS_FILE` still works as a
-  deprecated alias.)
+  startup — restart after editing.
 - **`backend/.env` — secrets and the not-yet-migrated env-only settings.** Read
   only when running from source. Copy `backend/.env.example` and fill it in; it
   is gitignored, so never commit it. The example leads with `config.toml` and

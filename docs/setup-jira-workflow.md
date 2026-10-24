@@ -242,7 +242,7 @@ cycling the RFC's status.
 
 ### Lifecycle sync
 
-`transition_start`/`transition_done`/etc. and `time_spent_field` are still
+`transition_start`/`transition_done` and `time_spent_field` are still
 accepted on a Jira source entry, but nothing currently applies them — see
 [Configuration → Lifecycle sync
 (currently dormant)](configuration.md#lifecycle-sync-currently-dormant).

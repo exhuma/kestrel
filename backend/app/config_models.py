@@ -145,15 +145,11 @@ class TaskSourceConfig(BaseModel):
     failed_label: str = "kestrel-failed"
     escalated_label: str = "kestrel-escalated"
     rejected_label: str = "kestrel-rejected"
-    #: Jira: workflow-transition ids for each lifecycle point this
-    #: source's admin has enabled (feature 006). Unset ⇒ no-op, not an
-    #: error — not every workflow has a distinct transition for every
-    #: terminal.
+    #: Jira: workflow-transition ids for the start and done lifecycle
+    #: points (feature 006). Unset ⇒ no-op, not an error — not every
+    #: workflow has a distinct transition for each.
     transition_start: str = ""
     transition_done: str = ""
-    transition_failed: str = ""
-    transition_escalated: str = ""
-    transition_rejected: str = ""
     #: Jira: field id to write active-work seconds to (e.g. the builtin
     #: "timespent" or a custom field id). Unset ⇒ no native write; active
     #: time falls back to the comment footer like every other source.
