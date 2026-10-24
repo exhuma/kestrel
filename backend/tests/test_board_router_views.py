@@ -2,7 +2,7 @@
 (feature 026, T053/T058).
 
 Exercises the additive ``/api/board/workflows...`` surface end-to-end
-against a real, migrated SQLite-backed board (not fakes) — these routes
+against a real, migrated PostgreSQL-backed board (not fakes) — these routes
 assemble several stores together, so the integration seams are exactly
 what's worth covering here.
 """

@@ -9,6 +9,16 @@ For hacking on kestrel itself. To just *run* it, use the
 - **Node 22** with npm.
 - The **`claude` CLI** on your `PATH`, logged in (the backend spawns it).
 - **git** (the backend runs real git operations in session workspaces).
+- **PostgreSQL** (13 or later): a server you may create databases on. Any
+  local install or container works, for example:
+
+  ```bash
+  docker run -d --name kestrel-postgres -p 5432:5432 \
+    -e POSTGRES_USER=kestrel -e POSTGRES_PASSWORD=kestrel \
+    -e POSTGRES_DB=kestrel postgres:16
+  ```
+
+  That matches the `KESTREL_DATABASE_URL` in `backend/.env.example`.
 
 ## Run
 
@@ -17,7 +27,7 @@ The quickest path is the [Taskfile](https://taskfile.dev) at the repo root
 
 ```bash
 task setup   # one-time: install backend + frontend deps, seed
-             # backend/.env, apply migrations
+             # backend/.env, migrate the database it names
 task dev     # run the backend (:8000) and frontend (:5173) dev servers
 ```
 
@@ -58,14 +68,18 @@ KESTREL_LOG_FORMAT=json uv run python -m app # structured logs
 ## Configuration
 
 Copy `backend/.env.example` to `backend/.env` and edit. It is gitignored.
+`KESTREL_DATABASE_URL` is required: kestrel does not start without a
+database. To empty the database, run `task local-tasks:reset-db`, which
+rebuilds its schema.
 See [Configuration](configuration.md) for every `KESTREL_*` setting, and
 [Backends](backends.md) for dispatching to opencode.
 
 ## Tests
 
 ```bash
-# Backend
+# Backend: needs a PostgreSQL server (see Prerequisites)
 cd backend
+export KESTREL_TEST_DATABASE_URL=postgresql+psycopg://kestrel:kestrel@localhost:5432/kestrel
 uv run pytest
 
 # Frontend (type-check + build, and unit tests)
@@ -74,8 +88,13 @@ npm run build
 npm test
 ```
 
-Backend tests are hermetic (they never read your `backend/.env`). The same
-suite gates CI and every release.
+Backend tests are hermetic (they never read your `backend/.env`).
+`KESTREL_TEST_DATABASE_URL` names a server, not the database the tests use:
+each run creates its own uniquely named databases there (one migrated
+template, cloned for the tests that need a database of their own) and drops
+them when it ends, so the user in the URL must be allowed to create
+databases. Without the variable the run stops at once. The same suite gates
+CI and every release.
 
 ## Project layout
 

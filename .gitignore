@@ -2,7 +2,6 @@
 backend/.venv/
 backend/.kestrel-workspaces/
 backend/.dispatcher-workspaces/
-backend/kestrel.db
 backend/.env
 config.toml
 backend/config.toml

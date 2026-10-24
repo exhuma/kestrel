@@ -130,7 +130,7 @@ def isolated_engine(key: Path | None = None) -> sa.Engine:
     test ends.
 
     :param key: Calls with the same key during one test share a database
-        (as a test's ``tmp_path`` once named one SQLite file).
+        (a test's ``tmp_path``, say).
     :returns: The engine.
     """
     if key is not None and key in _by_key:

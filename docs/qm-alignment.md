@@ -74,8 +74,9 @@ module-ux-principles, module-github-link, module-version-control,
 module-calver-release-channels, module-documentation,
 module-notification-alarm-discipline.
 
-**Partial:** module-database-postgresql (SQLAlchemy/Alembic patterns apply;
-Postgres-specific ones N/A — uses SQLite), module-library-preferences,
+**Partial:** module-database-postgresql (PostgreSQL with psycopg 3 and
+Alembic; the URL keeps its `+psycopg` modifier and timestamps are naive
+UTC), module-library-preferences,
 module-runtime-config-spa, module-release-metadata, module-design-tokens,
 module-operator-docs.
 

@@ -6,7 +6,7 @@ Dispatch and monitor coding-agent sessions from a web UI: the
 single-operator tool: a FastAPI backend
 ingests tasks from GitHub, Jira, or local task folders into an event-driven
 **work board** of typed cards claimed by configurable specialist agents (see
-[Architecture](docs/architecture.md)), persists everything to SQLite, and
+[Architecture](docs/architecture.md)), persists everything to PostgreSQL, and
 streams live state over SSE to a Vue 3 / Vuetify frontend. See
 [Backends](docs/backends.md) for choosing what agents run on.
 

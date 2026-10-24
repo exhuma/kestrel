@@ -27,7 +27,8 @@ page only says how to wire them up in a cluster.
  |       v                                                           |
  |   /data (PVC)  /workspaces (PVC, shared with opencode)            |
  +-------------------------------------------------------------------+
-        kestrel -> Jira Cloud (poll), code host (git push), IdP (proxy)
+        kestrel -> PostgreSQL, Jira Cloud (poll), code host (git push),
+                   IdP (proxy)
 ```
 
 The shape follows from the constitution's access model: the API is
@@ -46,12 +47,16 @@ Three things to know before you start:
   `X-Forwarded-Email` and `X-Forwarded-Preferred-Username` without checking
   them. The proxy must be the only way in. Never expose port 8000, and do not
   add a second Service or Ingress that points past the proxy.
-- **One replica, never two.** State is SQLite and the ingestion, comment and
-  recovery loops run inside the process. A second replica would post every
-  comment to Jira twice. Use `replicas: 1` and `strategy: Recreate`.
+- **One replica, never two.** The ingestion, comment and recovery loops
+  run inside the process. A second replica would post every comment to Jira
+  twice. Use `replicas: 1` and `strategy: Recreate`.
 
 ## Prerequisites
 
+- A PostgreSQL server (13 or later) with an empty database and a user that
+  owns it, for example database `kestrel` and user `kestrel`. Kestrel
+  creates its tables on first start. Running the server is not covered
+  here; use your platform's managed PostgreSQL or an operator.
 - A cluster with an Ingress controller, a default StorageClass that supports
   `ReadWriteOnce` volumes, and a way to get TLS for the external host name.
 - DNS for the external URL, for example `kestrel.example.com`.
@@ -84,6 +89,7 @@ metadata:
   name: kestrel
 type: Opaque
 stringData:
+  KESTREL_DATABASE_URL: "postgresql+psycopg://kestrel:<password>@<db host>:5432/kestrel"
   KESTREL_JIRA_API_TOKEN: "<jira api token>"
   KESTREL_GITHUB_TOKEN: "<code host token>"      # see the note below
   OPENCODE_SERVER_PASSWORD: "<long random string>"
@@ -92,6 +98,9 @@ stringData:
   ANTHROPIC_API_KEY: "<model provider key>"       # for opencode only
 ```
 
+- `KESTREL_DATABASE_URL` is a SQLAlchemy URL with the `psycopg` driver.
+  Percent-encode special characters in the password. Add
+  `?sslmode=require` (or `verify-full`) when the server expects TLS.
 - Generate the cookie secret with
   `openssl rand -base64 32 | tr -- '+/' '-_'` (32 random bytes, URL-safe
   base64, as oauth2-proxy expects).
@@ -110,10 +119,10 @@ stringData:
 
 ## Storage
 
-Two `ReadWriteOnce` claims. `/data` holds the SQLite database, the board's
-handoff artifacts (`/data/board-artifacts`, set by the image) and the
-container `HOME`. `/workspaces` holds the bare mirrors, git worktrees and
-session directories, and is shared with the opencode sidecar.
+Two `ReadWriteOnce` claims. `/data` holds the board's handoff artifacts
+(`/data/board-artifacts`, set by the image) and the container `HOME`.
+`/workspaces` holds the bare mirrors, git worktrees and session directories,
+and is shared with the opencode sidecar.
 
 ```yaml
 apiVersion: v1
@@ -310,6 +319,8 @@ spec:
             - {name: KESTREL_CONFIG_FILE, value: /config/config.toml}
             - {name: KESTREL_PUBLIC_BASE_URL, value: "https://kestrel.example.com"}
             - {name: KESTREL_LOG_FORMAT, value: json}
+            - name: KESTREL_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_DATABASE_URL}}
             - name: KESTREL_JIRA_API_TOKEN
               valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_JIRA_API_TOKEN}}
             - name: KESTREL_GITHUB_TOKEN
@@ -512,7 +523,9 @@ kubectl logs deployment/kestrel -c kestrel --tail=100
 Things to look for in the kestrel log:
 
 - Alembic output ending in a successful `upgrade head`. It runs on every
-  start; a start with nothing to apply is quiet.
+  start; a start with nothing to apply is quiet. `KESTREL_DATABASE_URL is
+  not set` means the Secret key is missing; a connection error means the
+  database cannot be reached or the credentials are wrong.
 - `loading config file: /config/config.toml`. If it is missing, the
   ConfigMap is not mounted or `KESTREL_CONFIG_FILE` is wrong, and the pod
   exits with `config_file not found`.
@@ -576,30 +589,22 @@ Change the opencode image and the oauth2-proxy version the same way.
 
 ### Backup
 
-Back up `/data`: the SQLite database **and** the board artifacts under
-`/data/board-artifacts` belong together. The workspaces can be rebuilt from
-the code host and need no backup, but a deleted workspace volume loses
-unpushed work.
+Back up the database **and** `/data`: the database refers to the board
+artifacts under `/data/board-artifacts`, so take both together. The
+workspaces can be rebuilt from the code host and need no backup, but a
+deleted workspace volume loses unpushed work.
 
-The most dependable way is a volume snapshot of `kestrel-data` taken with the
-pod scaled to zero:
+Scale the pod to zero so nothing writes while you copy, dump the database
+with `pg_dump` (or use your platform's database backups), and copy the
+artifacts out of the volume, for example with a volume snapshot of
+`kestrel-data` (needs a CSI driver with snapshot support):
 
 ```bash
 kubectl scale deployment/kestrel --replicas=0
-# create a VolumeSnapshot of PVC kestrel-data (needs a CSI driver with
-# snapshot support), then:
+pg_dump --format=custom --file=kestrel.dump \
+  "postgresql://kestrel:<password>@<db host>:5432/kestrel"
+# create a VolumeSnapshot of PVC kestrel-data, then:
 kubectl scale deployment/kestrel --replicas=1
-```
-
-Without snapshots, a consistent copy of the database while the pod runs is
-possible with SQLite's own backup API, followed by copying the file and the
-artifacts out:
-
-```bash
-kubectl exec deployment/kestrel -c kestrel -- python -c \
-  "import sqlite3; s=sqlite3.connect('/data/kestrel.db'); d=sqlite3.connect('/data/kestrel-backup.db'); s.backup(d)"
-kubectl exec deployment/kestrel -c kestrel -- \
-  tar czf - -C /data kestrel-backup.db board-artifacts > kestrel-data.tgz
 ```
 
 ## Troubleshooting

@@ -35,9 +35,13 @@ working.
 
 Open <http://localhost:8000>.
 
-The container, on startup, copies your host Claude config into its own
-persisted `HOME`, applies database migrations, and starts serving the UI and
-API on port 8000. First start pulls the image and may take a minute.
+The compose file starts a PostgreSQL 16 service next to kestrel. Kestrel
+waits until the database is healthy, then copies your host Claude config
+into its own persisted `HOME`, applies database migrations, and starts
+serving the UI and API on port 8000. First start pulls the images and may
+take a minute. The database password defaults to `kestrel`; set
+`KESTREL_DB_PASSWORD` in the environment (or an `.env` file next to
+`docker-compose.yml`) to choose another one before the first start.
 
 ## Dispatch your first session
 
@@ -56,11 +60,12 @@ curl -s http://localhost:8000/readyz
 
 ## Volumes
 
-The published `docker-compose.yml` mounts four things:
+The published `docker-compose.yml` mounts four things into kestrel, and
+keeps the database in the `kestrel-db` volume of the `postgres` service:
 
 | Mount | Mode | Purpose |
 | --- | --- | --- |
-| `kestrel-data` → `/data` | read-write | SQLite DB, the board's handoff artifacts (`/data/board-artifacts`) and the container's Claude `HOME`, persisted across restarts |
+| `kestrel-data` → `/data` | read-write | The board's handoff artifacts (`/data/board-artifacts`) and the container's Claude `HOME`, persisted across restarts |
 | `./workspaces` → `/workspaces` | read-write | The git repos claude clones and edits — **browsable on the host** |
 | `~/.claude` → `/seed/.claude` | read-only | Seed: your host Claude config, plugins, and credentials |
 | `~/.claude.json` → `/seed/claude.json` | read-only | Seed: your host Claude config file (MCP servers, plugin/approval state) |
@@ -103,11 +108,13 @@ tag** in `docker-compose.yml` rather than tracking a moving channel, so an
 upgrade is a deliberate change of that tag.
 
 A new release may change the database schema, and the schema is migrated
-automatically on start. **Back up the `kestrel-data` volume before upgrading**
-(it holds the database and the board artifacts, which belong together) so you
-can roll back if needed:
+automatically on start. **Back up the database and the `kestrel-data` volume
+before upgrading** (the database refers to the board artifacts on the
+volume, so they belong together) so you can roll back if needed:
 
 ```bash
+docker compose stop kestrel
+docker compose exec postgres pg_dump -U kestrel kestrel > kestrel-db.sql
 docker compose down
 docker run --rm -v kestrel-data:/data -v "$PWD":/backup busybox \
   tar czf /backup/kestrel-data-backup.tar.gz -C /data .

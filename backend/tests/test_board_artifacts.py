@@ -2,7 +2,7 @@
 (feature 026).
 
 Exercises ``app.persistence.board_artifact_store.BoardArtifactStore``
-against a real, migrated SQLite database.
+against a real, migrated PostgreSQL database.
 """
 from __future__ import annotations
 

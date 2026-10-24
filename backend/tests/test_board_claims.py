@@ -2,7 +2,7 @@
 
 Exercises ``app.persistence.board_claims_store.BoardClaimsStore`` (claims)
 alongside ``app.persistence.board_store.BoardStore`` (reads/seeding)
-against a real, migrated SQLite database — the same convention as the
+against a real, migrated PostgreSQL database — the same convention as the
 existing store tests (e.g. ``test_child_task_store.py``).
 """
 from __future__ import annotations

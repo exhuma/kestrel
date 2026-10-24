@@ -66,8 +66,9 @@ ports:
 
 `GET /readyz` (the healthcheck endpoint) returns 503 when the database is
 unreachable. Check the logs (`docker compose logs kestrel`) for a migration or
-database error, and verify the `/data` volume is writable. Confirm readiness
-directly:
+database error, check that the `postgres` service is healthy
+(`docker compose ps`) and that `KESTREL_DATABASE_URL` points at it, and
+verify the `/data` volume is writable. Confirm readiness directly:
 
 ```bash
 curl -s http://localhost:8000/readyz

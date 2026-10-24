@@ -19,7 +19,7 @@ the built SPA.
 | --- | --- |
 | **FastAPI backend** (`backend/app`) | HTTP API, session/board orchestration, SSE streaming |
 | **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode` |
-| **Persistence** (`backend/app/persistence`) | SQLite via SQLAlchemy, schema managed by Alembic |
+| **Persistence** (`backend/app/persistence`) | PostgreSQL via SQLAlchemy and psycopg, schema managed by Alembic |
 | **SPA** (`frontend/`) | Vue 3 + Vuetify UI; in the image it is served same-origin by the backend |
 
 ## Key boundaries
@@ -48,8 +48,12 @@ the image small and lets a deploy attach or swap backends purely by config.
 
 ## Data & auth
 
-- **State** lives in SQLite on the `/data` volume; migrations run on every
-  container start (idempotent).
+- **State** lives in an external PostgreSQL database
+  (`KESTREL_DATABASE_URL`); migrations run on every container start
+  (idempotent). The schema starts from one baseline migration. Foreign
+  keys are enforced, checked at commit. Timestamps are stored as naive
+  UTC, and every connection uses the UTC time zone. The board's handoff
+  artifact bodies stay on the `/data` volume.
 - **Agent auth** is inherited from the host `claude` login (seeded read-only
   into the container), never re-implemented by kestrel. Kestrel's own secrets
   are env-only: the task-source and code-host tokens
@@ -656,8 +660,9 @@ owner. Nothing in the announcement or reply code calls
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).
-- **SQLite.** Right-sized for a single user; the `KESTREL_DATABASE_URL` seam
-  leaves room to attach another database later.
+- **PostgreSQL, still one process.** A real database server gives
+  enforced foreign keys and concurrent writers. Kestrel itself stays a
+  single process: the in-memory event buses and locks assume one.
 - **Source health is checked, not persisted.** Whether each configured
   `TaskSource`/`CodeHost` adapter is currently reachable and authenticated
   (feature 014) is a `check_health()` capability on the existing ports —

@@ -90,8 +90,9 @@ Set `LOCAL_AUTHOR` to add a sanitized readable suffix, for example
 `LOCAL_AUTHOR=malbert` creates a filename ending in `-malbert.md`.
 
 `task local-tasks:reset` removes all local tasks and Kestrel development
-persistence: `backend/kestrel.db` (including SQLite sidecars), workspaces, and
-screenshots. It does not alter `/tmp/pyaltiplano.git`.
+persistence: workspaces and screenshots, and it empties the database by
+rebuilding its schema (`task local-tasks:reset-db` does only that). It does
+not alter `/tmp/pyaltiplano.git`.
 
 Run the canonical `task dev` command to start the backend and frontend together.
 

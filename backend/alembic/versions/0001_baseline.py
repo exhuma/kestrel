@@ -1,8 +1,8 @@
 """Baseline: the whole kestrel schema on PostgreSQL.
 
 Generated from the ORM models (``app/persistence/tables.py`` and
-``board_tables.py``) and reviewed by hand. Replaces the SQLite-era
-history; there is no data migration. Every foreign key is checked at
+``board_tables.py``) and reviewed by hand. Replaces the earlier
+migration history; there is no data migration. Every foreign key is checked at
 commit (``deferred_fk`` in ``tables.py`` says why).
 
 Revision ID: 0001

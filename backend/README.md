@@ -1,7 +1,7 @@
 # kestrel backend
 
 FastAPI backend for kestrel: dispatches `claude` CLI sessions,
-persists them to SQLite, and streams events to the frontend via
+persists them to PostgreSQL, and streams events to the frontend via
 SSE.
 
 ## Running
@@ -24,5 +24,7 @@ Config via `KESTREL_*` env vars or `backend/.env`
 
 ```bash
 cd backend
+# A PostgreSQL server the tests may create (and drop) databases on.
+export KESTREL_TEST_DATABASE_URL=postgresql+psycopg://postgres@localhost:5432/postgres
 uv run pytest
 ```
