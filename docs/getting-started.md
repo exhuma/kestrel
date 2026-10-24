@@ -66,7 +66,7 @@ keeps the database in the `kestrel-db` volume of the `postgres` service:
 
 | Mount | Mode | Purpose |
 | --- | --- | --- |
-| `kestrel-data` → `/data` | read-write | The board's handoff artifacts (`/data/board-artifacts`) and the container's Claude `HOME`, persisted across restarts |
+| `kestrel-data` → `/data` | read-write | The container's Claude `HOME` (session history, plugin caches), persisted across restarts |
 | `./workspaces` → `/workspaces` | read-write | The git repos claude clones and edits — **browsable on the host** |
 | `~/.claude` → `/seed/.claude` | read-only | Seed: your host Claude config, plugins, and credentials |
 | `~/.claude.json` → `/seed/claude.json` | read-only | Seed: your host Claude config file (MCP servers, plugin/approval state) |
@@ -109,9 +109,10 @@ tag** in `docker-compose.yml` rather than tracking a moving channel, so an
 upgrade is a deliberate change of that tag.
 
 A new release may change the database schema, and the schema is migrated
-automatically on start. **Back up the database and the `kestrel-data` volume
-before upgrading** (the database refers to the board artifacts on the
-volume, so they belong together) so you can roll back if needed:
+automatically on start. **Back up the database before upgrading**: it holds
+all board state, artifact bodies included. Back up the `kestrel-data` volume
+too if you want to keep the container's Claude session history. Then you can
+roll back if needed:
 
 ```bash
 docker compose stop kestrel

@@ -119,8 +119,9 @@ stringData:
 
 ## Storage
 
-Two `ReadWriteOnce` claims. `/data` holds the board's handoff artifacts
-(`/data/board-artifacts`, set by the image) and the container `HOME`.
+Two `ReadWriteOnce` claims. `/data` holds the container `HOME` (the
+seeded Claude configuration, session history and plugin caches); all board
+state is in the database.
 `/workspaces` holds the bare mirrors, git worktrees and session directories,
 and is shared with the opencode sidecar.
 
@@ -586,15 +587,16 @@ Change the opencode image and the oauth2-proxy version the same way.
 
 ### Backup
 
-Back up the database **and** `/data`: the database refers to the board
-artifacts under `/data/board-artifacts`, so take both together. The
-workspaces can be rebuilt from the code host and need no backup, but a
-deleted workspace volume loses unpushed work.
+Back up the database: it holds all board state, artifact bodies
+included. `/data` only holds the container `HOME`; back it up too if you
+want to keep the Claude session history. The workspaces can be rebuilt
+from the code host and need no backup, but a deleted workspace volume
+loses unpushed work.
 
 Scale the pod to zero so nothing writes while you copy, dump the database
-with `pg_dump` (or use your platform's database backups), and copy the
-artifacts out of the volume, for example with a volume snapshot of
-`kestrel-data` (needs a CSI driver with snapshot support):
+with `pg_dump` (or use your platform's database backups), and, if you
+keep it, take a volume snapshot of `kestrel-data` (needs a CSI driver
+with snapshot support):
 
 ```bash
 kubectl scale deployment/kestrel --replicas=0

@@ -43,7 +43,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |
 | `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | How often the comments on the Jira tickets of requests in progress are read for replies (feature 046). Nothing is read while `comment_sentinel_enabled` is off: kestrel could not tell its own comments from replies |
 | `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker (whole word, any case) a person puts in a ticket reply for kestrel to act on (feature 046). The reporter's reply decides the understanding and the PRD, the change owner's CAB-1 and CAB-2; anyone else is told they cannot |
-| `KESTREL_BOARD_ARTIFACTS_ROOT` | `./.kestrel-board-artifacts` | Durable, content-addressed store for handoff-artifact bodies |
 | `KESTREL_STATIC_DIR` | _(empty)_ | Directory of the built SPA to serve. Empty ⇒ API-only (the Vite dev server serves the UI). Image: `/app/static` |
 | `KESTREL_COMMENT_SENTINEL_ENABLED` | `true` | Mark every comment kestrel posts with its ownership marker. Kestrel posts through the operator's account, so this marker is how it tells its own comments from replies; with it off, no ticket reply is read. How the marker looks is each source adapter's concern |
 | `KESTREL_HEALTH_CHECK_INTERVAL_SECONDS` | `60` | How often each task source's health (reachable and authenticated) is re-checked in the background |
@@ -240,7 +239,6 @@ The image sets these so they normally need no changes:
 | --- | --- |
 | `KESTREL_STATIC_DIR` | `/app/static` (the baked-in SPA) |
 | `KESTREL_WORKSPACE_ROOT` | `/workspaces` |
-| `KESTREL_BOARD_ARTIFACTS_ROOT` | `/data/board-artifacts` (on the persisted `/data` volume) |
 | `HOME` | `/data/home` (the writable, seeded Claude `HOME`) |
 | `CLAUDE_SEED_DIR` | `/seed` (where host `~/.claude*` are mounted read-only) |
 

@@ -56,7 +56,13 @@ the image small and lets a deploy attach or swap backends purely by config.
   (idempotent). The schema starts from one baseline migration. Foreign
   keys are enforced, checked at commit. Timestamps are stored as naive
   UTC, and every connection uses the UTC time zone. The board's handoff
-  artifact bodies stay on the `/data` volume.
+  artifact bodies are stored in it too.
+- **Concurrency.** Kestrel is one process, but its async tasks and threads
+  write at the same time. A write that decides something (a claim, a
+  repository lease, a gate decision, a counter) is one conditional
+  statement — `UPDATE … WHERE <still true> RETURNING`,
+  `INSERT … ON CONFLICT`, `DELETE … RETURNING` — or reads its row
+  `FOR UPDATE`, never a read followed by a blind write.
 - **Agent auth** is inherited from the host `claude` login (seeded read-only
   into the container), never re-implemented by kestrel. Kestrel's own secrets
   are env-only: the task-source and code-host tokens
@@ -90,8 +96,8 @@ entity reference; this is the operator-relevant shape:
   (`board_recovery_interval_seconds`) reclaims expired leases and applies
   each card's bounded retry/reassign/escalate policy.
 - **Handoff artifacts.** A card's accepted output is retained as an
-  immutable, versioned `HandoffArtifact` (content-addressed under
-  `board_artifacts_root`), with explicit pinned-revision input provenance.
+  immutable, versioned `HandoffArtifact` (its body and its SHA-256 in the
+  `board_artifact` row), with explicit pinned-revision input provenance.
 - **Specialists** (`specialists/<role>/manifest.toml` + `prompt.md`,
   loaded from `specialists_root`): `requester`, `pm`, `uiux`, `developer`,
   `infosec`, `dba`, `architect`, `ops`, `qa` (read-only `analysis`/`design`
