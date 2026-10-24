@@ -205,11 +205,19 @@ class BoardStore:
             return [_row_to_workflow(row) for row in query.all()]
 
     def bump_workflow_revision(self, workflow_id: str) -> int:
-        """Increment and return a workflow's snapshot revision."""
+        """Increment and return a workflow's snapshot revision.
+
+        The database adds the one: concurrent bumps queue on the row and
+        each counts, where reading the revision and writing back its
+        successor would lose one under READ COMMITTED.
+        """
         with self._factory.begin() as db:
-            workflow = db.get(BoardWorkflowRow, workflow_id)
-            workflow.revision += 1
-            return workflow.revision
+            return db.execute(
+                update(BoardWorkflowRow)
+                .where(BoardWorkflowRow.id == workflow_id)
+                .values(revision=BoardWorkflowRow.revision + 1)
+                .returning(BoardWorkflowRow.revision)
+            ).scalar_one()
 
     def record_delivery(
         self,
@@ -241,12 +249,17 @@ class BoardStore:
 
         :returns: The workflow's ``ci_repair_round`` after this call.
         """
+        rounds = 1 if status == "failed" else 0
         with self._factory.begin() as db:
-            workflow = db.get(BoardWorkflowRow, workflow_id)
-            workflow.ci_status = status
-            if status == "failed":
-                workflow.ci_repair_round += 1
-            return workflow.ci_repair_round
+            return db.execute(
+                update(BoardWorkflowRow)
+                .where(BoardWorkflowRow.id == workflow_id)
+                .values(
+                    ci_status=status,
+                    ci_repair_round=BoardWorkflowRow.ci_repair_round + rounds,
+                )
+                .returning(BoardWorkflowRow.ci_repair_round)
+            ).scalar_one()
 
     def record_approved_prd(
         self, workflow_id: str, content: Document
