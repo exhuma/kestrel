@@ -44,7 +44,10 @@ def contend(
     :returns: What *contender* returned.
     :raises TimeoutError: If *contender* never waits on the holder.
     """
-    with engine.connect() as holder, ThreadPoolExecutor(1) as pool:
+    # The pool is the outer context: on a failure the holder's connection
+    # closes (rolling back, releasing its locks) before the pool waits for
+    # a contender that may be blocked on those locks.
+    with ThreadPoolExecutor(1) as pool, engine.connect() as holder:
         hold(holder)
         future = pool.submit(contender)
         _wait_until_waiting(engine, future)
