@@ -1,8 +1,8 @@
 """Shared ingestion path: decide whether an issue should start a run.
 
 Called by both the webhook handler and the reconciliation loop so the
-one-run-per-issue and dismissal rules live in exactly one place (feature
-002, FR-007/FR-008/FR-008a/FR-013a).
+one-run-per-issue rules live in exactly one place (feature
+002, FR-007/FR-013a).
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from app.config import Settings, get_settings
 from app.models_board import CardState, Workflow
 from app.models_board_records import AcceptedTaskIntake
 from app.persistence.board_store import WorkflowAlreadyExistsError
-from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.ports import Task
 from app.services.board.bootstrap import (
     get_board_service,
@@ -69,12 +68,10 @@ class IngestionService:
         self,
         settings: Settings,
         task_sources: TaskSourceRegistry,
-        dismissals: DismissalStore,
         board_intake: BoardIntake,
     ) -> None:
         self.settings = settings
         self.task_sources = task_sources
-        self.dismissals = dismissals
         self.board_intake = board_intake
         #: Requests this process is screening right now — never screened
         #: twice at once, and what tells a live screening from one a
@@ -98,11 +95,11 @@ class IngestionService:
         Start a board workflow for a ticket unless it is filtered out.
 
         The single source-neutral entry point every trigger calls (GitHub
-        webhook, GitHub reconcile, Jira poll) so one-run-per-ticket, dismissal,
+        webhook, GitHub reconcile, Jira poll) so one-run-per-ticket
         and (GitHub) watched-repo rules live in one place (FR-031/FR-033/
         FR-034). A future Jira webhook is one more caller of this method.
 
-        Filters, in order: (GitHub) unwatched repo, dismissed ticket, an
+        Filters, in order: (GitHub) unwatched repo, an
         existing board workflow for the ``task_ref`` (whose interrupted
         screening, if any, is resumed). Otherwise the request is created
         at once, showing "Screening input", and the ticket's canonical
@@ -111,7 +108,7 @@ class IngestionService:
         (feature 032).
 
         :param source: Run origin (``github-issue`` | ``jira-issue``).
-        :param task_ref: Source-native ticket id (dedup/dismissal key).
+        :param task_ref: Source-native ticket id (dedup key).
         :param code_repo: The target code repository (``owner/name``).
         :param issue_number: GitHub issue number; unused (board workflows
             are keyed by ``task_ref``, not a numeric issue id).
@@ -124,9 +121,6 @@ class IngestionService:
         del issue_number  # kept for caller-signature compatibility
         if source == "github-issue" and not self.is_watched(code_repo):
             _log.info("ingest outcome=skipped-filtered %s", task_ref)
-            return None
-        if self.dismissals.is_dismissed(task_ref):
-            _log.info("ingest outcome=dismissed %s", task_ref)
             return None
         existing = self._workflow_for(task_ref)
         if existing is not None:
@@ -288,7 +282,6 @@ def get_ingestion_service() -> IngestionService:
     return IngestionService(
         get_settings(),
         get_task_source_registry(),
-        get_dismissal_store(),
         BoardIntake(
             get_quarantine_service(), get_board_service(),
             get_live_activity(),

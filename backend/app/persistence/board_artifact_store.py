@@ -1,9 +1,10 @@
 """Immutable handoff-artifact persistence (feature 026).
 
 An artifact's ``(producer_card_id, logical_name, revision)`` identity is
-enforced unique by the schema (migration 0027); recording a duplicate is
-therefore rejected with :class:`DuplicateArtifactError` rather than
-silently overwriting a prior revision.
+enforced unique by the schema; recording a duplicate is therefore
+rejected with :class:`DuplicateArtifactError` rather than silently
+overwriting a prior revision. The body is stored on the same row and read
+on its own (:meth:`BoardArtifactStore.read_content`).
 """
 from __future__ import annotations
 
@@ -15,8 +16,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board_records import HandoffArtifact
-from app.persistence.board_tables import BoardArtifactRow, BoardCardRow
-from app.persistence.db import get_sessionmaker
+from app.persistence.board_tables import BoardArtifactRow
+from app.persistence.db import get_sessionmaker, is_unique_violation
 
 
 class DuplicateArtifactError(Exception):
@@ -31,12 +32,9 @@ def _row_to_artifact(row: BoardArtifactRow) -> HandoffArtifact:
         producer_card_id=row.producer_card_id,
         logical_name=row.logical_name,
         revision=row.revision,
-        content_ref=row.content_ref,
         content_hash=row.content_hash,
         trust=row.trust,
         mime_type=row.mime_type,
-        retention=row.retention,
-        project_material=row.project_material,
         input_artifacts=inputs,
     )
 
@@ -48,11 +46,16 @@ class BoardArtifactStore:
         self._factory = factory
 
     def record(
-        self, artifact: HandoffArtifact, *, now: datetime | None = None
+        self,
+        artifact: HandoffArtifact,
+        content: str,
+        *,
+        now: datetime | None = None,
     ) -> HandoffArtifact:
-        """Record one immutable artifact revision.
+        """Record one immutable artifact revision and its body.
 
         :param artifact: The artifact's full identity and provenance.
+        :param content: Its body; ``artifact.content_hash`` is its hash.
         :raises DuplicateArtifactError: if this producer/name/revision
             triple was already recorded.
         """
@@ -61,12 +64,10 @@ class BoardArtifactStore:
             producer_card_id=artifact.producer_card_id,
             logical_name=artifact.logical_name,
             revision=artifact.revision,
-            content_ref=artifact.content_ref,
+            content=content,
             content_hash=artifact.content_hash,
             trust=artifact.trust,
             mime_type=artifact.mime_type,
-            retention=artifact.retention,
-            project_material=artifact.project_material,
             input_artifacts=f"[{','.join(artifact.input_artifacts)}]",
             created_at=now or datetime.now(timezone.utc),
         )
@@ -76,6 +77,8 @@ class BoardArtifactStore:
                 db.flush()
                 db.expunge(row)
         except IntegrityError as exc:
+            if not is_unique_violation(exc):
+                raise
             raise DuplicateArtifactError(
                 f"artifact already recorded: {artifact.producer_card_id}/"
                 f"{artifact.logical_name}@{artifact.revision}"
@@ -88,41 +91,28 @@ class BoardArtifactStore:
             row = db.get(BoardArtifactRow, artifact_id)
             return _row_to_artifact(row) if row is not None else None
 
+    def read_content(self, artifact_id: str) -> str | None:
+        """Return one artifact's body, or ``None`` if it does not exist."""
+        with self._factory() as db:
+            return db.scalar(
+                select(BoardArtifactRow.content).where(
+                    BoardArtifactRow.id == artifact_id
+                )
+            )
+
     def list_for_card(self, producer_card_id: str) -> list[HandoffArtifact]:
-        """Return every artifact revision produced by *producer_card_id*."""
+        """Return every artifact revision produced by *producer_card_id*,
+        by name and revision."""
         with self._factory() as db:
             rows = (
                 db.query(BoardArtifactRow)
                 .filter(BoardArtifactRow.producer_card_id == producer_card_id)
+                .order_by(
+                    BoardArtifactRow.logical_name, BoardArtifactRow.revision
+                )
                 .all()
             )
             return [_row_to_artifact(row) for row in rows]
-
-    def project_material_for_workflow(
-        self, workflow_id: str
-    ) -> tuple[HandoffArtifact, ...]:
-        """Return every project-material artifact for *workflow_id*.
-
-        Only artifacts whose responsible card explicitly opted in
-        (``project_material``) are included; orchestration-only artifacts
-        stay available for recovery but never reach this selection
-        (data-model.md "External Projection": "Routine claims, retries,
-        and card completions cannot create projections").
-        """
-        with self._factory() as db:
-            statement = (
-                select(BoardArtifactRow)
-                .join(
-                    BoardCardRow,
-                    BoardArtifactRow.producer_card_id == BoardCardRow.id,
-                )
-                .where(
-                    BoardCardRow.workflow_id == workflow_id,
-                    BoardArtifactRow.project_material.is_(True),
-                )
-            )
-            rows = db.scalars(statement).all()
-            return tuple(_row_to_artifact(row) for row in rows)
 
 
 @lru_cache

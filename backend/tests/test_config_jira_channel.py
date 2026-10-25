@@ -26,7 +26,6 @@ def test_jira_channel_settings_read_from_the_config_file(
         'type = "jira"\n'
         'base_url = "https://jira.example"\n'
         'jql = "project = RFC"\n'
-        'key = "RFC"\n'
         'change_owner_field = "customfield_10051"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))

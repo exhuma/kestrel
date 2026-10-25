@@ -40,13 +40,12 @@ def _svc(
 ) -> JiraPollService:
     cfg = TaskSourceConfig(
         type="jira", base_url="https://jira.example",
-        jql='project = "RFC"', key="RFC", repo_field=repo_field,
+        jql='project = "RFC"', repo_field=repo_field,
     )
     return JiraPollService(
         cfg,
         _FakeJira(field_value, links=links),
         _FakeCodeHost(reachable=reachable, default=default),
-        None,
         None,
     )
 
@@ -157,7 +156,7 @@ async def test_subtask_link_failure_exposes_created_child_for_repair() -> None:
         return httpx.Response(500 if link_attempts == 1 else 201, json={})
 
     config = TaskSourceConfig(
-        type="jira", base_url="https://jira.example", jql="x", key="RFC",
+        type="jira", base_url="https://jira.example", jql="x",
         repo_field="",
     )
     src = JiraTaskSource(_client(handler), config=config)

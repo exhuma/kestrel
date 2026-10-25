@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.backends.base import PERMISSION_EDIT, PERMISSION_READ_ONLY
 from app.models_board import (
     CardKind,
     SpecialistDefinition,
@@ -135,7 +138,7 @@ async def dispatch_ready_work(
     A ``read_only``/``write`` card gets a real, git-backed ``cwd``
     (T041's ``WorkspaceService``) when ``services.workspace`` is
     configured; a ``write`` card additionally runs with
-    ``permission_mode="acceptEdits"`` so a ``FILE_EDITS`` specialist can
+    ``permission_mode="edit"`` so a ``FILE_EDITS`` specialist can
     actually edit. After every role has been tried, one pass also
     attempts any ``ready`` ``delivery`` card (T069) — pushing a cleanly
     verified workflow's branch and opening its change request is a
@@ -190,6 +193,25 @@ def _claim_for(
     return backend, card
 
 
+def _session_recorder(
+    claims: ClaimsService, card: WorkCard
+) -> Callable[[str], None]:
+    """A callback that stores the backend's session id on the card's
+    current attempt. It never fails the turn: the id is only a pointer
+    into the server log, so a failed write is logged, not raised."""
+
+    def record(session_id: str) -> None:
+        try:
+            claims.record_session(card.id, card.attempt_count, session_id)
+        except SQLAlchemyError:  # a pointer must not fail the turn
+            _dispatch_log.exception(
+                "card %s: could not record session %s on attempt %d",
+                card.id, session_id, card.attempt_count,
+            )
+
+    return record
+
+
 async def _dispatch_one(
     workflow_id: str,
     services: DispatchServices,
@@ -217,9 +239,13 @@ async def _dispatch_one(
             services.live, workflow_id, specialist.label, card.title,
             on_change=announcer(services.board, workflow_id),
         ) as note_tool:
-            request = card_request(
-                envelope, cwd=cwd, permission_mode=permission_mode,
-                on_tool=note_tool,
+            request = replace(
+                card_request(
+                    envelope, cwd=cwd, permission_mode=permission_mode,
+                    on_tool=note_tool,
+                ),
+                card_id=card.id,
+                on_session_id=_session_recorder(services.claims, card),
             )
             result = await run_card_turn(
                 backend, request, timeout_seconds=timeout_seconds
@@ -329,7 +355,7 @@ async def _resolve_workspace(
     """Resolve a card's ``(cwd, permission_mode)``, provisioning a real
     workspace for ``read_only``/``write`` cards.
 
-    :returns: ``("", "plan")`` for a ``none``-permission card, or once a
+    :returns: ``("", "read_only")`` for a ``none``-permission card, or once a
         real workspace is configured and provisioned; ``None`` if a
         ``read_only``/``write`` card needed one but couldn't get one —
         the caller must then leave the card claimed for recovery rather
@@ -337,7 +363,7 @@ async def _resolve_workspace(
         access its result implicitly claims.
     """
     if card.workspace_permission == WorkspacePermission.NONE.value:
-        return "", "plan"
+        return "", PERMISSION_READ_ONLY
     if services.workspace is None or services.task_sources is None:
         _dispatch_log.warning(
             "workflow %s: card %s needs a workspace but none is "
@@ -365,11 +391,12 @@ async def _resolve_workspace(
         )
         return None
     # A verification card is read_only (it must never edit files/commit)
-    # but still needs to run tests/checks via tool execution, which "plan"
-    # (proposal-only) mode does not reliably support headlessly — so it
+    # but still needs to run tests/checks via tool execution, which a
+    # proposal-only mode does not reliably support headlessly — so it
     # gets the same execution-capable mode a write card does.
     needs_execution = (
         card.workspace_permission == WorkspacePermission.WRITE.value
         or card.kind == CardKind.VERIFICATION.value
     )
-    return cwd, ("acceptEdits" if needs_execution else "plan")
+    mode = PERMISSION_EDIT if needs_execution else PERMISSION_READ_ONLY
+    return cwd, mode

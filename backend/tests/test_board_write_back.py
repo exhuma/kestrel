@@ -10,7 +10,7 @@ import pytest
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.services.board.projections import ProjectionsService
 from app.services.board.write_back import ProjectionRequest, post_projection
-from tests.board_test_support import board_session_factory
+from tests.board_test_support import board_session_factory, seed_workflows
 from tests.document_helpers import doc
 
 _PAYLOAD = doc("PRD approved.")
@@ -18,6 +18,7 @@ _PAYLOAD = doc("PRD approved.")
 
 def _service(tmp_path: Path) -> ProjectionsService:
     factory = board_session_factory(tmp_path)
+    seed_workflows(factory, "wf-1")
     return ProjectionsService(BoardProjectionStore(factory))
 
 

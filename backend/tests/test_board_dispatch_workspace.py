@@ -76,7 +76,7 @@ async def test_write_card_gets_a_real_workspace_and_accept_edits(
 
     assert store.get_card("card-1").state == "done"
     assert backend.last_request is not None
-    assert backend.last_request.permission_mode == "acceptEdits"
+    assert backend.last_request.permission_mode == "edit"
     assert backend.last_request.cwd
     assert Path(backend.last_request.cwd, "README.md").exists()
 
@@ -140,5 +140,5 @@ async def test_read_only_card_gets_a_workspace_but_stays_in_plan_mode(
     )
 
     assert store.get_card("card-1").state == "done"
-    assert backend.last_request.permission_mode == "plan"
+    assert backend.last_request.permission_mode == "read_only"
     assert Path(backend.last_request.cwd, "README.md").exists()

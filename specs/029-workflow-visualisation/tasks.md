@@ -355,13 +355,13 @@ UI — impossible before this feature (SC-005). `task quality` passes.
 surfaces to move between. The scaffolding landed in Phase 3; the *guarantees* are
 only testable here.
 
-- [ ] T076 [US4] Implement the legacy `?run=<id>` redirect per `contracts/routes.md` §2 — `runIdFromSearch(window.location.search)` resolving to the `cockpit` route via `router.replace` (a **replace**, so back never lands on the redirect). Keep `lib/deeplink.ts`'s existing signature so `frontend/tests/lib/deeplink.test.ts` stays valid; only the injected `select` callback changes to navigate
-- [ ] T077 [US4] Write `frontend/tests/router/legacyDeepLink.test.ts` covering `/?run=<id>` resolving to that request's cockpit (FR-031) and back **not** returning to the redirect
-- [ ] T078 [P] [US4] Write `frontend/tests/router/history.test.ts` walking board → cockpit → interview and asserting back twice yields cockpit then board, **and forward twice retraces it again** (FR-029)
-- [ ] T079 [P] [US4] Write `frontend/tests/router/coldStart.test.ts` asserting each address renders its surface directly in a fresh router, without the board rendering first (FR-028)
-- [ ] T080 [P] [US4] Write `frontend/tests/views/NotFoundView.test.ts` asserting an address naming a nonexistent request, and an unmatched path, both produce the explanatory surface with a route back to the board — not a blank page and not an error trace (FR-030)
-- [ ] T081 [P] [US4] Assert no surface address carries anything beyond an opaque workflow id (FR-032), and that `cockpit`, `interview` and `sessions` are lazily loaded while `board` is eager
-- [ ] T082 [P] [US4] Assert the `sessions` route reaches the debug panel, which lost its toggle in T016 (FR-047)
+- [x] T076 [US4] Implement the legacy `?run=<id>` redirect per `contracts/routes.md` §2 — `runIdFromSearch(window.location.search)` resolving to the `cockpit` route via `router.replace` (a **replace**, so back never lands on the redirect). Keep `lib/deeplink.ts`'s existing signature so `frontend/tests/lib/deeplink.test.ts` stays valid; only the injected `select` callback changes to navigate
+- [x] T077 [US4] ~~Dropped 2026-10-24 (#71): the `?run=` redirect was deleted instead.~~ Write `frontend/tests/router/legacyDeepLink.test.ts` covering `/?run=<id>` resolving to that request's cockpit (FR-031) and back **not** returning to the redirect
+- [x] T078 [P] [US4] Write `frontend/tests/router/history.test.ts` walking board → cockpit → interview and asserting back twice yields cockpit then board, **and forward twice retraces it again** (FR-029)
+- [x] T079 [P] [US4] Write `frontend/tests/router/coldStart.test.ts` asserting each address renders its surface directly in a fresh router, without the board rendering first (FR-028)
+- [x] T080 [P] [US4] Write `frontend/tests/views/NotFoundView.test.ts` asserting an address naming a nonexistent request, and an unmatched path, both produce the explanatory surface with a route back to the board — not a blank page and not an error trace (FR-030)
+- [x] T081 [P] [US4] Assert no surface address carries anything beyond an opaque workflow id (FR-032), and that `cockpit`, `interview` and `sessions` are lazily loaded while `board` is eager
+- [x] T082 [P] [US4] Assert the `sessions` route reaches the debug panel, which lost its toggle in T016 (FR-047)
 
 **Checkpoint**: every surface is addressable, back and forward retrace, and old
 links still work.
@@ -374,12 +374,12 @@ links still work.
 until Phases 4 and 5 are complete and green** — the graph is the only structural
 view that exists today.
 
-- [ ] T083 [US5] Delete `frontend/src/components/WorkflowGraph.vue` (124 lines) and `frontend/src/lib/boardGraph.ts` (92 lines)
-- [ ] T084 [US5] Delete `frontend/tests/components/WorkflowGraph.test.ts` and `frontend/tests/lib/boardGraph.test.ts`
-- [ ] T085 [US5] Remove `@vue-flow/core` from `frontend/package.json` and run `npm install` to update the lockfile (Principle IV — a graph library that renders a straight line is not a justified dependency)
-- [ ] T086 [US5] Delete `frontend/src/components/WorkBoard.vue` (166 lines) and its list/graph `v-btn-toggle`, plus `frontend/tests/components/WorkBoard.test.ts` (FR-034)
-- [ ] T087 [US5] Delete `frontend/src/components/WorkCardDetail.vue` (267 lines) and its test, **only after** confirming `ActionBanner.vue` has taken over its gate-decision logic (`:76-93`) and `ArtifactDialog.vue` its artifact fetch (`:22`) — superseded by absorption, not simply dropped
-- [ ] T088 [US5] Fix the false comment at `backend/app/main.py:249-251`: `StaticFiles(html=True)` serves `404.html` then raises 404 — it does **not** fall back to `index.html` for deep paths (verified in `starlette/staticfiles.py:134-152`). Comment-only change; state that addresses are hash-based so no SPA fallback is needed
+- [x] T083 [US5] Delete `frontend/src/components/WorkflowGraph.vue` (124 lines) and `frontend/src/lib/boardGraph.ts` (92 lines)
+- [x] T084 [US5] Delete `frontend/tests/components/WorkflowGraph.test.ts` and `frontend/tests/lib/boardGraph.test.ts`
+- [x] T085 [US5] Remove `@vue-flow/core` from `frontend/package.json` and run `npm install` to update the lockfile (Principle IV — a graph library that renders a straight line is not a justified dependency)
+- [x] T086 [US5] Delete `frontend/src/components/WorkBoard.vue` (166 lines) and its list/graph `v-btn-toggle`, plus `frontend/tests/components/WorkBoard.test.ts` (FR-034)
+- [x] T087 [US5] Delete `frontend/src/components/WorkCardDetail.vue` (267 lines) and its test, **only after** confirming `ActionBanner.vue` has taken over its gate-decision logic (`:76-93`) and `ArtifactDialog.vue` its artifact fetch (`:22`) — superseded by absorption, not simply dropped
+- [x] T088 [US5] Fix the false comment at `backend/app/main.py:249-251`: `StaticFiles(html=True)` serves `404.html` then raises 404 — it does **not** fall back to `index.html` for deep paths (verified in `starlette/staticfiles.py:134-152`). Comment-only change; state that addresses are hash-based so no SPA fallback is needed
 - [ ] T089 [US5] Run `cd frontend && npm run knip` and confirm no new findings (FR-035)
 - [ ] T090 [US5] Run `cd frontend && npm run depcruise` and confirm the views → components → composables → lib → types direction holds with no cycles
 - [ ] T091 [US5] Grep `frontend/src` and `frontend/tests` for `vue-flow`, `WorkflowGraph`, `boardGraph`, `WorkBoard` and `WorkCardDetail` — expect no hits
@@ -396,7 +396,7 @@ view that exists today.
 - [ ] T095 Verify FR-039 held: the backend diff contains only the four additive fields, their tests, the contract amendment and the T088 comment — no new state, transition, write path or endpoint, and no consumer of the phase projection outside read paths
 - [ ] T096 [P] Verify SC-011 at 1280 px: all six stage columns reachable, and each card's source ref, phase line and attention treatment readable without horizontal truncation, including when one column is full
 - [ ] T097 [P] Verify the connectivity-loss path: a live surface that loses its stream says so rather than appearing merely quiet, and recovers when connectivity returns (spec edge case)
-- [ ] T098 Update `docs/architecture.md` to describe the three surfaces, the routed navigation and the four DTO additions, replacing any description of the nav list and graph view (constitution: behavioural changes update the relevant docs)
+- [x] T098 Update `docs/architecture.md` to describe the three surfaces, the routed navigation and the four DTO additions, replacing any description of the nav list and graph view (constitution: behavioural changes update the relevant docs)
 - [ ] T099 Walk `quickstart.md` end to end against a seeded fixture board and correct anything that does not match what was built
 - [ ] T100 Run the full gate: `task quality`
 - [ ] T101 Run the pre-push checks `task quality` does not cover: `cd frontend && npm run format:check && npm run build && npm run test`, then `cd backend && uv run pytest`

@@ -63,12 +63,4 @@ export default [
   // introduced. TODO(quality): refactor and delete each entry as the code is
   // split up. This is a shrinking debt list, NOT a template — do not add new
   // entries or disable rules to make a check pass. New files get no exemptions.
-  {
-    files: ['src/components/SessionPanel.vue'],
-    rules: { complexity: 'off', 'sonarjs/cognitive-complexity': 'off' },
-  },
-  {
-    files: ['src/composables/useSessions.ts'],
-    rules: { 'max-lines-per-function': 'off' },
-  },
 ]

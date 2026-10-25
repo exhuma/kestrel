@@ -16,6 +16,8 @@ from app.services.health import (
     get_health_poll_service,
 )
 
+pytestmark = pytest.mark.integration
+
 
 def _client(service: HealthPollService) -> httpx.AsyncClient:
     app = create_app()

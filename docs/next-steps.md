@@ -7,7 +7,7 @@ only points at where the open work is grouped.
 ## Exploration epics
 
 - [#75](https://github.com/exhuma/kestrel/issues/75) — integrations
-  (more task sources, code hosts and notifiers).
+  (more task sources, and code hosts).
 - [#76](https://github.com/exhuma/kestrel/issues/76) — operations
   (deployment, backup, upgrades).
 - [#77](https://github.com/exhuma/kestrel/issues/77) — observability

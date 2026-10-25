@@ -10,12 +10,8 @@ import pytest
 
 from app.document_formats.markdown import render_markdown
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -205,7 +201,7 @@ def _verifier() -> SpecialistDefinition:
         id="verifier", label="verifier", purpose="test role",
         allowed_card_types=("verification",), required_abilities=(),
         model_policy="default", workspace_permission="read_only",
-        retry_limit=1, prompt="You are the verifier.",
+        prompt="You are the verifier.",
     )
 
 
@@ -232,10 +228,8 @@ class TestEndToEndDelivery:
         factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
         projections = ProjectionsService(BoardProjectionStore(factory))
         roster = SpecialistRoster({"verifier": _verifier()})
         store.create_workflow(_workflow())
@@ -249,13 +243,12 @@ class TestEndToEndDelivery:
         claims = ClaimsService(
             store=store, claims_store=claims_store, roster=roster,
             max_parallel_read_cards=4, default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         artifacts = ArtifactsService(
-            store, artifact_store, board_service, content_store
+            store, artifact_store, board_service
         )
         coordinator = CoordinatorService(
-            store, coordinator_store, board_service
+            store, board_service
         )
         code_host = _FakeCodeHost(
             str(bare), cr_url="https://github.com/owner/repo/pull/7"

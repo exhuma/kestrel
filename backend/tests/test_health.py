@@ -15,6 +15,8 @@ from app.health import (
 )
 from app.main import create_app
 
+pytestmark = pytest.mark.integration
+
 
 def _client(app) -> httpx.AsyncClient:
     return httpx.AsyncClient(

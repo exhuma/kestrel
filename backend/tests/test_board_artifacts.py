@@ -2,7 +2,7 @@
 (feature 026).
 
 Exercises ``app.persistence.board_artifact_store.BoardArtifactStore``
-against a real, migrated SQLite database.
+against a real, migrated PostgreSQL database.
 """
 from __future__ import annotations
 
@@ -55,7 +55,6 @@ def _artifact(**overrides: object) -> HandoffArtifact:
         "producer_card_id": "card-1",
         "logical_name": "report",
         "revision": 1,
-        "content_ref": "file:///tmp/report.md",
         "content_hash": "sha256:abc",
         "trust": "agent_output",
     }
@@ -68,7 +67,7 @@ class TestArtifactProvenance:
 
     def test_record_and_read_round_trips(self, tmp_path: Path) -> None:
         _board, artifacts = _seeded(tmp_path)
-        artifact = artifacts.record(_artifact())
+        artifact = artifacts.record(_artifact(), "body")
         fetched = artifacts.get("artifact-1")
         assert fetched == artifact
         assert fetched.producer_card_id == "card-1"
@@ -77,20 +76,20 @@ class TestArtifactProvenance:
 
     def test_duplicate_revision_is_rejected(self, tmp_path: Path) -> None:
         _board, artifacts = _seeded(tmp_path)
-        artifacts.record(_artifact())
+        artifacts.record(_artifact(), "body")
         with pytest.raises(DuplicateArtifactError):
             artifacts.record(
-                _artifact(id="artifact-2", content_hash="sha256:def")
+                _artifact(id="artifact-2", content_hash="sha256:def"), "other"
             )
 
     def test_a_new_revision_of_the_same_logical_name_is_allowed(
         self, tmp_path: Path
     ) -> None:
         _board, artifacts = _seeded(tmp_path)
-        artifacts.record(_artifact())
+        artifacts.record(_artifact(), "body")
         next_revision = 2
         second = artifacts.record(
-            _artifact(id="artifact-2", revision=next_revision)
+            _artifact(id="artifact-2", revision=next_revision), "body"
         )
         assert second.revision == next_revision
 
@@ -98,53 +97,14 @@ class TestArtifactProvenance:
         self, tmp_path: Path
     ) -> None:
         _board, artifacts = _seeded(tmp_path)
-        artifacts.record(_artifact())
+        artifacts.record(_artifact(), "body")
         derived = artifacts.record(
             _artifact(
                 id="artifact-2",
                 logical_name="summary",
-                content_ref="file:///tmp/summary.md",
                 content_hash="sha256:xyz",
                 input_artifacts=("artifact-1",),
-            )
+            ),
+            "summary",
         )
         assert artifacts.get(derived.id).input_artifacts == ("artifact-1",)
-
-
-class TestProjectMaterialSelection:
-    """Only explicitly material artifacts are selected for project delivery."""
-
-    def test_default_artifact_is_not_project_material(
-        self, tmp_path: Path
-    ) -> None:
-        _board, artifacts = _seeded(tmp_path)
-        artifacts.record(_artifact(logical_name="notes"))
-        assert artifacts.project_material_for_workflow("wf-1") == ()
-
-    def test_explicit_material_artifact_is_selected(
-        self, tmp_path: Path
-    ) -> None:
-        _board, artifacts = _seeded(tmp_path)
-        artifacts.record(
-            _artifact(logical_name="patch", project_material=True)
-        )
-        selected = artifacts.project_material_for_workflow("wf-1")
-        assert [a.id for a in selected] == ["artifact-1"]
-
-    def test_mixed_artifacts_select_only_the_material_ones(
-        self, tmp_path: Path
-    ) -> None:
-        _board, artifacts = _seeded(tmp_path)
-        artifacts.record(
-            _artifact(logical_name="notes", project_material=False)
-        )
-        artifacts.record(
-            _artifact(
-                id="artifact-2",
-                logical_name="patch",
-                content_hash="sha256:def",
-                project_material=True,
-            )
-        )
-        selected = artifacts.project_material_for_workflow("wf-1")
-        assert [a.id for a in selected] == ["artifact-2"]

@@ -11,9 +11,6 @@ from pathlib import Path
 
 from app.models_board import CardKind, WorkCard, Workflow
 from app.models_board_records import HumanGateRecord
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
@@ -47,7 +44,6 @@ def _setup(tmp_path: Path) -> _Collab:
     board_service = BoardService(store)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     store.create_workflow(_WORKFLOW)
     return _Collab(store, gate_store, artifacts)

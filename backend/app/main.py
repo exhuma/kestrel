@@ -4,11 +4,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -16,12 +16,6 @@ from app.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
     VersionHeaderMiddleware,
-)
-from app.services.exceptions import (
-    DirectPromptTooLargeError,
-    SessionNotFoundError,
-    SessionStartError,
-    UnconfirmedDirectPromptError,
 )
 
 # Unified logging (see app.logging_config) configures the root logger, so a
@@ -48,10 +42,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # check when a session runs on the wrong backend.
     get_backend_registry()
     _logger.info(
-        "config file: %s | backends: %s | ad-hoc sessions dispatch to: %r",
-        settings.config_file or settings.backends_file or "(none)",
+        "config file: %s | backends: %s | default backend: %r",
+        settings.config_file or "(none)",
         {c.id: c.type for c in settings.backends},
-        settings.default_session_backend,
+        settings.default_backend,
     )
 
     # Board specialist roster (feature 026, FR-009): a missing, malformed,
@@ -62,15 +56,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     roster = get_specialist_roster()
     _logger.info("board specialists loaded: %s", sorted(roster.ids()))
-
-    # Operator-hooks audit trail (feature 006, FR-016): log what's found in
-    # each configured hooks_dir, so an operator has a chance to notice a
-    # script they didn't expect — a nudge, not an access control (a hook
-    # inherits kestrel's full environment, see docs/hooks.md).
-    from app.services.hooks import audit_hooks_dir
-
-    for source in settings.task_sources:
-        audit_hooks_dir(source.hooks_dir)
 
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
@@ -121,42 +106,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        from app.services.http_support import close_tracked_clients
 
-
-def _register_exception_handlers(app: FastAPI) -> None:
-    """Map domain exceptions crossing the service -> router boundary to HTTP."""
-
-    @app.exception_handler(SessionNotFoundError)
-    async def _session_not_found(
-        request: Request, exc: SessionNotFoundError
-    ) -> JSONResponse:
-        """Map an unknown session to HTTP 404."""
-        return JSONResponse(
-            status_code=404, content={"detail": "unknown session"}
-        )
-
-    @app.exception_handler(SessionStartError)
-    async def _session_start_failed(
-        request: Request, exc: SessionStartError
-    ) -> JSONResponse:
-        """Map a failed session start to HTTP 502."""
-        return JSONResponse(
-            status_code=502, content={"detail": "session start failed"}
-        )
-
-    @app.exception_handler(UnconfirmedDirectPromptError)
-    async def _unconfirmed_direct_prompt(
-        request: Request, exc: UnconfirmedDirectPromptError
-    ) -> JSONResponse:
-        """Map a missing injection-risk confirmation to HTTP 400."""
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    @app.exception_handler(DirectPromptTooLargeError)
-    async def _direct_prompt_too_large(
-        request: Request, exc: DirectPromptTooLargeError
-    ) -> JSONResponse:
-        """Map an oversized direct prompt to HTTP 413."""
-        return JSONResponse(status_code=413, content={"detail": str(exc)})
+        await close_tracked_clients()
 
 
 def create_app() -> FastAPI:
@@ -167,19 +119,17 @@ def create_app() -> FastAPI:
         title="kestrel", version=get_settings().version, lifespan=_lifespan
     )
 
-    _register_exception_handlers(app)
-
     # Cross-cutting HTTP middleware (see module-http-middleware-hardening).
     # ORDER MATTERS: Starlette applies middleware LIFO, so the LAST
     # add_middleware call sits OUTERMOST and runs first on the way in. Keep
     # CORS last so it answers preflight OPTIONS before any inner layer; keep
     # request logging inside it so the log line reflects the real handler.
-    # Do not reorder. (Rate limiting is intentionally omitted: single-user
+    # Do not reorder. (Rate limiting is intentionally omitted: single-operator
     # localhost tool — add a limiter here if ever exposed beyond loopback.)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(VersionHeaderMiddleware, version=get_settings().version)
     app.add_middleware(RequestLoggingMiddleware)
-    # Personal single-user dev tool: allow the SPA from any local port
+    # Single-operator tool: allow the SPA from any local port
     # (Vite may pick 5173, 5174, ... depending on what is free) served
     # from any loopback host (localhost, 127.0.0.1, or IPv6 ::1) — the
     # browser treats these as distinct origins.
@@ -238,21 +188,12 @@ def create_app() -> FastAPI:
         github_webhook,
         health,
         identity,
-        notifications,
-        sessions,
     )
 
-    app.include_router(sessions.router)
     app.include_router(board.router)
-    app.include_router(notifications.router)
     app.include_router(health.router)
     app.include_router(identity.router)
     app.include_router(github_webhook.router)
-    if get_settings().board_dev_actions_enabled:
-        # Temporary, dev-only (T069) — see board_dev.py's module docstring.
-        from app.routers import board_dev
-
-        app.include_router(board_dev.router)
 
     # OpenTelemetry tracing (see app.telemetry, module-opentelemetry). A no-op
     # unless KESTREL_OTEL_ENABLED: instruments the app + logging so spans and
@@ -262,10 +203,11 @@ def create_app() -> FastAPI:
     telemetry.init_tracing(app, get_settings())
 
     # When packaged as a single image the backend also serves the built SPA.
-    # Mounted last so the API routers above keep priority; html=True serves
-    # index.html for unknown paths, giving the SPA its client-side routing.
+    # Mounted last so the API routers above keep priority; the SPA uses
+    # hash history because StaticFiles(html=True) does not fall back to
+    # index.html for unknown paths (it 404s), so deep paths would break.
     static_dir = get_settings().static_dir
-    if static_dir and os.path.isdir(static_dir):
+    if static_dir and Path(static_dir).is_dir():
         from fastapi.staticfiles import StaticFiles
 
         app.mount(

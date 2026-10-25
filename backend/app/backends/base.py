@@ -1,8 +1,7 @@
 """The backend-agnostic dispatch contract.
 
-Everything above the adapters (session service, and — in a later phase —
-the workflow engine) talks only to :class:`Backend` and the canonical
-event stream, never to a concrete tool's flags or output format.
+Everything above the adapters (the board's dispatch) talks only to
+:class:`Backend`, never to a concrete tool's flags or output format.
 """
 from __future__ import annotations
 
@@ -39,13 +38,20 @@ class Capability(str, Enum):
 
     A backend serves a step when its capabilities are a superset of the
     step's requirement, so a file-editing agent (claude, opencode) can
-    also serve a text-only reasoning step, while a plain LLM (``TEXT``
-    only) cannot serve a step that needs ``FILE_EDITS``.
+    also serve a text-only reasoning step, while a backend limited to ``TEXT``
+    cannot serve a step that needs ``FILE_EDITS``.
     """
 
     TEXT = "text"
     FILE_EDITS = "file_edits"
     TOOL_USE = "tool_use"
+
+
+#: ``TurnRequest.permission_mode``: the agent may only read and propose.
+PERMISSION_READ_ONLY = "read_only"
+#: ``TurnRequest.permission_mode``: the agent may edit files and run
+#: commands in its working directory.
+PERMISSION_EDIT = "edit"
 
 
 @dataclass
@@ -54,6 +60,8 @@ class TurnRequest:
 
     prompt: str
     cwd: str
+    #: :data:`PERMISSION_READ_ONLY` or :data:`PERMISSION_EDIT`; each
+    #: backend maps these onto its own tool's flags.
     permission_mode: str
     model: str | None = None
     #: Native session id to resume, or None to start a fresh session.
@@ -62,6 +70,13 @@ class TurnRequest:
     #: runs (feature 036). Backends that cannot see tool calls live never
     #: call it.
     on_tool: Callable[[str], None] | None = None
+    #: Told the backend's session id the moment it is known, before the
+    #: turn finishes — so the id survives a turn that later fails or times
+    #: out.
+    on_session_id: Callable[[str], None] | None = None
+    #: The card the turn works for, when there is one; tags the turn's
+    #: server-log lines (``kestrel.agent``) next to the session id.
+    card_id: str | None = None
 
 
 @dataclass
@@ -71,20 +86,6 @@ class TurnResult:
     session_id: str
     #: The authoritative final text (the deliverable the workflow parses).
     final_text: str
-
-
-@dataclass
-class LivenessResult:
-    """Outcome of an active liveness probe against a backend session.
-
-    A backend with no independent remote-liveness signal to check (no
-    persistent server-side session) always reports ``alive=True`` — see
-    :meth:`Backend.check_alive`.
-    """
-
-    alive: bool
-    #: A short diagnostic reason, present only when ``alive`` is False.
-    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,35 +113,12 @@ class Backend(Protocol):
     id: str
     caps: frozenset[Capability]
 
-    async def start(self, prompt: str) -> str:
-        """Start a new session, returning its id once known."""
-        ...
-
-    async def resume(self, session_id: str, prompt: str) -> str:
-        """Resume an existing session with new input."""
-        ...
-
     async def run_turn(
         self,
         req: TurnRequest,
-        on_session_id: Callable[[str], None] | None = None,
         on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
         """Run one turn to completion and return its deliverable."""
-        ...
-
-    def terminate(self, session_id: str) -> bool:
-        """Stop a running session; return True if one was stopped."""
-        ...
-
-    async def check_alive(self, session_id: str) -> LivenessResult:
-        """Actively probe whether this session is still alive server-side.
-
-        Used by the "force poll now" action to detect a session that has
-        silently crashed (e.g. its remote process died with no terminal
-        event ever recorded). Returns ``alive=True`` when this backend has
-        no independent liveness signal to check.
-        """
         ...
 
     async def list_models(self) -> ModelCatalog:

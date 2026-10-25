@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.models_board import WorkCard
 from app.models_board_records import HandoffArtifact, HumanGateRecord
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from tests.board_test_support import board_session_factory
@@ -21,17 +19,6 @@ from tests.test_board_router_views import _client
 def _interview(tmp_path: Path, store) -> None:
     """A refinement card's questions, and the gate asking them."""
     factory = board_session_factory(tmp_path)
-    content_ref, content_hash = BoardArtifactContentStore(
-        tmp_path / "artifacts"
-    ).write('{"questions": ["Who uses it?"]}')
-    BoardArtifactStore(factory).record(
-        HandoffArtifact(
-            id="art-questions", producer_card_id="card-ref",
-            logical_name="questions", revision=1,
-            content_ref=content_ref, content_hash=content_hash,
-            trust="agent_output",
-        )
-    )
     for card_id, kind, state in (
         ("card-ref", "refinement", "done"),
         ("card-gate", "refinement_gate", "awaiting_human"),
@@ -42,12 +29,26 @@ def _interview(tmp_path: Path, store) -> None:
                 title="pm interview (1 question)", state=state,
             )
         )
+    BoardArtifactStore(factory).record(
+        HandoffArtifact(
+            id="art-questions", producer_card_id="card-ref",
+            logical_name="questions", revision=1,
+            content_hash="sha256:any", trust="agent_output",
+        ),
+        '{"questions": ["Who uses it?"]}',
+    )
     BoardGateStore(factory).create_gate(
         HumanGateRecord(
             id="gate-1", card_id="card-gate", requested_decision="answer",
             target_artifact_id="art-questions",
         )
     )
+
+
+async def _get_card(c: httpx.AsyncClient, card_id: str) -> dict:
+    """Return one card's summary as the board snapshot lists it."""
+    resp = await c.get("/api/board/workflows/wf-1/board")
+    return next(x for x in resp.json()["cards"] if x["id"] == card_id)
 
 
 @pytest.mark.asyncio
@@ -59,11 +60,10 @@ async def test_an_interview_gate_exposes_its_questions(
     _interview(tmp_path, store)
 
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-gate")
+        card = await _get_card(c, "card-gate")
 
-    body = resp.json()
-    assert body["latest_artifact"] is None
-    assert body["gate"]["target_artifact"] == {
+    assert card["latest_artifact"] is None
+    assert card["gate"]["target_artifact"] == {
         "id": "art-questions", "label": "questions", "revision": 1,
     }
 
@@ -85,9 +85,9 @@ async def test_a_gate_without_a_target_exposes_none(tmp_path: Path) -> None:
     )
 
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
+        card = await _get_card(c, "card-1")
 
-    assert resp.json()["gate"]["target_artifact"] is None
+    assert card["gate"]["target_artifact"] is None
 
 
 def test_the_cab1_decision_targets_the_strategic_answers(

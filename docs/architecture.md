@@ -9,47 +9,60 @@ and replaced by the event-driven **work board** described below. Design
 history and the backlog live in the
 [GitHub issue tracker](https://github.com/exhuma/kestrel/issues)._
 
-Kestrel is a **single-user** tool that dispatches and monitors coding-agent
-sessions from a web UI. One process serves both the API and (when packaged)
-the built SPA.
+Kestrel is a **single-operator** tool that ingests tasks and has coding-agent
+specialists work them, monitored from a web UI. One process serves both the
+API and (when packaged) the built SPA.
 
 ## Components
 
 | Component | Responsibility |
 | --- | --- |
-| **FastAPI backend** (`backend/app`) | HTTP API, session/board orchestration, SSE streaming |
-| **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode`, `openai_compat` |
-| **Persistence** (`backend/app/persistence`) | SQLite via SQLAlchemy, schema managed by Alembic |
+| **FastAPI backend** (`backend/app`) | HTTP API, board orchestration, SSE streaming |
+| **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode` |
+| **Persistence** (`backend/app/persistence`) | PostgreSQL via SQLAlchemy and psycopg, schema managed by Alembic |
 | **SPA** (`frontend/`) | Vue 3 + Vuetify UI; in the image it is served same-origin by the backend |
 
 ## Key boundaries
 
 - **The `Backend` protocol** (`backends/base.py`) is the seam everything above
-  the adapters talks to. It exposes `start` / `resume` / `run_turn` /
-  `terminate` and a `Capability` set (`TEXT`, `FILE_EDITS`, `TOOL_USE`). A
+  the adapters talks to. It exposes `run_turn` and a
+  `Capability` set (`TEXT`, `FILE_EDITS`, `TOOL_USE`). A
   board specialist is served only by a backend whose capabilities are a
-  superset of its `required_abilities`, so a plain LLM can serve a
+  superset of its `required_abilities`, so a text-only backend can serve a
   text-only role but not `coder`. Adapters never leak a tool's flags or
   output format upward.
 - **A canonical event vocabulary** (`models.py`) normalizes each backend's
-  native stream (claude's `stream-json`, opencode's SSE, an LLM's tokens)
-  onto one timeline the UI consumes.
-- **Server-sent events** carry that timeline to the browser live; the backend
-  adds heartbeat/anti-buffering headers so the UI updates in real time.
+  native stream (claude's `stream-json`, opencode's messages) onto one
+  shape. Agent output is not stored: it goes to the server log under the
+  `kestrel.agent` logger, tagged with the session id (see
+  [Observability](observability.md#agent-output)).
+- **Server-sent events** carry the board's state to the browser live; the
+  backend adds heartbeat/anti-buffering headers so the UI updates in real
+  time.
 - **Per-run git workspaces** under `KESTREL_WORKSPACE_ROOT` isolate each
   session's file edits and stay browsable on the host.
 
 ## External dependencies
 
-The image bundles only the `claude` CLI (plus Node and git). `opencode` and
-self-hosted LLMs are **external backing services addressed by URL** — started
+The image bundles only the `claude` CLI (plus Node and git). `opencode` is an
+**external backing service addressed by URL** — started
 separately and reached over HTTP, never bundled into the image. This keeps
 the image small and lets a deploy attach or swap backends purely by config.
 
 ## Data & auth
 
-- **State** lives in SQLite on the `/data` volume; migrations run on every
-  container start (idempotent).
+- **State** lives in an external PostgreSQL database
+  (`KESTREL_DATABASE_URL`); migrations run on every container start
+  (idempotent). The schema starts from one baseline migration. Foreign
+  keys are enforced, checked at commit. Timestamps are stored as naive
+  UTC, and every connection uses the UTC time zone. The board's handoff
+  artifact bodies are stored in it too.
+- **Concurrency.** Kestrel is one process, but its async tasks and threads
+  write at the same time. A write that decides something (a claim, a
+  repository lease, a gate decision, a counter) is one conditional
+  statement — `UPDATE … WHERE <still true> RETURNING`,
+  `INSERT … ON CONFLICT`, `DELETE … RETURNING` — or reads its row
+  `FOR UPDATE`, never a read followed by a blind write.
 - **Agent auth** is inherited from the host `claude` login (seeded read-only
   into the container), never re-implemented by kestrel. Kestrel's own secrets
   are env-only: the task-source and code-host tokens
@@ -77,18 +90,14 @@ entity reference; this is the operator-relevant shape:
   gate readiness.
 - **Claims and leases.** A specialist claims one `ready` card at a time
   (`ClaimLease`, time-bounded, `board_claim_lease_seconds`). A
-  write-permission card additionally needs a per-repository
-  `WorkspaceLease` (`board_workspace_lease_seconds`) so only one writer can
-  touch a given repo at once — read-only cards may run concurrently, up to
-  `board_max_parallel_read_cards`. A background sweep
+  write-permission card's claim also holds its repository, so only one
+  writer can touch a given repo at once — read-only cards may run
+  concurrently, up to `board_max_parallel_read_cards`. A background sweep
   (`board_recovery_interval_seconds`) reclaims expired leases and applies
   each card's bounded retry/reassign/escalate policy.
 - **Handoff artifacts.** A card's accepted output is retained as an
-  immutable, versioned `HandoffArtifact` (content-addressed under
-  `board_artifacts_root`), with explicit pinned-revision input provenance
-  and a `project_material` flag — set only when the artifact belongs in the
-  eventual code change, so orchestration-only output never leaks into a
-  commit.
+  immutable, versioned `HandoffArtifact` (its body and its SHA-256 in the
+  `board_artifact` row), with explicit pinned-revision input provenance.
 - **Specialists** (`specialists/<role>/manifest.toml` + `prompt.md`,
   loaded from `specialists_root`): `requester`, `pm`, `uiux`, `developer`,
   `infosec`, `dba`, `architect`, `ops`, `qa` (read-only `analysis`/`design`
@@ -97,7 +106,7 @@ entity reference; this is the operator-relevant shape:
   against its approved scope, exercising the change directly rather than
   re-running the coder's own checks), and `input-security` (quarantine
   classification). Each manifest's `model_policy` routes that role to a
-  backend — `"default"` for `default_session_backend`, or a specific
+  backend — `"default"` for `default_backend`, or a specific
   `[[backends]]` id — capability-checked against the role's
   `required_abilities` (`app/policy.py`). See [Backends](backends.md).
 - **The coordinator** is event-driven, not polling: every committed board
@@ -134,17 +143,17 @@ entity reference; this is the operator-relevant shape:
 replacement, never incremental patches): `GET /workflows` (collection
 summary) and `GET /workflows/events` (its SSE stream); `GET
 /workflows/{id}/board` (one workflow's full snapshot: cards, relations,
-`revision`) and `GET /workflows/{id}/board/events`; `GET
-/workflows/{id}/cards/{id}`; `POST
+`revision`) and `GET /workflows/{id}/board/events`; `POST
 /workflows/{id}/cards/{id}/interventions`; `POST
 /security-reviews/{id}/resolve`. See
 `specs/026-autonomous-work-board/contracts/board-api.md`.
 
-**Frontend.** `WorkBoard.vue` is the app's default view: a workflow list
-plus a card-state-grouped list layout and a lazy graph layout
-(`WorkflowGraph.vue`, Vue Flow), with `WorkCardDetail.vue` for one card and
-its intervention actions. `useBoard.ts` wraps the API above. The old
-per-run session panel remains reachable as a secondary debug view.
+**Frontend.** Hash-routed (`router/index.ts`), three surfaces: the stage
+board (`StageBoardView.vue`, the default; one column per stage, one
+`RequestCard` per request), a request's cockpit (`RequestCockpitView.vue`:
+phase spine, narrative feed, artifacts, and the action banner that carries
+gate decisions) and its interview view (`InterviewView.vue`). Unknown
+addresses land on `NotFoundView.vue`. `useBoard.ts` wraps the API above.
 
 ### Specialist dispatch, delivery, and write-back (spec 026)
 
@@ -162,7 +171,7 @@ A `read_only`/`write` card also gets a real workspace (spec 026 T041):
 `app/services/board/workspace.py::WorkspaceService` provisions a per-repo
 shared bare mirror plus one worktree per workflow, cut from it on demand
 and reused (never reset) across a workflow's turns. A `write` card
-additionally dispatches with `permission_mode="acceptEdits"`, so the
+additionally dispatches with `permission_mode="edit"`, so the
 `coder` role can now genuinely read and edit files — its prompt instructs
 it to commit its own work locally. See `tests/test_board_dispatch_workspace.py`.
 
@@ -350,18 +359,8 @@ this is deliberately **not** human-gated: publishing kestrel's own
 worktree branch as a draft PR is low-risk and reversible, so the
 verification's own pass/fail is trusted as the gate.
 
-A **temporary, dev-only** pair of actions also now exists for repeating
-a local dry run without restarting kestrel or hand-editing the database
-(`app/services/board/dev_reset.py`, `app/routers/board_dev.py`): cleanup
-cancels a workflow's open cards, revokes active claims, and tears down
-its workspace; rerun layers cleanup with a fresh `understanding_gate` on
-the same workflow row. Gated behind `board_dev_actions_enabled` (off by
-default — the routes don't exist unless it's on) and, regardless of the
-flag, restricted to a `private`-visibility workflow, the same safety
-property the old deleted `workflows/reset.py`'s own `rerun` enforced.
-Meant to be deleted outright once the board is production-ready, not
-hardened — see the module's own docstring before extending it. Abandon
-only blocks *new* dispatch, not an already-running specialist turn:
+Cancelling
+a card only blocks *new* dispatch, not an already-running specialist turn:
 nothing in the dispatch loop retains a cancellable handle for one (see
 below), so an in-flight turn simply finishes and its result is discarded
 against the now-cancelled card.
@@ -604,11 +603,12 @@ owner. Nothing in the announcement or reply code calls
 
 ## Design trade-offs
 
-- **Single-user, no auth.** Deliberate for the alpha: kestrel is a personal
-  tool meant to be reachable only from loopback, and it trusts whoever
-  reaches it. The code default of `KESTREL_HOST` and the image default are
-  both `0.0.0.0` so that a published compose port works; the constitution's
-  loopback rule is then met by the port mapping (`127.0.0.1:8000:8000`) or,
+- **Single operator, no sign-in yet.** Until the OIDC sign-in lands,
+  kestrel is meant to be reachable only from loopback, and it trusts
+  whoever reaches it. The code default of `KESTREL_HOST` and the image
+  default are both `0.0.0.0` so that a published compose port works; the
+  constitution's loopback rule is then met by the port mapping
+  (`127.0.0.1:8000:8000`) or,
   in the [Kubernetes guide](deploy-kubernetes.md), by binding `127.0.0.1`
   inside a pod whose only exposed port belongs to an authenticating reverse
   proxy. The API itself performs no authentication; it only reads the
@@ -633,8 +633,8 @@ owner. Nothing in the announcement or reply code calls
   (`ingestion.maybe_start_run`, on a `task_ref`) that now creates a board
   workflow rather than a driver run. The load-bearing axis — *task source*
   (the ticket) vs *code host* (the repo) — is realized as two protocols in
-  `app/ports.py`: `TaskSource` (read/comment/attach/deep-link/
-  display-label) and `CodeHost` (default branch, clone remote, open a
+  `app/ports.py`: `TaskSource` (read/comment/create
+  sub-tasks) and `CodeHost` (default branch, clone remote, open a
   merge/pull request). GitHub implements both roles; **Jira** implements
   `TaskSource` and delegates the `CodeHost` role to a configured,
   **self-hostable** git host (GitLab reference; Gitea/Forgejo the same
@@ -647,14 +647,14 @@ owner. Nothing in the announcement or reply code calls
   and Jira are `"public"` — their tickets are externally shared and only
   ever move forward in time; local tasks are `"private"`. This capability
   is snapshotted onto every board workflow at ingestion time; it currently
-  has no consumer (see "Current gap" above for rerun/cleanup, its intended
-  use).
+  has no consumer.
 
 - **CLI subprocess for claude, HTTP for the rest.** Reuses the user's
   existing Claude login and MCP/plugin config without an SDK or API key, at
   the cost of depending on the CLI's stream format (isolated in one adapter).
-- **SQLite.** Right-sized for a single user; the `KESTREL_DATABASE_URL` seam
-  leaves room to attach another database later.
+- **PostgreSQL, still one process.** A real database server gives
+  enforced foreign keys and concurrent writers. Kestrel itself stays a
+  single process: the in-memory event buses and locks assume one.
 - **Source health is checked, not persisted.** Whether each configured
   `TaskSource`/`CodeHost` adapter is currently reachable and authenticated
   (feature 014) is a `check_health()` capability on the existing ports —
@@ -667,6 +667,6 @@ owner. Nothing in the announcement or reply code calls
   on-demand manual refresh — a value from before a restart is not more
   trustworthy than "unknown", so nothing is persisted. Displayed as a
   persistent per-source indicator in the app bar (pushed over SSE, the
-  same `list()`-plus-bus pattern as the notification center), so a
+  `list()`-plus-bus pattern), so a
   misconfiguration is visible immediately instead of only surfacing later
   as a failed run.

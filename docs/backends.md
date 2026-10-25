@@ -2,7 +2,7 @@
 
 Kestrel dispatches to a pluggable **backend**. By default the only backend is
 the bundled `claude` CLI, so no configuration is needed. To add backends
-(self-hosted LLMs, opencode), write a **TOML file** and point kestrel at it:
+(opencode), write a **TOML file** and point kestrel at it:
 
 ```bash
 KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
@@ -11,10 +11,10 @@ KESTREL_CONFIG_FILE=config.toml   # relative to the working dir, or absolute
 Copy [`config.toml.example`](../config.toml.example) to `config.toml` and
 edit. Alongside the applicative settings (see
 [Configuration](configuration.md)), it declares the available backends and
-the ad-hoc-session default:
+the default for specialists:
 
 ```toml
-default_session_backend = "local"
+default_backend = "local"
 
 [[backends]]
 id = "claude"
@@ -22,9 +22,9 @@ type = "claude_cli"
 
 [[backends]]
 id = "local"
-type = "openai_compat"    # a self-hosted OpenAI-compatible LLM
-base_url = "http://localhost:11434/v1"
-model = "llama3.1:8b"
+type = "opencode"
+base_url = "http://localhost:4096"
+model = "anthropic/claude-sonnet-4"
 ```
 
 Per-**specialist** routing — which backend a given board role (`coder`,
@@ -33,7 +33,7 @@ Per-**specialist** routing — which backend a given board role (`coder`,
 `specialists/<role>/manifest.toml` (see
 [Architecture → The work board](architecture.md#the-work-board-spec-026)):
 `"default"`
-resolves to `default_session_backend` above; any other value names a
+resolves to `default_backend` above; any other value names a
 specific `[[backends]]` id directly, e.g.:
 
 ```toml
@@ -42,9 +42,9 @@ model_policy = "claude"   # the coder needs file-editing, so pin it explicitly
 ```
 
 Config is read once at startup — **restart the backend after editing it**. On
-boot the effective config is logged (`backends: … | ad-hoc sessions dispatch
-to: …`), and `GET /api/backends` reports it live. In Docker, mount the file
-and set the env var (see the commented lines in `docker-compose.yml`).
+boot the effective config is logged (`backends: … | default backend: …`).
+In Docker, mount the file and set the env var (see the commented lines in
+`docker-compose.yml`).
 
 > The TOML file is the **only** way to configure backends. Without
 > `KESTREL_CONFIG_FILE` set, kestrel runs claude-only.
@@ -64,31 +64,31 @@ From the published image, use one of:
 - A **compose service name**, if you run the backend as another service on
   the same compose network (address it as `http://service-name:PORT`).
 
-So a host-run Ollama that you'd reach at `http://localhost:11434/v1` from
-source becomes `http://host.docker.internal:11434/v1` in `config.toml` when
+So a host-run `opencode serve` that you'd reach at `http://localhost:4096`
+from source becomes `http://host.docker.internal:4096` in `config.toml` when
 running the image.
 
 ## Where backends apply
 
-Ad-hoc sessions (the **Sessions** debug panel / `POST /api/sessions`) use
-`default_session_backend`. Every board specialist (`requester`, `pm`,
+Every board specialist (`requester`, `pm`,
 `uiux`, `developer`, `infosec`, `dba`, `architect`, `ops`, `qa`,
 `coordinator`, `coder`, `verifier`, `input-security`, `liaison`) uses its own
-manifest's `model_policy` — `"default"` for the same default, or a pinned
-backend id.
+manifest's `model_policy` — `"default"` for `default_backend`, or a
+pinned backend id.
 
 A specialist only accepts a backend that satisfies its `required_abilities`:
 `coder` needs file-editing (`claude`/`opencode`), since it is the only role
 that holds a repository write lease, while most other roles need only text
-— so a plain LLM may serve them (it just won't read the repo). A bad mapping
-(e.g. a text-only LLM pinned to `coder`) fails capability-checked routing
+— so a backend declared text-only (`caps = ["text"]`) may serve them (it
+just won't read the repo). A bad mapping (e.g. a text-only backend pinned to
+`coder`) fails capability-checked routing
 (`SpecialistBackendPolicy.backend_for`) with a clear error rather than
 silently dispatching anyway.
 
 ## Concurrency and rate limits
 
 Every configured backend has a process-wide concurrency cap. It is shared by
-every specialist dispatch and ad-hoc session using that backend ID, not
+every specialist dispatch using that backend ID, not
 reset per board workflow. The conservative default is one in-flight LLM
 turn. Backends have independent caps, so a busy local backend does not
 delay a Claude backend.
@@ -120,22 +120,6 @@ and `rate_limit_backoff_seconds` must be positive.
 
 The bundled Claude Code CLI. This is the default and needs no fields beyond
 `id` and `type`.
-
-### `openai_compat`
-
-A self-hosted OpenAI-compatible LLM (Ollama, vLLM, LocalAI, …). It is
-**text-only** (no file edits or tools); kestrel owns the conversation history
-and replays it each turn.
-
-```toml
-[[backends]]
-id = "local"
-type = "openai_compat"
-base_url = "http://host.docker.internal:11434/v1"   # localhost from source
-model = "llama3.1:8b"
-# api_key = "sk-…"        # or api_key_env = "MY_LLM_KEY" (an exported env var)
-# timeout = 300           # seconds; raise for big/slow models
-```
 
 ### `opencode`
 
@@ -169,17 +153,16 @@ password = "changeme"                      # inline (gitignored file), or:
 ```
 
 > **opencode working directory.** Each request kestrel sends is scoped to the
-> session's working directory (the per-run cloned workspace, or an ad-hoc
-> session's own folder) via opencode's `directory` parameter, so opencode's
-> file tools act there rather than in the directory where `opencode serve` was
-> started. The `opencode serve` process must be able to reach that path —
-> run it on the same host/mount as kestrel's `KESTREL_WORKSPACE_ROOT`.
-> Kestrel sends **absolute** paths, and the git worktrees it creates hold
-> absolute `gitdir` paths, so a sidecar must see the workspace volume at the
-> **same absolute path** as kestrel (for example `/workspaces` in both
-> containers), run as the **same uid:gid**, and have `git` installed. It
-> needs no code-host token: kestrel does the pushing. For a full pod layout,
-> see [Deploying on Kubernetes](deploy-kubernetes.md).
+> session's working directory (the per-run cloned workspace) via opencode's
+> `directory` parameter, so opencode's file tools act there rather than in the
+> directory where `opencode serve` was started. The `opencode serve` process
+> must be able to reach that path — run it on the same host/mount as kestrel's
+> `KESTREL_WORKSPACE_ROOT`. Kestrel sends **absolute** paths, and the git
+> worktrees it creates hold absolute `gitdir` paths, so a sidecar must see the
+> workspace volume at the **same absolute path** as kestrel (for example
+> `/workspaces` in both containers), run as the **same uid:gid**, and have `git`
+> installed. It needs no code-host token: kestrel does the pushing. For a full
+> pod layout, see [Deploying on Kubernetes](deploy-kubernetes.md).
 >
 > **opencode read-only specialists and permissions.** A specialist whose
 > manifest declares `workspace_permission = "read_only"` (or `"none"`) runs

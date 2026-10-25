@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models_board import (
@@ -253,7 +253,11 @@ class BoardQuarantineStore:
         """
         now = now or datetime.now(timezone.utc)
         with self._factory.begin() as db:
-            review = db.get(BoardSecurityReviewRow, review_id)
+            # Locked, so of two resolutions racing for one review the
+            # second waits and then finds it no longer pending.
+            review = db.get(
+                BoardSecurityReviewRow, review_id, with_for_update=True
+            )
             if review is None:
                 return None
             card = db.get(BoardCardRow, review.card_id)
@@ -301,9 +305,11 @@ def _resolve(
                 created_at=now,
             )
         )
-    workflow = db.get(BoardWorkflowRow, card.workflow_id)
-    if workflow is not None:
-        workflow.revision += 1
+    db.execute(
+        update(BoardWorkflowRow)
+        .where(BoardWorkflowRow.id == card.workflow_id)
+        .values(revision=BoardWorkflowRow.revision + 1)
+    )
 
 
 @lru_cache

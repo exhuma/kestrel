@@ -74,8 +74,9 @@ module-ux-principles, module-github-link, module-version-control,
 module-calver-release-channels, module-documentation,
 module-notification-alarm-discipline.
 
-**Partial:** module-database-postgresql (SQLAlchemy/Alembic patterns apply;
-Postgres-specific ones N/A — uses SQLite), module-library-preferences,
+**Partial:** module-database-postgresql (PostgreSQL with psycopg 3 and
+Alembic; the URL keeps its `+psycopg` modifier and timestamps are naive
+UTC), module-library-preferences,
 module-runtime-config-spa, module-release-metadata, module-design-tokens,
 module-operator-docs.
 
@@ -121,9 +122,6 @@ Do not re-do these:
   via `workflow_call`, no `latest` tag) — near-exemplary.
 - **GitHub link:** `GithubLink.vue` is a textbook implementation of
   module-github-link (env-driven, hides when blank, `rel=noopener`, tested).
-- **Notifications:** signals are classed action-required vs. summary on a quiet
-  in-app SSE surface (no OS interrupts), deterministic templating, pluggable
-  `Notifier` protocol.
 - **Docs:** good audience separation and ~80-col semantic wrapping.
 
 ## Work-packages
@@ -218,7 +216,7 @@ theme is built in `main.ts`, but `grep '<v-'` over `frontend/src` returns
   via Vuetify `variables` (both `light` + `dark`), and add the mandatory
   page-level `v-progress-linear` driven by the existing `loading` refs.
 - Either branch also fixes the trivial a11y gap: add `aria-pressed` to the
-  "Workflows" toggle (`App.vue`) for parity with the sessions toggle.
+  "Workflows" toggle (`App.vue`).
 
 **Files:** `frontend/package.json`, `frontend/src/main.ts`, `App.vue`,
 `components/*`, `styles/theme.css`.
@@ -273,10 +271,8 @@ kestrel ever goes multi-user or is exposed beyond localhost.
   build time not exposed in the SPA; cheap to add later if desired.
 - **DB timezone-aware timestamps / request-scoped `get_db`**
   (database-postgresql) — deliberate deviation; documented in WP3.
-- **Backend config micro-hygiene** — `KESTREL_RELOAD/HOST/PORT` read via
+- **Backend config micro-hygiene** — `KESTREL_HOST/PORT` read via
   `os.environ` in `__main__.py`; promote to `Settings` fields when convenient.
-- **Notification service layer** — `routers/notifications.py` calls the store
-  directly; a thin `NotificationService` would restore strict layering (Low).
 - **i18n label** (github-link) — no i18n infrastructure exists; N/A until one
   is introduced.
 - **Architecture context diagram** (diagrams) — enhancement; if added, follow

@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import logging
-import tomllib
 from functools import lru_cache
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -14,56 +12,21 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from app.config_models import BackendConfig, TaskSourceConfig, TranslationConfig
+from app.config_file import config_file_source
+from app.config_models import BackendConfig, TaskSourceConfig
 
 _log = logging.getLogger("kestrel.config")
 
-# Backend config is file-only: these keys are resolved from the TOML file
+# These keys are file-only: they are resolved from the TOML file
 # named by ``KESTREL_CONFIG_FILE`` (or left at their claude-only defaults),
 # never from the environment. Filtered out of the env/dotenv sources below.
 _FILE_ONLY_FIELDS = frozenset(
     {
         "backends",
-        "default_session_backend",
+        "default_backend",
         "task_sources",
-        "translation",
     }
 )
-
-# Applicative (non-secret) settings the TOML config file may override. Unlike
-# the file-only backend keys, these remain readable from the environment too
-# (back-compat); the file simply wins when it sets them. Secrets
-# (tokens/passwords) are deliberately excluded — those stay in the env.
-_CONFIG_FILE_FIELDS = frozenset(
-    {
-        "poll_interval_seconds",
-        "max_verify_iterations",
-        "max_ci_repair_iterations",
-        "port",
-        "database_url",
-        "workspace_root",
-        "board_artifacts_root",
-        "comment_sentinel_enabled",
-        "feedback_marker",
-        "specialists_root",
-        "board_input_max_bytes",
-        "board_input_security_timeout_seconds",
-        "board_turn_timeout_seconds",
-        "board_claim_lease_seconds",
-        "board_workspace_lease_seconds",
-        "board_max_parallel_read_cards",
-        "board_recovery_interval_seconds",
-        "board_ci_poll_interval_seconds",
-        "board_comment_poll_interval_seconds",
-        "board_projection_retry_interval_seconds",
-        "board_cab1_interview_max_questions",
-        "board_unreadable_retry_cap",
-        "health_check_interval_seconds",
-        "health_check_timeout_seconds",
-        "board_dev_actions_enabled",
-    }
-)
-
 
 class Settings(BaseSettings):
     """Runtime configuration for the kestrel backend."""
@@ -85,13 +48,15 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Drop the file-only backend keys from the environment sources.
+        """Order the sources: init, config file, environment, defaults.
 
-        Backends are configured exclusively via ``KESTREL_CONFIG_FILE``
-        (or direct construction). Filtering these keys out of the env and
+        The file named by ``KESTREL_CONFIG_FILE`` (or the ``config_file``
+        argument) can set any field and wins over the environment and
+        ``.env``; whatever it omits keeps its env/default value. The
+        backend keys are file-only: filtering them out of the env and
         dotenv sources makes any stray ``KESTREL_BACKENDS`` /
-        ``KESTREL_STEP_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND``
-        inert, while init kwargs and the file overlay still apply.
+        ``KESTREL_DEFAULT_BACKEND`` inert. A missing or malformed
+        file, or an unknown key in it, fails at startup.
         """
 
         def _drop_file_only(
@@ -106,8 +71,12 @@ class Settings(BaseSettings):
 
             return _call  # type: ignore[return-value]
 
+        file_source = config_file_source(
+            settings_cls, init_settings, env_settings, dotenv_settings
+        )
         return (
             init_settings,
+            *((file_source,) if file_source else ()),
             _drop_file_only(env_settings),
             _drop_file_only(dotenv_settings),
             file_secret_settings,
@@ -117,19 +86,13 @@ class Settings(BaseSettings):
     #: ``KESTREL_VERSION`` (see the Dockerfile). The dev default makes a
     #: from-source run recognisable. Reported by ``GET /healthz``.
     version: str = "0.0.0-dev"
-    #: Uvicorn bind address / port and the dev auto-reload toggle
-    #: (``KESTREL_HOST`` / ``KESTREL_PORT`` / ``KESTREL_RELOAD``). Sourced
-    #: through Settings so a ``backend/.env`` value is honoured.
+    #: Uvicorn bind address / port (``KESTREL_HOST`` / ``KESTREL_PORT``).
+    #: Sourced through Settings so a ``backend/.env`` value is honoured.
     host: str = "0.0.0.0"
     port: int = 8000
-    reload: bool = False
     claude_bin: str = "claude"
     workspace_root: str = "./.kestrel-workspaces"
-    #: Durable, content-addressed store for handoff-artifact bodies
-    #: (feature 026, FR-013). Keyed by content hash, so recovery after
-    #: restart can always re-read a card's output.
-    board_artifacts_root: str = "./.kestrel-board-artifacts"
-    permission_mode: str = "acceptEdits"
+    permission_mode: str = "edit"
     # Directory of the built SPA to serve. Empty (dev default) means the
     # backend is API-only and the SPA is served by the Vite dev server; the
     # container image sets this to the baked-in static bundle.
@@ -137,7 +100,10 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
-    database_url: str = "sqlite:///./kestrel.db"
+    #: SQLAlchemy URL of the PostgreSQL database
+    #: (``postgresql+psycopg://user:password@host:5432/kestrel``). Required:
+    #: there is no default database (see :meth:`_require_database_url`).
+    database_url: str = ""
     #: Console log verbosity (``KESTREL_LOG_LEVEL``): debug/info/warning/…
     log_level: str = "info"
     #: Console log format (``KESTREL_LOG_FORMAT``): ``text`` for
@@ -153,44 +119,21 @@ class Settings(BaseSettings):
     #: ``service.name`` reported on exported spans
     #: (``KESTREL_OTEL_SERVICE_NAME``). Defaults to ``kestrel``.
     otel_service_name: str = "kestrel"
-    #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Holds the
-    #: backend config (``backends`` / ``default_session_backend``) and
-    #: applicative overrides (see
-    #: ``_CONFIG_FILE_FIELDS``: ``watched_repos``, ``trigger_label``, …).
+    #: Path to the TOML config file (``KESTREL_CONFIG_FILE``). Its
+    #: top-level keys are any of these fields, including the file-only
+    #: ``backends`` / ``default_backend`` / ``task_sources``.
     #: Secrets stay in the environment. Mount it as a volume in Docker;
     #: relative paths resolve against the working directory.
     config_file: str = ""
-    #: Deprecated alias for ``config_file`` (``KESTREL_BACKENDS_FILE``);
-    #: honoured only when ``config_file`` is unset, with a warning.
-    backends_file: str = ""
     #: Dispatchable agent backends. File-only (see ``_FILE_ONLY_FIELDS``):
-    #: resolved from ``backends_file`` or left at this claude-only default,
+    #: resolved from the config file or left at this claude-only default,
     #: never from the environment.
     backends: list[BackendConfig] = Field(
         default_factory=lambda: [BackendConfig(id="claude", type="claude_cli")]
     )
-    #: Backend used for ad-hoc ``/api/sessions`` dispatch. File-only.
-    default_session_backend: str = "claude"
-    #: Refinement robustness knobs (help on cheaper/local models; all
-    #: default to today's behaviour). ``refine_samples`` runs the
-    #: coordinator and generators N times and unions the result to reduce
-    #: variance; ``refine_critic`` adds an adversarial completeness pass
-    #: after reconciliation; ``reconcile_mode`` selects how aggressively
-    #: questions are consolidated: ``rewrite`` (LLM consolidating
-    #: rewriter), ``dedup`` (coverage-safe within-audience duplicate
-    #: removal, no LLM), or ``off`` (keep the pooled questions as-is).
-    refine_samples: int = 1
-    refine_critic: bool = False
-    reconcile_mode: Literal["rewrite", "dedup", "off"] = "rewrite"
-    #: Capture UI mockups during a uiux refine round
-    #: (``KESTREL_MOCKUPS_ENABLED``). Off by default — not yet well
-    #: implemented, per manual-testing feedback on feature 012.
-    mockups_enabled: bool = False
-    #: Safety net (``KESTREL_ALLOW_INCOMPLETE_ANSWERS``): when true, a
-    #: questionnaire may be submitted with required questions left
-    #: unanswered (sent blank). Provided answers are still validated for
-    #: well-formedness. Off by default.
-    allow_incomplete_answers: bool = False
+    #: Backend a specialist with ``model_policy = "default"`` runs on.
+    #: File-only.
+    default_backend: str = "claude"
     #: GitHub ingestion (feature 002). The webhook HMAC shared secret
     #: (``KESTREL_WEBHOOK_SECRET``): the authenticity gate for the one
     #: off-loopback endpoint (constitution v1.2.0). Never logged.
@@ -199,9 +142,6 @@ class Settings(BaseSettings):
     #: each entry declares a ``type`` and that source's selection criteria.
     #: See :class:`app.config_models.TaskSourceConfig`.
     task_sources: list[TaskSourceConfig] = []
-    #: Dedicated, stateless translation backing service. File-only so it cannot
-    #: be confused with a workflow backend; secrets remain env-backed.
-    translation: TranslationConfig | None = None
     #: Single cadence (seconds) governing every source's re-check loop — the
     #: GitHub reconcile backstop and the Jira poll alike.
     poll_interval_seconds: int = 300
@@ -214,26 +154,17 @@ class Settings(BaseSettings):
     #: bounds a single unresponsive integration so it cannot stall the
     #: rest of the cycle.
     health_check_timeout_seconds: int = 10
-    #: Public base URL of the kestrel web UI, used to build gate-notification
-    #: deep-links (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments post without
-    #: a link. Operator-exposed, same posture as the webhook endpoint.
+    #: Public base URL of the kestrel web UI, used to build deep-links
+    #: in ticket comments (``KESTREL_PUBLIC_BASE_URL``). Unset ⇒ comments
+    #: post without a link. Operator-exposed, same posture as the webhook
+    #: endpoint.
     public_base_url: str = ""
-    #: Jira API token / PAT (``KESTREL_JIRA_API_TOKEN``). Secret; never logged.
-    #: The default token env var for a ``jira`` task source.
-    jira_api_token: str = ""
     #: Max verification rounds for one approved CAB-2 task before a
     #: non-clean result escalates to coordinator review (feature 031; the
     #: same knob feature 003's fixed driver used for its code↔verify loop).
     max_verify_iterations: int = 3
     #: Independent cap for repair attempts triggered by required CI failures.
     max_ci_repair_iterations: int = Field(default=2, ge=0)
-    #: Debug the code↔verify dialogue (``KESTREL_WORKFLOW_DEBUG``). When on,
-    #: every prompt/result exchanged between the coder and the verifier is
-    #: appended to a plain-text transcript next to the run's worktree, and
-    #: the worktree is never auto-deleted (done/escalated/failed) so both
-    #: stay inspectable — only an explicit abandon still removes them. Off
-    #: by default: a personal tool should not silently accumulate worktrees.
-    workflow_debug: bool = False
     #: The plain-text marker a ticket reply must contain, as a whole word
     #: and case-insensitive, for kestrel to act on it (feature 046,
     #: ``KESTREL_FEEDBACK_MARKER``). Plain text, not a Jira mention: kestrel
@@ -275,9 +206,6 @@ class Settings(BaseSettings):
     #: and eligible for recovery (feature 026,
     #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
     board_claim_lease_seconds: int = Field(default=600, gt=0)
-    #: How long a repository workspace-write lease is held before recovery
-    #: may reclaim it (feature 026, ``KESTREL_BOARD_WORKSPACE_LEASE_SECONDS``).
-    board_workspace_lease_seconds: int = Field(default=1800, gt=0)
     #: Maximum number of read-only board cards that may be claimed and
     #: active at once across the whole process (feature 026,
     #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).
@@ -326,16 +254,6 @@ class Settings(BaseSettings):
     #: A further rejection past the cap opens a coordinator review instead
     #: of another redraft. ``0`` never redrafts.
     board_understanding_redraft_cap: int = Field(default=2, ge=0)
-    #: Enable the ``/api/board/workflows/{id}/dev/*`` cleanup/rerun
-    #: endpoints (feature 026, T069,
-    #: ``KESTREL_BOARD_DEV_ACTIONS_ENABLED``). Off by default —
-    #: **temporary, dev-only**: lets a local-task-source dry run be
-    #: repeated without restarting kestrel or hand-editing the database.
-    #: Restricted at call time to a workflow whose source is ``private``
-    #: regardless of this flag. Meant to be deleted, not hardened, once
-    #: the board is production-ready — see
-    #: ``app/services/board/dev_reset.py``'s module docstring.
-    board_dev_actions_enabled: bool = False
 
     def github_sources(self) -> list[TaskSourceConfig]:
         """The configured GitHub task sources."""
@@ -368,55 +286,17 @@ class Settings(BaseSettings):
         return []
 
     @model_validator(mode="after")
-    def _apply_config_file(self) -> Settings:
-        """Overlay config from the TOML file when one is set.
+    def _require_database_url(self) -> Settings:
+        """Fail at startup when no database is configured.
 
-        The file owns the backend keys (``backends`` /
-        ``default_session_backend``) and may override the applicative keys
-        in ``_CONFIG_FILE_FIELDS`` (``watched_repos`` etc.); anything it
-        omits keeps its env/default value, so the file wins only where it
-        speaks. Prefers ``config_file``; ``backends_file`` is a deprecated
-        alias honoured with a warning. A missing or malformed file fails
-        fast at startup. Defined before the completeness-warning validators
-        (after-validators run in definition order) so they see the file's
-        final values.
+        The URL may come from the environment or the config file.
         """
-        path_str = self.config_file
-        if not path_str:
-            if not self.backends_file:
-                _log.info(
-                    "no config file configured (KESTREL_CONFIG_FILE/"
-                    "KESTREL_BACKENDS_FILE unset) — using built-in defaults"
-                )
-                return self
-            _log.warning(
-                "KESTREL_BACKENDS_FILE is deprecated; use KESTREL_CONFIG_FILE."
+        if not self.database_url:
+            raise ValueError(
+                "KESTREL_DATABASE_URL is not set: kestrel needs a PostgreSQL "
+                "database, e.g. "
+                "postgresql+psycopg://user:password@host:5432/kestrel"
             )
-            path_str = self.backends_file
-        path = Path(path_str)
-        if not path.is_file():
-            raise ValueError(f"config_file not found: {path}")
-        _log.info("loading config file: %s", path.resolve())
-        try:
-            data = tomllib.loads(path.read_text())
-        except tomllib.TOMLDecodeError as exc:
-            raise ValueError(f"invalid TOML in {path}: {exc}") from exc
-        if "backends" in data:
-            self.backends = [
-                BackendConfig(**entry) for entry in data["backends"]
-            ]
-        if "default_session_backend" in data:
-            self.default_session_backend = data["default_session_backend"]
-        if "task_sources" in data:
-            self.task_sources = [
-                TaskSourceConfig(**entry) for entry in data["task_sources"]
-            ]
-        if "translation" in data:
-            self.translation = TranslationConfig(**data["translation"])
-        # Applicative overrides: file wins, but only for keys it sets.
-        for key in _CONFIG_FILE_FIELDS:
-            if key in data:
-                setattr(self, key, data[key])
         return self
 
     @model_validator(mode="after")

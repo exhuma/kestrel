@@ -12,24 +12,6 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class SessionSummary(BaseModel):
-    """Summary of one session for the list endpoint.
-
-    :param session_id: Unique id of the session.
-    :param status: Current lifecycle status (e.g. running, idle).
-    :param event_count: Number of events recorded so far.
-    :param created_at: When the session started, if known.
-    :param workflow: The run that used this session ("repo#issue"),
-        or None for a free-form session.
-    """
-
-    session_id: str
-    status: str
-    event_count: int
-    created_at: datetime | None = None
-    workflow: str | None = None
-
-
 class SecurityReviewOut(BaseModel):
     """Safe, read-only view of a quarantine decision (feature 026).
 
@@ -338,40 +320,6 @@ class BoardInterventionIn(BaseModel):
     #: ``refinement_gate``'s answer, or a ``prd_gate`` rejection's
     #: feedback for `pm`'s redraft. Ignored for every other action.
     answer: str | None = None
-
-
-class BoardEventOut(BaseModel):
-    """One board-history entry (data-model.md "Board Event"), safe for
-    the narrative feed.
-
-    :param specialist: The role eligible to own this event's card, when
-        it has one — derived from the card's eligible roles at read
-        time, not a recorded actor (feature 026 never records who
-        actually acted on an event). A workflow-level event (no card) or
-        an operator-resolved gate (no eligible role) carries ``None``.
-    """
-
-    event_type: str
-    card_id: str | None
-    payload: str
-    created_at: datetime | None
-    specialist: BoardRoleRefOut | None = None
-
-
-class NotificationOut(BaseModel):
-    """One notification for the API."""
-
-    id: int
-    workflow_id: str
-    repo: str
-    #: GitHub issue number; ``null`` for a Jira-sourced run (feature 003).
-    issue_number: int | None
-    status: str
-    #: Derived from status: "action_required" gate vs terminal "summary".
-    signal_class: str
-    message: str
-    created_at: datetime
-    read: bool
 
 
 class HealthOut(BaseModel):

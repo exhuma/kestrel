@@ -4,7 +4,6 @@ import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { withVuetify } from '../support/vuetify'
 import type { BoardWorkflowSummary } from '../../src/types/workflows'
-import type { SessionSummary } from '../../src/types/sessions'
 
 // App.vue has no component test today (T020) — view switching went
 // untested through the old `view` ref/`v-btn-toggle`. This covers the
@@ -23,14 +22,6 @@ vi.mock('../../src/composables/useBoard', () => ({
     refresh: vi.fn(),
     startList: vi.fn(),
     stopList: vi.fn(),
-  }),
-}))
-
-const sessionsState = { sessions: ref<SessionSummary[]>([]) }
-vi.mock('../../src/composables/useSessions', () => ({
-  useSessions: () => ({
-    sessions: sessionsState.sessions,
-    loading: ref(false),
   }),
 }))
 
@@ -56,9 +47,9 @@ function testRouter() {
         component: { template: '<div>cockpit stub</div>' },
       },
       {
-        path: '/sessions',
-        name: 'sessions',
-        component: { template: '<div>sessions stub</div>' },
+        path: '/requests/:id/interview',
+        name: 'interview',
+        component: { template: '<div>interview stub</div>' },
       },
       { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
     ],
@@ -66,7 +57,6 @@ function testRouter() {
 }
 
 const stubs = {
-  NotificationCenter: true,
   SourceHealthIndicator: true,
   IdentityBadge: true,
   GithubLink: true,
@@ -90,15 +80,15 @@ describe('App shell routed rendering', () => {
     expect(wrapper.findComponent(StageBoardView).exists()).toBe(true)
   })
 
-  it('renders whatever the sessions route resolves to', async () => {
+  it('renders whatever a request route resolves to', async () => {
     const router = testRouter()
-    await router.push('/sessions')
+    await router.push('/requests/wf-1/interview')
     const wrapper = mount(
       App,
       withVuetify({ global: { plugins: [router], stubs } }),
     )
     await router.isReady()
-    expect(wrapper.text()).toContain('sessions stub')
+    expect(wrapper.text()).toContain('interview stub')
   })
 
   it('renders the not-found view for an unmatched address', async () => {
@@ -114,7 +104,7 @@ describe('App shell routed rendering', () => {
 
   it('takes the logo home, to the board', async () => {
     const router = testRouter()
-    await router.push('/sessions')
+    await router.push('/requests/wf-1')
     const wrapper = mount(
       App,
       withVuetify({ global: { plugins: [router], stubs } }),

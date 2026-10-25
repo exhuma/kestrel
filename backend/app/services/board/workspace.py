@@ -21,6 +21,7 @@ import contextlib
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.services.exceptions import GitError
 
@@ -56,13 +57,12 @@ class WorkspaceService:
 
     def mirror_dir(self, repo: str) -> str:
         """Path of the per-repo shared bare mirror."""
-        return os.path.join(
-            self._root, "repos", repo.replace("/", "__") + ".git"
-        )
+        name = repo.replace("/", "__") + ".git"
+        return str(Path(self._root) / "repos" / name)
 
     def workspace_dir(self, workflow_id: str) -> str:
         """Path of one workflow's worktree."""
-        return os.path.join(self._root, "board", workflow_id)
+        return str(Path(self._root) / "board" / workflow_id)
 
     def branch_name(self, workflow_id: str) -> str:
         """The dedicated branch one workflow's worktree is cut from."""
@@ -104,15 +104,13 @@ class WorkspaceService:
     ) -> None:
         """Ensure a per-repo bare mirror exists and is up to date."""
         async with self._lock_for(mirror_dir):
-            if os.path.isdir(mirror_dir):
+            if Path(mirror_dir).is_dir():
                 await self._git(
                     *self._auth(cred), "-C", mirror_dir, "fetch", "origin",
                     "+refs/heads/*:refs/remotes/origin/*",
                 )
                 return
-            parent = os.path.dirname(mirror_dir)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
+            Path(mirror_dir).parent.mkdir(parents=True, exist_ok=True)
             await self._git(
                 *self._auth(cred), "clone", "--bare", remote_url, mirror_dir
             )
@@ -134,12 +132,12 @@ class WorkspaceService:
         dest = self.workspace_dir(request.workflow_id)
         # A worktree's ".git" is a gitdir-pointer *file*, not a directory
         # (unlike a full clone) — check existence, not isdir.
-        if os.path.exists(os.path.join(dest, ".git")):
+        if (Path(dest) / ".git").exists():
             return dest
         mirror = self.mirror_dir(request.repo)
         await self.ensure_mirror(request.remote_url, mirror, request.cred)
         branch = self.branch_name(request.workflow_id)
-        worktree_dest = os.path.abspath(dest)
+        worktree_dest = str(Path(dest).absolute())
         async with self._lock_for(mirror):
             await self._git(
                 "-C", mirror, "worktree", "add", "-b", branch,
@@ -207,12 +205,12 @@ class WorkspaceService:
         """
         dest = self.workspace_dir(workflow_id)
         mirror = self.mirror_dir(repo)
-        if os.path.exists(os.path.join(dest, ".git")):
+        if (Path(dest) / ".git").exists():
             async with self._lock_for(mirror):
                 await self._git(
                     "-C", mirror, "worktree", "remove", "--force", dest
                 )
-        if os.path.isdir(mirror):
+        if Path(mirror).is_dir():
             with contextlib.suppress(GitError):
                 await self._git(
                     "-C", mirror, "branch", "-D", self.branch_name(workflow_id)

@@ -1,41 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import { useRouter } from 'vue-router'
-import NotificationCenter from './components/NotificationCenter.vue'
 import SourceHealthIndicator from './components/SourceHealthIndicator.vue'
 import GithubLink from './components/GithubLink.vue'
 import IdentityBadge from './components/IdentityBadge.vue'
-import { useSessions } from './composables/useSessions'
 import { useBoard } from './composables/useBoard'
 import { useConnectivity } from './composables/useConnectivity'
 
-const router = useRouter()
-
-// Shared composable state: the header's loading bar covers every
-// primary fetch. (A fleet-wide live/idle chip was removed: it reflected
-// ad-hoc sessions only, and read "idle" while board requests worked —
-// each request's own activity line says that now, feature 033.)
-const { loading: sessionsLoading } = useSessions()
-const { loading: boardLoading } = useBoard()
+// Shared composable state: the header's loading bar covers the board's
+// primary fetch.
+const { loading } = useBoard()
 
 // Registered once, here, before any child's onMounted fetch runs — every
 // api.* call anywhere in the app feeds this, so a request that can't even
 // reach the backend (wrong port, backend down) surfaces as a persistent
 // banner instead of failing silently in the console.
 const { reachable, apiBase } = useConnectivity()
-
-// Page-level loading: a thin indeterminate bar under the app bar while any
-// primary fetch (sessions or board) is in flight (module-vue-vuetify
-// loading-feedback rule).
-const loading = computed(() => sessionsLoading.value || boardLoading.value)
-
-// A notification's request opens directly on that request's cockpit
-// (FR-028), not just the board (feature 029, replacing the old
-// `view = 'board'` toggle-flip).
-function onNotificationNavigate(workflowId: string): void {
-  void router.push({ name: 'cockpit', params: { id: workflowId } })
-}
 
 // Light/dark toggle over Vuetify's two built-in themes.
 const theme = useTheme()
@@ -79,20 +59,11 @@ function toggleTheme() {
       </template>
       <v-app-bar-title> kestrel </v-app-bar-title>
 
-      <v-btn :to="{ name: 'board' }" size="small" class="text-none me-1">
+      <v-btn :to="{ name: 'board' }" size="small" class="text-none me-4">
         Board
-      </v-btn>
-      <v-btn
-        :to="{ name: 'sessions' }"
-        size="small"
-        class="text-none me-4"
-        title="Raw agent sessions (debugging)"
-      >
-        <span aria-hidden="true">‹/›</span>&nbsp;sessions
       </v-btn>
 
       <SourceHealthIndicator />
-      <NotificationCenter @navigate="onNotificationNavigate" />
       <v-btn
         :icon="isDark ? '$weatherNight' : '$weatherSunny'"
         variant="text"

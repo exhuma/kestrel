@@ -13,7 +13,6 @@ from app.backends.base import TurnRequest, TurnStopped
 from app.backends.opencode import OpenCodeBackend
 from app.backends.opencode_tools import ToolLoopGuard, ToolPolicy, tools_map
 from app.config import BackendConfig, Settings
-from app.storage.registry import SessionRegistry
 
 _POLICY = ToolPolicy(allowed=None, max_calls=4, max_repeats=3)
 
@@ -30,7 +29,7 @@ def _part(call_id: str, tool: str = "gitlab_list_project_issues",
 # --- config ------------------------------------------------------------------
 
 def test_an_allowlist_is_rejected_where_it_would_be_ignored() -> None:
-    """Ensure a claude_cli/openai_compat allowlist fails loudly (FR-001)."""
+    """Ensure a claude_cli allowlist fails loudly (FR-001)."""
     with pytest.raises(ValidationError, match="only by opencode"):
         BackendConfig(id="c", type="claude_cli", allowed_tools=["read"])
 
@@ -177,13 +176,13 @@ async def test_a_looping_turn_is_aborted_and_says_why() -> None:
     client = httpx.AsyncClient(transport=transport)
     backend = OpenCodeBackend(
         Settings(_env_file=None, workspace_root="/tmp/ws"),
-        SessionRegistry(), cfg, client=client,
+        cfg, client=client,
     )
     told: list[str] = []
 
     with pytest.raises(TurnStopped) as stopped:
         await backend.run_turn(TurnRequest(
-            prompt="write the PRD", cwd="", permission_mode="plan",
+            prompt="write the PRD", cwd="", permission_mode="read_only",
             on_tool=told.append,
         ))
 

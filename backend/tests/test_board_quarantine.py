@@ -56,7 +56,7 @@ def _input_security() -> SpecialistDefinition:
     return SpecialistDefinition(
         id="input-security", label="Input Security", purpose="screens input",
         allowed_card_types=(), required_abilities=(), model_policy="default",
-        workspace_permission="none", retry_limit=1, prompt="Classify this.",
+        workspace_permission="none", prompt="Classify this.",
     )
 
 

@@ -15,7 +15,6 @@ from fastapi.responses import StreamingResponse
 from app import sse
 from app.models_board import CardAction
 from app.models_board_records import SecurityReviewRecord
-from app.persistence.board_artifact_content_store import ContentNotFoundError
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,
@@ -31,13 +30,11 @@ from app.routers.board_deps import (
     snapshot_for,
 )
 from app.routers.board_views import (
-    board_events,
     card_summary,
 )
 from app.routers.document_out import MARKDOWN_MIME, api_markdown
 from app.schemas import (
     BoardArtifactContentOut,
-    BoardEventOut,
     BoardInterventionIn,
     BoardSnapshotOut,
     QuarantineInterventionIn,
@@ -146,24 +143,18 @@ async def get_artifact_content(
     It is agent output crossing into the browser: the frontend must never
     let it become live markup (feature 043 FR-005).
 
-    :raises HTTPException: 404 if the artifact, or its stored content, is
-        unknown.
+    :raises HTTPException: 404 if the artifact is unknown.
     """
     artifact = artifact_store.get(artifact_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="unknown artifact")
-    try:
-        if artifact.mime_type == DOCUMENT_MIME:
-            return BoardArtifactContentOut(
-                content=api_markdown(artifacts.read_document(artifact_id)),
-                trust=artifact.trust,
-                mime_type=MARKDOWN_MIME,
-            )
-        content = artifacts.read_content(artifact_id)
-    except ContentNotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail="artifact content missing"
-        ) from exc
+    if artifact.mime_type == DOCUMENT_MIME:
+        return BoardArtifactContentOut(
+            content=api_markdown(artifacts.read_document(artifact_id)),
+            trust=artifact.trust,
+            mime_type=MARKDOWN_MIME,
+        )
+    content = artifacts.read_content(artifact_id)
     return BoardArtifactContentOut(
         content=content or "",
         trust=artifact.trust,
@@ -223,30 +214,6 @@ async def stream_board_workflows(
 
 
 @router.get(
-    "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
-)
-async def list_board_events(
-    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
-) -> list[BoardEventOut]:
-    """Return one workflow's board event history, oldest first — the
-    narrative feed's data source.
-
-    Not streamed: board SSE is full-snapshot replacement (never
-    incremental patches), and a growing append-only log does not fit
-    that shape. The client re-fetches this after the snapshot stream
-    ticks instead.
-
-    :raises HTTPException: 404 if ``workflow_id`` is unknown.
-    """
-    workflow = deps.board.get_workflow(workflow_id)
-    if workflow is None:
-        raise HTTPException(status_code=404, detail="unknown workflow")
-    events = deps.board.list_events(workflow_id)
-    cards = deps.board.list_cards(workflow_id)
-    return board_events(events, cards, deps.roster)
-
-
-@router.get(
     "/workflows/{workflow_id}/board", response_model=BoardSnapshotOut
 )
 async def get_board(
@@ -294,28 +261,6 @@ async def stream_board(
     return StreamingResponse(
         _frames(), media_type="text/event-stream", headers=sse.HEADERS
     )
-
-
-@router.get(
-    "/workflows/{workflow_id}/cards/{card_id}",
-    response_model=WorkCardSummaryOut,
-)
-async def get_board_card(
-    workflow_id: str,
-    card_id: str,
-    deps: BoardReadDeps = Depends(board_read_deps),
-) -> WorkCardSummaryOut:
-    """Return one card's board-visible summary.
-
-    :raises HTTPException: 404 if the workflow or card is unknown, or the
-        card does not belong to ``workflow_id``.
-    """
-    card = deps.board.get_card(card_id)
-    if card is None or card.workflow_id != workflow_id:
-        raise HTTPException(status_code=404, detail="unknown card")
-    relations = deps.board.list_relations(workflow_id)
-    cards = deps.board.list_cards(workflow_id)
-    return card_summary(card, relations, board_lookups(cards, deps))
 
 
 @router.post(

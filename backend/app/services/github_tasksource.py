@@ -2,7 +2,7 @@
 
 Split out of ``services/github.py`` (feature 013, US3) to keep that module
 under the repo's 500-line ceiling once ``GitHubCodeHost``'s PR-review
-read/acknowledge capability joined the existing pull-request-open path —
+read capability joined the existing pull-request-open path —
 mirrors ``ports.py``'s own ``TaskSource``/``CodeHost`` role split.
 """
 
@@ -15,17 +15,10 @@ from app.document_formats.markdown import parse_markdown, render_markdown
 from app.documents import Document, Text, paragraph
 from app.ports import CommentPage, Feedback, LifecycleEvent, Person, Task
 from app.services.github import GitHubClient, parse_github_ref
-from app.services.github_cleanup import close_issue, delete_issue_comment
-from app.services.task_source_utils import (
-    REFINED,
-    as_posted,
-    parse_iso,
-    with_marker,
-)
+from app.services.task_source_utils import as_posted, parse_iso
 
 #: Prefix minted onto every issue-comment ``Feedback.external_id`` (feature
-#: 013) — carries the repo so ``acknowledge`` can reconstruct the reaction
-#: endpoint from just the ``Feedback`` object.
+#: 013) — carries the repo so a comment id stays unique across repos.
 _COMMENT_ID_PREFIX = "gh-issue-comment:"
 
 #: Which TaskSourceConfig field names a failure-terminal event's label.
@@ -42,7 +35,6 @@ class GitHubTaskSource:
     def __init__(
         self,
         client: GitHubClient,
-        public_base_url: str = "",
         config_for: "Callable[[str], TaskSourceConfig | None] | None" = None,
         comment_sentinel_enabled: bool = True,
     ) -> None:
@@ -53,7 +45,6 @@ class GitHubTaskSource:
             model's own defaults.
         """
         self._client = client
-        self._public_base_url = public_base_url.rstrip("/")
         self._config_for = config_for
         self._comment_sentinel_enabled = comment_sentinel_enabled
 
@@ -80,20 +71,6 @@ class GitHubTaskSource:
             render_markdown(as_posted(body, self._comment_sentinel_enabled)),
         )
 
-    async def attach(
-        self, _ref: str, _name: str, _data: bytes, _mimetype: str
-    ) -> None:
-        """No-op: GitHub issues have no attachment API. The PRD goes in the
-        issue body; screenshots ride along committed in the PR's ``.kestrel``
-        folder."""
-
-    async def publish_refined(self, ref: str, content: Document) -> None:
-        """Write the approved PRD back to the issue body, marked refined."""
-        repo, number = parse_github_ref(ref)
-        await self._client.update_issue(
-            repo, number, render_markdown(with_marker(content, REFINED))
-        )
-
     async def create_subtask(
         self,
         parent_ref: str,
@@ -117,14 +94,6 @@ class GitHubTaskSource:
 
     async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
         """No-op because GitHub child creation includes all required context."""
-
-    def display_label(self, ref: str) -> str:
-        """The ref itself: already "owner/name#123"."""
-        return ref
-
-    def deep_link_ref(self, ref: str) -> str:
-        repo, number = parse_github_ref(ref)
-        return f"https://github.com/{repo}/issues/{number}"
 
     def _config(self, repo: str) -> TaskSourceConfig:
         found = self._config_for(repo) if self._config_for else None
@@ -204,60 +173,3 @@ class GitHubTaskSource:
             body=parse_markdown(comment.get("body") or ""),
             created_at=parse_iso(comment["created_at"]),
         )
-
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """React to the triggering comment (feature 013, R8)."""
-        parsed = _parse_comment_external_id(feedback.external_id)
-        if parsed is None:
-            return False
-        repo, comment_id = parsed
-        try:
-            await self._client.add_issue_comment_reaction(
-                repo, comment_id, token
-            )
-            return True
-        except Exception:  # noqa: BLE001 — best-effort acknowledgment
-            return False
-
-    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
-        """Reverse a recorded GitHub-owned resource without broad discovery."""
-        if kind == "source_body":
-            repo, number = parse_github_ref(external_id.partition("\0")[0])
-            await self._client.update_issue(
-                repo, number, external_id.partition("\0")[2]
-            )
-            return "cleaned"
-        if kind == "subtask":
-            repo, number = parse_github_ref(external_id)
-            await close_issue(self._client, repo, number)
-            return "closed"
-        if kind == "comment":
-            parsed = _parse_comment_url(external_id)
-            if parsed is None:
-                return "absent"
-            repo, comment_id = parsed
-            await delete_issue_comment(self._client, repo, comment_id)
-            return "cleaned"
-        raise ValueError(f"unsupported GitHub cleanup artifact: {kind}")
-
-
-def _parse_comment_external_id(external_id: str) -> tuple[str, int] | None:
-    """Recover ``(repo, comment_id)`` from a minted issue-comment id."""
-    if not external_id.startswith(_COMMENT_ID_PREFIX):
-        return None
-    repo, _, comment_id = external_id[len(_COMMENT_ID_PREFIX) :].rpartition("#")
-    if not repo or not comment_id.isdigit():
-        return None
-    return repo, int(comment_id)
-
-
-def _parse_comment_url(url: str) -> tuple[str, int] | None:
-    """Extract a repository and comment id from GitHub's returned URL."""
-    marker = "/issues/"
-    if marker not in url or "#issuecomment-" not in url:
-        return None
-    repo = url.split(marker, 1)[0].removeprefix("https://github.com/")
-    comment_id = url.rsplit("#issuecomment-", 1)[1]
-    return (repo, int(comment_id)) if repo and comment_id.isdigit() else None

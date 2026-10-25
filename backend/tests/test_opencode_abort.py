@@ -9,7 +9,6 @@ import pytest
 from app.backends.base import TurnRequest
 from app.backends.opencode import OpenCodeBackend
 from app.config import BackendConfig
-from app.storage.registry import SessionRegistry
 from tests.test_opencode_backend import _settings
 
 
@@ -36,7 +35,7 @@ async def test_a_timed_out_turn_aborts_its_session() -> None:
     of calling the model on its own, unseen."""
     seen: list[str] = []
     backend = OpenCodeBackend(
-        _settings(), SessionRegistry(),
+        _settings(),
         BackendConfig(id="oc", type="opencode", base_url="http://oc.local"),
         client=_hanging_server(seen),
     )
@@ -44,7 +43,7 @@ async def test_a_timed_out_turn_aborts_its_session() -> None:
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(
             backend.run_turn(TurnRequest(
-                prompt="classify", cwd="", permission_mode="plan"
+                prompt="classify", cwd="", permission_mode="read_only"
             )),
             timeout=0.2,
         )

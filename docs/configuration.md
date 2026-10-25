@@ -4,8 +4,8 @@ Kestrel is configured through `KESTREL_*` environment variables (or a
 `backend/.env` file when running from source) and an optional `config.toml`
 file. **Secrets always stay in the environment**; the TOML file holds backend
 routing and applicative (non-secret) settings such as the watched-repo
-allow-list and the verify iteration cap. Where the file sets an applicative
-key it wins; the environment fills in the rest. See [Backends](backends.md)
+allow-list and the verify iteration cap. Where the file sets a key it wins;
+the environment fills in the rest. See [Backends](backends.md)
 for the backend side.
 
 ## Environment variables
@@ -17,15 +17,14 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | --- | --- | --- |
 | `KESTREL_HOST` | `0.0.0.0` | Uvicorn bind address for `python -m app`. The image keeps `0.0.0.0` so published compose ports work; behind a sidecar proxy set `127.0.0.1` (see [Kubernetes](deploy-kubernetes.md)) |
 | `KESTREL_PORT` | `8000` | Uvicorn bind port for `python -m app` |
-| `KESTREL_RELOAD` | `false` | Enable uvicorn dev auto-reload (`python -m app`) |
 | `KESTREL_CLAUDE_BIN` | `claude` | Path/name of the `claude` CLI to spawn |
 | `KESTREL_WORKSPACE_ROOT` | `./.kestrel-workspaces` | Where per-session git workspaces are created (image: `/workspaces`) |
-| `KESTREL_PERMISSION_MODE` | `acceptEdits` | Passed to `claude --permission-mode` for spawned sessions |
+| `KESTREL_PERMISSION_MODE` | `edit` | `edit` or `read_only`; mapped to `claude --permission-mode` (`acceptEdits` / `plan`) for spawned sessions. Any other value is passed to Claude as is |
 | `KESTREL_GITHUB_TOKEN` | _(empty)_ | Token for GitHub ingestion (issues, clone/push, PRs). See [GitHub workflow](setup-github-workflow.md) |
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
-| `KESTREL_DATABASE_URL` | `sqlite:///./kestrel.db` | SQLAlchemy database URL (image: `sqlite:////data/kestrel.db`) |
-| `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). `KESTREL_BACKENDS_FILE` is a deprecated alias |
+| `KESTREL_DATABASE_URL` | _(required)_ | The PostgreSQL database, as `postgresql+psycopg://user:password@host:5432/kestrel`. Kestrel does not start without it. Holds the password, so keep it in the environment |
+| `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
@@ -39,13 +38,11 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
 | `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine. The liaison's reading of a ticket reply (feature 046) uses it too; a timeout there makes kestrel ask the person back |
 | `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a card claim lease is held before it is considered abandoned |
-| `KESTREL_BOARD_WORKSPACE_LEASE_SECONDS` | `1800` | How long a repository workspace-write lease is held before recovery may reclaim it |
 | `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
 | `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |
 | `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | How often the comments on the Jira tickets of requests in progress are read for replies (feature 046). Nothing is read while `comment_sentinel_enabled` is off: kestrel could not tell its own comments from replies |
 | `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker (whole word, any case) a person puts in a ticket reply for kestrel to act on (feature 046). The reporter's reply decides the understanding and the PRD, the change owner's CAB-1 and CAB-2; anyone else is told they cannot |
-| `KESTREL_BOARD_ARTIFACTS_ROOT` | `./.kestrel-board-artifacts` | Durable, content-addressed store for handoff-artifact bodies |
 | `KESTREL_STATIC_DIR` | _(empty)_ | Directory of the built SPA to serve. Empty ⇒ API-only (the Vite dev server serves the UI). Image: `/app/static` |
 | `KESTREL_COMMENT_SENTINEL_ENABLED` | `true` | Mark every comment kestrel posts with its ownership marker. Kestrel posts through the operator's account, so this marker is how it tells its own comments from replies; with it off, no ticket reply is read. How the marker looks is each source adapter's concern |
 | `KESTREL_HEALTH_CHECK_INTERVAL_SECONDS` | `60` | How often each task source's health (reachable and authenticated) is re-checked in the background |
@@ -59,18 +56,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_REFINEMENT_ROUND_CAP` | `1` | Refinement-interview rounds per persona; above `1`, a persona whose answers stay ambiguous gets another round |
 | `KESTREL_BOARD_PRD_REDRAFT_CAP` | `1` | PRD redrafts per workflow after a PRD gate rejection; a further rejection escalates to the operator |
 | `KESTREL_BOARD_UNDERSTANDING_REDRAFT_CAP` | `2` | Redrafts of the restated understanding after a rejection; a further rejection opens a coordinator review. `0` never redrafts |
-| `KESTREL_BOARD_DEV_ACTIONS_ENABLED` | `false` | Temporary dev-only cleanup/rerun routes, restricted to private (local-task) workflows. Leave off in a real deployment |
 
-**Vestigial settings, not currently read by anything.** A handful of
-`Settings` fields survive from the deleted fixed driver purely because
-nobody has removed them yet from `backend/app/config.py`: `workflow_debug`,
-`refine_samples`, `refine_critic`, `reconcile_mode`,
-`allow_incomplete_answers`, and `mockups_enabled`. Setting their
-`KESTREL_*` env var or `config.toml` key is accepted at startup but has
-**no effect** — nothing in the codebase reads any of them outside
-`config.py` itself. They described the old driver's debug transcript and
-refine-interview robustness knobs, none of which exist post-Phase-10; do
-not rely on any of them. (This is a known cleanup gap, tracked separately.)
 Ticket replies marked with `@kestrel` do exist again since feature 046; they
 use `feedback_marker`, which is a live setting listed above.
 
@@ -81,23 +67,12 @@ GitHub repos and Jira instances kestrel pulls from — the former
 [Task sources](#task-sources) below). Those env keys have been removed and are
 ignored if left over.
 
-Only some settings may be set in `config.toml` (the file wins where it sets
-one; the environment fills in the rest). Any other key in the file is
-ignored. The file-overridable keys are: `poll_interval_seconds`,
-`max_verify_iterations`, `max_ci_repair_iterations`, `port`, `database_url`,
-`workspace_root`, `board_artifacts_root`, `comment_sentinel_enabled`,
-`feedback_marker`, `specialists_root`, `board_input_max_bytes`,
-`board_input_security_timeout_seconds`, `board_turn_timeout_seconds`,
-`board_claim_lease_seconds`, `board_workspace_lease_seconds`,
-`board_max_parallel_read_cards`, `board_recovery_interval_seconds`,
-`board_ci_poll_interval_seconds`, `board_comment_poll_interval_seconds`,
-`board_projection_retry_interval_seconds`,
-`board_cab1_interview_max_questions`, `board_unreadable_retry_cap`,
-`health_check_interval_seconds`, `health_check_timeout_seconds`, and
-`board_dev_actions_enabled`. Everything else (for example `KESTREL_HOST`,
-`KESTREL_PUBLIC_BASE_URL`, `KESTREL_LOG_*`, the redraft and refinement caps)
-is environment-only. Secrets have no TOML equivalent, except a backend's
-inline `password`/`api_key`.
+Every setting above can also be set in `config.toml`, under its field name
+(`poll_interval_seconds`, `board_prd_redraft_cap`, …): the file wins where it
+sets one, and the environment fills in the rest. A key in the file that is not
+a setting fails at startup. Secrets belong in the environment, not in the
+file, except a backend's inline `password`/`api_key`. The backend routing and
+the task sources are file-only.
 
 ## Task sources
 
@@ -125,7 +100,6 @@ deployment = "cloud"                   # cloud (ADF/v3) | server (text/v2, the d
 auth = "basic"                         # basic (Cloud) | bearer (Server/DC PAT)
 email = "me@acme.com"
 jql = 'project = "RFC" AND status = "Ready"'  # one whole query, you write it
-key = "RFC"                            # issue-key prefix; scopes dismissals only
 verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 # token_env = "KESTREL_JIRA_API_TOKEN" # optional (default)
 repo_field = "customfield_10050"       # optional; else a titled web link is used
@@ -150,29 +124,12 @@ branch, restart it against the same task — was removed with that driver in
 the Phase 10 clean break and has no board-domain replacement yet; see
 [Architecture](architecture.md#the-work-board-spec-026).)
 
-### Translation
-
-`config.toml` may declare a separate OpenAI-compatible translation service
-(shown below), but nothing in the current board domain calls it — it was
-wired to the deleted feedback-intake subsystem and has no board-domain
-caller yet. Declaring it is a no-op for now.
-
-```toml
-[translation]
-base_url = "https://translation.example.com/v1"
-model = "translation-model"
-api_key_env = "KESTREL_TRANSLATION_API_KEY"
-# timeout = 30.0
-```
-
 ### Decomposed tasks and verification rounds
 
 An approved decomposition (CAB-2) does **not** create tickets in the task
 source. Its tasks become cards inside the request's own workflow, and the
 request's ticket gets one comment listing them (feature 031). There is
-nothing to configure for this. The former `child_task_closure_retention_days`
-setting has been removed; an existing `config.toml` that still sets it loads
-fine, because unknown keys are ignored.
+nothing to configure for this.
 
 `max_verify_iterations` (default 3) caps how many verification rounds one
 approved coding task gets. A verification that still finds problems at the cap
@@ -200,17 +157,16 @@ use their own bundled CA set, not the OS trust store). It does **not** affect
 `git` clone/fetch/push, which use the system trust store — install the internal
 CA there for git.
 
-### Lifecycle sync and operator hooks (currently dormant)
+### Lifecycle sync (currently dormant)
 
 Each source still accepts the fields below, and the `TaskSource.transition()`
-methods and hook-invocation code they'd drive still exist, but **nothing in
-the current board domain calls either** — the old driver code that invoked
-them at each lifecycle point (start/done/failed/escalated/rejected) was
-removed in the Phase 10 clean break and has no board-domain replacement yet
-(see [Architecture](architecture.md#the-work-board-spec-026)). Setting these
-fields today has no observable effect: no label is applied, no transition
-fires, and no `hooks_dir` executable runs (only its startup audit-log pass
-still does). They are documented here for when this is wired back up.
+methods they'd drive still exist, but **nothing in the current board domain
+calls them** — the old driver code that invoked them at each lifecycle point
+(start/done/failed/escalated/rejected) was removed in the Phase 10 clean break
+and has no board-domain replacement yet (see
+[Architecture](architecture.md#the-work-board-spec-026)). Setting these fields
+today has no observable effect: no label is applied and no transition fires.
+They are documented here for when this is wired back up.
 
 When it is, the constitution (access model, fourth recorded constraint)
 limits it: kestrel never changes the status of an ingested task. The
@@ -220,9 +176,8 @@ ingested ticket should move on, kestrel asks its owner in a comment.
 | Field | Source type | Purpose |
 | --- | --- | --- |
 | `in_progress_label`, `failed_label`, `escalated_label`, `rejected_label` | github | Issue labels a run would apply as it progresses. Default to `kestrel-in-progress`/`kestrel-failed`/`kestrel-escalated`/`kestrel-rejected` |
-| `transition_start`, `transition_done`, `transition_failed`, `transition_escalated`, `transition_rejected` | jira | Workflow-transition ids that would apply at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
+| `transition_start`, `transition_done` | jira | Workflow-transition ids that would apply at each point. Unset ⇒ no-op for that point, not an error — every Jira workflow is different |
 | `time_spent_field` | jira | Field that would receive active-work seconds (e.g. the builtin `timespent` or a custom field id). Unset ⇒ no native write |
-| `hooks_dir` | both | A directory of operator executables that would be invoked at every lifecycle event. **Security-sensitive** — a hook inherits kestrel's full environment/credentials. See [Operator hooks](hooks.md) before setting this |
 
 ### Tracing (`OTEL_*`, only when `KESTREL_OTEL_ENABLED=true`)
 
@@ -241,13 +196,14 @@ Backends are configured **only** through `KESTREL_CONFIG_FILE` (or the
 
 Each `[[backends]]` entry can also set `max_concurrency` (positive integer,
 default `1`) to cap all in-flight turns for that backend ID across every
-workflow and ad-hoc session in the process. `opencode` entries additionally
+workflow in the process. `opencode` entries additionally
 support `rate_limit_retries` (non-negative integer, default `3`) and
 `rate_limit_backoff_seconds` (positive number, default `2.0`) for HTTP 429
 retries. See [Concurrency and rate limits](backends.md#concurrency-and-rate-limits).
 
-Unknown or stale `KESTREL_*` keys are ignored rather than causing a startup
-failure, so a leftover key from a rename never crashes the service.
+Unknown or stale `KESTREL_*` environment variables are ignored, so a leftover
+one from a rename never crashes the service. An unknown key in `config.toml`
+does fail at startup, so a typo is caught instead of silently doing nothing.
 
 ## Config files
 
@@ -258,17 +214,16 @@ The recommended layout keeps the two kinds of settings apart:
   overrides such as `poll_interval_seconds` and the `board_*` settings,
   pointed at by `KESTREL_CONFIG_FILE`. Copy `config.toml.example`. In Docker,
   mount it and set the env var (see [Backends](backends.md)). Read once at
-  startup — restart after editing. (`KESTREL_BACKENDS_FILE` still works as a
-  deprecated alias.)
-- **`backend/.env` — secrets and the not-yet-migrated env-only settings.** Read
+  startup — restart after editing.
+- **`backend/.env` — secrets and host-level settings.** Read
   only when running from source. Copy `backend/.env.example` and fill it in; it
   is gitignored, so never commit it. The example leads with `config.toml` and
   comments out the settings that now belong there — put your tokens
   (`KESTREL_GITHUB_TOKEN`, `KESTREL_WEBHOOK_SECRET`, `KESTREL_JIRA_API_TOKEN`,
   `KESTREL_CODE_HOST_TOKEN`) here and prefer the TOML file for everything else.
 
-Any applicative key set in both places is taken from `config.toml`; the
-environment only fills in what the file omits.
+A key set in both places is taken from `config.toml`; the environment only
+fills in what the file omits.
 
 When kestrel is started as `python -m app`, `backend/.env` is loaded into the
 process environment at startup. This matters for the **named token env vars** a
@@ -283,11 +238,12 @@ The image sets these so they normally need no changes:
 | Variable | Image value |
 | --- | --- |
 | `KESTREL_STATIC_DIR` | `/app/static` (the baked-in SPA) |
-| `KESTREL_DATABASE_URL` | `sqlite:////data/kestrel.db` |
 | `KESTREL_WORKSPACE_ROOT` | `/workspaces` |
-| `KESTREL_BOARD_ARTIFACTS_ROOT` | `/data/board-artifacts` (on the persisted `/data` volume) |
 | `HOME` | `/data/home` (the writable, seeded Claude `HOME`) |
 | `CLAUDE_SEED_DIR` | `/seed` (where host `~/.claude*` are mounted read-only) |
+
+The image has no database default: set `KESTREL_DATABASE_URL` (the compose
+file points it at its own `postgres` service).
 
 ## Mounts
 
@@ -351,7 +307,7 @@ compose `environment:` block). Kestrel consumes:
 - `KESTREL_JIRA_API_TOKEN`, or the variable a source names in `token_env`;
 - `KESTREL_CODE_HOST_TOKEN`, or the variable named in `code_host_token_env`;
 - per-backend credentials named by a backend's `api_key_env` (for example
-  the opencode server password) and the translation `api_key_env`.
+  the opencode server password).
 
 Claude credentials come from your seeded host login, not from a kestrel
 setting. See [Backends](backends.md) for backend secrets.

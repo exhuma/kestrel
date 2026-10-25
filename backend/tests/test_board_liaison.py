@@ -186,7 +186,7 @@ async def test_the_turn_is_direct_and_without_tools() -> None:
     assert found.intent == APPROVE
     (request,) = backend.requests
     assert (request.prompt, request.cwd, request.permission_mode) == (
-        "envelope", "", "plan"
+        "envelope", "", "read_only"
     )
 
 

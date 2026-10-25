@@ -24,14 +24,13 @@ class BackendConfig(BaseModel):
     """One dispatchable agent backend.
 
     ``type`` selects the adapter; the remaining fields configure it
-    (``base_url``/``model``/``api_key_env`` are used by the HTTP-based
-    backends added in later phases). ``caps`` overrides the adapter's
-    default capabilities when set. This permits an on-site compatible backend
-    to advertise its coding-agent abilities accurately.
+    (``base_url``/``model``/``api_key_env`` are used by the opencode
+    backend). ``caps`` overrides the adapter's default capabilities when
+    set.
 
     ``extra="forbid"``: a stray top-level key placed after a
     ``[[backends]]`` header in the TOML file (e.g. an accidentally
-    reordered ``default_session_backend``) is parsed as an unexpected
+    reordered ``default_backend``) is parsed as an unexpected
     field of *this* table, not a top-level setting — reject it loudly
     here instead of silently dropping it.
     """
@@ -39,13 +38,12 @@ class BackendConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    type: Literal["claude_cli", "opencode", "openai_compat"] = "claude_cli"
+    type: Literal["claude_cli", "opencode"] = "claude_cli"
     base_url: str | None = None
     model: str | None = None
     #: This backend's secret, given directly (fine in a gitignored config
-    #: file): a bearer API key (``openai_compat``) or the HTTP Basic
-    #: password (``opencode``). Prefer ``api_key`` / ``password``; these
-    #: aliases are equivalent.
+    #: file): the HTTP Basic password of an ``opencode`` server. Prefer
+    #: ``api_key`` / ``password``; these aliases are equivalent.
     api_key: str | None = None
     password: str | None = None
     #: Name of an env var holding the secret instead of giving it inline
@@ -55,7 +53,7 @@ class BackendConfig(BaseModel):
     #: HTTP Basic username for a secured ``opencode`` server. Defaults to
     #: opencode's own default ("opencode") when a password is configured.
     username: str | None = None
-    #: Per-request timeout in seconds for HTTP backends (openai/opencode).
+    #: Per-request timeout in seconds for the opencode backend.
     timeout: float | None = None
     #: Maximum in-flight turns across this backend in one kestrel process.
     max_concurrency: int = Field(default=1, ge=1)
@@ -92,26 +90,6 @@ class BackendConfig(BaseModel):
         return os.environ.get(self.api_key_env) if self.api_key_env else None
 
 
-class TranslationConfig(BaseModel):
-    """One explicitly configured OpenAI-compatible translation service.
-
-    This is deliberately distinct from ``BackendConfig``: translation makes a
-    single stateless request and must not consume a workflow backend or session.
-    """
-
-    base_url: str
-    model: str
-    api_key: str | None = None
-    api_key_env: str | None = None
-    timeout: float = 30.0
-
-    def secret(self) -> str | None:
-        """Return an inline API key, or the configured environment value."""
-        if self.api_key:
-            return self.api_key
-        return os.environ.get(self.api_key_env) if self.api_key_env else None
-
-
 class TaskSourceConfig(BaseModel):
     """One configured origin of work items.
 
@@ -141,9 +119,6 @@ class TaskSourceConfig(BaseModel):
     auth: Literal["basic", "bearer"] = "basic"
     email: str = ""
     jql: str = ""
-    #: Jira: issue-key prefix (e.g. ``"RFC"``) used only to scope this source's
-    #: dismissal-clear/re-trigger gesture — not part of item selection.
-    key: str = ""
     #: Jira: optional custom field holding ``owner/name[@base]``; when unset the
     #: repo is resolved from a web link titled ``repo_link_text``.
     repo_field: str = ""
@@ -157,11 +132,6 @@ class TaskSourceConfig(BaseModel):
     code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""
     code_host_token_env: str | None = None
-    #: Both: per-source operator-hooks directory (feature 006). Empty
-    #: disables hook dispatch for this source; see docs/hooks.md for the
-    #: wire format and the credential-exposure trust implication before
-    #: setting this.
-    hooks_dir: str = ""
     #: Required CI check names for change requests from this source. Empty
     #: keeps the historical terminal ``done`` behaviour.
     required_ci_statuses: list[str] = []
@@ -172,15 +142,11 @@ class TaskSourceConfig(BaseModel):
     failed_label: str = "kestrel-failed"
     escalated_label: str = "kestrel-escalated"
     rejected_label: str = "kestrel-rejected"
-    #: Jira: workflow-transition ids for each lifecycle point this
-    #: source's admin has enabled (feature 006). Unset ⇒ no-op, not an
-    #: error — not every workflow has a distinct transition for every
-    #: terminal.
+    #: Jira: workflow-transition ids for the start and done lifecycle
+    #: points (feature 006). Unset ⇒ no-op, not an error — not every
+    #: workflow has a distinct transition for each.
     transition_start: str = ""
     transition_done: str = ""
-    transition_failed: str = ""
-    transition_escalated: str = ""
-    transition_rejected: str = ""
     #: Jira: field id to write active-work seconds to (e.g. the builtin
     #: "timespent" or a custom field id). Unset ⇒ no native write; active
     #: time falls back to the comment footer like every other source.
@@ -195,12 +161,8 @@ class TaskSourceConfig(BaseModel):
         """Enforce the fields each source type needs (loud at startup)."""
         if self.type == "github" and not self.watched_repos:
             raise ValueError("github task source requires watched_repos")
-        if self.type == "jira" and not (
-            self.base_url and self.jql and self.key
-        ):
-            raise ValueError(
-                "jira task source requires base_url, jql, and key"
-            )
+        if self.type == "jira" and not (self.base_url and self.jql):
+            raise ValueError("jira task source requires base_url and jql")
         if self.type == "local" and not self.tasks_dir:
             raise ValueError("local task source requires tasks_dir")
         if self.type == "local" and self.code_host != "local":

@@ -3,16 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import uuid
 from typing import Callable
 
 import httpx
 
+from app.backends.agent_log import AgentLog
 from app.backends.base import (
+    PERMISSION_READ_ONLY,
     Backend,
     Capability,
-    LivenessResult,
     ModelCatalog,
     TurnRequest,
     TurnResult,
@@ -21,9 +20,10 @@ from app.backends.base import (
 from app.backends.limiter import BackendLimiter
 from app.backends.opencode_abort import abort_on_cancel
 from app.backends.opencode_models import split_model
-from app.backends.opencode_parts import assistant_error, tool_summary
+from app.backends.opencode_parts import assistant_error, part_events
 from app.backends.opencode_permissions import (
     OpenCodeConnection,
+    directory_params,
     permission_handler,
 )
 from app.backends.opencode_tools import (
@@ -35,11 +35,8 @@ from app.backends.opencode_tools import (
 from app.backends.rate_limit import retry_rate_limited
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
-from app.storage.registry import SessionRegistry
 
-_TASKS: set[asyncio.Task[None]] = set()
 _DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
-_READ_ONLY_MODE = "plan"
 _logger = logging.getLogger(__name__)
 
 
@@ -47,17 +44,16 @@ class OpenCodeBackend(Backend):
     """Dispatches turns to an ``opencode serve`` HTTP endpoint."""
 
     caps = frozenset({Capability.TEXT, Capability.FILE_EDITS})
+
     def __init__(
         self,
         settings: Settings,
-        registry: SessionRegistry,
         cfg: BackendConfig,
         client: httpx.AsyncClient | None = None,
         limiter: BackendLimiter | None = None,
     ) -> None:
         self.id = cfg.id
         self.settings = settings
-        self.registry = registry
         self._base_url = (cfg.base_url or "http://localhost:4096").rstrip("/")
         self._model = split_model(cfg.model)
         self._client = client  # injectable for tests
@@ -65,7 +61,6 @@ class OpenCodeBackend(Backend):
         self._limiter = limiter or BackendLimiter(cfg.max_concurrency)
         self._rate_limit_retries = cfg.rate_limit_retries
         self._rate_limit_backoff_seconds = cfg.rate_limit_backoff_seconds
-        self._live: dict[str, asyncio.Task[None]] = {}
         self._tools = ToolPolicy.of(cfg)
         # HTTP Basic auth for a secured `opencode serve`; username defaults
         # to opencode's own. The password may be given inline (password/
@@ -83,187 +78,56 @@ class OpenCodeBackend(Backend):
             request=self._request,
         )
 
-    async def start(self, prompt: str) -> str:
-        cwd = os.path.join(
-            self.settings.workspace_root, "session-" + uuid.uuid4().hex[:8]
-        )
-        # opencode resolves file tools against this directory; make sure it
-        # exists (an ad-hoc session has no repo cloned into it yet).
-        os.makedirs(cwd, exist_ok=True)
-        sid = await self._create_session(cwd)
-        self.registry.create(sid, cwd)
-        # Ad-hoc sessions are user-driven and edit-capable.
-        self._schedule(sid, prompt, cwd, read_only=False)
-        return sid
-
-    async def resume(self, session_id: str, prompt: str) -> str:
-        # opencode keeps the session server-side; another message resumes it.
-        self._schedule(
-            session_id,
-            prompt,
-            self._session_dir(session_id),
-            read_only=False,
-        )
-        return session_id
-
     async def run_turn(
         self,
         req: TurnRequest,
-        on_session_id: Callable[[str], None] | None = None,
         on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
         async with self._limiter.slot(on_queue_change):
-            return await self._run_turn(req, on_session_id)
+            return await self._run_turn(req)
 
-    async def _run_turn(
-        self,
-        req: TurnRequest,
-        on_session_id: Callable[[str], None] | None,
-    ) -> TurnResult:
-        """Run an admitted workflow turn and record any terminal failure."""
+    async def _run_turn(self, req: TurnRequest) -> TurnResult:
+        """Run an admitted turn, logging any failure before re-raising."""
         sid: str | None = req.resume_id
+        log: AgentLog | None = None
         try:
             if sid is None:
                 sid = await self._create_session(req.cwd)
-            if self.registry.get(sid) is None:
-                self.registry.create(sid, req.cwd)
-            if on_session_id is not None:
-                on_session_id(sid)
-            content = await self._turn(sid, req)
+            log = AgentLog(sid, req.card_id, self.id)
+            log.started(resumed=req.resume_id is not None)
+            if req.on_session_id is not None:
+                req.on_session_id(sid)
+            content = await self._turn(sid, req, log)
+            log.finished(content)
             return TurnResult(session_id=sid, final_text=content)
         except asyncio.CancelledError:
+            if log is not None:
+                log.failed("the turn was cancelled (timeout or shutdown)")
             abort_on_cancel(self._request, sid, req.cwd)
             raise
         except Exception as exc:
             _logger.exception(
                 "opencode run_turn failed (session=%s, cwd=%s)", sid, req.cwd,
             )
-            # sid is None only when _create_session itself failed — there is
-            # no session to attach a diagnostic record to in that case; the
-            # traceback above is the only trail.
-            if sid is not None:
-                self._record_turn_error(sid, req.cwd, exc)
+            if log is not None:
+                log.failed(f"{type(exc).__name__}: {exc}")
             raise
-
-    def _record_turn_error(
-        self, session_id: str, cwd: str, exc: BaseException
-    ) -> None:
-        """Ensure a session record exists and append a diagnosable error.
-
-        Mirrors the RESULT event a normal turn ends with, so a crash here
-        (whether from :meth:`run_turn` or :meth:`_safe_turn`) is just as
-        visible/inspectable in the Sessions tab as an ordinary completion.
-        """
-        if self.registry.get(session_id) is None:
-            self.registry.create(session_id, cwd)
-        message = str(exc).strip()
-        if not message:
-            message = "opencode turn ended without an error message"
-            _logger.error("opencode turn failed without a diagnostic")
-        self.registry.append_event(
-            session_id,
-            CanonicalEvent(
-                kind=EventKind.RESULT,
-                session_id=session_id,
-                is_error=True,
-                text=message,
-            ),
-        )
-
-    def terminate(self, session_id: str) -> bool:
-        task = self._live.get(session_id)
-        if task is not None and not task.done():
-            task.cancel()
-            return True
-        return False
-
-    async def check_alive(self, session_id: str) -> LivenessResult:
-        """Probe whether this session still exists on the opencode server.
-
-        Used by "force poll now" to detect a session that has crashed
-        silently, with no terminal event ever recorded.
-        """
-        try:
-            data = await self._request(
-                "GET", "/session", directory=self._session_dir(session_id)
-            )
-        except Exception as exc:
-            return LivenessResult(
-                alive=False, reason=f"could not reach opencode: {exc}"
-            )
-        ids = (
-            {s.get("id") for s in data if isinstance(s, dict)}
-            if isinstance(data, list)
-            else set()
-        )
-        if session_id in ids:
-            return LivenessResult(alive=True)
-        return LivenessResult(
-            alive=False,
-            reason="opencode session no longer exists — likely crashed",
-        )
 
     async def list_models(self) -> ModelCatalog:
         """Report unknown until OpenCode exposes a stable catalogue contract."""
         return ModelCatalog(state="unknown")
 
-    def _session_dir(self, session_id: str) -> str | None:
-        """Return the working directory recorded for a session, if any."""
-        record = self.registry.get(session_id)
-        return record.cwd if record is not None else None
-
-    def _schedule(
-        self,
-        session_id: str,
-        prompt: str,
-        directory: str | None,
-        read_only: bool,
-    ) -> None:
-        task = asyncio.create_task(
-            self._safe_turn(session_id, prompt, directory, read_only)
-        )
-        self._live[session_id] = task
-        _TASKS.add(task)
-
-        def _done(t: asyncio.Task[None]) -> None:
-            _TASKS.discard(t)
-            if self._live.get(session_id) is t:
-                self._live.pop(session_id, None)
-
-        task.add_done_callback(_done)
-
-    async def _safe_turn(
-        self,
-        session_id: str,
-        prompt: str,
-        directory: str | None,
-        read_only: bool,
-    ) -> None:
-        try:
-            async with self._limiter.slot():
-                await self._turn(session_id, TurnRequest(
-                    prompt=prompt, cwd=directory or "",
-                    permission_mode=_READ_ONLY_MODE if read_only else "",
-                ))
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # never leave the session stuck "running"
-            _logger.warning(
-                "opencode ad-hoc turn failed for session %s",
-                session_id,
-                exc_info=True,
-            )
-            self._record_turn_error(session_id, directory or "", exc)
-
-    async def _turn(self, session_id: str, req: TurnRequest) -> str:
-        """Send the prompt, map this turn's new messages, append a RESULT.
+    async def _turn(
+        self, session_id: str, req: TurnRequest, log: AgentLog
+    ) -> str:
+        """Send the prompt and return the text of this turn's new messages.
 
         A turn produces several assistant messages (tool calls then a final
         text message); the synchronous ``POST /message`` returns only the
         last one, so the full transcript is read from ``GET /message`` and
-        the messages that are new since before the prompt are mapped.
+        the messages that are new since before the prompt are read.
         Snapshotting before the prompt keeps this correct across resumes
-        and process restarts (existing history is not re-emitted).
+        and process restarts (existing history is not re-read).
 
         ``directory`` scopes every request to the session's working folder
         (the checked-out repo) so opencode's file tools act there rather than
@@ -275,18 +139,13 @@ class OpenCodeBackend(Backend):
         loop or past its tool budget (feature 036).
         """
         prompt, directory = req.prompt, req.cwd
-        read_only = req.permission_mode == _READ_ONLY_MODE
+        read_only = req.permission_mode == PERMISSION_READ_ONLY
         guard = ToolLoopGuard(self._tools, req.on_tool)
         seen = {
             self._msg_id(m)
             for m in await self._messages(session_id, directory)
         }
-        self.registry.append_event(
-            session_id,
-            CanonicalEvent(
-                kind=EventKind.USER_TEXT, session_id=session_id, text=prompt
-            ),
-        )
+        log.event(CanonicalEvent(EventKind.USER_TEXT, session_id, prompt))
         body: dict[str, object] = {"parts": [{"type": "text", "text": prompt}]}
         if self._model is not None:
             body["model"] = self._model
@@ -315,18 +174,14 @@ class OpenCodeBackend(Backend):
         texts: list[str] = []
         for message in await self._messages(session_id, directory):
             if self._msg_role(message) != "assistant":
-                continue  # user echo — we already emitted USER_TEXT
+                continue  # user echo
             if self._msg_id(message) in seen:
                 continue  # from an earlier turn
-            texts += self._emit_parts(session_id, self._msg_parts(message))
-        final = "\n".join(t for t in texts if t)
-        self.registry.append_event(
-            session_id,
-            CanonicalEvent(
-                kind=EventKind.RESULT, session_id=session_id, text=final
-            ),
-        )
-        return final
+            parts = self._msg_parts(message)
+            for event in (e for p in parts for e in part_events(p, session_id)):
+                log.event(event)
+            texts += self._texts_of(parts)
+        return "\n".join(t for t in texts if t)
 
     async def _messages(
         self, session_id: str, directory: str | None = None
@@ -354,71 +209,16 @@ class OpenCodeBackend(Backend):
         parts = message.get("parts")
         return parts if isinstance(parts, list) else []
 
-    def _emit_parts(
-        self, session_id: str, parts: list[object]
-    ) -> list[str]:
-        """Map opencode message parts to canonical events; return the texts."""
-        texts: list[str] = []
-        for part in parts:
-            if not isinstance(part, dict):
-                continue
-            ptype = part.get("type")
-            if ptype == "text" and isinstance(part.get("text"), str):
-                texts.append(part["text"])
-                self.registry.append_event(
-                    session_id,
-                    CanonicalEvent(
-                        kind=EventKind.ASSISTANT_TEXT,
-                        session_id=session_id,
-                        text=part["text"],
-                        native=part,
-                    ),
-                )
-            elif ptype == "tool":
-                raw_state = part.get("state")
-                state = raw_state if isinstance(raw_state, dict) else {}
-                tool_input = state.get("input")
-                raw_tool = part.get("tool")
-                self.registry.append_event(
-                    session_id,
-                    CanonicalEvent(
-                        kind=EventKind.TOOL_USE,
-                        session_id=session_id,
-                        tool_name=(
-                            raw_tool if isinstance(raw_tool, str) else None
-                        ),
-                        tool_input=(
-                            tool_input if isinstance(tool_input, dict) else None
-                        ),
-                        tool_summary=tool_summary(tool_input),
-                        native=part,
-                    ),
-                )
-                output = state.get("output")
-                if isinstance(output, str) and output:
-                    self.registry.append_event(
-                        session_id,
-                        CanonicalEvent(
-                            kind=EventKind.TOOL_RESULT,
-                            session_id=session_id,
-                            text=output,
-                            is_error=state.get("status") == "error",
-                            native=part,
-                        ),
-                    )
-            elif ptype == "reasoning" and isinstance(part.get("text"), str):
-                self.registry.append_event(
-                    session_id,
-                    CanonicalEvent(
-                        kind=EventKind.SYSTEM,
-                        session_id=session_id,
-                        subtype="reasoning",
-                        summary=part["text"],
-                        native=part,
-                    ),
-                )
-            # step-start / step-finish / snapshot / … are structural — skip.
-        return texts
+    @staticmethod
+    def _texts_of(parts: list[object]) -> list[str]:
+        """Collect the text of every ``text`` part (the turn's deliverable)."""
+        return [
+            part["text"]
+            for part in parts
+            if isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+        ]
 
     async def _create_session(self, directory: str | None = None) -> str:
         """Create an opencode session and return its id."""
@@ -452,9 +252,7 @@ class OpenCodeBackend(Backend):
         relative by default), so a relative path would resolve against the
         wrong base.
         """
-        params = (
-            {"directory": os.path.abspath(directory)} if directory else None
-        )
+        params = directory_params(directory)
         client = self._client or httpx.AsyncClient(timeout=self._timeout)
         try:
             resp = await client.request(

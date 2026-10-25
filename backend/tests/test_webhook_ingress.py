@@ -12,11 +12,12 @@ import pytest
 from app.config import Settings, get_settings
 from app.config_models import TaskSourceConfig
 from app.main import create_app
-from app.persistence.dismissal_store import get_dismissal_store
 from app.persistence.webhook_delivery_store import (
     get_webhook_delivery_store,
 )
 from app.services.ingestion import get_ingestion_service
+
+pytestmark = pytest.mark.integration
 
 _SECRET = "s3cr3t"
 
@@ -30,23 +31,6 @@ class _FakeDeliveries:
             return True
         self.ids.add(delivery_id)
         return False
-
-
-class _FakeDismissals:
-    def __init__(self) -> None:
-        self._d: set[str] = set()
-
-    def add(self, task_ref):
-        self._d.add(task_ref)
-
-    def is_dismissed(self, task_ref):
-        return task_ref in self._d
-
-    def all(self):
-        return list(self._d)
-
-    def clear(self, task_ref):
-        self._d.discard(task_ref)
 
 
 class _FakeIngestion:
@@ -74,7 +58,7 @@ def _payload(action="labeled", repo="o/r", issue=5, label="kestrel") -> bytes:
     ).encode()
 
 
-def _client(deliveries, dismissals, ingestion):
+def _client(deliveries, ingestion):
     app = create_app()
     settings = Settings(
         _env_file=None,
@@ -87,7 +71,6 @@ def _client(deliveries, dismissals, ingestion):
     )
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_webhook_delivery_store] = lambda: deliveries
-    app.dependency_overrides[get_dismissal_store] = lambda: dismissals
     app.dependency_overrides[get_ingestion_service] = lambda: ingestion
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -115,7 +98,7 @@ async def _tick() -> None:
 @pytest.mark.asyncio
 async def test_valid_labeled_starts_one_run() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         r = await _post(c, _payload())
         await _tick()
     assert r.status_code == 202
@@ -125,7 +108,7 @@ async def test_valid_labeled_starts_one_run() -> None:
 @pytest.mark.asyncio
 async def test_invalid_signature_rejected() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         r = await _post(c, _payload(), sign="sha256=deadbeef")
         await _tick()
     assert r.status_code == 401
@@ -135,7 +118,7 @@ async def test_invalid_signature_rejected() -> None:
 @pytest.mark.asyncio
 async def test_missing_signature_rejected() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         body = _payload()
         r = await c.post(
             "/api/github/webhook",
@@ -152,7 +135,7 @@ async def test_missing_signature_rejected() -> None:
 @pytest.mark.asyncio
 async def test_duplicate_delivery_starts_one_run() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         r1 = await _post(c, _payload(), delivery="dup")
         await _tick()
         r2 = await _post(c, _payload(), delivery="dup")
@@ -166,7 +149,7 @@ async def test_duplicate_delivery_starts_one_run() -> None:
 @pytest.mark.asyncio
 async def test_non_trigger_label_ignored() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         r = await _post(c, _payload(label="other"))
         await _tick()
     assert r.status_code == 200
@@ -176,7 +159,7 @@ async def test_non_trigger_label_ignored() -> None:
 @pytest.mark.asyncio
 async def test_unwatched_repo_ignored() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         r = await _post(c, _payload(repo="x/y"))
         await _tick()
     assert r.status_code == 200
@@ -186,7 +169,7 @@ async def test_unwatched_repo_ignored() -> None:
 @pytest.mark.asyncio
 async def test_non_issues_event_ignored() -> None:
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         r = await _post(c, _payload(), event="push")
         await _tick()
     assert r.status_code == 200
@@ -194,30 +177,13 @@ async def test_non_issues_event_ignored() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dismissed_issue_ignored() -> None:
+async def test_unlabeled_is_ignored() -> None:
     ing = _FakeIngestion()
-    dis = _FakeDismissals()
-    dis.add("o/r#5")
-    async with _client(_FakeDeliveries(), dis, ing) as c:
-        r = await _post(c, _payload())
+    async with _client(_FakeDeliveries(), ing) as c:
+        r = await _post(c, _payload(action="unlabeled"))
         await _tick()
     assert r.status_code == 200
     assert ing.calls == []
-
-
-@pytest.mark.asyncio
-async def test_unlabeled_clears_dismissal_then_relabel_starts() -> None:
-    ing = _FakeIngestion()
-    dis = _FakeDismissals()
-    dis.add("o/r#5")
-    async with _client(_FakeDeliveries(), dis, ing) as c:
-        r_unlabel = await _post(c, _payload(action="unlabeled"), delivery="d1")
-        assert dis.is_dismissed("o/r#5") is False
-        r_relabel = await _post(c, _payload(), delivery="d2")
-        await _tick()
-    assert r_unlabel.status_code == 200
-    assert r_relabel.status_code == 202
-    assert ing.calls == [("o/r", 5)]
 
 
 @pytest.mark.asyncio
@@ -225,7 +191,7 @@ async def test_issue_closed_and_reopened_are_ignored() -> None:
     """Ensure close/reopen no longer drive child re-adoption (feature 031):
     they are acknowledged and start nothing."""
     ing = _FakeIngestion()
-    async with _client(_FakeDeliveries(), _FakeDismissals(), ing) as c:
+    async with _client(_FakeDeliveries(), ing) as c:
         closed = await _post(c, _payload(action="closed"), delivery="closed")
         reopened = await _post(
             c, _payload(action="reopened"), delivery="reopened"

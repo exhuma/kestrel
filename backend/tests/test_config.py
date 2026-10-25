@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from app import config
 from app.config import Settings
 from app.config_models import BackendConfig, TaskSourceConfig
 
@@ -35,21 +34,20 @@ def test_settings_read_kestrel_env(
     assert Settings(_env_file=None).claude_bin == "/opt/claude"
 
 
-def test_host_port_reload_read_from_env(
+def test_host_and_port_read_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure host/port/reload load through Settings (so .env is honoured)."""
+    """Ensure host/port load through Settings (so .env is honoured)."""
     monkeypatch.setenv("KESTREL_HOST", "127.0.0.1")
     monkeypatch.setenv("KESTREL_PORT", "9001")
-    monkeypatch.setenv("KESTREL_RELOAD", "true")
     s = Settings(_env_file=None)
-    assert (s.host, s.port, s.reload) == ("127.0.0.1", 9001, True)
+    assert (s.host, s.port) == ("127.0.0.1", 9001)
 
 
-def test_host_port_reload_defaults() -> None:
+def test_host_and_port_defaults() -> None:
     """Ensure the server fields keep their documented defaults."""
     s = Settings(_env_file=None)
-    assert (s.host, s.port, s.reload) == ("0.0.0.0", 8000, False)
+    assert (s.host, s.port) == ("0.0.0.0", 8000)
 
 
 def test_workspace_default_is_kestrel_branded() -> None:
@@ -121,7 +119,7 @@ def test_task_source_validation_rejects_incomplete_entries() -> None:
     with pytest.raises(Exception):
         TaskSourceConfig(type="github", watched_repos=[])
     with pytest.raises(Exception):
-        TaskSourceConfig(type="jira", base_url="https://j", jql="", key="RFC")
+        TaskSourceConfig(type="jira", base_url="https://j", jql="")
 
 
 def test_task_source_token_resolves_from_env(
@@ -132,18 +130,18 @@ def test_task_source_token_resolves_from_env(
     monkeypatch.setenv("CUSTOM_JIRA", "jira-custom")
     gh = TaskSourceConfig(type="github", watched_repos=["o/a"])
     jira = TaskSourceConfig(
-        type="jira", base_url="https://j", jql="project = RFC", key="RFC",
+        type="jira", base_url="https://j", jql="project = RFC",
         token_env="CUSTOM_JIRA",
     )
     assert gh.token() == "gh-default"
     assert jira.token() == "jira-custom"
 
 
-def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
-    """Ensure a TOML backends_file populates the backend settings."""
+def test_config_file_supplies_all_backend_fields(tmp_path: Path) -> None:
+    """Ensure a TOML config file populates the backend settings."""
     toml = tmp_path / "backends.toml"
     toml.write_text(
-        'default_session_backend = "oc"\n'
+        'default_backend = "oc"\n'
         "\n"
         "[[backends]]\n"
         'id = "claude"\n'
@@ -155,8 +153,8 @@ def test_backends_file_supplies_backend_config(tmp_path: Path) -> None:
         'base_url = "http://localhost:4096"\n'
         'model = "opencode/deepseek-v4-flash-free"\n'
     )
-    s = Settings(_env_file=None, backends_file=str(toml))
-    assert s.default_session_backend == "oc"
+    s = Settings(_env_file=None, config_file=str(toml))
+    assert s.default_backend == "oc"
     assert [(b.id, b.type) for b in s.backends] == [
         ("claude", "claude_cli"), ("oc", "opencode")
     ]
@@ -168,27 +166,26 @@ def test_backend_env_vars_are_ignored(
 ) -> None:
     """Ensure backends are file-only: the env vars have no effect.
 
-    ``KESTREL_BACKENDS`` / ``KESTREL_DEFAULT_SESSION_BACKEND`` were dropped
-    in favour of ``KESTREL_BACKENDS_FILE``; setting them must not change
+    ``KESTREL_BACKENDS`` / ``KESTREL_DEFAULT_BACKEND`` were dropped
+    in favour of ``KESTREL_CONFIG_FILE``; setting them must not change
     config.
     """
     monkeypatch.setenv(
         "KESTREL_BACKENDS",
         '[{"id": "ghost", "type": "claude_cli"}]',
     )
-    monkeypatch.setenv("KESTREL_DEFAULT_SESSION_BACKEND", "ghost")
+    monkeypatch.setenv("KESTREL_DEFAULT_BACKEND", "ghost")
     s = Settings(_env_file=None)
     assert [b.id for b in s.backends] == ["claude"]
-    assert s.default_session_backend == "claude"
+    assert s.default_backend == "claude"
 
 
 def test_jira_source_defaults_and_verify_defaults() -> None:
     """Ensure a Jira task source and max_verify_iterations default sensibly."""
     s = Settings(_env_file=None)
-    assert s.jira_api_token == ""
     assert s.max_verify_iterations == 3
     jira = TaskSourceConfig(
-        type="jira", base_url="https://j", jql="project = RFC", key="RFC"
+        type="jira", base_url="https://j", jql="project = RFC"
     )
     assert jira.auth == "basic"
     assert jira.repo_link_text == "Repository"
@@ -196,20 +193,11 @@ def test_jira_source_defaults_and_verify_defaults() -> None:
     assert jira.verify_ssl is True
 
 
-def test_workflow_debug_defaults_off_and_reads_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ensure workflow_debug defaults False and KESTREL_WORKFLOW_DEBUG works."""
-    assert Settings(_env_file=None).workflow_debug is False
-    monkeypatch.setenv("KESTREL_WORKFLOW_DEBUG", "true")
-    assert Settings().workflow_debug is True
-
-
 def test_task_source_literals_accept_allowed_values() -> None:
     """Ensure the literal-typed source fields accept their allowed values."""
     def _jira(**kw):
         return TaskSourceConfig(
-            type="jira", base_url="https://j", jql="q", key="RFC", **kw
+            type="jira", base_url="https://j", jql="q", **kw
         )
 
     assert _jira(auth="bearer").auth == "bearer"
@@ -232,7 +220,7 @@ def test_jira_source_without_token_warns(
             task_sources=[
                 TaskSourceConfig(
                     type="jira", base_url="https://jira.example",
-                    jql="project = RFC", key="RFC",
+                    jql="project = RFC",
                 )
             ],
         )
@@ -250,7 +238,7 @@ def test_code_host_partial_config_warns_without_leaking_token(
             task_sources=[
                 TaskSourceConfig(
                     type="jira", base_url="https://jira.example",
-                    jql="q", key="RFC", token_env="KESTREL_CODE_HOST_TOKEN",
+                    jql="q", token_env="KESTREL_CODE_HOST_TOKEN",
                     code_host="gitlab",
                 )
             ],
@@ -272,7 +260,7 @@ def test_full_jira_and_code_host_config_does_not_warn(
             task_sources=[
                 TaskSourceConfig(
                     type="jira", base_url="https://jira.example",
-                    jql="project = RFC", key="RFC",
+                    jql="project = RFC",
                     code_host="gitlab",
                     code_host_base_url="https://gitlab.internal",
                 )
@@ -282,19 +270,19 @@ def test_full_jira_and_code_host_config_does_not_warn(
     assert "base URL or" not in caplog.text
 
 
-def test_backends_file_missing_fails_fast(tmp_path: Path) -> None:
+def test_config_file_missing_fails_fast(tmp_path: Path) -> None:
     """Ensure a bad config-file path raises at settings load."""
     with pytest.raises(Exception) as exc:
-        Settings(_env_file=None, backends_file=str(tmp_path / "nope.toml"))
+        Settings(_env_file=None, config_file=str(tmp_path / "nope.toml"))
     assert "config_file not found" in str(exc.value)
 
 
-def test_backends_file_invalid_toml_fails_fast(tmp_path: Path) -> None:
+def test_config_file_invalid_toml_fails_fast(tmp_path: Path) -> None:
     """Ensure malformed TOML in the config file raises a clear error."""
     toml = tmp_path / "bad.toml"
     toml.write_text("this is = = not valid toml")
     with pytest.raises(Exception) as exc:
-        Settings(_env_file=None, backends_file=str(toml))
+        Settings(_env_file=None, config_file=str(toml))
     assert "invalid TOML" in str(exc.value)
 
 
@@ -302,27 +290,27 @@ def test_config_file_supplies_backend_config(tmp_path: Path) -> None:
     """Ensure the new config_file populates the backend settings."""
     toml = tmp_path / "config.toml"
     toml.write_text(
-        'default_session_backend = "oc"\n'
+        'default_backend = "oc"\n'
         "\n"
         "[[backends]]\n"
         'id = "oc"\n'
         'type = "opencode"\n'
     )
     s = Settings(_env_file=None, config_file=str(toml))
-    assert s.default_session_backend == "oc"
+    assert s.default_backend == "oc"
     assert [b.id for b in s.backends] == ["oc"]
 
 
-def test_default_session_backend_after_backends_table_fails_loud(
+def test_default_backend_after_backends_table_fails_loud(
     tmp_path: Path,
 ) -> None:
     """Ensure the TOML ordering trap fails at load time, not silently.
 
     A bare key after an array-of-tables header belongs to that table in
-    TOML, not the top level — `default_session_backend` placed after
+    TOML, not the top level — `default_backend` placed after
     `[[backends]]` here is swallowed into the backends entry, so it
     must be rejected loudly (BackendConfig's extra="forbid") rather
-    than silently leaving default_session_backend at its "claude"
+    than silently leaving default_backend at its "claude"
     default.
     """
     toml = tmp_path / "config.toml"
@@ -331,9 +319,9 @@ def test_default_session_backend_after_backends_table_fails_loud(
         'id = "oc"\n'
         'type = "opencode"\n'
         "\n"
-        'default_session_backend = "oc"\n'
+        'default_backend = "oc"\n'
     )
-    with pytest.raises(ValueError, match="default_session_backend"):
+    with pytest.raises(ValueError, match="default_backend"):
         Settings(_env_file=None, config_file=str(toml))
 
 
@@ -343,7 +331,7 @@ def test_config_file_path_is_logged(
     """Ensure the resolved path actually opened is visible in the logs —
     the main diagnostic for "my config edit had no effect"."""
     toml = tmp_path / "config.toml"
-    toml.write_text('default_session_backend = "oc"\n')
+    toml.write_text('default_backend = "oc"\n')
     with caplog.at_level("INFO"):
         Settings(_env_file=None, config_file=str(toml))
     assert f"loading config file: {toml.resolve()}" in caplog.text
@@ -352,7 +340,7 @@ def test_config_file_path_is_logged(
 def test_missing_config_file_setting_is_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Ensure an unset config_file/backends_file is visible in the logs,
+    """Ensure an unset config_file is visible in the logs,
     not just a silent fall-through to the claude-only default."""
     with caplog.at_level("INFO"):
         Settings(_env_file=None)
@@ -374,7 +362,6 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
         'type = "jira"\n'
         'base_url = "https://jira.example"\n'
         'jql = "project = RFC"\n'
-        'key = "RFC"\n'
         "verify_ssl = false\n"
     )
     s = Settings(_env_file=None, config_file=str(toml))
@@ -382,7 +369,7 @@ def test_config_file_supplies_task_sources(tmp_path: Path) -> None:
     gh, jira = s.github_sources()[0], s.jira_sources()[0]
     assert gh.watched_repos == ["o/one", "o/two"]
     assert gh.trigger_label == "ship-it"
-    assert jira.key == "RFC" and jira.jql == "project = RFC"
+    assert jira.jql == "project = RFC"
     assert jira.verify_ssl is False  # opt-out parsed from the file
     assert gh.verify_ssl is True  # default
 
@@ -423,32 +410,6 @@ def test_legacy_interval_env_key_is_inert(
     assert Settings(_env_file=None).poll_interval_seconds == 300
 
 
-def test_backends_file_is_deprecated_alias(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Ensure backends_file still works but warns as deprecated."""
-    toml = tmp_path / "backends.toml"
-    toml.write_text('default_session_backend = "oc"\n')
-    with caplog.at_level("WARNING"):
-        s = Settings(_env_file=None, backends_file=str(toml))
-    assert s.default_session_backend == "oc"
-    assert "KESTREL_BACKENDS_FILE is deprecated" in caplog.text
-
-
-def test_config_file_takes_precedence_over_backends_file(
-    tmp_path: Path,
-) -> None:
-    """Ensure config_file wins when both are set (no deprecation path)."""
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('default_session_backend = "cfg"\n')
-    old = tmp_path / "backends.toml"
-    old.write_text('default_session_backend = "old"\n')
-    s = Settings(
-        _env_file=None, config_file=str(cfg), backends_file=str(old)
-    )
-    assert s.default_session_backend == "cfg"
-
-
 def test_cab1_interview_max_questions_defaults_to_three() -> None:
     """Ensure the CAB-1 strategic interview's question cap defaults low."""
     assert Settings(_env_file=None).board_cab1_interview_max_questions == 3
@@ -475,6 +436,6 @@ def test_every_documented_top_level_key_is_read_from_the_file() -> None:
         key for key, value in example.items()
         if not isinstance(value, (dict, list))
     }
-    readable = config._CONFIG_FILE_FIELDS | config._FILE_ONLY_FIELDS
+    readable = set(Settings.model_fields)
 
     assert scalars - readable == set()

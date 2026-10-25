@@ -35,17 +35,22 @@ working.
 
 Open <http://localhost:8000>.
 
-The container, on startup, copies your host Claude config into its own
-persisted `HOME`, applies database migrations, and starts serving the UI and
-API on port 8000. First start pulls the image and may take a minute.
+The compose file starts a PostgreSQL 16 service next to kestrel. Kestrel
+waits until the database is healthy, then copies your host Claude config
+into its own persisted `HOME`, applies database migrations, and starts
+serving the UI and API on port 8000. First start pulls the images and may
+take a minute. The database password defaults to `kestrel`; set
+`KESTREL_DB_PASSWORD` in the environment (or an `.env` file next to
+`docker-compose.yml`) to choose another one before the first start.
 
-## Dispatch your first session
+## Bring in your first task
 
-1. Open the **Sessions** panel in the UI.
-2. Enter a prompt and start a session. Kestrel spawns a `claude` session in a
-   fresh per-run workspace under `./workspaces` on the host.
-3. Watch events stream live (server-sent events). The workspace is a real git
-   directory you can inspect on the host while the session runs.
+Kestrel works on tasks it ingests: add a `[[task_sources]]` entry to
+`config.toml` (GitHub, Jira or a local task folder; see
+[Configuration](configuration.md)). A new task appears on the board in the
+UI. Specialist agents then work it in a per-run workspace under
+`./workspaces` on the host — a real git directory you can inspect while the
+agent works.
 
 To confirm the service is healthy at any time:
 
@@ -56,11 +61,12 @@ curl -s http://localhost:8000/readyz
 
 ## Volumes
 
-The published `docker-compose.yml` mounts four things:
+The published `docker-compose.yml` mounts four things into kestrel, and
+keeps the database in the `kestrel-db` volume of the `postgres` service:
 
 | Mount | Mode | Purpose |
 | --- | --- | --- |
-| `kestrel-data` → `/data` | read-write | SQLite DB, the board's handoff artifacts (`/data/board-artifacts`) and the container's Claude `HOME`, persisted across restarts |
+| `kestrel-data` → `/data` | read-write | The container's Claude `HOME` (session history, plugin caches), persisted across restarts |
 | `./workspaces` → `/workspaces` | read-write | The git repos claude clones and edits — **browsable on the host** |
 | `~/.claude` → `/seed/.claude` | read-only | Seed: your host Claude config, plugins, and credentials |
 | `~/.claude.json` → `/seed/claude.json` | read-only | Seed: your host Claude config file (MCP servers, plugin/approval state) |
@@ -103,11 +109,14 @@ tag** in `docker-compose.yml` rather than tracking a moving channel, so an
 upgrade is a deliberate change of that tag.
 
 A new release may change the database schema, and the schema is migrated
-automatically on start. **Back up the `kestrel-data` volume before upgrading**
-(it holds the database and the board artifacts, which belong together) so you
-can roll back if needed:
+automatically on start. **Back up the database before upgrading**: it holds
+all board state, artifact bodies included. Back up the `kestrel-data` volume
+too if you want to keep the container's Claude session history. Then you can
+roll back if needed:
 
 ```bash
+docker compose stop kestrel
+docker compose exec postgres pg_dump -U kestrel kestrel > kestrel-db.sql
 docker compose down
 docker run --rm -v kestrel-data:/data -v "$PWD":/backup busybox \
   tar czf /backup/kestrel-data-backup.tar.gz -C /data .
@@ -121,6 +130,6 @@ misbehaves, restore the backup and pin the previous version tag.
 ## Next steps
 
 - [Configuration](configuration.md) — every setting, config file, and mount.
-- [Backends](backends.md) — dispatch to opencode or a self-hosted LLM.
+- [Backends](backends.md) — dispatch to opencode.
 - [GitHub workflow](setup-github-workflow.md) — watch a repo's issues.
 - [Troubleshooting](troubleshooting.md) — common speed-bumps.

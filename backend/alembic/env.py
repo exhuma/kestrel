@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.config import Settings
-from app.persistence.tables import Base
+from app.persistence.board_tables import Base
 
 config = context.config
 # Respect a URL injected by tests/CLI; otherwise read settings
@@ -14,6 +14,8 @@ if not config.get_main_option("sqlalchemy.url"):
     config.set_main_option(
         "sqlalchemy.url", Settings().database_url
     )
+# Imported from board_tables, which re-exports the shared ``Base``:
+# loading that module registers the board tables on the same metadata.
 target_metadata = Base.metadata
 
 

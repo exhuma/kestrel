@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text
+from sqlalchemy import DateTime, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.documents import EMPTY_DOCUMENT, Document
 from app.persistence.document_column import DocumentText
-from app.persistence.tables import Base
+from app.persistence.tables import Base, deferred_fk
 
 
 class BoardWorkflowRow(Base):
@@ -70,7 +70,7 @@ class BoardCardRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     kind: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
@@ -116,9 +116,9 @@ class BoardCardRelationRow(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("board_card.id"))
+    card_id: Mapped[str] = mapped_column(deferred_fk("board_card.id"))
     depends_on_card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id")
+        deferred_fk("board_card.id")
     )
     kind: Mapped[str] = mapped_column(Text)
     required_artifact_revision: Mapped[int | None] = mapped_column(
@@ -135,7 +135,7 @@ class BoardCardAttemptRow(Base):
     __tablename__ = "board_card_attempt"
 
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), primary_key=True
+        deferred_fk("board_card.id"), primary_key=True
     )
     #: Unique per card; terminal attempts never change (data-model.md).
     sequence: Mapped[int] = mapped_column(primary_key=True)
@@ -158,33 +158,28 @@ class BoardClaimLeaseRow(Base):
     ``card_id`` is the primary key: the row exists only while a claim is
     active, which trivially enforces "one active claim per card" — it is
     deleted on completion, or by recovery once its ``expires_at`` passes.
+
+    A writer's claim also holds its repository: ``workspace_repo`` is
+    unique, so at most one active claim writes to a repository, and the
+    repository is free again as soon as that claim's row is gone.
     """
 
     __tablename__ = "board_claim_lease"
+    __table_args__ = (
+        Index(
+            "uq_board_claim_lease_workspace_repo",
+            "workspace_repo",
+            unique=True,
+        ),
+    )
 
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), primary_key=True
+        deferred_fk("board_card.id"), primary_key=True
     )
     attempt_sequence: Mapped[int] = mapped_column()
     holder_specialist_id: Mapped[str] = mapped_column(Text)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
-
-
-class BoardWorkspaceLeaseRow(Base):
-    """The active repository write lease, if any (data-model.md).
-
-    ``repo`` is the primary key, trivially enforcing "one active write
-    lease per repository" the same way :class:`BoardClaimLeaseRow` does
-    for card claims.
-    """
-
-    __tablename__ = "board_workspace_lease"
-
-    repo: Mapped[str] = mapped_column(primary_key=True)
-    claim_card_id: Mapped[str] = mapped_column(ForeignKey("board_card.id"))
+    #: The repository this claim writes to; ``NULL`` for a reader.
+    workspace_repo: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -204,20 +199,17 @@ class BoardArtifactRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     producer_card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id")
+        deferred_fk("board_card.id")
     )
     logical_name: Mapped[str] = mapped_column(Text)
     revision: Mapped[int] = mapped_column()
-    content_ref: Mapped[str] = mapped_column(Text)
+    #: The artifact's body (document JSON for a document). Deferred: it is
+    #: read on its own, never with a listing.
+    content: Mapped[str] = mapped_column(Text, deferred=True)
     content_hash: Mapped[str] = mapped_column(Text)
     mime_type: Mapped[str] = mapped_column(Text, default="text/plain")
     #: At least "untrusted" | "released" | "agent_output" | "operator_approved".
     trust: Mapped[str] = mapped_column(Text)
-    retention: Mapped[str] = mapped_column(Text, default="standard")
-    #: Explicit opt-in for inclusion in the project change (data-model.md).
-    project_material: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
-    )
     #: Exact consumed input-artifact ids, JSON list; never mutable pointers.
     input_artifacts: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime)
@@ -230,10 +222,10 @@ class BoardHumanGateRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), unique=True
+        deferred_fk("board_card.id"), unique=True
     )
     target_artifact_id: Mapped[str | None] = mapped_column(
-        ForeignKey("board_artifact.id"), nullable=True
+        deferred_fk("board_artifact.id"), nullable=True
     )
     requested_decision: Mapped[str] = mapped_column(Text)
     #: NULL until the operator decides.
@@ -273,10 +265,10 @@ class BoardSecurityReviewRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     untrusted_input_id: Mapped[str] = mapped_column(
-        ForeignKey("board_untrusted_input.id")
+        deferred_fk("board_untrusted_input.id")
     )
     card_id: Mapped[str] = mapped_column(
-        ForeignKey("board_card.id"), unique=True
+        deferred_fk("board_card.id"), unique=True
     )
     classification_category: Mapped[str] = mapped_column(Text)
     #: The deterministic/classifier's own short, safe explanation of why
@@ -293,29 +285,6 @@ class BoardSecurityReviewRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class BoardCoordinatorActionRow(Base):
-    """One proposed structured coordinator action and its outcome."""
-
-    __tablename__ = "board_coordinator_action"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
-    )
-    trigger: Mapped[str] = mapped_column(Text)
-    sequence: Mapped[int] = mapped_column()
-    action_payload: Mapped[str] = mapped_column(Text)
-    #: "accepted" | "rejected".
-    validation_decision: Mapped[str] = mapped_column(Text)
-    rejection_reason: Mapped[str | None] = mapped_column(
-        Text, nullable=True
-    )
-    applied_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-
-
 class BoardEventRow(Base):
     """One append-only board history entry (data-model.md "BoardEvent")."""
 
@@ -323,10 +292,10 @@ class BoardEventRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     card_id: Mapped[str | None] = mapped_column(
-        ForeignKey("board_card.id"), nullable=True
+        deferred_fk("board_card.id"), nullable=True
     )
     event_type: Mapped[str] = mapped_column(Text)
     #: Safe event payload (JSON); never raw suspect content (FR-025).
@@ -343,25 +312,22 @@ class BoardExternalProjectionRow(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     #: "gate" | "escalation" | "approved_artifact" | "delivery" |
-    #: "gate_opened" | "status" | "reply" (a legacy row may still read
-    #: "child_work", no longer written — feature 031).
+    #: "gate_opened" | "status" | "reply".
     kind: Mapped[str] = mapped_column(Text)
     idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
     #: "pending" | "completed" | "retryable_failure".
     state: Mapped[str] = mapped_column(Text, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: Recorded source resource identity, for safe cleanup.
+    #: The source resource kestrel created for this projection.
     external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload_hash: Mapped[str] = mapped_column(Text)
     #: Where to post, and what, so a failed post can be retried (feature
-    #: 046); ``None`` on a row from before the ledger kept them.
-    task_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
-    payload: Mapped[Document | None] = mapped_column(
-        DocumentText, nullable=True
-    )
+    #: 046).
+    task_ref: Mapped[str] = mapped_column(Text)
+    payload: Mapped[Document] = mapped_column(DocumentText)
     #: How many times a retry has taken this row on.
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
@@ -374,7 +340,7 @@ class BoardCommentCursorRow(Base):
     __tablename__ = "board_comment_cursor"
 
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id"), primary_key=True
+        deferred_fk("board_workflow.id"), primary_key=True
     )
     #: Adapter-owned and opaque: passed back to ``list_comments`` as is.
     cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -392,7 +358,7 @@ class BoardInboundCommentRow(Base):
 
     external_id: Mapped[str] = mapped_column(Text, primary_key=True)
     workflow_id: Mapped[str] = mapped_column(
-        ForeignKey("board_workflow.id")
+        deferred_fk("board_workflow.id")
     )
     gate_card_id: Mapped[str | None] = mapped_column(nullable=True)
     author_account_id: Mapped[str] = mapped_column(Text)

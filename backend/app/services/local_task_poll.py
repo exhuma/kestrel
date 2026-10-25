@@ -4,7 +4,7 @@ Poll-only, mirroring the shape of ``JiraPollService``/``ReconcileService``:
 each cycle lists the JSON files in a configured local source's ``tasks_dir``
 and funnels each through the shared source-neutral
 ingestion guard (``IngestionService.maybe_start_run``), which already
-handles dedup/dismissal — no extra bookkeeping needed here. One service
+handles dedup — no extra bookkeeping needed here. One service
 instance is bound to one ``local`` task source.
 """
 

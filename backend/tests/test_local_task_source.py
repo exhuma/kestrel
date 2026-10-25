@@ -82,16 +82,13 @@ async def test_comment_filenames_require_a_valid_markdown_file(
 
 
 @pytest.mark.asyncio
-async def test_attachments_and_children_stay_inside_task(tmp_path) -> None:
-    """Ensure generated task data remains below the parent task folder."""
+async def test_children_stay_inside_task(tmp_path) -> None:
+    """Ensure a child task is created below the parent task folder."""
     _write_task(tmp_path, "hello", base_branch="release")
     source = LocalTaskSource(str(tmp_path))
 
-    await source.attach("local:hello", "note.txt", b"hi", "text/plain")
     child = await source.create_subtask("local:hello", "Child", doc("body"))
 
-    attachment = tmp_path / "hello" / "attachments" / "note.txt"
-    assert attachment.read_bytes() == b"hi"
     assert child == "local:hello/children/subtask-1"
     child_task = tmp_path / "hello" / "children" / "subtask-1" / "task.json"
     assert child_task.is_file()
@@ -106,11 +103,9 @@ async def test_attachments_and_children_stay_inside_task(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_rejects_paths_outside_local_task_root(tmp_path) -> None:
-    """Ensure task references and attachment names cannot escape their owner."""
+    """Ensure task references cannot escape the root."""
     _write_task(tmp_path, "hello")
     source = LocalTaskSource(str(tmp_path))
 
     with pytest.raises(ValueError):
         await source.get_task("local:../outside")
-    with pytest.raises(ValueError):
-        await source.attach("local:hello", "../outside", b"", "text/plain")

@@ -234,7 +234,7 @@ def _role(role_id: str, kinds: tuple[str, ...]) -> SpecialistDefinition:
         id=role_id, label=role_id, purpose="test role",
         allowed_card_types=kinds, required_abilities=(),
         model_policy="default", workspace_permission="read_only",
-        retry_limit=1, prompt=f"You are the {role_id}.",
+        prompt=f"You are the {role_id}.",
     )
 
 
@@ -265,7 +265,7 @@ class TestEndToEnd:
                 board_session_factory(tmp_path)
             ),
             roster=roster, max_parallel_read_cards=4,
-            default_lease_seconds=60, default_workspace_lease_seconds=600,
+            default_lease_seconds=60,
         )
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator, gates=gates,

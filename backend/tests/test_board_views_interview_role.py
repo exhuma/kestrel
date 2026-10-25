@@ -19,7 +19,7 @@ _DBA = SpecialistDefinition(
     id="dba", label="Database Specialist", purpose="data",
     allowed_card_types=("refinement",), required_abilities=(),
     model_policy="default", workspace_permission="read_only",
-    retry_limit=1, prompt="",
+    prompt="",
 )
 
 

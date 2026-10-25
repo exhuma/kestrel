@@ -21,7 +21,11 @@ import re
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.backends.base import TurnRequest, TurnResult
+from app.backends.base import (
+    PERMISSION_READ_ONLY,
+    TurnRequest,
+    TurnResult,
+)
 from app.documents import Document
 from app.policy import SpecialistBackendPolicy
 from app.services.board.agent_text import to_prompt
@@ -147,7 +151,9 @@ async def interpret(
 ) -> Interpretation:
     """One liaison turn. Never raises: whatever goes wrong reads as
     ``unclear``."""
-    request = TurnRequest(prompt=envelope, cwd="", permission_mode="plan")
+    request = TurnRequest(
+        prompt=envelope, cwd="", permission_mode=PERMISSION_READ_ONLY
+    )
     try:
         result = await asyncio.wait_for(
             backend.run_turn(request), timeout=timeout_seconds

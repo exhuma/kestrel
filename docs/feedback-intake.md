@@ -3,7 +3,7 @@
 **This feature no longer exists.** Everything this document used to
 describe — steering a run in flight from a marked ticket/PR comment, the
 `@kestrel approve`/`reject`/`request changes` gate-decision protocol, source
-reactions/replies, translation, and child-task retirement — was implemented
+reactions/replies, and child-task retirement — was implemented
 entirely inside the fixed six-step workflow driver
 (`describe → refine → technical_analysis → design → code → verify`). That
 driver, its `FeedbackIntakeService`/`FeedbackDispatcher`/`FeedbackPollService`
@@ -24,8 +24,7 @@ ticket](architecture.md#working-with-kestrel-on-the-ticket-feature-046) and
 [Jira workflow](setup-jira-workflow.md#replying-on-the-ticket). It reuses
 the `KESTREL_FEEDBACK_MARKER` setting. The other settings of the old
 feature (`KESTREL_FEEDBACK_IGNORE_AUTHORS`, `KESTREL_FEEDBACK_WINDOW_DAYS`)
-have been removed; a leftover key is ignored at startup. The `[translation]`
-table is still accepted, but nothing reads it.
+have been removed; a leftover key is ignored at startup.
 
 **What to use instead today:** every board workflow — however it was
 created (GitHub, Jira, or a local task) — is worked entirely through the

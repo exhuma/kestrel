@@ -12,7 +12,6 @@ from app.config_models import TaskSourceConfig
 from app.documents import EMPTY_DOCUMENT, Text, document, paragraph
 from app.persistence.board_quarantine_store import BoardQuarantineStore
 from app.persistence.board_store import BoardStore
-from app.persistence.dismissal_store import DismissalStore
 from app.ports import Task
 from app.services.board.phases import current_phase, phase_statuses
 from app.services.board.quarantine import QuarantineService
@@ -83,7 +82,7 @@ class _Rig:
             Settings(task_sources=[
                 TaskSourceConfig(type="github", watched_repos=["o/r"])
             ]),
-            _Sources(), DismissalStore(factory),
+            _Sources(),
             BoardIntake(self.quarantine, board),
         )
 

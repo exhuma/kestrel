@@ -2,7 +2,7 @@
 (feature 026, T053/T058).
 
 Exercises the additive ``/api/board/workflows...`` surface end-to-end
-against a real, migrated SQLite-backed board (not fakes) — these routes
+against a real, migrated PostgreSQL-backed board (not fakes) — these routes
 assemble several stores together, so the integration seams are exactly
 what's worth covering here.
 """
@@ -22,12 +22,8 @@ from app.models_board import (
     Workflow,
 )
 from app.models_board_records import (
-    BoardEventRecord,
     HandoffArtifact,
     HumanGateRecord,
-)
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
 )
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
@@ -48,6 +44,8 @@ from app.services.board.interventions import InterventionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
+
+pytestmark = pytest.mark.integration
 
 _WORKFLOW = Workflow(
     id="wf-1",
@@ -73,7 +71,6 @@ def _specialist(role_id: str) -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="do the thing",
     )
 
@@ -87,7 +84,6 @@ def _client(tmp_path: Path) -> _Client:
     board_service = BoardService(store)
     artifacts = ArtifactsService(
         store, artifact_store, board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates_service = GatesService(store, gate_store, board_service, artifacts)
     interventions_service = InterventionsService(
@@ -122,6 +118,12 @@ def _ready_card(card_id: str = "card-1", **overrides: object) -> WorkCard:
     }
     fields.update(overrides)
     return WorkCard(**fields)
+
+
+async def _get_card(c: httpx.AsyncClient, card_id: str) -> dict:
+    """Return one card's summary as the board snapshot lists it."""
+    resp = await c.get("/api/board/workflows/wf-1/board")
+    return next(x for x in resp.json()["cards"] if x["id"] == card_id)
 
 
 @pytest.mark.asyncio
@@ -239,59 +241,6 @@ async def test_get_board_unknown_workflow_is_404(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_card_returns_its_summary(tmp_path: Path) -> None:
-    client, store, _claims = _client(tmp_path)
-    store.create_card(_ready_card())
-    async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    assert resp.status_code == httpx.codes.OK
-    assert resp.json()["id"] == "card-1"
-
-
-@pytest.mark.asyncio
-async def test_get_card_unknown_card_is_404(tmp_path: Path) -> None:
-    client, _store, _claims = _client(tmp_path)
-    async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/missing")
-    assert resp.status_code == httpx.codes.NOT_FOUND
-
-
-@pytest.mark.asyncio
-async def test_list_board_events_returns_history_oldest_first(
-    tmp_path: Path,
-) -> None:
-    client, store, _claims = _client(tmp_path)
-    store.create_card(_ready_card(eligible_roles=("developer",)))
-    store.append_event(
-        BoardEventRecord(workflow_id="wf-1", event_type="workflow.created")
-    )
-    store.append_event(
-        BoardEventRecord(
-            workflow_id="wf-1", event_type="card.claimed", card_id="card-1"
-        )
-    )
-    async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/events")
-    assert resp.status_code == httpx.codes.OK
-    body = resp.json()
-    assert [e["event_type"] for e in body] == [
-        "workflow.created", "card.claimed",
-    ]
-    assert body[0]["specialist"] is None
-    assert body[1]["specialist"]["id"] == "developer"
-
-
-@pytest.mark.asyncio
-async def test_list_board_events_unknown_workflow_is_404(
-    tmp_path: Path,
-) -> None:
-    client, _store, _claims = _client(tmp_path)
-    async with client as c:
-        resp = await c.get("/api/board/workflows/missing/events")
-    assert resp.status_code == httpx.codes.NOT_FOUND
-
-
-@pytest.mark.asyncio
 async def test_intervention_cancels_a_ready_card(tmp_path: Path) -> None:
     client, store, _claims = _client(tmp_path)
     store.create_card(_ready_card())
@@ -387,8 +336,8 @@ async def test_card_summary_surfaces_gate_detail(tmp_path: Path) -> None:
         )
     )
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    gate = resp.json()["gate"]
+        card = await _get_card(c, "card-1")
+    gate = card["gate"]
     assert gate["requested_decision"] == "confirm_understanding"
     assert gate["decision"] is None
 
@@ -400,8 +349,8 @@ async def test_card_summary_gate_is_null_for_a_non_gate_card(
     client, store, _claims = _client(tmp_path)
     store.create_card(_ready_card())
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    assert resp.json()["gate"] is None
+        card = await _get_card(c, "card-1")
+    assert card["gate"] is None
 
 
 def _record_artifact(
@@ -409,19 +358,18 @@ def _record_artifact(
     mime_type: str = "text/plain",
 ) -> None:
     factory = board_session_factory(tmp_path)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
-    content_ref, content_hash = content_store.write(content)
+    BoardStore(factory).create_card(_ready_card())  # the producer
     BoardArtifactStore(factory).record(
         HandoffArtifact(
             id=artifact_id,
             producer_card_id="card-1",
             logical_name="report",
             revision=1,
-            content_ref=content_ref,
-            content_hash=content_hash,
+            content_hash="sha256:any",
             trust=trust,
             mime_type=mime_type,
-        )
+        ),
+        content,
     )
 
 
@@ -463,8 +411,8 @@ async def test_claimed_card_reports_owner_via_the_router(
     store.create_card(_ready_card(eligible_roles=("developer",)))
     claims_store.claim_card(ClaimRequest("card-1", "developer", 600))
     async with client as c:
-        resp = await c.get("/api/board/workflows/wf-1/cards/card-1")
-    assert resp.json()["owner"]["specialist_id"] == "developer"
+        card = await _get_card(c, "card-1")
+    assert card["owner"]["specialist_id"] == "developer"
 
 
 @pytest.mark.asyncio

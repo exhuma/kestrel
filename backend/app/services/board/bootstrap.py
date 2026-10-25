@@ -9,12 +9,8 @@ from app.backends.base import Backend
 from app.config import get_settings
 from app.documents import Strong, paragraph
 from app.models_board import CardKind, WorkCard
-from app.persistence.board_artifact_content_store import (
-    get_board_artifact_content_store,
-)
 from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
-from app.persistence.board_coordinator_store import get_board_coordinator_store
 from app.persistence.board_gate_store import get_board_gate_store
 from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
@@ -100,7 +96,6 @@ def get_claims_service() -> ClaimsService:
         roster=get_specialist_roster(),
         max_parallel_read_cards=settings.board_max_parallel_read_cards,
         default_lease_seconds=settings.board_claim_lease_seconds,
-        default_workspace_lease_seconds=settings.board_workspace_lease_seconds,
     )
 
 
@@ -108,7 +103,7 @@ def get_claims_service() -> ClaimsService:
 def get_coordinator_service() -> CoordinatorService:
     """Return the process-wide CoordinatorService singleton."""
     return CoordinatorService(
-        get_board_store(), get_board_coordinator_store(), get_board_service(),
+        get_board_store(), get_board_service(),
         # Every gate is mandatory: CAB-1, PRD sign-off and CAB-2 (#70).
         decomposition_required=True,
         prd_gate_required=True,
@@ -122,7 +117,6 @@ def get_artifacts_service() -> ArtifactsService:
         get_board_store(),
         get_board_artifact_store(),
         get_board_service(),
-        get_board_artifact_content_store(),
     )
 
 

@@ -42,26 +42,11 @@ class _FakeIngestion:
         self.calls.append(kw)
         return "wf-x"
 
-class _FakeDismissals:
-    def __init__(self, dismissed=()) -> None:
-        self._d = set(dismissed)
-
-    def all(self):
-        return list(self._d)
-
-    def is_dismissed(self, ref):
-        return ref in self._d
-
-    def clear(self, ref):
-        self._d.discard(ref)
-
-
-def _svc(jira, ingestion, dismissals, jql='project = "RFC"') -> JiraPollService:
+def _svc(jira, ingestion, jql='project = "RFC"') -> JiraPollService:
     cfg = TaskSourceConfig(
         type="jira",
         base_url="https://jira.example",
         jql=jql,
-        key="RFC",
         repo_field="cf1",
     )
     return JiraPollService(
@@ -69,7 +54,6 @@ def _svc(jira, ingestion, dismissals, jql='project = "RFC"') -> JiraPollService:
         jira,
         _FakeCodeHost(),
         ingestion,
-        dismissals,
     )
 
 
@@ -78,7 +62,7 @@ async def test_starts_one_run_per_qualifying_rfc() -> None:
     """Ensure each resolvable RFC starts a jira-issue run once."""
     jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
     ing = _FakeIngestion()
-    await _svc(jira, ing, _FakeDismissals()).run_cycle()
+    await _svc(jira, ing).run_cycle()
     call = ing.calls[-1]
     assert call["source"] == "jira-issue"
     assert call["task_ref"] == "RFC-1"
@@ -93,7 +77,6 @@ async def test_whole_jql_is_passed_through() -> None:
     await _svc(
         jira,
         _FakeIngestion(),
-        _FakeDismissals(),
         jql='project = "RFC" AND status = "Ready"',
     ).run_cycle()
     assert jira.searched == ['project = "RFC" AND status = "Ready"']
@@ -109,34 +92,14 @@ async def test_unresolved_repo_starts_nothing_and_only_logs(caplog) -> None:
     jira = _FakeJira([Task("RFC-9", "t", "b")], fields={"RFC-9": None})
     ing = _FakeIngestion()
     with caplog.at_level("WARNING"):
-        await _svc(jira, ing, _FakeDismissals()).run_cycle()
+        await _svc(jira, ing).run_cycle()
     assert all("source" not in call for call in ing.calls)
     assert "RFC-9" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_clears_dismissal_for_rfc_no_longer_qualifying() -> None:
-    """Ensure a dismissed RFC that left the JQL has its dismissal cleared."""
-    # RFC-5 is dismissed but not in the current qualifying set.
-    jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
-    dis = _FakeDismissals(dismissed={"RFC-5", "o/r#3"})
-    await _svc(jira, _FakeIngestion(), dis).run_cycle()
-    assert dis.is_dismissed("RFC-5") is False  # cleared (re-trigger gesture)
-    assert dis.is_dismissed("o/r#3") is True  # GitHub dismissal untouched
-
-
-@pytest.mark.asyncio
-async def test_still_qualifying_dismissal_is_kept() -> None:
-    """Ensure a dismissed RFC still matching the JQL stays suppressed."""
-    jira = _FakeJira([Task("RFC-5", "t", "b")], fields={"RFC-5": "team/svc"})
-    dis = _FakeDismissals(dismissed={"RFC-5"})
-    await _svc(jira, _FakeIngestion(), dis).run_cycle()
-    assert dis.is_dismissed("RFC-5") is True
 
 
 @pytest.mark.asyncio
 async def test_jira_outage_is_isolated() -> None:
     """Ensure a failed poll query logs and starts nothing (no crash)."""
     ing = _FakeIngestion()
-    await _svc(_FakeJira([], fail=True), ing, _FakeDismissals()).run_cycle()
+    await _svc(_FakeJira([], fail=True), ing).run_cycle()
     assert ing.calls == []

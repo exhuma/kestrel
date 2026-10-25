@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.persistence.comment_store import (
     CLAIMED,
     HELD,
@@ -42,6 +45,14 @@ def test_a_comment_is_claimed_once(tmp_path: Path) -> None:
     assert store.claim(_COMMENT) is True
     assert store.claim(_COMMENT) is False
     assert store.get(_COMMENT.external_id).state == CLAIMED
+
+
+def test_a_comment_on_an_unknown_request_is_an_error(tmp_path: Path) -> None:
+    """Ensure a dangling request is not mistaken for a repeated claim."""
+    store = CommentStore(board_session_factory(tmp_path))
+
+    with pytest.raises(IntegrityError):
+        store.claim(InboundComment("jira-comment:KEY-9:1", "wf-gone", "acc"))
 
 
 def test_a_claim_survives_a_new_store(tmp_path: Path) -> None:
