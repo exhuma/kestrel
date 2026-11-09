@@ -32,7 +32,9 @@ let stopWatch: (() => void) | null = null
  *  means available to the client — collapsing them is the honest choice,
  *  and preferable to the duplicate rows a re-fetch would otherwise add. */
 function identity(e: BoardEvent): string {
-  return [e.created_at ?? '', e.event_type, e.card_id ?? '', e.payload].join('\0')
+  return [e.created_at ?? '', e.event_type, e.card_id ?? '', e.payload].join(
+    '\0',
+  )
 }
 
 /** Merge *incoming* into the known history, keeping the server's order and
