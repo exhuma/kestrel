@@ -665,6 +665,18 @@ header options (see the container section).
 in the Ingress is cutting the event stream. Apply the annotations above or
 their equivalent for your controller.
 
+**Turns fail with `connection to opencode lost`.** The sidecar went away, most
+often because it ran out of memory. Check its last state and raise its memory
+limit if it says `OOMKilled`:
+
+```bash
+kubectl get pod -l app=kestrel -o jsonpath='{range .items[0].status.containerStatuses[*]}{.name}{" "}{.lastState.terminated.reason}{"\n"}{end}'
+kubectl logs deployment/kestrel -c opencode --previous --tail=100
+```
+
+The affected card goes back to `ready` and is retried about once a minute, up
+to `board_backend_outage_retries` times, without using up an attempt.
+
 **Comments on the ticket have no link.** `KESTREL_PUBLIC_BASE_URL` is unset.
 Set it to the external URL and restart the pod. Comments already posted do
 not change.

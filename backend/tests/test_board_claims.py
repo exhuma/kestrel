@@ -346,3 +346,54 @@ class TestActiveLease:
         assert lease is not None
         assert lease.specialist_id == "developer"
         assert lease.attempt_sequence == 1
+
+
+def _claimed_card(tmp_path: Path) -> tuple[BoardStore, BoardClaimsStore]:
+    factory = board_session_factory(tmp_path)
+    board, claims = BoardStore(factory), BoardClaimsStore(factory)
+    board.create_workflow(_WORKFLOW)
+    board.create_card(WorkCard(
+        id="card-1", workflow_id="wf-1", kind="analysis", title="Look",
+        state="ready", eligible_roles=("developer",),
+    ))
+    claims.claim_card(ClaimRequest("card-1", "developer", 600))
+    return board, claims
+
+
+def test_an_outage_returns_the_card_without_using_its_attempt(
+    tmp_path: Path,
+) -> None:
+    """Ensure the card can run again and still has its one real attempt."""
+    board, claims = _claimed_card(tmp_path)
+
+    released = claims.release_after_outage("card-1", 1, max_releases=3)
+
+    card = board.get_card("card-1")
+    assert released is True
+    assert (card.state, card.attempt_limit) == ("ready", 2)
+    assert claims.get_active_lease("card-1") is None
+    again = claims.claim_card(ClaimRequest("card-1", "developer", 600))
+    assert (again.success, again.attempt_sequence) == (True, 2)
+
+
+def test_an_outage_retry_stops_at_its_limit(tmp_path: Path) -> None:
+    """Ensure a backend that never returns cannot loop for ever."""
+    board, claims = _claimed_card(tmp_path)
+    claims.release_after_outage("card-1", 1, max_releases=1)
+    claims.claim_card(ClaimRequest("card-1", "developer", 600))
+
+    released = claims.release_after_outage("card-1", 2, max_releases=1)
+
+    assert released is False
+    assert board.get_card("card-1").state == "claimed"
+    assert claims.get_active_lease("card-1") is not None
+
+
+def test_an_outage_cannot_release_a_superseded_attempt(tmp_path: Path) -> None:
+    """Ensure a late report for an old attempt leaves the claim alone."""
+    board, claims = _claimed_card(tmp_path)
+
+    released = claims.release_after_outage("card-1", 99, max_releases=3)
+
+    assert released is False
+    assert board.get_card("card-1").state == "claimed"

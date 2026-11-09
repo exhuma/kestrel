@@ -142,7 +142,7 @@ class BoardCardAttemptRow(Base):
     specialist_id: Mapped[str] = mapped_column(Text)
     backend_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: "active" | "completed" | "interrupted" | "stale".
+    #: "active" | "completed" | "interrupted" | "backend_lost" | "stale".
     status: Mapped[str] = mapped_column(Text, default="active")
     #: Safe structured result payload (JSON); NULL until the attempt ends.
     result: Mapped[str | None] = mapped_column(Text, nullable=True)

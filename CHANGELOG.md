@@ -43,6 +43,12 @@ holds the record. Constitution 2.0.0.
 
 ### Fixed
 
+- A card no longer fails when its agent backend goes away mid-turn. It goes
+  back to `ready` at once and is retried without using up an attempt
+  (`board_backend_outage_retries`), and the log says so in one line.
+- A dropped opencode event stream reconnects instead of failing a turn
+  that finished, and opencode is told to free a directory after its last
+  turn, so a long-running server holds less memory.
 - A ticket comment no longer says "link below" when kestrel has no public
   address to link to, and kestrel warns at startup when
   `KESTREL_PUBLIC_BASE_URL` is missing.

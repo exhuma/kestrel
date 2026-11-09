@@ -38,6 +38,8 @@ class ClaimsService:
     roster: SpecialistRoster
     max_parallel_read_cards: int
     default_lease_seconds: float
+    #: How often one card may go back to ``ready`` after losing its backend.
+    max_outage_retries: int = 30
 
     def claim_next_ready_card(
         self,
@@ -108,6 +110,17 @@ class ClaimsService:
             self.default_lease_seconds,
             backend_id=backend_id,
             workspace_repo=repo,
+        )
+
+    def release_after_outage(self, card: WorkCard) -> bool:
+        """Put *card* back to ``ready`` after its backend went away
+        (``BoardClaimsStore.release_after_outage``).
+
+        :returns: Whether the card will be tried again.
+        """
+        return self.claims_store.release_after_outage(
+            card.id, card.attempt_count,
+            max_releases=self.max_outage_retries,
         )
 
     def record_session(

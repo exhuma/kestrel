@@ -17,6 +17,7 @@ from typing import Callable, Protocol
 
 from app.backends.base import (
     PERMISSION_READ_ONLY,
+    BackendUnavailable,
     TurnRequest,
     TurnResult,
 )
@@ -184,6 +185,11 @@ class CardTurnError(Exception):
     trusted (timeout or backend failure)."""
 
 
+class BackendLostError(CardTurnError):
+    """Raised when a turn ended because its backend went away, which
+    says nothing about the card's work."""
+
+
 @dataclass(frozen=True)
 class SpecialistTurnResult:
     """One specialist's raw final text from a dispatched turn."""
@@ -271,6 +277,8 @@ async def run_card_turn(
         )
     except TimeoutError as exc:
         raise CardTurnError("card turn timed out") from exc
+    except BackendUnavailable as exc:
+        raise BackendLostError(str(exc)) from exc
     except Exception as exc:
         raise CardTurnError(f"card turn backend error: {exc}") from exc
     return SpecialistTurnResult(final_text=result.final_text)

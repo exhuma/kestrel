@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from functools import lru_cache
 
-from sqlalchemy import case, delete, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -191,6 +191,51 @@ class BoardClaimsStore:
             _interrupt(db, card_id, attempt_sequence, now)
             return True
 
+    def release_after_outage(
+        self,
+        card_id: str,
+        attempt_sequence: int,
+        *,
+        max_releases: int,
+        now: datetime | None = None,
+    ) -> bool:
+        """Return a card to ``ready`` because its backend went away.
+
+        The lost attempt does not count: the limit grows by one, which
+        leaves attempt numbers unique. Nothing wakes the scheduler, so
+        retries come at the recovery sweep's pace and an outage cannot
+        turn into a tight loop.
+
+        :param max_releases: How many lost attempts one card may have.
+        :returns: Whether the card went back; ``False`` once the card has
+            used its releases or this attempt no longer holds the claim.
+        """
+        now = now_utc(now)
+        with self._factory.begin() as db:
+            lost = db.scalar(
+                select(func.count())
+                .select_from(BoardCardAttemptRow)
+                .where(
+                    BoardCardAttemptRow.card_id == card_id,
+                    BoardCardAttemptRow.status == "backend_lost",
+                )
+            )
+            if lost >= max_releases:
+                return False
+            if _end_claim(db, card_id, attempt_sequence) is None:
+                return False
+            _interrupt(db, card_id, attempt_sequence, now, "backend_lost")
+            db.execute(
+                update(BoardCardRow)
+                .where(BoardCardRow.id == card_id)
+                .values(
+                    state="ready",
+                    attempt_limit=BoardCardRow.attempt_limit + 1,
+                    updated_at=now,
+                )
+            )
+            return True
+
     def get_active_lease(self, card_id: str) -> ClaimLease | None:
         """Return *card_id*'s current claim lease, or ``None`` if unclaimed."""
         with self._factory() as db:
@@ -288,14 +333,18 @@ def _end_claim(
 
 
 def _interrupt(
-    db: Session, card_id: str, attempt_sequence: int, now: datetime
+    db: Session,
+    card_id: str,
+    attempt_sequence: int,
+    now: datetime,
+    status: str = "interrupted",
 ) -> None:
-    """Mark an abandoned or released attempt ``interrupted``."""
+    """Close an abandoned or released attempt with *status*."""
     db.execute(
         update(BoardCardAttemptRow)
         .where(
             BoardCardAttemptRow.card_id == card_id,
             BoardCardAttemptRow.sequence == attempt_sequence,
         )
-        .values(status="interrupted", ended_at=now)
+        .values(status=status, ended_at=now)
     )

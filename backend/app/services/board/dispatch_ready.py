@@ -35,6 +35,7 @@ from app.services.board.claims import (
 )
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
+    BackendLostError,
     CardTurnError,
     _TurnBackend,
     build_card_envelope,
@@ -212,6 +213,31 @@ def _session_recorder(
     return record
 
 
+def _report_failed_turn(
+    workflow_id: str,
+    specialist: SpecialistDefinition,
+    card: WorkCard,
+    error: CardTurnError,
+    services: DispatchServices,
+) -> None:
+    """Say a turn failed, once. A card whose backend went away goes back
+    to ``ready`` straight away for the recovery sweep to pick up; any
+    other failed turn keeps its claim until the lease runs out."""
+    retrying = isinstance(
+        error, BackendLostError
+    ) and services.claims.release_after_outage(card)
+    _dispatch_log.warning(
+        "workflow %s: %s's turn on card %s failed%s: %s",
+        workflow_id, specialist.id, card.id,
+        " and will be retried" if retrying else "", error,
+    )
+    if services.board is not None:
+        services.board.record_problem(
+            workflow_id, event_type="card.turn_failed", card_id=card.id,
+            detail=turn_failure(specialist.label, error),
+        )
+
+
 async def _dispatch_one(
     workflow_id: str,
     services: DispatchServices,
@@ -251,15 +277,7 @@ async def _dispatch_one(
                 backend, request, timeout_seconds=timeout_seconds
             )
     except CardTurnError as exc:
-        _dispatch_log.warning(
-            "workflow %s: %s's turn on card %s failed: %s",
-            workflow_id, specialist.id, card.id, exc,
-        )
-        if services.board is not None:
-            services.board.record_problem(
-                workflow_id, event_type="card.turn_failed", card_id=card.id,
-                detail=turn_failure(specialist.label, exc),
-            )
+        _report_failed_turn(workflow_id, specialist, card, exc, services)
         return
     outcome = services.claims.complete(
         card.id, card.attempt_count,

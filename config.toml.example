@@ -76,6 +76,9 @@ board_turn_timeout_seconds = 600.0
 # How long a card claim lease is held before it is considered abandoned and
 # eligible for retry/reassignment/escalation on recovery.
 board_claim_lease_seconds = 600
+# How often one card may go back to ready after its agent backend went away,
+# without using up an attempt. Paced by the recovery sweep (about 1 per minute).
+# board_backend_outage_retries = 30
 # Maximum number of read-only board cards claimed and active at once.
 board_max_parallel_read_cards = 4
 # How often the recovery sweep checks for expired claim leases.

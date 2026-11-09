@@ -206,6 +206,11 @@ class Settings(BaseSettings):
     #: and eligible for recovery (feature 026,
     #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
     board_claim_lease_seconds: int = Field(default=600, gt=0)
+    #: How often one card may go back to ready after its agent backend
+    #: went away, without using up an attempt. Retries are paced by the
+    #: recovery sweep, so the default rides out about half an hour
+    #: (``KESTREL_BOARD_BACKEND_OUTAGE_RETRIES``).
+    board_backend_outage_retries: int = Field(default=30, ge=0)
     #: Maximum number of read-only board cards that may be claimed and
     #: active at once across the whole process (feature 026,
     #: ``KESTREL_BOARD_MAX_PARALLEL_READ_CARDS``).

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from app.backends.base import TurnRequest, TurnResult
+from app.backends.base import BackendUnavailable, TurnRequest, TurnResult
 from app.models_board import ClaimRequest, WorkCard
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
@@ -119,3 +119,28 @@ async def test_dispatch_keeps_the_session_id_of_a_failed_turn(
     )
 
     assert _attempt_session(tmp_path, "card-1", 1) == "sess-42"
+
+
+class _LostBackend:
+    """A backend whose server goes away during the turn."""
+
+    async def run_turn(self, _req: TurnRequest) -> TurnResult:
+        raise BackendUnavailable("connection to opencode lost")
+
+
+@pytest.mark.asyncio
+async def test_an_outage_puts_the_card_back_for_another_try(
+    tmp_path: Path,
+) -> None:
+    """Ensure a lost backend neither strands the card nor fails it."""
+    roster = SpecialistRoster({"developer": _specialist()})
+    services, store = _dispatch_services(tmp_path, roster)
+    store.create_card(_ready_card())
+
+    await dispatch_ready_work(
+        "wf-1", services, lambda _specialist: _LostBackend(),
+        timeout_seconds=5,
+    )
+
+    card = store.get_card("card-1")
+    assert (card.state, card.attempt_limit) == ("ready", 2)

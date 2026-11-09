@@ -11,6 +11,7 @@ from app.backends.agent_log import AgentLog
 from app.backends.base import (
     PERMISSION_READ_ONLY,
     Backend,
+    BackendUnavailable,
     Capability,
     ModelCatalog,
     TurnRequest,
@@ -19,9 +20,11 @@ from app.backends.base import (
 )
 from app.backends.limiter import BackendLimiter
 from app.backends.opencode_abort import abort_on_cancel
+from app.backends.opencode_directories import DirectoryReleases
 from app.backends.opencode_models import split_model
 from app.backends.opencode_parts import assistant_error, part_events
 from app.backends.opencode_permissions import (
+    CONNECTION_LOST,
     OpenCodeConnection,
     directory_params,
     permission_handler,
@@ -77,13 +80,17 @@ class OpenCodeBackend(Backend):
             client=self._client,
             request=self._request,
         )
+        self._directories = DirectoryReleases(self._request)
 
     async def run_turn(
         self,
         req: TurnRequest,
         on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
-        async with self._limiter.slot(on_queue_change):
+        async with (
+            self._limiter.slot(on_queue_change),
+            self._directories.turn(req.cwd),
+        ):
             return await self._run_turn(req)
 
     async def _run_turn(self, req: TurnRequest) -> TurnResult:
@@ -104,6 +111,10 @@ class OpenCodeBackend(Backend):
             if log is not None:
                 log.failed("the turn was cancelled (timeout or shutdown)")
             abort_on_cancel(self._request, sid, req.cwd)
+            raise
+        except BackendUnavailable as exc:
+            if log is not None:
+                log.failed(str(exc))
             raise
         except Exception as exc:
             _logger.exception(
@@ -264,6 +275,11 @@ class OpenCodeBackend(Backend):
             )
             resp.raise_for_status()
             return resp.json()
+        except CONNECTION_LOST as exc:
+            raise BackendUnavailable(
+                f"connection to opencode lost during {method} {path}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
         except Exception:
             _logger.warning(
                 "opencode request failed: %s %s", method, path, exc_info=True,

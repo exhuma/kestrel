@@ -20,6 +20,15 @@ class BackendTurnError(Exception):
     """
 
 
+class BackendUnavailable(BackendTurnError):
+    """Raised when the connection to a backend is lost or refused.
+
+    The backend went away (a crash, an OOM kill, a restart): the turn
+    says nothing about the work, so it can be tried again once the
+    backend is back.
+    """
+
+
 class TurnStopped(BackendTurnError):
     """Raised when kestrel stopped a turn itself (feature 036): the agent
     looped on a tool or ran past its tool-call budget.

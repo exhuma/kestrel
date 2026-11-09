@@ -96,6 +96,7 @@ def get_claims_service() -> ClaimsService:
         roster=get_specialist_roster(),
         max_parallel_read_cards=settings.board_max_parallel_read_cards,
         default_lease_seconds=settings.board_claim_lease_seconds,
+        max_outage_retries=settings.board_backend_outage_retries,
     )
 
 
