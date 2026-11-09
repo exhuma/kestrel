@@ -27,6 +27,7 @@ from app.services.board.announcements.common import (
     addressed,
     finish,
     how_to_answer,
+    link_below,
 )
 
 _HEADING_LEVEL = 3
@@ -59,8 +60,9 @@ def strategic_interview(ctx: Context, questions: int) -> Document:
         addressed(
             ctx.people.reporter,
             f"kestrel has {_questions(questions)} about how this request "
-            "fits the business. They are on a short form in kestrel "
-            "(link below). Nothing needs to be written here.",
+            "fits the business. They are on a short form in kestrel"
+            f"{link_below(ctx, interview=True)}. "
+            "Nothing needs to be written here.",
         ),
     ), interview=True)
 
@@ -77,8 +79,9 @@ def refinement_batch(ctx: Context, asks: Sequence[InterviewAsk]) -> Document:
         addressed(
             ctx.people.reporter,
             "kestrel has more questions about this request, from the "
-            "profiles below. They are on a short form in kestrel (link "
-            "below). Nothing needs to be written here.",
+            "profiles below. They are on a short form in kestrel"
+            f"{link_below(ctx, interview=True)}. "
+            "Nothing needs to be written here.",
         ),
         BulletList(items),
     ), interview=True)

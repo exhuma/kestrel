@@ -203,10 +203,10 @@ data:
 
 Notes on the file:
 
-- `public_base_url` is **not** a config-file key. Set it with the
-  `KESTREL_PUBLIC_BASE_URL` environment variable (below). It is the external
-  URL, and it builds the link that ends every comment kestrel posts on a
-  ticket. Left empty, comments carry no link.
+- Set the external URL with the `KESTREL_PUBLIC_BASE_URL` environment
+  variable (below). It builds the link that ends every comment kestrel posts
+  on a ticket, including the link to an interview form. Left empty, comments
+  carry no link and kestrel warns about it at startup.
 - Find the custom field ids with Jira's field list (`GET
   /rest/api/3/field`, look for the field names); they look like
   `customfield_10050`. The change owner field must be a **user picker**.
@@ -666,7 +666,8 @@ in the Ingress is cutting the event stream. Apply the annotations above or
 their equivalent for your controller.
 
 **Comments on the ticket have no link.** `KESTREL_PUBLIC_BASE_URL` is unset.
-Note it is an environment variable, not a `config.toml` key.
+Set it to the external URL and restart the pod. Comments already posted do
+not change.
 
 **Replies on the ticket are ignored.** Check, in this order:
 

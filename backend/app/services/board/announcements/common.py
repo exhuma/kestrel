@@ -85,18 +85,23 @@ def addressed(person: Person | None, text: str) -> Paragraph:
     return paragraph(*opening, Text(text))
 
 
+def link_below(ctx: Context, *, interview: bool = False) -> str:
+    """The words pointing at the link that ends an announcement, or
+    nothing when there will be no link to point at."""
+    return " (link below)" if ctx.page(interview=interview) else ""
+
+
 def how_to_answer(ctx: Context) -> Paragraph:
     """How a person answers a decision put on the ticket (feature 046):
     a reply here carrying the marker, or the kestrel page, which the link
     at the end of every announcement leads to. Interview gates never use
     this: their answers are given on the form only.
     """
-    where = " (link below)" if ctx.page() else ""
     marker = ctx.marker
     return paragraph(Text(
         f"To answer, reply on this ticket with {marker} and your answer, "
         f'for example "{marker} approved" or "{marker} no, because ...". '
-        f"You can also answer in kestrel{where}."
+        f"You can also answer in kestrel{link_below(ctx)}."
     ))
 
 

@@ -15,6 +15,7 @@ from app.services.board.announcements.common import (
     Context,
     addressed,
     finish,
+    link_below,
 )
 from app.services.board.announcements.decisions import decision_sentence
 from app.services.board.gate_decision import channel_name
@@ -113,12 +114,12 @@ def already_decided(
 
 def interview_pointer(ctx: Context, author: Person) -> Document:
     """Interview answers are given on the form, not on the ticket."""
-    where = "(link below)" if ctx.page(interview=True) else "in kestrel"
     return finish(ctx, (
         addressed(
             author,
-            "interview answers are given on the short form in kestrel "
-            f"{where}, not here. {_NOTHING_CHANGED}",
+            "interview answers are given on the short form in kestrel"
+            f"{link_below(ctx, interview=True)}, not here. "
+            f"{_NOTHING_CHANGED}",
         ),
     ), interview=True)
 

@@ -43,6 +43,9 @@ holds the record. Constitution 2.0.0.
 
 ### Fixed
 
+- A ticket comment no longer says "link below" when kestrel has no public
+  address to link to, and kestrel warns at startup when
+  `KESTREL_PUBLIC_BASE_URL` is missing.
 - Races that SQLite's single writer hid are now atomic on PostgreSQL:
   claims and repository leases, workflow revision and CI status counters,
   gate decisions, quarantine review resolution, card state moves, and

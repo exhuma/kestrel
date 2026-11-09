@@ -227,6 +227,36 @@ def test_jira_source_without_token_warns(
     assert "no token" in caplog.text
 
 
+def _jira_source() -> TaskSourceConfig:
+    return TaskSourceConfig(
+        type="jira", base_url="https://jira.example", jql="project = RFC"
+    )
+
+
+def test_a_ticket_source_without_a_public_url_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure a missing link to kestrel is reported at startup."""
+    with caplog.at_level("WARNING"):
+        Settings(_env_file=None, task_sources=[_jira_source()])
+
+    assert "KESTREL_PUBLIC_BASE_URL is not set" in caplog.text
+
+
+def test_a_public_url_silences_the_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure the warning goes away once the address is configured."""
+    with caplog.at_level("WARNING"):
+        Settings(
+            _env_file=None,
+            task_sources=[_jira_source()],
+            public_base_url="https://kestrel.example",
+        )
+
+    assert "KESTREL_PUBLIC_BASE_URL" not in caplog.text
+
+
 def test_code_host_partial_config_warns_without_leaking_token(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
 ) -> None:

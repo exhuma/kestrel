@@ -315,6 +315,22 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _warn_missing_public_url(self) -> Settings:
+        """Warn (not fail) when ticket comments cannot link to kestrel.
+
+        Without the link, people on a shared ticket have no way to reach
+        an interview form they are asked to fill in.
+        """
+        if (self.jira_sources() or self.github_sources()) and (
+            not self.public_base_url
+        ):
+            _log.warning(
+                "KESTREL_PUBLIC_BASE_URL is not set; comments on tickets "
+                "will carry no link to kestrel or its interview forms."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _warn_incomplete_source_config(self) -> Settings:
         """Warn (not fail) when a Jira source can't authenticate or reach code.
 
