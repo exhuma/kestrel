@@ -26,7 +26,7 @@ def pytest_configure(config: pytest.Config) -> None:
         pytest.exit(
             f"{database_support.SERVER_URL_ENV} is not set: point it at a "
             "PostgreSQL server the tests may create databases on, e.g. "
-            "postgresql+psycopg://postgres@127.0.0.1:5432/postgres",
+            "postgresql://postgres@127.0.0.1:5432/postgres",
             returncode=pytest.ExitCode.USAGE_ERROR,
         )
     config.add_cleanup(database_support.end_run)

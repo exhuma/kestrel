@@ -75,8 +75,7 @@ module-calver-release-channels, module-documentation,
 module-notification-alarm-discipline.
 
 **Partial:** module-database-postgresql (PostgreSQL with psycopg 3 and
-Alembic; the URL keeps its `+psycopg` modifier and timestamps are naive
-UTC), module-library-preferences,
+Alembic; timestamps are naive UTC), module-library-preferences,
 module-runtime-config-spa, module-release-metadata, module-design-tokens,
 module-operator-docs.
 

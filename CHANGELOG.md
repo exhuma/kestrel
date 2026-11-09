@@ -12,7 +12,7 @@ holds the record. Constitution 2.0.0.
 ### Breaking
 
 - **PostgreSQL replaces SQLite.** `KESTREL_DATABASE_URL` is required
-  (`postgresql+psycopg://user:password@host:5432/kestrel`); kestrel does not
+  (`postgresql://user:password@host:5432/kestrel`); kestrel does not
   start without it. The schema is one fresh baseline migration: existing
   SQLite databases are not migrated. The image no longer sets a database
   URL; `docker-compose.yml` brings a `postgres` service.

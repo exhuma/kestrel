@@ -79,7 +79,7 @@ See [Configuration](configuration.md) for every `KESTREL_*` setting, and
 ```bash
 # Backend: needs a PostgreSQL server (see Prerequisites)
 cd backend
-export KESTREL_TEST_DATABASE_URL=postgresql+psycopg://kestrel:kestrel@localhost:5432/kestrel
+export KESTREL_TEST_DATABASE_URL=postgresql://kestrel:kestrel@localhost:5432/kestrel
 uv run pytest
 
 # Frontend (type-check + build, and unit tests)

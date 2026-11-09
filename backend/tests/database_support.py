@@ -21,7 +21,7 @@ from alembic.config import Config
 from sqlalchemy.pool import NullPool
 
 from alembic import command
-from app.persistence.db import make_engine
+from app.persistence.db import engine_url, make_engine
 
 #: The environment variable naming the PostgreSQL server for tests.
 SERVER_URL_ENV = "KESTREL_TEST_DATABASE_URL"
@@ -44,14 +44,14 @@ def database_url(name: str) -> str:
     :param name: A database name.
     :returns: A SQLAlchemy URL, password included.
     """
-    server = sa.make_url(os.environ[SERVER_URL_ENV])
+    server = sa.make_url(engine_url(os.environ[SERVER_URL_ENV]))
     return server.set(database=name).render_as_string(hide_password=False)
 
 
 def _admin(statement: str) -> None:
     """Run one ``CREATE``/``DROP DATABASE`` statement on the server."""
     engine = sa.create_engine(
-        os.environ[SERVER_URL_ENV],
+        engine_url(os.environ[SERVER_URL_ENV]),
         isolation_level="AUTOCOMMIT",
         poolclass=NullPool,
     )

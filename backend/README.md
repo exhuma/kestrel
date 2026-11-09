@@ -25,6 +25,6 @@ Config via `KESTREL_*` env vars or `backend/.env`
 ```bash
 cd backend
 # A PostgreSQL server the tests may create (and drop) databases on.
-export KESTREL_TEST_DATABASE_URL=postgresql+psycopg://postgres@localhost:5432/postgres
+export KESTREL_TEST_DATABASE_URL=postgresql://postgres@localhost:5432/postgres
 uv run pytest
 ```

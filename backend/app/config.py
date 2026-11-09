@@ -100,8 +100,8 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_api_base: str = "https://api.github.com"
     git_base: str = "https://github.com"
-    #: SQLAlchemy URL of the PostgreSQL database
-    #: (``postgresql+psycopg://user:password@host:5432/kestrel``). Required:
+    #: DSN of the PostgreSQL database
+    #: (``postgresql://user:password@host:5432/kestrel``). Required:
     #: there is no default database (see :meth:`_require_database_url`).
     database_url: str = ""
     #: Console log verbosity (``KESTREL_LOG_LEVEL``): debug/info/warning/…
@@ -295,7 +295,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "KESTREL_DATABASE_URL is not set: kestrel needs a PostgreSQL "
                 "database, e.g. "
-                "postgresql+psycopg://user:password@host:5432/kestrel"
+                "postgresql://user:password@host:5432/kestrel"
             )
         return self
 

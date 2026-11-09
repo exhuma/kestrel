@@ -14,7 +14,7 @@ def test_config_file_overrides_local_runtime_settings(tmp_path: Path) -> None:
     toml = tmp_path / "config.toml"
     toml.write_text(
         "port = 9000\n"
-        'database_url = "postgresql+psycopg://db/kestrel"\n'
+        'database_url = "postgresql://db/kestrel"\n'
         'workspace_root = "./workspaces"\n'
         "\n"
         "[[task_sources]]\n"
@@ -25,7 +25,7 @@ def test_config_file_overrides_local_runtime_settings(tmp_path: Path) -> None:
     settings = Settings(_env_file=None, config_file=str(toml))
     assert (settings.port, settings.database_url) == (
         9000,
-        "postgresql+psycopg://db/kestrel",
+        "postgresql://db/kestrel",
     )
     assert settings.workspace_root == "./workspaces"
     assert settings.local_sources()[0].tasks_dir == "./tasks"

@@ -80,7 +80,7 @@ services:
       # - ./config.toml:/config/config.toml:ro
     environment:
       # The database: the postgres service above.
-      KESTREL_DATABASE_URL: postgresql+psycopg://kestrel:${KESTREL_DB_PASSWORD:-kestrel}@postgres:5432/kestrel
+      KESTREL_DATABASE_URL: postgresql://kestrel:${KESTREL_DB_PASSWORD:-kestrel}@postgres:5432/kestrel
       # The repos claude works in (matches the ./workspaces bind mount above).
       KESTREL_WORKSPACE_ROOT: /workspaces
       # Optional: a token unlocks GitHub ingestion features.

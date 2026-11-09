@@ -89,7 +89,7 @@ metadata:
   name: kestrel
 type: Opaque
 stringData:
-  KESTREL_DATABASE_URL: "postgresql+psycopg://kestrel:<password>@<db host>:5432/kestrel"
+  KESTREL_DATABASE_URL: "postgresql://kestrel:<password>@<db host>:5432/kestrel"
   KESTREL_JIRA_API_TOKEN: "<jira api token>"
   KESTREL_GITHUB_TOKEN: "<code host token>"      # see the note below
   OPENCODE_SERVER_PASSWORD: "<long random string>"
@@ -98,7 +98,7 @@ stringData:
   ANTHROPIC_API_KEY: "<model provider key>"       # for opencode only
 ```
 
-- `KESTREL_DATABASE_URL` is a SQLAlchemy URL with the `psycopg` driver.
+- `KESTREL_DATABASE_URL` is a standard PostgreSQL URL.
   Percent-encode special characters in the password. Add
   `?sslmode=require` (or `verify-full`) when the server expects TLS.
 - Generate the cookie secret with

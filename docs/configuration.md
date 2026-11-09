@@ -23,7 +23,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_GITHUB_TOKEN` | _(empty)_ | Token for GitHub ingestion (issues, clone/push, PRs). See [GitHub workflow](setup-github-workflow.md) |
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
-| `KESTREL_DATABASE_URL` | _(required)_ | The PostgreSQL database, as `postgresql+psycopg://user:password@host:5432/kestrel`. Kestrel does not start without it. Holds the password, so keep it in the environment |
+| `KESTREL_DATABASE_URL` | _(required)_ | The PostgreSQL database, as `postgresql://user:password@host:5432/kestrel`. Kestrel does not start without it. Holds the password, so keep it in the environment |
 | `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |

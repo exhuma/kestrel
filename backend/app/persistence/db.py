@@ -16,15 +16,35 @@ from app.config import get_settings
 #: them (or compared with them) in UTC whatever the server's own setting.
 _CONNECT_ARGS = {"options": "-c timezone=UTC"}
 
+#: The URL schemes of a standard PostgreSQL DSN.
+_PLAIN_SCHEMES = ("postgresql", "postgres")
+
+
+def engine_url(dsn: str) -> str:
+    """
+    Turn a standard PostgreSQL DSN into the URL SQLAlchemy needs.
+
+    The driver is an internal detail, so the configured DSN does not name
+    it; SQLAlchemy would otherwise load its default driver, psycopg2.
+
+    :param dsn: The configured DSN (``postgresql://user:pw@host/db``).
+    :returns: The DSN naming kestrel's driver. A DSN that already names a
+        driver, or has another scheme, is returned unchanged.
+    """
+    scheme, separator, rest = dsn.partition("://")
+    if separator and scheme in _PLAIN_SCHEMES:
+        return f"postgresql+psycopg://{rest}"
+    return dsn
+
 
 def make_engine(url: str) -> Engine:
     """
     Build an engine for a PostgreSQL URL with kestrel's connection setup.
 
-    :param url: A ``postgresql+psycopg://`` SQLAlchemy URL.
+    :param url: The database's DSN.
     :returns: The new engine.
     """
-    return create_engine(url, connect_args=_CONNECT_ARGS)
+    return create_engine(engine_url(url), connect_args=_CONNECT_ARGS)
 
 
 def is_unique_violation(error: IntegrityError) -> bool:
