@@ -179,3 +179,42 @@ describe('the understanding decision (feature 032)', () => {
     expect(inlineReading(pendingAsk([card])!)).toBeNull()
   })
 })
+
+describe('pendingAsk for failed work', () => {
+  function failedCard(
+    overrides: Partial<WorkCardSummary> = {},
+  ): WorkCardSummary {
+    return workCardSummary({
+      state: 'failed',
+      title: 'Implement the export',
+      allowed_actions: ['retry', 'cancel'],
+      ...overrides,
+    })
+  }
+
+  it('asks the operator to deal with a failed card', () => {
+    expect(pendingAsk([failedCard()])).toMatchObject({
+      kind: 'failed',
+      title: '"Implement the export" failed',
+    })
+  })
+
+  it('asks nothing when the server does not allow a retry', () => {
+    expect(pendingAsk([failedCard({ allowed_actions: [] })])).toBeNull()
+  })
+
+  it('puts failed work ahead of a decision, as it has stopped', () => {
+    const asks = pendingAsks([gateCard('approve_prd'), failedCard()])
+
+    expect(asks.map((a) => a.kind)).toEqual(['failed', 'approval'])
+  })
+
+  it('keeps quarantine first', () => {
+    const quarantined = workCardSummary({
+      state: 'quarantined',
+      security_review_id: 'sr-1',
+    })
+
+    expect(pendingAsk([failedCard(), quarantined])?.kind).toBe('quarantine')
+  })
+})

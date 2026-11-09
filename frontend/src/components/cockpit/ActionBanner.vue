@@ -34,7 +34,9 @@ const otherAskCount = computed(() =>
 )
 
 const tone = computed(() =>
-  ask.value?.kind === 'quarantine' ? 'error' : 'warning',
+  ask.value?.kind === 'quarantine' || ask.value?.kind === 'failed'
+    ? 'error'
+    : 'warning',
 )
 
 /** What the operator is deciding on, readable before approving (#66):
@@ -138,6 +140,28 @@ function discard(a: PendingAsk): void {
   })
 }
 
+function retry(a: PendingAsk): void {
+  confirm({
+    label: 'Retry',
+    prompt: `Run "${a.card.title}" again?`,
+    needsFeedback: false,
+    run: async () => {
+      await applyIntervention(a.card.id, 'retry')
+    },
+  })
+}
+
+function abandon(a: PendingAsk): void {
+  confirm({
+    label: 'Abandon',
+    prompt: `Abandon "${a.card.title}"? It will not run again, and work that depends on it will not start. This cannot be undone.`,
+    needsFeedback: false,
+    run: async () => {
+      await applyIntervention(a.card.id, 'cancel')
+    },
+  })
+}
+
 /** A 409 means this decision was already made (feature 037: a gate is
  *  checked on its own, so other work moving on never causes one) — say
  *  that in words rather than a bare status code (FR-046). */
@@ -201,6 +225,20 @@ const staleMessage = computed(() =>
             </v-btn>
             <v-btn color="error" variant="tonal" @click="discard(ask)">
               Discard
+            </v-btn>
+          </template>
+
+          <template v-if="ask.kind === 'failed'">
+            <v-btn color="primary" variant="tonal" @click="retry(ask)">
+              Retry
+            </v-btn>
+            <v-btn
+              v-if="ask.card.allowed_actions.includes('cancel')"
+              color="error"
+              variant="tonal"
+              @click="abandon(ask)"
+            >
+              Abandon
             </v-btn>
           </template>
         </div>

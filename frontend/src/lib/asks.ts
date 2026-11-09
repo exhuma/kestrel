@@ -17,6 +17,8 @@ export type AskKind =
   | 'approval'
   /** Untrusted content held at intake, released or discarded. */
   | 'quarantine'
+  /** Work that failed and has stopped, retried or abandoned. */
+  | 'failed'
 
 export interface PendingAsk {
   kind: AskKind
@@ -44,6 +46,10 @@ function isGateAsk(card: WorkCardSummary): boolean {
 
 function isQuarantineAsk(card: WorkCardSummary): boolean {
   return card.state === 'quarantined' && card.security_review_id !== null
+}
+
+function isFailedAsk(card: WorkCardSummary): boolean {
+  return card.state === 'failed' && card.allowed_actions.includes('retry')
 }
 
 /** Decisions whose rejection must say what is wrong: the redraft works
@@ -80,13 +86,24 @@ function toQuarantineAsk(card: WorkCardSummary): PendingAsk {
   }
 }
 
+function toFailedAsk(card: WorkCardSummary): PendingAsk {
+  return {
+    kind: 'failed',
+    card,
+    title: `"${card.title}" failed`,
+    requiresRejectionFeedback: false,
+  }
+}
+
 /** Every outstanding ask, quarantine first: untrusted content outranks
  *  any decision, because until it is resolved the request may not be what
- *  it appears to be. */
+ *  it appears to be. Failed work comes next: nothing moves it on but the
+ *  operator. */
 export function pendingAsks(cards: WorkCardSummary[]): PendingAsk[] {
   const quarantine = cards.filter(isQuarantineAsk).map(toQuarantineAsk)
+  const failed = cards.filter(isFailedAsk).map(toFailedAsk)
   const gates = cards.filter(isGateAsk).map(toGateAsk)
-  return [...quarantine, ...gates]
+  return [...quarantine, ...failed, ...gates]
 }
 
 /** The single ask to state prominently, or `null` when the request wants

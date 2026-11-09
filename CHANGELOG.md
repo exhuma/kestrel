@@ -43,6 +43,10 @@ holds the record. Constitution 2.0.0.
 
 ### Fixed
 
+- The request page shows its history and activity again: an earlier
+  cleanup in this release removed the endpoint they load from.
+- A failed card can be retried or abandoned from the request page. The page
+  told the operator to do this but had no control for it.
 - A card no longer fails when its agent backend goes away mid-turn. It goes
   back to `ready` at once and is retried without using up an attempt
   (`board_backend_outage_retries`), and the log says so in one line.

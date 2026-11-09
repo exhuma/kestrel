@@ -20,7 +20,7 @@ const ASKS: Readonly<Record<string, string>> = {
   approve_decomposition: 'go / no-go',
   do_task: 'do the task',
   review_input: 'review the input',
-  retry_or_cancel: 'retry or cancel',
+  retry_or_cancel: 'retry or abandon',
   review: 'review',
 }
 

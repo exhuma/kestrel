@@ -60,7 +60,7 @@ function toolUse(a: RequestActivity): string {
 
 function problem(a: RequestActivity): string {
   if (a.detail) return `Problem: ${a.detail}. It will be retried.`
-  return `Problem: ${quote(a.subject)} failed. Retry or cancel it.`
+  return `Problem: ${quote(a.subject)} failed. Retry or abandon it.`
 }
 
 function stalled(a: RequestActivity): string {

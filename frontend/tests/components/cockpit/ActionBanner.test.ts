@@ -347,3 +347,52 @@ describe('ActionBanner whose move (feature 035)', () => {
     )
   })
 })
+
+describe('ActionBanner for failed work', () => {
+  function failedCard(
+    allowed: WorkCardSummary['allowed_actions'] = ['retry', 'cancel'],
+  ): WorkCardSummary {
+    return workCardSummary({
+      id: 'card-9',
+      state: 'failed',
+      title: 'Implement the export',
+      allowed_actions: allowed,
+    })
+  }
+
+  it('offers retry and abandon', () => {
+    const wrapper = mountBanner([failedCard()])
+
+    expect(wrapper.text()).toContain('"Implement the export" failed')
+    expect(button(wrapper, 'Retry')).toBeDefined()
+    expect(button(wrapper, 'Abandon')).toBeDefined()
+  })
+
+  it('retries the card after confirmation', async () => {
+    await confirmVia(mountBanner([failedCard()]), 'Retry')
+
+    expect(mockApplyIntervention).toHaveBeenCalledWith('card-9', 'retry')
+  })
+
+  it('abandons the card after confirmation', async () => {
+    await confirmVia(mountBanner([failedCard()]), 'Abandon')
+
+    expect(mockApplyIntervention).toHaveBeenCalledWith('card-9', 'cancel')
+  })
+
+  it('does nothing until the operator confirms', async () => {
+    const wrapper = mountBanner([failedCard()])
+
+    await button(wrapper, 'Abandon')?.trigger('click')
+    await flushPromises()
+
+    expect(mockApplyIntervention).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('cannot be undone')
+  })
+
+  it('hides abandon when the server does not allow it', () => {
+    const wrapper = mountBanner([failedCard(['retry'])])
+
+    expect(button(wrapper, 'Abandon')).toBeUndefined()
+  })
+})
