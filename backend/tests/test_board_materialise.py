@@ -20,6 +20,8 @@ from app.services.board.claims import ClaimsService, NoEligibleCardError
 from app.services.board.gates import GatesService
 from app.services.board.materialise import (
     TASK_SPEC_LOGICAL_NAME,
+    MaterialiseTarget,
+    materialise_decomposition,
     render_breakdown,
     task_context,
 )
@@ -162,12 +164,16 @@ def test_task_spec_carries_the_approved_text_and_estimate(
 
 
 def test_no_task_card_is_created_twice(tmp_path: Path) -> None:
-    """Ensure a second approval of the same breakdown adds nothing."""
+    """Ensure applying the same approval again adds nothing."""
     board = _Board(tmp_path)
     board.approve(_task("t1", "Schema"))
     before = {c.id for c in board.tagged()}
 
-    board.approve(_task("t1", "Schema"), revision=2)
+    materialise_decomposition(
+        "wf-1",
+        json.dumps({"summary": "s", "tasks": [_task("t1", "Schema")]}),
+        MaterialiseTarget(board.store, board.artifacts),
+    )
 
     assert {c.id for c in board.tagged()} == before
 
@@ -314,3 +320,18 @@ def test_no_specialist_can_claim_a_manual_task(tmp_path: Path) -> None:
 
     with pytest.raises(NoEligibleCardError):
         claims.claim_next_ready_card("wf-1", "verifier")
+
+
+def test_a_replanned_request_gets_its_own_task_ids(tmp_path: Path) -> None:
+    """Ensure a plan approved after the PRD changed creates its work,
+    with ids that cannot be confused with the first plan's."""
+    board = _Board(tmp_path)
+    board.approve(_task("t1", "First plan"))
+
+    board.approve(_task("t1", "Second plan"), revision=2)
+
+    titles = {
+        c.task_node_id: c.title for c in board.store.list_cards("wf-1")
+        if c.kind == "implementation"
+    }
+    assert titles == {"t1": "First plan", "plan2-t1": "Second plan"}

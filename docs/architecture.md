@@ -190,6 +190,19 @@ all, becomes a `coordinator_review` card that no specialist ever claims
 `CoordinatorService.apply_actions` (FR-006). See
 `tests/test_board_verification.py`.
 
+A verifier's escalation, an unreadable verifier result and a task past its
+round cap are put to the **reporter** as an `escalation_gate`
+(`escalations.py`), in kestrel and on the ticket. Approving it accepts the work as built and asks
+for delivery. Cancelling it abandons the request. Rejecting it with a reason
+is a clarification, which a `clarification_review` card has `pm` judge against
+the approved PRD. Only an explicit `clarifies` verdict starts a fix and a fresh
+verification on the same branch (`change_rounds.py`, as Request changes does).
+Any other verdict, an unreadable one included, redrafts the PRD, which goes back
+through PRD sign-off and CAB-2, so a clarification cannot add scope the change
+advisory board never saw. CAB-1 is not asked again. Nothing delivers while such
+a gate, review or re-approval is open, and a plan approved later gets its own
+task ids (`plan2-…`).
+
 A result that cannot be read at all (malformed JSON, a missing block) is
 not escalated straight away (feature 042, `retries.py`). The work runs
 again as a fresh card of the same kind, which records the attempt it
@@ -222,9 +235,9 @@ resolves exactly one projection, idempotent by key and never raising on a
 post failure (recorded as retryable instead). Wired for **gate decisions**
 (resolving a decision gate posts one plain sentence for its kind and
 outcome, such as `"PRD signed off."`; an interview gate posts nothing),
-**escalations** (a `coordinator_review` card — created either by a
-verifier's routed finding, T051, or an operator's own "request
-coordinator review" — posts `"Escalation: <summary/title>"`), and an
+**escalations** (a `coordinator_review` card an operator requested posts
+`"Escalation: <summary/title>"`; a verifier's finding is an
+`escalation_gate`, announced like any gate), and an
 **approved task breakdown** (below) — see `tests/test_board_write_back.py`,
 `tests/test_board_verification.py`, and
 `bootstrap.py::schedule_gate_projection`/`schedule_escalation_projection`.

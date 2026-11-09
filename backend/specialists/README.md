@@ -23,6 +23,8 @@ One subdirectory per named role, loaded from `specialists_root`
 
 ## Card kinds (this feature's initial vocabulary)
 
+`escalation_gate` holds a problem the verifier could not settle.
+`clarification_review` is `pm`'s judgement of the answer to one.
 `understanding_gate`, `refinement_gate`, `prd_gate`, `decomposition_gate` are
 human gates: no specialist claims them, the operator resolves them directly.
 `understanding` is `pm`'s restatement of a newly accepted request, which the

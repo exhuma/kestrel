@@ -18,6 +18,7 @@ from app.services.board.decomposition import (
     RoutingServices,
     route_decomposition_result,
 )
+from app.services.board.escalations import clarification_context
 from app.services.board.estimation import (
     estimation_context,
     route_estimation_result,
@@ -72,6 +73,7 @@ _STORE_CONTEXTS: dict[
         gather_refinement_context(card.workflow_id, store, artifacts)
     ),
     CardKind.UNDERSTANDING.value: understanding_context,
+    CardKind.CLARIFICATION_REVIEW.value: clarification_context,
     CardKind.STRATEGIC_INTERVIEW.value: lambda _card, _store, _artifacts: (
         f"{STRATEGIC_BRIEF}\n\n{QUESTION_FORMAT}"
     ),

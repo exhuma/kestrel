@@ -93,6 +93,16 @@ class AnnouncementService:
                 "workflow %s: announcement pass failed", workflow_id
             )
 
+    async def run_forever(self, interval_seconds: float) -> None:
+        """Say what has not been said, for as long as the app runs: a
+        comment that could not even be built is otherwise lost, because
+        a request waiting on a person has no further board changes to
+        prompt another pass."""
+        while True:
+            for workflow in self._deps.store.list_workflows():
+                await self.announce(workflow.id)
+            await asyncio.sleep(interval_seconds)
+
     def announced_at(self, card: WorkCard) -> datetime | None:
         """When the announcement for the gate *card* was posted (naive
         UTC), or ``None`` while it is unposted. A reply written before
@@ -118,6 +128,15 @@ class AnnouncementService:
         await self.post(
             workflow_id, "escalation", key,
             lambda ctx: status.escalation(ctx, summary),
+        )
+
+    async def clarification_judged(
+        self, workflow_id: str, card_id: str, clarifies: bool
+    ) -> None:
+        """Say how a clarification was judged."""
+        await self.post(
+            workflow_id, "status", f"status:clarification:{card_id}",
+            lambda ctx: status.clarification_judged(ctx, clarifies),
         )
 
     async def gate_decided(

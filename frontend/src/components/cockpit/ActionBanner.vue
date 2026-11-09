@@ -59,6 +59,7 @@ type Confirmation = {
   label: string
   prompt: string
   needsFeedback: boolean
+  feedbackLabel?: string
   run: (feedback: string) => Promise<void>
 }
 const confirming = ref<Confirmation | null>(null)
@@ -136,6 +137,30 @@ function discard(a: PendingAsk): void {
     run: async () => {
       const id = a.card.security_review_id
       if (id) await resolveQuarantine(id, 'discard_quarantine')
+    },
+  })
+}
+
+function clarify(a: PendingAsk): void {
+  confirm({
+    label: 'Clarify',
+    prompt:
+      'Say how this should be resolved. If it changes what was approved, it goes back through PRD sign-off and CAB.',
+    needsFeedback: true,
+    feedbackLabel: 'Your clarification',
+    run: async (text) => {
+      await applyIntervention(a.card.id, 'resolve_gate', 'rejected', text)
+    },
+  })
+}
+
+function acceptAsBuilt(a: PendingAsk): void {
+  confirm({
+    label: 'Accept as built',
+    prompt: 'Accept the work as it is built and move on to delivery?',
+    needsFeedback: false,
+    run: async () => {
+      await applyIntervention(a.card.id, 'resolve_gate', 'approved')
     },
   })
 }
@@ -228,6 +253,18 @@ const staleMessage = computed(() =>
             </v-btn>
           </template>
 
+          <template v-if="ask.kind === 'escalation'">
+            <v-btn color="primary" variant="tonal" @click="clarify(ask)">
+              Clarify
+            </v-btn>
+            <v-btn color="success" variant="tonal" @click="acceptAsBuilt(ask)">
+              Accept as built
+            </v-btn>
+            <v-btn color="error" variant="tonal" @click="abandon(ask)">
+              Abandon
+            </v-btn>
+          </template>
+
           <template v-if="ask.kind === 'failed'">
             <v-btn color="primary" variant="tonal" @click="retry(ask)">
               Retry
@@ -268,7 +305,7 @@ const staleMessage = computed(() =>
           <v-textarea
             v-if="confirming?.needsFeedback"
             v-model="feedback"
-            label="What needs to change"
+            :label="confirming?.feedbackLabel ?? 'What needs to change'"
             rows="4"
           />
         </v-card-text>

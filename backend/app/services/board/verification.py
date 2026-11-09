@@ -35,10 +35,9 @@ from app.services.board.verification_rounds import (
 class VerificationRouting:
     """What one verification card's parsed result decided (T051/T069).
 
-    :param escalations: Escalation summaries routed (including a
-        synthetic one for an unparseable result) — a caller wiring an
-        escalation's projection to its task source (T067) needs these
-        without re-parsing the verifier's text itself.
+    :param escalations: What needs a person's decision, one title each
+        (including a synthetic one for an unparseable result): the caller
+        opens an ``escalation_gate`` for each.
     :param clean: Whether the result had no findings at all (not even a
         remediation one) — the caller's signal to trigger delivery
         (T069). ``False`` for an unparseable result (fail closed).
@@ -60,8 +59,8 @@ def route_verifier_result(
     becomes a ``coder``-eligible ``implementation`` card, ready
     immediately (no dependency — it is new work, not a revision of the
     card it concerns); an escalation finding (or a result that fails to
-    parse at all) becomes a ``coordinator_review`` card, claimed by no
-    specialist. A clean result (no findings, and none of the entries
+    parse at all) is returned for the caller to put to a person. A clean
+    result (no findings, and none of the entries
     above) creates nothing here — the caller decides what a clean result
     means (currently: trigger delivery, T069); the verification card's
     own acceptance (``artifacts.submit_result``) is a separate concern.
@@ -79,34 +78,22 @@ def route_verifier_result(
     try:
         findings = parse_verifier_result(text)
     except VerifierResultError:
-        escalations = [f"Unparseable verifier result on card {card.id}"]
         actions = [
             CreateCardAction(
-                kind=CardKind.COORDINATOR_REVIEW.value, title=escalations[0],
+                kind=CardKind.COORDINATOR_REVIEW.value,
+                title=f"Unparseable verifier result on card {card.id}",
                 source_card_id=card.id,
             )
         ]
         clean = False
     else:
-        escalations = [f.summary for f in findings if is_escalation(f)]
         actions = [_action_for(finding) for finding in findings]
         clean = not findings
-    _apply(card, actions, coordinator, rounds)
-    return VerificationRouting(escalations=escalations, clean=clean)
-
-
-def _apply(
-    card: WorkCard,
-    actions: list[CreateCardAction],
-    coordinator: CoordinatorService,
-    rounds: RoundContext | None,
-) -> None:
     tagged = bool(card.task_node_id) and rounds is not None
     if tagged:
         actions = tagged_follow_ups(card, actions, rounds)
-    if actions:
-        trigger = f"verification:{card.id}:{card.attempt_count}"
-        coordinator.apply_actions(card.workflow_id, trigger, actions)
+    escalations = [a.title for a in actions if _is_escalation(a)]
+    _apply(card, [a for a in actions if not _is_escalation(a)], coordinator)
     follow_up = reverification(card, rounds) if tagged else None
     if follow_up is not None:
         coordinator.apply_actions(
@@ -114,6 +101,21 @@ def _apply(
             f"reverification:{card.id}:{card.attempt_count}",
             [follow_up],
         )
+    return VerificationRouting(escalations=escalations, clean=clean)
+
+
+def _is_escalation(action: CreateCardAction) -> bool:
+    return action.kind == CardKind.COORDINATOR_REVIEW.value
+
+
+def _apply(
+    card: WorkCard,
+    actions: list[CreateCardAction],
+    coordinator: CoordinatorService,
+) -> None:
+    if actions:
+        trigger = f"verification:{card.id}:{card.attempt_count}"
+        coordinator.apply_actions(card.workflow_id, trigger, actions)
 
 
 def _action_for(finding: VerifierFinding) -> CreateCardAction:

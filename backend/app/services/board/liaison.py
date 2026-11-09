@@ -93,9 +93,14 @@ def without_marker(text: str, marker: str) -> str:
     return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
 
+def without_data_tags(text: str) -> str:
+    """*text* unable to close the data section it is put in."""
+    return _DATA_TAG.sub("", text)
+
+
 def build_envelope(prompt: str, ask: LiaisonAsk) -> str:
     """The trust-separated liaison prompt (``contracts/liaison-turn.md``)."""
-    reply = _DATA_TAG.sub("", without_marker(to_prompt(ask.reply), ask.marker))
+    reply = without_data_tags(without_marker(to_prompt(ask.reply), ask.marker))
     return (
         f"{prompt}\n\n"
         "You are reading a reply on the ticket to this open decision:\n"

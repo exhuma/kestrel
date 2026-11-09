@@ -115,6 +115,13 @@ class CardKind(StrEnum):
     #: The coordinator's removal of questions asked twice, before a
     #: batch's interviews open (feature 038). Created only by code.
     QUESTION_REVIEW = "question_review"
+    #: A problem the verifier cannot settle, held for the requester to
+    #: clarify, accept as built or abandon. Created only by code.
+    ESCALATION_GATE = "escalation_gate"
+    #: `pm`'s judgement of whether a clarification only settles the
+    #: escalated problem or changes what was approved. Created only by
+    #: code, when an ``escalation_gate`` is answered with a clarification.
+    CLARIFICATION_REVIEW = "clarification_review"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves
@@ -127,6 +134,7 @@ GATE_CARD_KINDS = frozenset(
         CardKind.DECOMPOSITION_GATE,
         CardKind.CAB1_GATE,
         CardKind.STRATEGIC_INTERVIEW_GATE,
+        CardKind.ESCALATION_GATE,
     }
 )
 

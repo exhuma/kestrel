@@ -54,6 +54,25 @@ def understanding(ctx: Context, restatement: Document) -> Document:
     ))
 
 
+def escalation(ctx: Context, problem: str) -> Document:
+    """A problem only the reporter can settle, and the ways to settle it."""
+    return finish(ctx, (
+        addressed(
+            ctx.people.reporter,
+            "the work has stopped on a problem kestrel may not settle by "
+            "itself.",
+        ),
+        paragraph(Text(problem)),
+        paragraph(Text(
+            "Say how it should be resolved, or say that you accept the "
+            "work as it is built. A clarification that changes what was "
+            "approved goes back through PRD sign-off and CAB. To stop the "
+            "request instead, abandon it in kestrel."
+        )),
+        how_to_answer(ctx),
+    ))
+
+
 def strategic_interview(ctx: Context, questions: int) -> Document:
     """How many questions kestrel has, and where the form is."""
     return finish(ctx, (

@@ -43,6 +43,7 @@ _DECIDES = {
     CardKind.STRATEGIC_INTERVIEW_GATE.value: REPORTER,
     CardKind.REFINEMENT_GATE.value: REPORTER,
     CardKind.PRD_GATE.value: REPORTER,
+    CardKind.ESCALATION_GATE.value: REPORTER,
     CardKind.CAB1_GATE.value: CHANGE_OWNER,
     CardKind.DECOMPOSITION_GATE.value: CHANGE_OWNER,
 }
@@ -61,6 +62,13 @@ _DECISIONS = {
         "sign off the PRD",
         "kestrel wrote up the product requirements and asked for them to "
         "be approved, or for what to change.",
+    ),
+    "resolve_escalation": (
+        "settle a problem the verifier could not",
+        "kestrel asked how to resolve a problem found in the finished "
+        "work. Accepting the work as built is an approval. A reply saying "
+        "how to resolve it is a rejection, and its reason must carry that "
+        "explanation in full, in the person's own words.",
     ),
     "approve_strategic_fit": (
         "approve the strategic fit (CAB-1)",

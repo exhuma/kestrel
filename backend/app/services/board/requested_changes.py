@@ -13,33 +13,21 @@ capped, and a clean verification delivers to the same change request.
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Mapping
 
 import httpx
 
 from app.documents import Document, Heading, Text, document, paragraph
-from app.models_board import (
-    CardKind,
-    CardRelation,
-    CardState,
-    RelationKind,
-    WorkCard,
-    Workflow,
-    WorkspacePermission,
-)
+from app.models_board import WorkCard, Workflow
 from app.ports import CodeHost
 from app.services.board.agent_text import from_agent
+from app.services.board.change_rounds import Round, start_round, summary_of
 from app.services.board.interventions import (
     InvalidInterventionError,
     StaleInterventionError,
 )
-from app.services.board.materialise import (
-    TASK_SPEC_LOGICAL_NAME,
-    MaterialiseTarget,
-)
+from app.services.board.materialise import MaterialiseTarget
 from app.services.board.phases import DONE, outcome_of
-from app.services.board.retries import detail_of
 from app.services.board.service import BoardService
 from app.services.exceptions import GitError
 
@@ -47,8 +35,6 @@ _log = logging.getLogger("kestrel.board.requested_changes")
 
 #: The event that records the request, and wakes the board.
 REQUESTED_EVENT = "intervention.request_changes"
-#: The most of the feedback's first line a card's title shows.
-_TITLE_LIMIT = 80
 _HEADING_LEVEL = 1
 
 
@@ -125,67 +111,21 @@ class RequestChangesService:
             )
 
     def _start(self, workflow_id: str, feedback: str) -> WorkCard:
-        """Create the fix and its verification, then start the fix last,
-        so nothing can pick it up before its task text exists."""
-        store = self._target.store
-        node = f"changes-{uuid.uuid4().hex[:8]}"
-        title = f"Requested changes: {_summary(feedback)}"
-        fix = _card(workflow_id, node, title, CardKind.IMPLEMENTATION)
-        check = _card(
-            workflow_id, node, f"Verify: {title}", CardKind.VERIFICATION
-        )
-        store.create_card(fix)
-        store.create_card(check)
-        store.add_relation(
-            CardRelation(
-                card_id=check.id,
-                depends_on_card_id=fix.id,
-                kind=RelationKind.DEPENDENCY,
+        """Start a round of changes from the person's feedback."""
+        card = start_round(
+            self._target, self._board_service, workflow_id,
+            Round(
+                title=f"Requested changes: {summary_of(feedback)}",
+                spec=_task_spec(feedback),
+                event_type=REQUESTED_EVENT,
+                detail=feedback,
             ),
-            created_by_action="request_changes",
         )
-        self._target.artifacts.store_document(
-            fix.id, TASK_SPEC_LOGICAL_NAME, 1, _task_spec(feedback),
-            trust="operator_approved",
-        )
-        # The next push is new code, so its CI has to be watched again.
-        store.record_ci_status(workflow_id, "pending")
         _log.info(
             "workflow %s: changes requested on delivered work (card %s)",
-            workflow_id, fix.id,
+            workflow_id, card.id,
         )
-        return self._board_service.transition_card(
-            fix.id, CardState.READY.value,
-            event_type=REQUESTED_EVENT, payload=detail_of(feedback),
-        )
-
-
-def _card(
-    workflow_id: str, node: str, title: str, kind: CardKind
-) -> WorkCard:
-    """One waiting card of this round of changes."""
-    is_fix = kind == CardKind.IMPLEMENTATION
-    return WorkCard(
-        id=f"card-{uuid.uuid4().hex[:8]}",
-        workflow_id=workflow_id,
-        kind=kind.value,
-        title=title,
-        state=CardState.WAITING_DEPENDENCY.value,
-        eligible_roles=("coder",) if is_fix else ("verifier",),
-        workspace_permission=(
-            WorkspacePermission.WRITE.value if is_fix
-            else WorkspacePermission.READ_ONLY.value
-        ),
-        task_node_id=node,
-    )
-
-
-def _summary(feedback: str) -> str:
-    """The feedback's first line, short enough for a card's title."""
-    first = feedback.splitlines()[0].strip()
-    if len(first) <= _TITLE_LIMIT:
-        return first
-    return f"{first[:_TITLE_LIMIT].rstrip()}…"
+        return card
 
 
 def _task_spec(feedback: str) -> Document:

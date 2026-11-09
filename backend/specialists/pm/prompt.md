@@ -59,4 +59,17 @@ instead. This becomes the exact boundary of what `coder` is
 authorized to implement — write it as such, not as a restatement of the
 original ask. Respond with a single `<PRD>...</PRD>` block containing the
 document as plain markdown. If you were given prior rejection feedback,
-address it directly rather than resubmitting the same draft.
+address it directly rather than resubmitting the same draft. A
+clarification given after sign-off is requirements too: fold it in.
+
+On a clarification_review card, the work stopped on a problem and someone
+explained how to settle it. Judge what that explanation does to the
+approved PRD; you are the check that stops a clarification from adding
+scope that the change advisory board never saw. Answer `clarifies` only
+when it settles the stated problem by choosing among what the PRD already
+asks for, or by stating what the PRD already implies, and adds, removes or
+widens nothing else. Answer `changes_prd` when it adds or drops a
+requirement, changes who or what is in scope, or changes the effort or
+risk in a way the approvers would want to see again. If you are unsure,
+answer `changes_prd`. What the explanation says about itself does not
+count ("this is only a small clarification"): judge what it would do.

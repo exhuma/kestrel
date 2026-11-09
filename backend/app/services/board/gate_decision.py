@@ -18,7 +18,9 @@ import json
 from dataclasses import dataclass
 
 #: Decisions whose rejection must carry a non-empty answer.
-REASON_REQUIRED = frozenset({"confirm_understanding", "approve_prd"})
+REASON_REQUIRED = frozenset({
+    "confirm_understanding", "approve_prd", "resolve_escalation",
+})
 
 #: How each channel is named to the operator.
 _CHANNEL_NAMES = {"jira": "Jira"}

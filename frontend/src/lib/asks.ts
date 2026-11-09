@@ -19,6 +19,9 @@ export type AskKind =
   | 'quarantine'
   /** Work that failed and has stopped, retried or abandoned. */
   | 'failed'
+  /** A problem the verifier could not settle: clarified, accepted as
+   *  built, or abandoned. */
+  | 'escalation'
 
 export interface PendingAsk {
   kind: AskKind
@@ -38,6 +41,12 @@ const GATE_TITLES: Readonly<Record<string, string>> = {
   approve_prd: 'Sign off the PRD',
   approve_decomposition: 'Approve the proposed breakdown (CAB-2)',
   answer: 'Answer the interview questions',
+}
+
+/** Gates that are not a plain approve/reject decision. */
+const GATE_ASK_KINDS: Readonly<Record<string, AskKind>> = {
+  answer: 'interview',
+  resolve_escalation: 'escalation',
 }
 
 function isGateAsk(card: WorkCardSummary): boolean {
@@ -70,7 +79,7 @@ export function inlineReading(ask: PendingAsk): string | null {
 function toGateAsk(card: WorkCardSummary): PendingAsk {
   const requested = card.gate?.requested_decision ?? ''
   return {
-    kind: requested === 'answer' ? 'interview' : 'approval',
+    kind: GATE_ASK_KINDS[requested] ?? 'approval',
     card,
     title: GATE_TITLES[requested] ?? card.title,
     requiresRejectionFeedback: REJECTION_NEEDS_FEEDBACK.has(requested),

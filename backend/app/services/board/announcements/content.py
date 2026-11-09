@@ -67,6 +67,7 @@ class GateContent:
             CardKind.PRD_GATE.value: self._prd,
             CardKind.CAB1_GATE.value: self._cab1,
             CardKind.DECOMPOSITION_GATE.value: self._cab2,
+            CardKind.ESCALATION_GATE.value: self._escalation,
         }.get(card.kind)
         return make(card) if make is not None else None
 
@@ -110,6 +111,13 @@ class GateContent:
         return Plan(
             f"gate_opened:{card.id}",
             lambda ctx: words.cab_summary(ctx, summary),
+        )
+
+    @staticmethod
+    def _escalation(card: WorkCard) -> Plan:
+        return Plan(
+            f"gate_opened:{card.id}",
+            lambda ctx: words.escalation(ctx, card.title),
         )
 
     def _refinement(self, card: WorkCard) -> Plan:

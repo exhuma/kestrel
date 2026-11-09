@@ -72,6 +72,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # unconditionally alongside the poll loops above, since it recovers
     # abandoned specialist claims rather than polling any task source.
     from app.services.board.bootstrap import (
+        get_announcement_service,
         get_ci_poll_service,
         get_projection_retry_service,
         get_recovery_service,
@@ -89,6 +90,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # that failed to post waits in the projection ledger for this loop.
     poll_tasks.append(
         asyncio.create_task(get_projection_retry_service().run_forever())
+    )
+
+    # A comment that could not be built waits for this pass.
+    poll_tasks.append(
+        asyncio.create_task(
+            get_announcement_service().run_forever(
+                settings.board_projection_retry_interval_seconds
+            )
+        )
     )
 
     # Replies on the ticket (feature 046): an @kestrel reply from the

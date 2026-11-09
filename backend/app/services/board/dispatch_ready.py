@@ -52,6 +52,10 @@ from app.services.board.dispatch_extras import (
     interview_of,
     retry_or_escalate,
 )
+from app.services.board.escalations import (
+    REQUESTED_DECISION,
+    route_clarification,
+)
 from app.services.board.gates import GatesService
 from app.services.board.live_activity import (
     LiveActivity,
@@ -59,6 +63,7 @@ from app.services.board.live_activity import (
     tracking,
     turn_failure,
 )
+from app.services.board.materialise import MaterialiseTarget
 from app.services.board.question_review import reconcile_interviews
 from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
@@ -314,6 +319,9 @@ async def _route_result(
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
         await _route_verification(workflow_id, card, final_text, services)
         return
+    if card.kind == CardKind.CLARIFICATION_REVIEW.value and services.board:
+        await _route_clarification(workflow_id, card, final_text, services)
+        return
     route = ROUTES.get(card.kind)
     if route is None or not (services.coordinator and services.gates):
         return
@@ -344,27 +352,33 @@ async def _route_verification(
             workflow_id, card.id,
         )
         return
-    for index, summary in enumerate(routing.escalations):
-        await _project_escalation(workflow_id, card, index, summary, services)
+    if services.gates is not None:
+        for title in routing.escalations:
+            services.gates.create_gate(
+                workflow_id, kind=CardKind.ESCALATION_GATE.value,
+                title=title, requested_decision=REQUESTED_DECISION,
+            )
     if routing.clean:
         _request_delivery(workflow_id, services)
 
 
-async def _project_escalation(
+async def _route_clarification(
     workflow_id: str,
     card: WorkCard,
-    index: int,
-    summary: str,
+    final_text: str,
     services: DispatchServices,
 ) -> None:
-    """Best-effort projection of one escalation finding (T067)."""
-    if services.announcements is None:
-        return
-    await services.announcements.escalated(
-        workflow_id,
-        f"escalation:{card.id}:{card.attempt_count}:{index}",
-        summary,
+    """Act on a clarification's review, and say on the ticket what it
+    decided. Only called with a board to start the fix through."""
+    judged = route_clarification(
+        final_text, card,
+        MaterialiseTarget(services.claims.store, services.artifacts),
+        services.board,
     )
+    if services.announcements is not None:
+        await services.announcements.clarification_judged(
+            workflow_id, card.id, judged
+        )
 
 
 async def _resolve_workspace(

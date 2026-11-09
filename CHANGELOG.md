@@ -43,6 +43,12 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **Escalations ask someone.** When the verifier stops on a problem it may
+  not settle, the reporter is asked, in kestrel and on the ticket, to clarify
+  it, accept the work as built, or abandon the request. A clarification that
+  only settles the problem starts a fix. One that changes what was approved,
+  or that kestrel cannot be sure about, goes back through PRD sign-off and
+  CAB-2.
 - A delivered request can be sent back from its page with **Request changes**.
   The feedback goes to the coder on the same branch, is verified, and updates
   the same merge or pull request.

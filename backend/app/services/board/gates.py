@@ -20,6 +20,7 @@ from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dependents import advance_ready_dependents
+from app.services.board.escalations import after_escalation_decided
 from app.services.board.gate_decision import (
     Decider,
     decision_payload,
@@ -289,6 +290,9 @@ class GatesService:
                 card, self._store, self._required.understanding_redraft_cap
             )
             self._invalidate_dependents(card.workflow_id, card_id)
+        after_escalation_decided(
+            card, decision, self._store, self._required.coordinator
+        )
         # An answered interview may finish its batch: plan the next one
         # (feature 038). Rejected ones count too — never deadlock.
         maybe_plan_next(card, InterviewBoard(
@@ -426,6 +430,11 @@ class GatesService:
             materialise_decomposition(
                 gate.workflow_id, content,
                 MaterialiseTarget(self._store, self._artifacts),
+                plan_number=sum(
+                    1 for c in self._store.list_cards(gate.workflow_id)
+                    if c.kind == gate.kind
+                    and c.state == CardState.DONE.value
+                ),
             )
 
     def _approved_target_id(

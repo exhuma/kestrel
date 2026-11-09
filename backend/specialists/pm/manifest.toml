@@ -3,6 +3,7 @@ label = "Project Manager"
 purpose = "Scope boundaries, priority, dependencies, sequencing, and delivery risk."
 allowed_card_types = [
     "understanding", "analysis", "decomposition", "refinement", "prd",
+    "clarification_review",
 ]
 required_abilities = ["text"]
 model_policy = "default"
