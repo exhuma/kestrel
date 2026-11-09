@@ -140,6 +140,34 @@ decomposition (CAB-2) creates no child tickets or Sub-tasks: its tasks become
 cards inside the request's own workflow, and the RFC gets one breakdown
 comment (feature 031).
 
+### When the delivered work needs changes
+
+Kestrel does not read comments on a merge request. If you are not happy with
+what it delivered, there are two ways to get more work done.
+
+**Request changes**, for feedback on the delivered work itself. Open the
+request in kestrel, press **Request changes** and say what should change.
+The coder works on it on the same branch, the verifier checks it, and the
+same merge request is updated. The button appears once the request is done
+and nothing else is open. Kestrel refuses if the merge request has already
+been merged or closed.
+
+**A follow-up ticket**, for something that deserves its own requirements and
+gates. Create a new ticket that describes the change and links the merge
+request, and in its repository field name the first delivery's branch as
+the base:
+
+```
+group/project@kestrel/board/wf-043c8473
+```
+
+The workflow id is in the first request's address in kestrel, after
+`#/requests/`, and the branch is also the source branch of its merge request.
+The follow-up goes through the whole pipeline, starts from the first
+delivery's code, and opens its own merge request **into that branch**.
+Merge the follow-up first. If you merge the first one first and its source
+branch is deleted, retarget the follow-up's merge request by hand.
+
 ### What the ticket shows
 
 kestrel comments on the ticket whenever a person is needed, so nobody has to

@@ -102,6 +102,16 @@ async def test_resolves_repo_with_explicit_base_branch() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_delivered_branch_can_be_the_base() -> None:
+    """Ensure a follow-up ticket can name a branch containing slashes."""
+    ref = "team/svc@kestrel/board/wf-1234"
+
+    assert await _svc(ref)._resolve_repo("RFC-1") == (
+        "team/svc", "kestrel/board/wf-1234"
+    )
+
+
+@pytest.mark.asyncio
 async def test_empty_field_is_unresolved() -> None:
     """Ensure an empty/missing field yields None (no run)."""
     assert await _svc(None)._resolve_repo("RFC-1") is None
