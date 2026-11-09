@@ -30,11 +30,13 @@ from app.routers.board_deps import (
     snapshot_for,
 )
 from app.routers.board_views import (
+    board_events,
     card_summary,
 )
 from app.routers.document_out import MARKDOWN_MIME, api_markdown
 from app.schemas import (
     BoardArtifactContentOut,
+    BoardEventOut,
     BoardInterventionIn,
     BoardSnapshotOut,
     QuarantineInterventionIn,
@@ -261,6 +263,30 @@ async def stream_board(
     return StreamingResponse(
         _frames(), media_type="text/event-stream", headers=sse.HEADERS
     )
+
+
+@router.get(
+    "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
+)
+async def list_board_events(
+    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
+) -> list[BoardEventOut]:
+    """Return one workflow's board event history, oldest first — the
+    narrative feed's data source.
+
+    Not streamed: board SSE is full-snapshot replacement (never
+    incremental patches), and a growing append-only log does not fit
+    that shape. The client re-fetches this after the snapshot stream
+    ticks instead.
+
+    :raises HTTPException: 404 if ``workflow_id`` is unknown.
+    """
+    workflow = deps.board.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="unknown workflow")
+    events = deps.board.list_events(workflow_id)
+    cards = deps.board.list_cards(workflow_id)
+    return board_events(events, cards, deps.roster)
 
 
 @router.post(

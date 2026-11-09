@@ -22,6 +22,7 @@ from app.models_board import (
     Workflow,
 )
 from app.models_board_records import (
+    BoardEventRecord,
     HandoffArtifact,
     HumanGateRecord,
 )
@@ -424,4 +425,39 @@ async def test_board_events_unknown_workflow_is_404(tmp_path: Path) -> None:
     client, _store, _claims = _client(tmp_path)
     async with client as c:
         resp = await c.get("/api/board/workflows/missing/board/events")
+    assert resp.status_code == httpx.codes.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_list_board_events_returns_history_oldest_first(
+    tmp_path: Path,
+) -> None:
+    client, store, _claims = _client(tmp_path)
+    store.create_card(_ready_card(eligible_roles=("developer",)))
+    store.append_event(
+        BoardEventRecord(workflow_id="wf-1", event_type="workflow.created")
+    )
+    store.append_event(
+        BoardEventRecord(
+            workflow_id="wf-1", event_type="card.claimed", card_id="card-1"
+        )
+    )
+    async with client as c:
+        resp = await c.get("/api/board/workflows/wf-1/events")
+    assert resp.status_code == httpx.codes.OK
+    body = resp.json()
+    assert [e["event_type"] for e in body] == [
+        "workflow.created", "card.claimed",
+    ]
+    assert body[0]["specialist"] is None
+    assert body[1]["specialist"]["id"] == "developer"
+
+
+@pytest.mark.asyncio
+async def test_list_board_events_unknown_workflow_is_404(
+    tmp_path: Path,
+) -> None:
+    client, _store, _claims = _client(tmp_path)
+    async with client as c:
+        resp = await c.get("/api/board/workflows/missing/events")
     assert resp.status_code == httpx.codes.NOT_FOUND

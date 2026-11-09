@@ -143,7 +143,8 @@ entity reference; this is the operator-relevant shape:
 replacement, never incremental patches): `GET /workflows` (collection
 summary) and `GET /workflows/events` (its SSE stream); `GET
 /workflows/{id}/board` (one workflow's full snapshot: cards, relations,
-`revision`) and `GET /workflows/{id}/board/events`; `POST
+`revision`) and `GET /workflows/{id}/board/events`; `GET
+/workflows/{id}/events` (the history the request page shows); `POST
 /workflows/{id}/cards/{id}/interventions`; `POST
 /security-reviews/{id}/resolve`. See
 `specs/026-autonomous-work-board/contracts/board-api.md`.
