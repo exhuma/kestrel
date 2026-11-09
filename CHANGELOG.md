@@ -41,6 +41,12 @@ holds the record. Constitution 2.0.0.
   `read_only` or `edit` (default `edit`); the Claude backend maps them to its
   own flags.
 
+### Added
+
+- A delivered request can be sent back from its page with **Request changes**.
+  The feedback goes to the coder on the same branch, is verified, and updates
+  the same merge or pull request.
+
 ### Fixed
 
 - The request page shows its history and activity again: an earlier

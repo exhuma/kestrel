@@ -38,6 +38,7 @@ from app.services.board.live_activity import (
     turn_failure,
 )
 from app.services.board.materialise import (
+    MaterialiseTarget,
     approved_candidate,
     render_breakdown,
 )
@@ -45,6 +46,7 @@ from app.services.board.projection_retry import ProjectionRetryService
 from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
 from app.services.board.recovery import RecoveryService
+from app.services.board.requested_changes import RequestChangesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
 from app.services.board.workspace import WorkspaceService
@@ -155,6 +157,16 @@ def get_interventions_service() -> InterventionsService:
         get_board_claims_store(),
         get_board_service(),
         get_gates_service(),
+    )
+
+
+@lru_cache
+def get_request_changes_service() -> RequestChangesService:
+    """Return the process-wide RequestChangesService singleton."""
+    return RequestChangesService(
+        MaterialiseTarget(get_board_store(), get_artifacts_service()),
+        get_board_service(),
+        get_task_source_registry().code_hosts,
     )
 
 

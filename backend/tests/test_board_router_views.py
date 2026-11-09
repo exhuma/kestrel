@@ -38,10 +38,13 @@ from app.services.board.bootstrap import (
     get_board_service,
     get_gates_service,
     get_interventions_service,
+    get_request_changes_service,
     get_specialist_roster,
 )
 from app.services.board.gates import GatesService
 from app.services.board.interventions import InterventionsService
+from app.services.board.materialise import MaterialiseTarget
+from app.services.board.requested_changes import RequestChangesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
@@ -103,6 +106,11 @@ def _client(tmp_path: Path) -> _Client:
     )
     app.dependency_overrides[get_gates_service] = lambda: gates_service
     app.dependency_overrides[get_artifacts_service] = lambda: artifacts
+    app.dependency_overrides[get_request_changes_service] = lambda: (
+        RequestChangesService(
+            MaterialiseTarget(store, artifacts), board_service, {}
+        )
+    )
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )

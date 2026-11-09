@@ -13,7 +13,9 @@ migration as part of spec
 Phase 10 "clean break" (see
 [Architecture](architecture.md#the-work-board-spec-026)).
 
-PR and MR review feedback has **no replacement yet**; that is spec 044.
+Kestrel does not read comments on a pull or merge request; that is spec
+044. Until then, a person passes review feedback on from the request page:
+see [When the delivered work needs changes](setup-jira-workflow.md#when-the-delivered-work-needs-changes).
 
 Replies on a **ticket** are a different matter. Since feature 046, kestrel
 reads `@kestrel` replies on a Jira ticket and decides the open gate from

@@ -44,6 +44,7 @@ const OPERATOR_EVENTS: ReadonlySet<string> = new Set([
   'gate.rejected_dependent_cancelled',
   'intervention.retry',
   'intervention.cancel',
+  'intervention.request_changes',
   'intervention.reassign',
   'manual_task.completed',
 ])
@@ -59,6 +60,7 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'gate.rejected': 'warning',
   'gate.rejected_dependent_cancelled': 'warning',
   'intervention.retry': 'warning',
+  'intervention.request_changes': 'warning',
   'intervention.cancel': 'warning',
   'intervention.reassign': 'info',
   'manual_task.completed': 'success',
@@ -85,6 +87,7 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'gate.rejected_dependent_cancelled':
     'Dependent work cancelled by that rejection',
   'intervention.retry': 'You retried this card',
+  'intervention.request_changes': 'You requested changes',
   'intervention.cancel': 'You cancelled this card',
   'intervention.reassign': 'You returned this card to the queue',
   'manual_task.completed': 'You marked a manual task done',

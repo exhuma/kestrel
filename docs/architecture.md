@@ -146,6 +146,8 @@ summary) and `GET /workflows/events` (its SSE stream); `GET
 `revision`) and `GET /workflows/{id}/board/events`; `GET
 /workflows/{id}/events` (the history the request page shows); `POST
 /workflows/{id}/cards/{id}/interventions`; `POST
+/workflows/{id}/request-changes` (send delivered work back to the coder);
+`POST
 /security-reviews/{id}/resolve`. See
 `specs/026-autonomous-work-board/contracts/board-api.md`.
 

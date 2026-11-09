@@ -21,9 +21,16 @@ spec 026's Phase 10 clean break (`docs/feedback-intake.md`). Today a
 reviewer's request for changes on a Kestrel PR is lost: the operator has to
 re-enter it by hand.
 
-The code-host layer still reads review comments on both hosts
-(`CodeHost.list_review_comments`, `acknowledge`, `get_change_request`), but
-nothing on the board calls it. The board already has the loop this needs:
+**Starting point (updated 2026-11-09).** The slim-core work removed
+`CodeHost.list_review_comments` and `acknowledge` as unused; restore them
+from the parent of commit `5c33301` (only `get_change_request` remains).
+The "Request changes" action added since (`RequestChangesService` in
+`app/services/board/requested_changes.py`) already turns written feedback
+into verified work delivered to the same change request. This feature adds
+a second source of that feedback: what remains is reading and triaging the
+comments, then calling that service.
+
+The board already has the loop this needs:
 the verifier's findings become remediation work, the work is re-verified up
 to a cap, anything that needs a human decision escalates, and a clean
 result is delivered to the same PR.

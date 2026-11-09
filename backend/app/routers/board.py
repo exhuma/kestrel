@@ -40,6 +40,8 @@ from app.schemas import (
     BoardInterventionIn,
     BoardSnapshotOut,
     QuarantineInterventionIn,
+    RequestChangesIn,
+    RequestChangesOut,
     SecurityReviewOut,
     WorkCardSummaryOut,
     WorkflowSummaryOut,
@@ -49,6 +51,7 @@ from app.services.board.bootstrap import (
     get_artifacts_service,
     get_interventions_service,
     get_quarantine_service,
+    get_request_changes_service,
     schedule_escalation_projection,
     schedule_gate_followup,
     schedule_gate_projection,
@@ -64,6 +67,7 @@ from app.services.board.interventions import (
     StaleInterventionError,
 )
 from app.services.board.quarantine import QuarantineService
+from app.services.board.requested_changes import RequestChangesService
 from app.services.ingestion import schedule_intake_continuation
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
@@ -287,6 +291,36 @@ async def list_board_events(
     events = deps.board.list_events(workflow_id)
     cards = deps.board.list_cards(workflow_id)
     return board_events(events, cards, deps.roster)
+
+
+@router.post(
+    "/workflows/{workflow_id}/request-changes",
+    response_model=RequestChangesOut,
+)
+async def request_changes(
+    workflow_id: str,
+    body: RequestChangesIn,
+    deps: BoardReadDeps = Depends(board_read_deps),
+    service: RequestChangesService = Depends(get_request_changes_service),
+) -> RequestChangesOut:
+    """Send a delivered request back for more work on its branch.
+
+    :raises HTTPException: 404 if the workflow is unknown; 409 if
+        ``expected_revision`` is stale; 422 if changes cannot be requested
+        now, for a reason stated in the response.
+    """
+    workflow = deps.board.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="unknown workflow")
+    try:
+        card = await service.request(
+            workflow, body.feedback, expected_revision=body.expected_revision
+        )
+    except StaleInterventionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InvalidInterventionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return RequestChangesOut(card_id=card.id)
 
 
 @router.post(

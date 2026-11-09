@@ -297,6 +297,26 @@ class WorkflowSummaryOut(BaseModel):
     awaiting: list[AwaitingOut] = []
 
 
+class RequestChangesIn(BaseModel):
+    """What should change about a delivered request.
+
+    :param feedback: The reviewer's feedback, in Markdown.
+    :param expected_revision: The board revision the reviewer saw.
+    """
+
+    feedback: str
+    expected_revision: int
+
+
+class RequestChangesOut(BaseModel):
+    """The work a change request started.
+
+    :param card_id: The implementation card that will make the changes.
+    """
+
+    card_id: str
+
+
 class BoardEventOut(BaseModel):
     """One board-history entry (data-model.md "Board Event"), safe for
     the narrative feed.
