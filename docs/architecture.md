@@ -192,8 +192,9 @@ all, becomes a `coordinator_review` card that no specialist ever claims
 
 A verifier's escalation, an unreadable verifier result and a task past its
 round cap are put to the **reporter** as an `escalation_gate`
-(`escalations.py`), in kestrel and on the ticket. Approving it accepts the work as built and asks
-for delivery. Cancelling it abandons the request. Rejecting it with a reason
+(`escalations.py`), in kestrel and on the ticket. Approving it accepts the
+work as built and asks for delivery. Cancelling it abandons the request.
+Rejecting it with a reason
 is a clarification, which a `clarification_review` card has `pm` judge against
 the approved PRD. Only an explicit `clarifies` verdict starts a fix and a fresh
 verification on the same branch (`change_rounds.py`, as Request changes does).
