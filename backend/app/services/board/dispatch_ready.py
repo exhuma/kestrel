@@ -53,7 +53,7 @@ from app.services.board.dispatch_extras import (
     retry_or_escalate,
 )
 from app.services.board.escalations import (
-    REQUESTED_DECISION,
+    DECISION_OF,
     route_clarification,
 )
 from app.services.board.gates import GatesService
@@ -353,10 +353,10 @@ async def _route_verification(
         )
         return
     if services.gates is not None:
-        for title in routing.escalations:
+        for escalation in routing.escalations:
             services.gates.create_gate(
-                workflow_id, kind=CardKind.ESCALATION_GATE.value,
-                title=title, requested_decision=REQUESTED_DECISION,
+                workflow_id, kind=escalation.kind, title=escalation.title,
+                requested_decision=DECISION_OF[escalation.kind],
             )
     if routing.clean:
         _request_delivery(workflow_id, services)

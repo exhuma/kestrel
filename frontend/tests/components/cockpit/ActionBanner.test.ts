@@ -456,3 +456,18 @@ describe('ActionBanner on an escalation', () => {
     expect(mockApplyIntervention).toHaveBeenCalledWith('card-1', 'cancel')
   })
 })
+
+describe('ActionBanner on a policy risk', () => {
+  it('offers the same three answers', () => {
+    const wrapper = mountBanner([
+      gateCard('resolve_policy_risk', {
+        title: 'Escalation: it stores personal data',
+        allowed_actions: ['resolve_gate', 'cancel'],
+      }),
+    ])
+    expect(wrapper.text()).toContain('it stores personal data')
+    for (const label of ['Clarify', 'Accept as built', 'Abandon']) {
+      expect(button(wrapper, label)).toBeDefined()
+    }
+  })
+})

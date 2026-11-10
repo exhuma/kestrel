@@ -22,6 +22,7 @@ _BY_KIND: dict[str, tuple[str, str]] = {
     CardKind.PRD_GATE.value: ("requester", "approve_prd"),
     CardKind.DECOMPOSITION_GATE.value: ("cab", "approve_decomposition"),
     CardKind.ESCALATION_GATE.value: ("requester", "resolve_escalation"),
+    CardKind.POLICY_RISK_GATE.value: ("cab", "resolve_policy_risk"),
     CardKind.MANUAL_TASK.value: ("you", "do_task"),
 }
 

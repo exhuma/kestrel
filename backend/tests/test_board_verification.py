@@ -24,7 +24,10 @@ from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
-from app.services.board.verification import route_verifier_result
+from app.services.board.verification import (
+    Escalation,
+    route_verifier_result,
+)
 from tests.announcement_support import announcing
 from tests.board_test_support import board_session_factory
 from tests.test_board_scheduling import _FakeBackend
@@ -96,7 +99,9 @@ class TestEscalationRouting:
 
         routing = route_verifier_result(text, card, coordinator)
 
-        assert routing.escalations == ["Escalation: unclear boundary"]
+        assert routing.escalations == [
+            Escalation("Escalation: unclear boundary", "escalation_gate")
+        ]
         assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
 
     def test_an_unparseable_result_escalates_fail_closed(
@@ -124,7 +129,9 @@ class TestMixedAndEmptyResults:
 
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
         assert [c.kind for c in new_cards] == ["implementation"]
-        assert routing.escalations == ["Escalation: risky"]
+        assert routing.escalations == [
+            Escalation("Escalation: risky", "policy_risk_gate")
+        ]
 
     def test_a_clean_result_creates_no_follow_up_cards(
         self, tmp_path: Path

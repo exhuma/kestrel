@@ -192,17 +192,18 @@ all, becomes a `coordinator_review` card that no specialist ever claims
 
 A verifier's escalation, an unreadable verifier result and a task past its
 round cap are put to the **reporter** as an `escalation_gate`
-(`escalations.py`), in kestrel and on the ticket. Approving it accepts the
-work as built and asks for delivery. Cancelling it abandons the request.
-Rejecting it with a reason
-is a clarification, which a `clarification_review` card has `pm` judge against
-the approved PRD. Only an explicit `clarifies` verdict starts a fix and a fresh
-verification on the same branch (`change_rounds.py`, as Request changes does).
-Any other verdict, an unreadable one included, redrafts the PRD, which goes back
-through PRD sign-off and CAB-2, so a clarification cannot add scope the change
-advisory board never saw. CAB-1 is not asked again. Nothing delivers while such
-a gate, review or re-approval is open, and a plan approved later gets its own
-task ids (`plan2-…`).
+(`escalations.py`), in kestrel and on the ticket. A `policy_risk` finding
+opens a `policy_risk_gate` for the **change owner** instead, so that the
+reporter alone cannot accept the risk. Approving either accepts the work as
+built and asks for delivery. Cancelling it abandons the request. Rejecting it
+with a reason is a clarification, which a `clarification_review` card has `pm`
+judge against the approved PRD. Only an explicit `clarifies` verdict starts a
+fix and a fresh verification on the same branch (`change_rounds.py`, as
+Request changes does). Any other verdict, an unreadable one included, redrafts
+the PRD, which goes back through PRD sign-off and CAB-2, so a clarification
+cannot add scope the change advisory board never saw. CAB-1 is not asked
+again. Nothing delivers while such a gate, review or re-approval is open, and
+a plan approved later gets its own task ids (`plan2-…`).
 
 A result that cannot be read at all (malformed JSON, a missing block) is
 not escalated straight away (feature 042, `retries.py`). The work runs

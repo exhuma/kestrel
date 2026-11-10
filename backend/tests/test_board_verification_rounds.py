@@ -8,6 +8,7 @@ from app.models_board import WorkCard
 from app.persistence.board_store import BoardStore
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.verification import (
+    Escalation,
     VerificationRouting,
     route_verifier_result,
 )
@@ -101,7 +102,9 @@ def test_the_cap_escalates_instead_of_fixing_again(tmp_path: Path) -> None:
     routing = task.route(_findings("nonconformance"), second)
 
     assert task.new_cards() == []
-    assert routing.escalations == ["Verification cap reached: Schema"]
+    assert routing.escalations == [
+        Escalation("Verification cap reached: Schema", "escalation_gate")
+    ]
 
 
 def test_an_escalation_creates_no_card_for_the_task(tmp_path: Path) -> None:

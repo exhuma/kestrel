@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from app.models_board import CardKind, WorkCard
 from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.board.validation import (
+    POLICY_RISK,
     VerifierFinding,
     VerifierResultError,
     is_escalation,
@@ -30,20 +31,38 @@ from app.services.board.verification_rounds import (
     tagged_follow_ups,
 )
 
+#: How each escalating action is put to a person: the gate kind it opens.
+_GATE_KINDS = {
+    CardKind.COORDINATOR_REVIEW.value: CardKind.ESCALATION_GATE.value,
+    CardKind.POLICY_RISK_GATE.value: CardKind.POLICY_RISK_GATE.value,
+}
+
+
+@dataclass(frozen=True)
+class Escalation:
+    """One problem that needs a person's decision.
+
+    :param title: The problem, as the person reads it.
+    :param kind: The gate kind to open for it, which says who decides.
+    """
+
+    title: str
+    kind: str
+
 
 @dataclass(frozen=True)
 class VerificationRouting:
     """What one verification card's parsed result decided (T051/T069).
 
-    :param escalations: What needs a person's decision, one title each
-        (including a synthetic one for an unparseable result): the caller
-        opens an ``escalation_gate`` for each.
+    :param escalations: What needs a person's decision (including a
+        synthetic entry for an unparseable result): the caller opens a
+        gate for each.
     :param clean: Whether the result had no findings at all (not even a
         remediation one) — the caller's signal to trigger delivery
         (T069). ``False`` for an unparseable result (fail closed).
     """
 
-    escalations: list[str]
+    escalations: list[Escalation]
     clean: bool
 
 
@@ -92,7 +111,10 @@ def route_verifier_result(
     tagged = bool(card.task_node_id) and rounds is not None
     if tagged:
         actions = tagged_follow_ups(card, actions, rounds)
-    escalations = [a.title for a in actions if _is_escalation(a)]
+    escalations = [
+        Escalation(a.title, _GATE_KINDS[a.kind])
+        for a in actions if _is_escalation(a)
+    ]
     _apply(card, [a for a in actions if not _is_escalation(a)], coordinator)
     follow_up = reverification(card, rounds) if tagged else None
     if follow_up is not None:
@@ -105,7 +127,7 @@ def route_verifier_result(
 
 
 def _is_escalation(action: CreateCardAction) -> bool:
-    return action.kind == CardKind.COORDINATOR_REVIEW.value
+    return action.kind in _GATE_KINDS
 
 
 def _apply(
@@ -121,7 +143,11 @@ def _apply(
 def _action_for(finding: VerifierFinding) -> CreateCardAction:
     if is_escalation(finding):
         return CreateCardAction(
-            kind=CardKind.COORDINATOR_REVIEW.value,
+            kind=(
+                CardKind.POLICY_RISK_GATE.value
+                if finding.category == POLICY_RISK
+                else CardKind.COORDINATOR_REVIEW.value
+            ),
             title=f"Escalation: {finding.summary}",
         )
     return CreateCardAction(

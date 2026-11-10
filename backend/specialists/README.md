@@ -23,7 +23,8 @@ One subdirectory per named role, loaded from `specialists_root`
 
 ## Card kinds (this feature's initial vocabulary)
 
-`escalation_gate` holds a problem the verifier could not settle.
+`escalation_gate` holds a problem the verifier could not settle, and
+`policy_risk_gate` a policy risk, which only the change owner may settle.
 `clarification_review` is `pm`'s judgement of the answer to one.
 `understanding_gate`, `refinement_gate`, `prd_gate`, `decomposition_gate` are
 human gates: no specialist claims them, the operator resolves them directly.

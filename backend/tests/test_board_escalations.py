@@ -24,6 +24,7 @@ from app.services.board.dispatch_ready import (
 )
 from app.services.board.escalations import (
     REQUESTED_DECISION,
+    RISK_DECISION,
     clarification_context,
     clarifies,
 )
@@ -32,7 +33,11 @@ from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.interventions import InterventionsService
 from app.services.board.materialise import TASK_SPEC_LOGICAL_NAME
 from app.services.board.phases import current_phase, outcome_of
-from app.services.board.reply_rules import REPORTER, decider_role
+from app.services.board.reply_rules import (
+    CHANGE_OWNER,
+    REPORTER,
+    decider_role,
+)
 from app.services.board.retries import live_attempts, retry_card, retry_context
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
@@ -321,3 +326,68 @@ def test_a_review_is_not_mistaken_for_a_retry(tmp_path: Path) -> None:
     assert retry_context(attempt, rig.store) != ""
     context = clarification_context(attempt, rig.store, rig.artifacts)
     assert "Use sessionStorage" in context
+
+
+_RISKY = (
+    '<VERIFIER_FINDINGS>{"findings": [{"category": "policy_risk", '
+    '"summary": "it stores personal data"}]}</VERIFIER_FINDINGS>'
+)
+
+
+def _risk_gate(rig: _Rig) -> WorkCard:
+    return rig.gates.create_gate(
+        "wf-1", kind="policy_risk_gate", title="Escalation: risk",
+        requested_decision=RISK_DECISION,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_policy_risk_waits_for_the_change_owner(
+    tmp_path: Path,
+) -> None:
+    """Ensure the reporter alone is not asked to accept a policy risk."""
+    rig = _rig(tmp_path)
+    rig.store.create_card(WorkCard(
+        id="check", workflow_id="wf-1", kind="verification", title="Verify",
+        state="ready", eligible_roles=("verifier",),
+    ))
+
+    await rig.turn(_RISKY)
+
+    gate = rig.cards("policy_risk_gate")[0]
+    assert gate.state == "awaiting_human"
+    assert awaiting_of(gate).actor == "cab"
+    assert decider_role(gate.kind) == CHANGE_OWNER
+    assert rig.cards("escalation_gate") == []
+
+
+def test_accepting_a_policy_risk_delivers(tmp_path: Path) -> None:
+    """Ensure the change owner's acceptance moves on to delivery."""
+    rig = _rig(tmp_path)
+    _built(rig)
+
+    rig.gates.resolve(_risk_gate(rig).id, "approved")
+
+    assert [c.title for c in rig.cards("delivery")] == ["Deliver"]
+
+
+def test_an_open_policy_risk_holds_delivery(tmp_path: Path) -> None:
+    """Ensure nothing ships while a policy risk is undecided."""
+    rig = _rig(tmp_path)
+    _built(rig)
+    _risk_gate(rig)
+
+    cards = rig.store.list_cards("wf-1")
+    assert not delivery_due(cards, rig.store.list_relations("wf-1"))
+
+
+def test_a_policy_risk_clarification_is_reviewed(tmp_path: Path) -> None:
+    """Ensure a clarification of a risk faces the same scope check."""
+    rig = _rig(tmp_path)
+
+    rig.gates.resolve(_risk_gate(rig).id, "rejected", answer="Drop that field")
+
+    review = rig.cards("clarification_review")[0]
+    context = clarification_context(review, rig.store, rig.artifacts)
+    assert "Drop that field" in context
+    assert retry_context(review, rig.store) == ""

@@ -23,8 +23,10 @@ _REMEDIATION_CATEGORIES = frozenset({"nonconformance", "verification_gap"})
 #: FR-028: ambiguity, requirement conflict, infeasibility, and material
 #: security/policy risk must reach the coordinator as a structured
 #: escalation; the verifier never resolves these itself.
+#: The finding only the change owner may settle.
+POLICY_RISK = "policy_risk"
 _ESCALATION_CATEGORIES = frozenset(
-    {"ambiguity", "requirement_conflict", "infeasibility", "policy_risk"}
+    {"ambiguity", "requirement_conflict", "infeasibility", POLICY_RISK}
 )
 
 VALID_FINDING_CATEGORIES = _REMEDIATION_CATEGORIES | _ESCALATION_CATEGORIES

@@ -89,6 +89,7 @@ _PHASES: tuple[_PhaseDef, ...] = (
                 CardKind.RECONCILIATION,
                 CardKind.COORDINATOR_REVIEW,
                 CardKind.ESCALATION_GATE,
+                CardKind.POLICY_RISK_GATE,
                 CardKind.CLARIFICATION_REVIEW,
                 CardKind.MANUAL_TASK,
             }

@@ -47,6 +47,7 @@ const GATE_TITLES: Readonly<Record<string, string>> = {
 const GATE_ASK_KINDS: Readonly<Record<string, AskKind>> = {
   answer: 'interview',
   resolve_escalation: 'escalation',
+  resolve_policy_risk: 'escalation',
 }
 
 function isGateAsk(card: WorkCardSummary): boolean {

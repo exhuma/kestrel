@@ -15,7 +15,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from app.models_board import CardKind, CardState, WorkCard
+from app.models_board import (
+    ESCALATION_GATE_KINDS,
+    CardKind,
+    CardState,
+    WorkCard,
+)
 from app.persistence.board_store import BoardStore
 from app.services.board.agent_text import from_agent
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
@@ -246,7 +251,7 @@ def gather_refinement_context(
             if feedback:
                 sections.append(f"### Prior rejection feedback\n{feedback}")
         elif (
-            card.kind == CardKind.ESCALATION_GATE.value
+            card.kind in ESCALATION_GATE_KINDS
             and card.state == CardState.CANCELLED.value
         ):
             sections.extend(_clarification_section(card, artifacts))

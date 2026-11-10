@@ -187,6 +187,7 @@ posting it twice.
 | The work is delivered | The change request link; the ticket should move on | the change owner |
 | The request fails, or stops because a decision was rejected | What failed or was rejected; the ticket should move on | the change owner |
 | The verifier stops on a problem it may not settle | The problem, and how to clarify it or accept the work | the reporter |
+| The verifier flags a policy risk | The risk, and how to clarify it or accept the work | the change owner |
 | A clarification was judged | Whether a fix started, or the PRD goes back through sign-off and CAB | nobody |
 | CI fails or is repaired; a card is escalated | A plain status line | nobody |
 

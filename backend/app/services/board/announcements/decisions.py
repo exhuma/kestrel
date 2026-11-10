@@ -34,6 +34,14 @@ _SENTENCES = {
         "CAB approved the plan; work starts."
     ),
     (CardKind.DECOMPOSITION_GATE.value, False): "CAB declined the plan.",
+    (CardKind.POLICY_RISK_GATE.value, True): (
+        "Policy risk accepted as built; kestrel moves on with the work as "
+        "it is."
+    ),
+    (CardKind.POLICY_RISK_GATE.value, False): (
+        "Clarification received; kestrel is checking it against the "
+        "approved PRD."
+    ),
     (CardKind.ESCALATION_GATE.value, True): (
         "Accepted as built; kestrel moves on with the work as it is."
     ),

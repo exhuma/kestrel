@@ -1,10 +1,11 @@
 """A problem the verifier cannot settle, put to the person who can.
 
 The verifier's escalation opens an ``escalation_gate`` for the reporter,
-in kestrel and on the ticket. Approving it accepts the work as built, and
-abandoning it cancels the gate. Rejecting it with a reason is a
-clarification, and that needs a judgement: anyone who could answer an
-escalation could otherwise use one to add scope that CAB never saw.
+or a ``policy_risk_gate`` for the change owner when the finding is a
+policy risk, in kestrel and on the ticket. Approving it accepts the work
+as built, and abandoning it cancels the gate. Rejecting it with a reason
+is a clarification, and that needs a judgement: anyone who could answer
+an escalation could otherwise use one to add scope that CAB never saw.
 
 So a ``clarification_review`` card has `pm` compare the clarification with
 the approved PRD. A clarification that only settles the problem starts a
@@ -19,7 +20,12 @@ import logging
 import uuid
 
 from app.documents import Document, Heading, Text, document, paragraph
-from app.models_board import CardKind, CardState, WorkCard
+from app.models_board import (
+    ESCALATION_GATE_KINDS,
+    CardKind,
+    CardState,
+    WorkCard,
+)
 from app.persistence.board_store import BoardStore
 from app.services.board.agent_text import from_agent, to_prompt
 from app.services.board.artifacts import ArtifactsService
@@ -35,6 +41,12 @@ from app.text_extract import extract_tag
 _log = logging.getLogger("kestrel.board.escalations")
 
 REQUESTED_DECISION = "resolve_escalation"
+RISK_DECISION = "resolve_policy_risk"
+#: What each kind of escalation gate asks for.
+DECISION_OF = {
+    CardKind.ESCALATION_GATE.value: REQUESTED_DECISION,
+    CardKind.POLICY_RISK_GATE.value: RISK_DECISION,
+}
 #: The event that records a clarification's fix, and wakes the board.
 CLARIFIED_EVENT = "escalation.clarified"
 _VERDICT_TAG = "SCOPE_VERDICT"
@@ -49,8 +61,8 @@ def after_escalation_decided(
     store: BoardStore,
     coordinator: CoordinatorService | None,
 ) -> None:
-    """Apply an ``escalation_gate``'s decision; a no-op for other gates."""
-    if gate.kind != CardKind.ESCALATION_GATE.value:
+    """Apply an escalation gate's decision; a no-op for other gates."""
+    if gate.kind not in ESCALATION_GATE_KINDS:
         return
     if decision == "rejected":
         store.create_card(_review_card(gate))

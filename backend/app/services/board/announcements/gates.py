@@ -1,9 +1,9 @@
 """Announcements for a gate opening (feature 046, R6).
 
 One builder per kind of gate. The requester's gates mention the reporter;
-the two CAB gates mention the change owner and nobody else, and never a
-CAB member (constitution, access model). Interview gates link to the form
-and ask for nothing on the ticket.
+the two CAB gates and a policy risk mention the change owner and nobody
+else, and never a CAB member (constitution, access model). Interview gates
+link to the form and ask for nothing on the ticket.
 """
 from __future__ import annotations
 
@@ -31,6 +31,20 @@ from app.services.board.announcements.common import (
 )
 
 _HEADING_LEVEL = 3
+_SETTLING = (
+    "Say how it should be resolved, or say that you accept the work as it "
+    "is built. A clarification that changes what was approved goes back "
+    "through PRD sign-off and CAB. To stop the request instead, abandon it "
+    "in kestrel."
+)
+_NO_CHANGE_OWNER = (
+    "No change owner is set on this ticket, so nobody has been asked here; "
+    "the decision is taken in kestrel."
+)
+_RISK_STOPPED = (
+    "the verifier flagged a policy risk, and the work has stopped until it "
+    "is settled."
+)
 
 
 @dataclass(frozen=True)
@@ -63,13 +77,18 @@ def escalation(ctx: Context, problem: str) -> Document:
             "itself.",
         ),
         paragraph(Text(problem)),
-        paragraph(Text(
-            "Say how it should be resolved, or say that you accept the "
-            "work as it is built. A clarification that changes what was "
-            "approved goes back through PRD sign-off and CAB. To stop the "
-            "request instead, abandon it in kestrel."
-        )),
+        paragraph(Text(_SETTLING)),
         how_to_answer(ctx),
+    ))
+
+
+def policy_risk(ctx: Context, problem: str) -> Document:
+    """A policy risk only the change owner may settle."""
+    return finish(ctx, (
+        _risk_opening(ctx),
+        paragraph(Text(problem)),
+        paragraph(Text(_SETTLING)),
+        _cab_decision(ctx),
     ))
 
 
@@ -169,15 +188,22 @@ def _ready_for_cab(ctx: Context, what: str) -> Paragraph:
     people = ctx.people
     if people.change_owner is None and people.known:
         return paragraph(Text(
-            f"This request is ready for CAB ({what}). No change owner is "
-            "set on this ticket, so nobody has been asked here; the "
-            "decision is taken in kestrel."
+            f"This request is ready for CAB ({what}). {_NO_CHANGE_OWNER}"
         ))
     return addressed(
         people.change_owner,
         f"this request is ready for CAB ({what}). Here is what the "
         "decision is based on.",
     )
+
+
+def _risk_opening(ctx: Context) -> Paragraph:
+    people = ctx.people
+    if people.change_owner is None and people.known:
+        return paragraph(Text(
+            f"{_RISK_STOPPED.capitalize()} {_NO_CHANGE_OWNER}"
+        ))
+    return addressed(people.change_owner, _RISK_STOPPED)
 
 
 def _cab_decision(ctx: Context) -> Paragraph:

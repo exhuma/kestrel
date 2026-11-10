@@ -68,6 +68,7 @@ class GateContent:
             CardKind.CAB1_GATE.value: self._cab1,
             CardKind.DECOMPOSITION_GATE.value: self._cab2,
             CardKind.ESCALATION_GATE.value: self._escalation,
+            CardKind.POLICY_RISK_GATE.value: self._policy_risk,
         }.get(card.kind)
         return make(card) if make is not None else None
 
@@ -118,6 +119,13 @@ class GateContent:
         return Plan(
             f"gate_opened:{card.id}",
             lambda ctx: words.escalation(ctx, card.title),
+        )
+
+    @staticmethod
+    def _policy_risk(card: WorkCard) -> Plan:
+        return Plan(
+            f"gate_opened:{card.id}",
+            lambda ctx: words.policy_risk(ctx, card.title),
         )
 
     def _refinement(self, card: WorkCard) -> Plan:

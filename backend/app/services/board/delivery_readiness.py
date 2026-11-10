@@ -35,6 +35,7 @@ _SETTLING_KINDS = frozenset(
         CardKind.RECONCILIATION.value,
         CardKind.COORDINATOR_REVIEW.value,
         CardKind.ESCALATION_GATE.value,
+        CardKind.POLICY_RISK_GATE.value,
         CardKind.CLARIFICATION_REVIEW.value,
         # A plan going back through sign-off: what is built so far is not
         # what will be approved, so nothing may ship meanwhile.

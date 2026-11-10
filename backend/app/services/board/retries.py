@@ -18,6 +18,7 @@ import json
 import uuid
 
 from app.models_board import (
+    ESCALATION_GATE_KINDS,
     CardKind,
     CardRelation,
     CardState,
@@ -62,7 +63,7 @@ def _follows_up(card: WorkCard, cards: list[WorkCard]) -> bool:
         return True
     return card.kind == CardKind.CLARIFICATION_REVIEW.value and any(
         c.id == card.source_card_id
-        and c.kind == CardKind.ESCALATION_GATE.value
+        and c.kind in ESCALATION_GATE_KINDS
         for c in cards
     )
 

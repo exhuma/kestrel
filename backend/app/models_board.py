@@ -118,6 +118,9 @@ class CardKind(StrEnum):
     #: A problem the verifier cannot settle, held for the requester to
     #: clarify, accept as built or abandon. Created only by code.
     ESCALATION_GATE = "escalation_gate"
+    #: A policy risk the verifier flagged: an ``escalation_gate`` for the
+    #: change owner, so that the reporter alone cannot accept the risk.
+    POLICY_RISK_GATE = "policy_risk_gate"
     #: `pm`'s judgement of whether a clarification only settles the
     #: escalated problem or changes what was approved. Created only by
     #: code, when an ``escalation_gate`` is answered with a clarification.
@@ -135,7 +138,14 @@ GATE_CARD_KINDS = frozenset(
         CardKind.CAB1_GATE,
         CardKind.STRATEGIC_INTERVIEW_GATE,
         CardKind.ESCALATION_GATE,
+        CardKind.POLICY_RISK_GATE,
     }
+)
+
+#: Gates that hold a problem the verifier could not settle. They differ
+#: only in who decides them (``reply_rules.py``).
+ESCALATION_GATE_KINDS = frozenset(
+    {CardKind.ESCALATION_GATE, CardKind.POLICY_RISK_GATE}
 )
 
 
