@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from app.models_board import CardKind, WorkCard
 from app.models_board_records import BoardEventRecord
 from app.persistence.board_store import BoardStore
+from app.services.board import decision_log
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.coordinator import CreateCardAction
 from app.services.board.decomposition import (
@@ -221,7 +222,9 @@ def retry_or_escalate(
     operator can retry it (feature 042)."""
     store = services.claims.store
     cards = store.list_cards(card.workflow_id)
-    if retries_of(card, cards) < services.unreadable_retry_cap:
+    retrying = retries_of(card, cards) < services.unreadable_retry_cap
+    decision_log.unreadable(card, error.reason, retrying=retrying)
+    if retrying:
         attempt = retry_card(store, card)
         note_attempt(services, attempt, detail_of(error.reason))
         return

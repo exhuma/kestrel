@@ -51,6 +51,15 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **Kestrel explains itself in the log.** `kestrel.board.decisions` logs every
+  decision and its reason at info: cards claimed and finished, coordinator
+  actions, each verification's findings and round, escalations, delivery
+  requested or held and by what, screening verdicts and how replies were
+  read. A failed agent tool call is a warning with its error.
+  `KESTREL_LOG_LEVELS` follows single loggers at debug, where
+  `kestrel.reasoning` logs every internal-reasoning prompt and answer;
+  `KESTREL_LOG_TEXT_LIMIT` lifts the 500-character cut on agent text; and
+  Claude's thinking is logged like opencode's reasoning.
 - **Approved tasks become work items in Jira.** When CAB-2 approves a
   breakdown, each task becomes a sub-task of the request, or, with
   `work_items_project` set, an issue in that project linked to the request.

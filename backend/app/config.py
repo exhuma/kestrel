@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     #: human-readable lines (default), ``json`` for one JSON document per
     #: line to feed a log pipeline (OTEL, Logstash, …).
     log_format: Literal["text", "json"] = "text"
+    #: Per-logger levels over ``log_level`` (``KESTREL_LOG_LEVELS``), as
+    #: ``logger=level`` pairs separated by commas, e.g.
+    #: ``kestrel.reasoning=debug,kestrel.agent=debug`` to follow kestrel's
+    #: reasoning and its agents while everything else stays at info.
+    log_levels: str = ""
+    #: The most agent text one ``kestrel.agent`` line keeps, in characters
+    #: (``KESTREL_LOG_TEXT_LIMIT``); ``0`` keeps everything.
+    log_text_limit: int = Field(default=500, ge=0)
     #: Enable OpenTelemetry tracing (``KESTREL_OTEL_ENABLED``). Off by
     #: default: a personal localhost tool pays nothing until a collector is
     #: configured. When true, spans export over OTLP to

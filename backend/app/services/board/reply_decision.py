@@ -17,6 +17,7 @@ from app.documents import Document
 from app.models_board import WorkCard
 from app.persistence.comment_store import Outcome
 from app.ports import Person
+from app.services.board import decision_log
 from app.services.board.announcements import replies as answers
 from app.services.board.announcements.common import Context
 from app.services.board.gate_decision import Decider, ReasonRequiredError
@@ -78,6 +79,9 @@ class ReplyDecider:
     ) -> Settled:
         """Decide *gate* from *reading*, or say why not."""
         meaning = await self._liaison.interpret(reading.ask)
+        decision_log.reply_read(
+            gate.card.workflow_id, gate.card, meaning.intent, meaning.reason
+        )
         decision = _DECISIONS.get(meaning.intent)
         if decision is None:
             return _asked_back(gate, reading, meaning.reason_missing)

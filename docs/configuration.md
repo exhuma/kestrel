@@ -28,6 +28,8 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
+| `KESTREL_LOG_LEVELS` | _(empty)_ | Single loggers at their own level, as `logger=level` pairs separated by commas, e.g. `kestrel.reasoning=debug` to log every internal-reasoning prompt and answer. See [Observability](observability.md#following-what-kestrel-does). |
+| `KESTREL_LOG_TEXT_LIMIT` | `500` | The most agent text one `kestrel.agent` line keeps; `0` keeps everything. |
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
 | `KESTREL_OTEL_SERVICE_NAME` | `kestrel` | `service.name` reported on exported spans |
 | `KESTREL_WEBHOOK_SECRET` | _(empty)_ | HMAC shared secret verifying GitHub webhook deliveries. Empty disables the webhook path. Never logged. See [GitHub workflow](setup-github-workflow.md) |

@@ -79,12 +79,28 @@ class ReasoningClient:
         session_id = f"rsn-{uuid.uuid4().hex[:12]}"
         if req.on_session_id is not None:
             req.on_session_id(session_id)
+        self._transcript(session_id, req.card_id, "prompt", req.prompt)
         async with self._limiter.slot(on_queue_change):
             started = time.monotonic()
             data = await self._complete(req.prompt)
         text = _answer(data)
         self._log_call(session_id, req.card_id, data, started)
+        self._transcript(session_id, req.card_id, "answer", text)
         return TurnResult(session_id=session_id, final_text=text)
+
+    def _transcript(
+        self, session_id: str, card_id: str | None, part: str, text: str
+    ) -> None:
+        """The whole prompt or answer, at DEBUG only: it carries ticket
+        content, so it is logged only when this logger is switched to
+        debug (``KESTREL_LOG_LEVELS=kestrel.reasoning=debug``)."""
+        if not _log.isEnabledFor(logging.DEBUG):
+            return
+        _log.debug(
+            "reasoning %s: session=%s role=%s card=%s\n%s",
+            part, session_id, self._target.role, card_id or "-", text,
+            extra={"session_id": session_id, "card_id": card_id},
+        )
 
     async def check_health(self) -> bool:
         """Whether the endpoint answers an authenticated model listing."""
@@ -151,6 +167,7 @@ class ReasoningClient:
             session_id, self._target.role, card_id or "-",
             self._target.endpoint.model, time.monotonic() - started,
             usage.get("prompt_tokens"), usage.get("completion_tokens"),
+            extra={"session_id": session_id, "card_id": card_id},
         )
 
 

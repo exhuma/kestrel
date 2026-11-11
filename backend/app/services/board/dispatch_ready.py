@@ -22,6 +22,7 @@ from app.models_board import (
     WorkspacePermission,
 )
 from app.policy import SpecialistCapabilityError
+from app.services.board import decision_log
 from app.services.board.announcements.service import AnnouncementService
 from app.services.board.artifacts import (
     CARD_RESULT_LOGICAL_NAME,
@@ -206,6 +207,9 @@ def _claim_for(
     ):
         # No repository to work in: kestrel reasons itself, no agent.
         backend = services.reasoning.backend_for(specialist)
+    decision_log.card_claimed(
+        card, specialist.id, str(getattr(backend, "id", "?"))
+    )
     return backend, card
 
 
@@ -305,6 +309,7 @@ async def _dispatch_one(
             workflow_id, specialist.id, card.id, outcome.reason,
         )
         return
+    decision_log.card_finished(card, specialist.id)
     services.artifacts.submit_result(
         ArtifactDraft(
             producer_card_id=card.id,
@@ -364,10 +369,11 @@ async def _route_verification(
         return
     if services.gates is not None:
         for escalation in routing.escalations:
-            services.gates.create_gate(
+            gate = services.gates.create_gate(
                 workflow_id, kind=escalation.kind, title=escalation.title,
                 requested_decision=DECISION_OF[escalation.kind],
             )
+            decision_log.escalation_opened(workflow_id, gate)
     if routing.clean:
         _request_delivery(workflow_id, services)
 

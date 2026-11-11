@@ -100,7 +100,10 @@ class OpenCodeBackend(Backend):
         try:
             if sid is None:
                 sid = await self._create_session(req.cwd)
-            log = AgentLog(sid, req.card_id, self.id)
+            log = AgentLog(
+                sid, req.card_id, self.id,
+                text_limit=self.settings.log_text_limit,
+            )
             log.started(resumed=req.resume_id is not None)
             if req.on_session_id is not None:
                 req.on_session_id(sid)

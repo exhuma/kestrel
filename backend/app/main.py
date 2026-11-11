@@ -36,7 +36,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # runs (leaving the root logger handler-less on the `uvicorn app.main:app`
     # path); reconfiguring now routes app + uvicorn logs through one handler
     # and makes KESTREL_LOG_LEVEL/KESTREL_LOG_FORMAT authoritative.
-    configure_logging(settings.log_level, settings.log_format)
+    configure_logging(
+        settings.log_level, settings.log_format, settings.log_levels
+    )
     # Building the registry now fails fast on a misconfigured default and
     # makes the effective config visible in the logs — the first thing to
     # check when a session runs on the wrong backend.

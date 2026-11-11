@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.models_board import CardKind, WorkCard
+from app.services.board import decision_log
 from app.services.board.coordinator import CoordinatorService, CreateCardAction
 from app.services.board.validation import (
     POLICY_RISK,
@@ -28,6 +29,7 @@ from app.services.board.validation import (
 from app.services.board.verification_rounds import (
     RoundContext,
     reverification,
+    round_of,
     tagged_follow_ups,
 )
 
@@ -97,6 +99,10 @@ def route_verifier_result(
     try:
         findings = parse_verifier_result(text)
     except VerifierResultError:
+        decision_log.verified(
+            card, [("unreadable", "the verifier's result could not be read")],
+            _round(card, rounds),
+        )
         actions = [
             CreateCardAction(
                 kind=CardKind.COORDINATOR_REVIEW.value,
@@ -106,6 +112,10 @@ def route_verifier_result(
         ]
         clean = False
     else:
+        decision_log.verified(
+            card, [(f.category, f.summary) for f in findings],
+            _round(card, rounds),
+        )
         actions = [_action_for(finding) for finding in findings]
         clean = not findings
     tagged = bool(card.task_node_id) and rounds is not None
@@ -124,6 +134,14 @@ def route_verifier_result(
             [follow_up],
         )
     return VerificationRouting(escalations=escalations, clean=clean)
+
+
+def _round(card: WorkCard, rounds: RoundContext | None) -> str:
+    """`` (round n of cap, task t)`` for a card on an approved task."""
+    if not card.task_node_id or rounds is None:
+        return ""
+    done = round_of(card.task_node_id, rounds.list_cards(card.workflow_id))
+    return f" (round {done} of {rounds.cap}, task {card.task_node_id})"
 
 
 def _is_escalation(action: CreateCardAction) -> bool:

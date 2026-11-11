@@ -33,7 +33,9 @@ _OTEL_SPAN_ATTR = "otelSpanID"
 #: Record attributes a caller may attach with ``extra=``; the JSON format
 #: lifts them into top-level fields. ``session_id`` / ``card_id`` are set on
 #: every ``kestrel.agent`` record (see :mod:`app.backends.agent_log`).
-_EXTRA_FIELDS = ("session_id", "card_id")
+_EXTRA_FIELDS = ("session_id", "card_id", "workflow_id")
+#: The levels ``KESTREL_LOG_LEVELS`` accepts.
+_LEVEL_NAMES = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
 class TraceContextFilter(logging.Filter):
@@ -81,11 +83,33 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def build_log_config(level: str, fmt: str) -> dict[str, Any]:
+def parse_log_levels(spec: str) -> dict[str, str]:
+    """``logger=level`` pairs, comma-separated, as a mapping.
+
+    :raises ValueError: On a pair without ``=`` or an unknown level.
+    """
+    levels: dict[str, str] = {}
+    for pair in filter(None, (p.strip() for p in spec.split(","))):
+        name, sep, value = pair.partition("=")
+        level = value.strip().upper()
+        if not sep or not name.strip() or level not in _LEVEL_NAMES:
+            raise ValueError(
+                f"KESTREL_LOG_LEVELS: {pair!r} is not logger=level "
+                f"(levels: {', '.join(sorted(_LEVEL_NAMES)).lower()})"
+            )
+        levels[name.strip()] = level
+    return levels
+
+
+def build_log_config(
+    level: str, fmt: str, levels: str = ""
+) -> dict[str, Any]:
     """Build a ``logging.config.dictConfig`` mapping.
 
     :param level: Root/uvicorn log level (e.g. ``"info"``).
     :param fmt: ``"text"`` or ``"json"``.
+    :param levels: Per-logger levels over *level*
+        (:func:`parse_log_levels`).
     :returns: A dictConfig ready for uvicorn's ``log_config``.
     """
     level = level.upper()
@@ -131,12 +155,16 @@ def build_log_config(level: str, fmt: str) -> dict[str, Any]:
                 "handlers": [],
                 "propagate": True,
             },
+            **{
+                name: {"level": value, "handlers": [], "propagate": True}
+                for name, value in parse_log_levels(levels).items()
+            },
         },
     }
 
 
-def configure_logging(level: str, fmt: str) -> None:
+def configure_logging(level: str, fmt: str, levels: str = "") -> None:
     """Apply :func:`build_log_config` to the process logging state."""
     import logging.config
 
-    logging.config.dictConfig(build_log_config(level, fmt))
+    logging.config.dictConfig(build_log_config(level, fmt, levels))

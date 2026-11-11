@@ -28,6 +28,7 @@ from app.models_board import (
 )
 from app.persistence.board_store import BoardStore
 from app.reasoning.client import ReasoningBlocked
+from app.services.board import decision_log
 from app.services.board.agent_text import to_prompt
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import (
@@ -440,7 +441,10 @@ class SchedulingService:
         if not actions:
             return
         trigger = f"revision:{workflow.revision}"
-        self._coordinator.apply_actions(workflow_id, trigger, actions)
+        decision_log.coordinator_acted(
+            workflow_id,
+            self._coordinator.apply_actions(workflow_id, trigger, actions),
+        )
 
 
 def _task_text(workflow: Workflow) -> str:

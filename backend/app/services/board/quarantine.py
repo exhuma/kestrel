@@ -27,6 +27,7 @@ from app.persistence.board_quarantine_store import (
     QuarantineRequest,
     ReviewResolution,
 )
+from app.services.board import decision_log
 from app.services.board.dispatch import (
     ClassificationError,
     ClassificationResult,
@@ -153,6 +154,10 @@ class QuarantineService:
             return existing
         classification = await self._screen(
             without_marker(text, screening.marker), screening
+        )
+        decision_log.screened(
+            screening.source_identity, classification.safe,
+            classification.category, classification.reason,
         )
         if classification.safe:
             return IntakeOutcome(released=True, safe_content=content)
