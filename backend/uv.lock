@@ -323,7 +323,7 @@ wheels = [
 
 [[package]]
 name = "kestrel-backend"
-version = "2026.11.10a1"
+version = "2026.11.11a1"
 source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
