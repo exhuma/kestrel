@@ -51,6 +51,13 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **Approved tasks become work items in Jira.** When CAB-2 approves a
+  breakdown, each task becomes a sub-task of the request, or, with
+  `work_items_project` set, an issue in that project linked to the request.
+  Prerequisites become "blocks" links, and a comment lists every task with its
+  item. Issue and link types are configurable per Jira source.
+- **The approved PRD is attached to the ticket** as `PRD.md`, with a short
+  comment in place of the full text.
 - **Escalations ask someone.** When the verifier stops on a problem it may
   not settle, the reporter is asked, in kestrel and on the ticket, to clarify
   it, accept the work as built, or abandon the request. A clarification that

@@ -310,10 +310,17 @@ Prerequisites become dependency edges between the tasks' head cards. Every
 card carries its task in `board_card.task_node_id`, and each head card holds
 the approved text and estimate as a `task_spec` artifact. That artifact is
 what every card on the task works from (`_extra_context_for`). The
-coordinator cannot change these cards. The request's ticket gets one
-breakdown comment instead of one ticket per task. `TaskSource.create_subtask`
-stays on the port, unused, for mirroring cards back as sub-tasks later
-(backlog epic #63).
+coordinator cannot change these cards. Each approved task also becomes a work
+item on the task source (`work_items.py`, #64): `TaskSource.create_subtask`
+creates a sub-task, or an issue in the source's `work_items_project` linked to
+the request, and `link_subtasks` records prerequisites. Each step is a row in
+the projection ledger (kinds `work_item` and `work_item_link`; the item's key
+is the row's `external_id`, the card-to-item mapping), so it happens once. The
+publisher's own loop retries failed steps, and an item carries a label made
+from its row's key so one created just before a crash is found again. One
+comment then lists each task with its item. Moving the items' status is not
+built yet. On PRD sign-off, the approved PRD is attached to the ticket
+(projection kind `attachment`, delivered by `TaskSource.attach_document`).
 
 The result is **one request → one workflow → one branch → one PR** by
 construction. A tagged verification with findings creates tagged
