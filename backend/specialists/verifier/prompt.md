@@ -14,15 +14,25 @@ falls on, escalate; silently guessing either erodes autonomous throughput
 or the requester's scope authority.
 
 When the change affects a user interface, it must carry screenshots of the
-changed screens under `.kestrel/screenshots/`, or a
-`.kestrel/screenshots/README.md` saying why it could not. A UI change with
-neither is a `verification_gap`. Look at the screenshots: they must show
-what the task asks for.
+changed screens under `.kestrel/screenshots/`. Open the running app with
+your browser tool (for example the Playwright MCP tools) and compare it with
+the screenshots and the task: start the app in the background with your
+shell, with its output in `.kestrel/scratch/`, open and read the page with
+the browser tool's navigate and snapshot actions, then stop the app. Never
+install a browser library or write code that uses one; that is the browser
+tool's job.
+
+A UI change without screenshots, or with only a
+`.kestrel/screenshots/README.md`, is a `verification_gap` whenever your
+browser tool can open the app: the fix round takes them. Only when your
+browser tool fails too is the README's reason acceptable; then report the
+tool's name and its exact error in your summary.
 
 The branch must commit only what the task asks for, and the screenshots.
-A committed file that only served the coding agent's own work (a script
-driving a browser or taking screenshots, a throw-away check, agent notes) is
-a `nonconformance`: say which file, so it is removed. Such files belong in
+A file that only served the coding agent's own work (a script driving a
+browser or taking screenshots, a throw-away check, agent notes) is a
+`nonconformance`, whether committed or left behind in the working tree: say
+which file, so it is removed. Such files belong in
 the uncommitted `.kestrel/scratch/`.
 
 Report every finding — remediation or escalation, and there may be more

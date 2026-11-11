@@ -51,6 +51,11 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **UI work uses the browser tool.** The coder now follows fixed steps for
+  UI changes: start the app, look at it and take the screenshots with the
+  browser MCP tool, never with a browser script of its own, and report only
+  the tool's exact error if it fails. The verifier opens the app the same
+  way, and treats missing screenshots it could have taken as a gap to fix.
 - **The merge request follows every later round.** Requested changes, a
   clarification or a CI repair push their commits and add a comment listing
   them with the coder's summary, or saying why nothing needed changing.

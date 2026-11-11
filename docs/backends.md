@@ -194,6 +194,15 @@ password = "changeme"                      # inline (gitignored file), or:
 > `write` and `apply_patch` under `edit`, so list `edit` to allow any file
 > change. Read-only turns stay read-only whatever the list says.
 >
+> **UI work needs a browser tool.** For a change to a user interface, the
+> coder looks at the running app with a browser MCP server in your opencode
+> config (for example Playwright) and takes the screenshots with it, and the
+> verifier checks the app the same way. Both are told never to script a
+> browser themselves. List the server's tools in `allowed_tools` (for example
+> `"playwright_*"`, below). If the page on `localhost` goes through an HTTP
+> proxy, add `localhost,127.0.0.1` to `NO_PROXY` in the opencode container;
+> the browser inherits its environment.
+>
 > **Allowing an MCP server.** opencode names an MCP server's tools
 > `<server>_<tool>`, where `<server>` is the server's key in *your opencode
 > config* (not anything kestrel defines). A server registered as
