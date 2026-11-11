@@ -1,10 +1,11 @@
-"""The body of the change request delivery opens (feature 043).
+"""Kestrel's section of the change request's description (feature 043).
 
 For UI work the coder commits screenshots of the changed screens under
 :data:`SCREENSHOTS_DIR`, or a ``README.md`` there saying why it could
-not (``specialists/coder/prompt.md``). The body shows each screenshot as
-an image served by the code host from the pushed branch, or states the
-reason — so the operator reviews UI work without opening the branch.
+not (``specialists/coder/prompt.md``). The section shows each screenshot
+as an image served by the code host from the pushed branch, or states
+the reason, so the operator reviews UI work without opening the branch.
+It also lists the rounds of work after the change request was opened.
 """
 from __future__ import annotations
 
@@ -14,9 +15,11 @@ from pathlib import PurePosixPath
 
 from app.documents import (
     Block,
+    BulletList,
     Document,
     Heading,
     Image,
+    ListItem,
     Text,
     document,
     paragraph,
@@ -61,7 +64,7 @@ async def read_screenshots(
 def _screenshots_section(
     screenshots: Screenshots, file_url: Callable[[str], str]
 ) -> list[Block]:
-    heading = Heading(2, (Text("Screenshots"),))
+    heading = Heading(3, (Text("Screenshots"),))
     if screenshots.images:
         return [heading, *(
             Image(file_url(path), PurePosixPath(path).stem)
@@ -73,18 +76,41 @@ def _screenshots_section(
     return []
 
 
-def pr_body(
+#: The first and last lines of kestrel's section of the description:
+#: visible, so people know what kestrel rewrites (``splice_section``).
+SECTION_HEADING = "Maintained by kestrel"
+SECTION_END = "End of the section kestrel maintains."
+
+
+def kestrel_section(
     task_ref: str,
+    rounds: tuple[str, ...],
     screenshots: Screenshots,
     file_url: Callable[[str], str],
 ) -> Document:
-    """Compose the change request's body.
+    """Kestrel's section of the change request's description: what it
+    implements, each later round, and the committed screenshots. Kestrel
+    rewrites it on every delivery; the rest of the description is left
+    as people wrote it.
 
     :param file_url: Maps a committed path to the URL the code host
         serves it at on the pushed branch.
     """
-    return document(
-        paragraph(Text(f"Implements {task_ref}")),
-        *_screenshots_section(screenshots, file_url),
-        paragraph(Text("Opened by kestrel.")),
-    )
+    blocks: list[Block] = [
+        Heading(2, (Text(SECTION_HEADING),)),
+        paragraph(Text(
+            "kestrel keeps this section up to date on every delivery and "
+            "replaces edits made inside it."
+        )),
+        paragraph(Text(f"Implements {task_ref}.")),
+    ]
+    if rounds:
+        blocks += [
+            Heading(3, (Text("Later rounds"),)),
+            BulletList(tuple(
+                ListItem((paragraph(Text(line)),)) for line in rounds
+            )),
+        ]
+    blocks += _screenshots_section(screenshots, file_url)
+    blocks.append(paragraph(Text(SECTION_END)))
+    return document(*blocks)

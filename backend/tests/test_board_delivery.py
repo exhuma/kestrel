@@ -49,6 +49,8 @@ class _FakeCodeHost:
         self._supports_cr = supports_cr
         self._cr_url = cr_url
         self.opened: dict[str, object] | None = None
+        self.sections: list[tuple[int, object]] = []
+        self.comments: list[tuple[int, object]] = []
 
     def clone_remote(self, _repo: str) -> str:
         return self._remote
@@ -65,6 +67,13 @@ class _FakeCodeHost:
     async def open_change_request(self, repo, **kwargs) -> str:
         self.opened = {"repo": repo, **kwargs}
         return self._cr_url
+
+    async def write_kestrel_section(self, _repo, number, section) -> None:
+        self.sections.append((number, section))
+
+    async def comment_on_change_request(self, _repo, number, body) -> str:
+        self.comments.append((number, body))
+        return "note-1"
 
 
 def _workflow() -> Workflow:
@@ -136,7 +145,7 @@ class TestDeliver:
         svc = await _provisioned_workspace(tmp_path)
         code_host = _FakeCodeHost()
 
-        location = await deliver(_workflow(), code_host, svc)
+        location = (await deliver(_workflow(), code_host, svc)).location
 
         assert location == "https://cr/1"
         body = code_host.opened.pop("body")
@@ -145,9 +154,7 @@ class TestDeliver:
             "base": "main", "title": "Add a thing (owner/repo#1)",
             "draft": True,
         }
-        assert render_markdown(body) == (
-            "Implements owner/repo#1\n\nOpened by kestrel."
-        )
+        assert "Implements owner/repo#1." in render_markdown(body)
 
     @pytest.mark.asyncio
     async def test_deliver_reports_a_local_branch_when_unsupported(
@@ -156,7 +163,7 @@ class TestDeliver:
         svc = await _provisioned_workspace(tmp_path)
         code_host = _FakeCodeHost(supports_cr=False)
 
-        location = await deliver(_workflow(), code_host, svc)
+        location = (await deliver(_workflow(), code_host, svc)).location
 
         assert location == "local branch published: kestrel/board/wf-1"
         assert code_host.opened is None
@@ -175,7 +182,7 @@ class TestDeliver:
             change_request_number=7,
         )
 
-        location = await deliver(workflow, code_host, svc)
+        location = (await deliver(workflow, code_host, svc)).location
 
         assert location == "updated existing change request #7"
         assert code_host.opened is None

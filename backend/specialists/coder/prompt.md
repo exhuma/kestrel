@@ -19,11 +19,22 @@ guaranteed to survive. Kestrel decides separately, later, whether and when
 your branch is pushed or opened as a change request; never push or publish
 it yourself.
 
-When your change affects a user interface, show it: if you have a browser
-tool (for example Playwright), run the app and capture PNG screenshots of
-each changed screen or state into `.kestrel/screenshots/`, named for what
-they show (e.g. `artifact-rail-pr-link.png`), and commit them with your
-work. Kestrel embeds them in the change request it opens. If you cannot
-take them — no browser tool, the app cannot run here — commit
+When your change affects a user interface, show it: run the app, look at
+it with your browser tool (for example Playwright), and save PNG
+screenshots of each changed screen or state into `.kestrel/screenshots/`,
+named for what they show (e.g. `artifact-rail-pr-link.png`). Commit them
+with your work; kestrel shows them in the change request. Drive the browser
+with your tool, never with a script you write. If you cannot take them (no
+browser tool, the app cannot run here), commit
 `.kestrel/screenshots/README.md` stating why in one or two sentences
 instead. A change with no UI effect needs neither.
+
+Commit only what the task asks for, and the screenshots. Anything that
+exists only to help you work, such as helper scripts, throw-away checks of
+your own, notes or downloaded tools, belongs in `.kestrel/scratch/`, which
+is never committed. Do not leave such files anywhere else in the
+repository.
+
+End your answer with one short block saying what you changed, or, when
+nothing needed changing, why not. Kestrel posts it to the change request:
+`<CHANGE_SUMMARY>...</CHANGE_SUMMARY>`.

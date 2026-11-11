@@ -136,6 +136,7 @@ class WorkspaceService:
             return dest
         mirror = self.mirror_dir(request.repo)
         await self.ensure_mirror(request.remote_url, mirror, request.cred)
+        _exclude_scratch(mirror)
         branch = self.branch_name(request.workflow_id)
         worktree_dest = str(Path(dest).absolute())
         async with self._lock_for(mirror):
@@ -161,11 +162,46 @@ class WorkspaceService:
         :raises GitError: If the underlying git push fails.
         """
         branch = self.branch_name(workflow_id)
+        cwd = self.workspace_dir(workflow_id)
+        await self._git(*self._auth(cred), "-C", cwd, "push", "origin", branch)
+        # The bare mirror tracks nothing on push: record what the remote
+        # now has, so the next delivery can tell which commits are new.
         await self._git(
-            *self._auth(cred), "-C", self.workspace_dir(workflow_id),
-            "push", "origin", branch,
+            "-C", cwd, "update-ref", f"refs/remotes/origin/{branch}", "HEAD"
         )
         return branch
+
+    async def unpushed_commits(self, workflow_id: str) -> list[str] | None:
+        """``<short sha> <subject>`` of each commit the next push adds, or
+        ``None`` when the branch was never pushed."""
+        branch = self.branch_name(workflow_id)
+        cwd = self.workspace_dir(workflow_id)
+        try:
+            await self._git(
+                "-C", cwd, "rev-parse", "--verify", "--quiet",
+                f"refs/remotes/origin/{branch}",
+            )
+        except GitError:
+            return None
+        out = await self._git(
+            "-C", cwd, "log", "--format=%h %s",
+            f"refs/remotes/origin/{branch}..HEAD",
+        )
+        return [line for line in out.splitlines() if line]
+
+    async def stray_kestrel_files(
+        self, workflow_id: str, base_branch: str
+    ) -> list[str]:
+        """Files the branch commits under ``.kestrel/`` that are not
+        screenshots: agent tooling that slipped past the scratch area."""
+        out = await self._git(
+            "-C", self.workspace_dir(workflow_id), "diff", "--name-only",
+            f"origin/{base_branch}...HEAD", "--", ".kestrel",
+        )
+        return [
+            path for path in out.splitlines()
+            if path and not path.startswith(".kestrel/screenshots/")
+        ]
 
     async def committed_files(
         self, workflow_id: str, directory: str
@@ -215,3 +251,21 @@ class WorkspaceService:
                 await self._git(
                     "-C", mirror, "branch", "-D", self.branch_name(workflow_id)
                 )
+
+
+#: Where an agent keeps what only helps it work (helper scripts, notes):
+#: excluded from every kestrel worktree, so it is never committed.
+SCRATCH_DIR = ".kestrel/scratch"
+
+
+def _exclude_scratch(mirror: str) -> None:
+    """Add :data:`SCRATCH_DIR` to the mirror's ``info/exclude``, which
+    every worktree of it shares, once."""
+    exclude = Path(mirror) / "info" / "exclude"
+    rule = f"/{SCRATCH_DIR}/"
+    current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    if rule in current.splitlines():
+        return
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    separator = "" if not current or current.endswith("\n") else "\n"
+    exclude.write_text(f"{current}{separator}{rule}\n", encoding="utf-8")

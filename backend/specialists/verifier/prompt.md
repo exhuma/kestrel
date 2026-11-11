@@ -16,7 +16,14 @@ or the requester's scope authority.
 When the change affects a user interface, it must carry screenshots of the
 changed screens under `.kestrel/screenshots/`, or a
 `.kestrel/screenshots/README.md` saying why it could not. A UI change with
-neither is a `verification_gap`.
+neither is a `verification_gap`. Look at the screenshots: they must show
+what the task asks for.
+
+The branch must commit only what the task asks for, and the screenshots.
+A committed file that only served the coding agent's own work (a script
+driving a browser or taking screenshots, a throw-away check, agent notes) is
+a `nonconformance`: say which file, so it is removed. Such files belong in
+the uncommitted `.kestrel/scratch/`.
 
 Report every finding — remediation or escalation, and there may be more
 than one — in a single structured block, one entry per finding:

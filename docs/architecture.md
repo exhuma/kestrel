@@ -426,14 +426,23 @@ what it shows** (spec 043). `board_workflow.change_request_url` sits
 beside the number and is exposed on the board snapshot, and the
 cockpit's "Pull request" entry links to it. A redelivery onto the
 existing change request keeps both values: its location is a note, not
-a URL, and earlier it cleared the recorded number. When delivery opens
-the change request, `delivery_body.py` composes the body. It lists the
-PNGs the coder committed under `.kestrel/screenshots/` (or states the
-reason in the `README.md` there) as images served by
-`CodeHost.file_url` from the pushed branch. A redelivery leaves the body
-as it is. The cockpit renders Markdown artifacts through `markdown-it`
-with raw HTML disabled, so agent output never becomes live markup
-(amended 029 FR-015).
+a URL, and earlier it cleared the recorded number. The description holds
+a visible section kestrel maintains (`delivery_body.py`): what the change
+implements, each later round, and the PNGs the coder committed under
+`.kestrel/screenshots/` (or the reason in the `README.md` there), served by
+`CodeHost.file_url` from the pushed branch. A redelivery rewrites only that
+section (`CodeHost.write_kestrel_section`, `splice_section`), so text people
+wrote around it stays, and comments on the change request
+(`delivery_rounds.py`): the commits it pushed, listed from
+`refs/remotes/origin/<branch>` (recorded on every push), or that nothing
+needed changing, with the coder's `<CHANGE_SUMMARY>`. A `delivery.round`
+board event records which implementation cards each delivery covered.
+Agent tooling stays out of the commit: `.kestrel/scratch/` is in the
+mirror's `info/exclude`, the coder is told to keep helper files there, the
+verifier reports a committed one as a nonconformance, and delivery logs a
+warning for anything under `.kestrel/` that is not a screenshot. The cockpit
+renders Markdown artifacts through `markdown-it` with raw HTML disabled, so
+agent output never becomes live markup (amended 029 FR-015).
 
 **As of 2026-09-27, the refinement-interview and PRD-approval gates are
 built** (spec 026 T078) — the last of the four human gates the data

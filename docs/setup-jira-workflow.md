@@ -186,6 +186,13 @@ same merge request is updated. The button appears once the request is done
 and nothing else is open. Kestrel refuses if the merge request has already
 been merged or closed.
 
+Each later round shows on the merge request. Kestrel pushes the new commits
+and comments with them and the coder's summary of the change; when nothing
+needed changing, the comment says so and why. The description has a section
+headed **Maintained by kestrel**: what the change implements, each later
+round, and the screenshots. Kestrel rewrites only that section, so anything
+you write above or below it stays.
+
 **A follow-up ticket**, for something that deserves its own requirements and
 gates. Create a new ticket that describes the change and links the merge
 request, and in its repository field name the first delivery's branch as

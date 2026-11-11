@@ -338,6 +338,20 @@ class CodeHost(Protocol):
         """Open a pull/merge request; return its URL."""
         ...
 
+    async def write_kestrel_section(
+        self, repo: str, number: int, section: Document
+    ) -> None:
+        """Replace kestrel's section of a change request's description
+        with *section*, keeping everything else a person wrote; append it
+        when it is missing."""
+        ...
+
+    async def comment_on_change_request(
+        self, repo: str, number: int, body: Document
+    ) -> str:
+        """Comment on a change request; return the comment's URL or id."""
+        ...
+
     async def get_change_request(self, repo: str, number: int) -> ChangeRequest:
         """Fetch a pull/merge request's current lifecycle state.
 

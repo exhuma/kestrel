@@ -51,6 +51,15 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **The merge request follows every later round.** Requested changes, a
+  clarification or a CI repair push their commits and add a comment listing
+  them with the coder's summary, or saying why nothing needed changing.
+  Kestrel keeps a visible "Maintained by kestrel" section of the description
+  up to date and leaves the rest as people wrote it.
+- **Agent tooling stays out of the merge request.** The coder keeps helper
+  scripts and notes in `.kestrel/scratch/`, which is never committed, and
+  drives the browser with its tool rather than a script. The verifier reports
+  a committed tooling file, and delivery warns about one.
 - **Kestrel explains itself in the log.** `kestrel.board.decisions` logs every
   decision and its reason at info: cards claimed and finished, coordinator
   actions, each verification's findings and round, escalations, delivery

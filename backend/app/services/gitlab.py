@@ -14,6 +14,7 @@ import httpx
 from app.document_formats.markdown import render_markdown
 from app.documents import Document
 from app.ports import ChangeRequest, RequiredCiStatus
+from app.services.change_requests import splice_section
 from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
 
@@ -130,6 +131,28 @@ class GitLabCodeHost:
             },
         )
         return resp.json()["web_url"]
+
+    async def write_kestrel_section(
+        self, repo: str, number: int, section: Document
+    ) -> None:
+        """Rewrite kestrel's section of the merge request's description."""
+        path = f"/projects/{self._pid(repo)}/merge_requests/{number}"
+        current = (await self._request("GET", path)).json()
+        description = splice_section(
+            current.get("description") or "", render_markdown(section)
+        )
+        await self._request("PUT", path, json={"description": description})
+
+    async def comment_on_change_request(
+        self, repo: str, number: int, body: Document
+    ) -> str:
+        """Add a note to the merge request; return the note's id."""
+        resp = await self._request(
+            "POST",
+            f"/projects/{self._pid(repo)}/merge_requests/{number}/notes",
+            json={"body": render_markdown(body)},
+        )
+        return str(resp.json().get("id", ""))
 
     async def get_change_request(
         self, repo: str, number: int
