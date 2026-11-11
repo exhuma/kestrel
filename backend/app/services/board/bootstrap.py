@@ -6,7 +6,7 @@ import logging
 from functools import lru_cache
 
 from app.config import get_settings
-from app.documents import Strong, paragraph
+from app.documents import Text, paragraph
 from app.models_board import CardKind, WorkCard
 from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
@@ -40,8 +40,6 @@ from app.services.board.live_activity import (
 )
 from app.services.board.materialise import (
     MaterialiseTarget,
-    approved_candidate,
-    render_breakdown,
 )
 from app.services.board.projection_retry import ProjectionRetryService
 from app.services.board.projections import ProjectionsService
@@ -50,6 +48,7 @@ from app.services.board.recovery import RecoveryService
 from app.services.board.requested_changes import RequestChangesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
+from app.services.board.work_items import WorkItemDeps, WorkItemPublisher
 from app.services.board.workspace import WorkspaceService
 from app.services.task_sources import get_task_source_registry
 from app.storage.workflow_bus import get_workflow_bus
@@ -175,6 +174,19 @@ def get_request_changes_service() -> RequestChangesService:
 def get_projections_service() -> ProjectionsService:
     """Return the process-wide ProjectionsService singleton."""
     return ProjectionsService(get_board_projection_store())
+
+
+@lru_cache
+def get_work_item_publisher() -> WorkItemPublisher:
+    """Return the process-wide WorkItemPublisher singleton (#64)."""
+    return WorkItemPublisher(WorkItemDeps(
+        store=get_board_store(),
+        artifacts=get_artifacts_service(),
+        projections=get_projections_service(),
+        task_sources=get_task_source_registry(),
+        announcements=get_announcement_service(),
+        interval_seconds=get_settings().board_projection_retry_interval_seconds,
+    ))
 
 
 @lru_cache
@@ -409,40 +421,11 @@ async def _project_escalation(workflow_id: str, card: WorkCard) -> None:
     )
 
 
-def schedule_breakdown_projection(workflow_id: str, card: WorkCard) -> None:
-    """Schedule posting an approved decomposition's task breakdown to the
-    request's ticket (feature 031, FR-006), in the background.
-
-    One comment per approval, in place of the one child ticket per task
-    feature 012 used to publish: the tasks themselves are cards in this
-    workflow already (``materialise.py``). Fire-and-forget, mirroring
-    ``schedule_gate_projection``.
-    """
-    task = asyncio.create_task(_project_breakdown(workflow_id, card))
-    task.add_done_callback(
-        lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
-    )
-
-
-async def _project_breakdown(workflow_id: str, card: WorkCard) -> None:
-    gate = get_gates_service().get_gate(card.id)
-    content = (
-        get_artifacts_service().read_content(gate.target_artifact_id)
-        if gate is not None and gate.target_artifact_id is not None
-        else None
-    )
-    candidate = approved_candidate(content) if content else None
-    if candidate is None:
-        _logger.warning(
-            "workflow %s: decomposition_gate %s has no readable candidate; "
-            "no breakdown posted", workflow_id, card.id,
-        )
-        return
-    breakdown = render_breakdown(candidate)
-    await get_announcement_service().post(
-        workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
-        lambda ctx: finish(ctx, breakdown.blocks),
-    )
+def schedule_breakdown_projection(workflow_id: str, _card: WorkCard) -> None:
+    """Have an approved breakdown's tasks created as work items on the
+    task source, and listed in one comment (#64), in the background. The
+    publisher's own loop finishes whatever this pass cannot."""
+    get_work_item_publisher().schedule(workflow_id)
 
 
 def schedule_prd_approval_projection(workflow_id: str, card: WorkCard) -> None:
@@ -461,6 +444,7 @@ def schedule_prd_approval_projection(workflow_id: str, card: WorkCard) -> None:
 
 
 async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
+    """Attach the approved PRD to the ticket as a file, and say so."""
     workflow = get_board_store().get_workflow(workflow_id)
     if workflow is None or workflow.approved_prd is None:
         _logger.warning(
@@ -468,10 +452,24 @@ async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
             "recorded; nothing projected", workflow_id, card.id,
         )
         return
-    blocks = (
-        paragraph(Strong("Approved PRD")), *workflow.approved_prd.blocks
+    name = _prd_file_name(workflow_id)
+    announcements = get_announcement_service()
+    await announcements.attach(
+        workflow_id, f"attachment:{card.id}:{name}", workflow.approved_prd
     )
-    await get_announcement_service().post(
+    await announcements.post(
         workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
-        lambda ctx: finish(ctx, blocks),
+        lambda ctx: finish(ctx, (paragraph(Text(
+            f"PRD signed off. It is attached to this ticket as {name}."
+        )),)),
     )
+
+
+def _prd_file_name(workflow_id: str) -> str:
+    """``PRD.md`` for the first signed-off PRD, ``PRD-2.md`` and so on
+    for one signed off again after a change."""
+    approved = sum(
+        1 for c in get_board_store().list_cards(workflow_id)
+        if c.kind == CardKind.PRD_GATE.value and c.state == "done"
+    )
+    return "PRD.md" if approved <= 1 else f"PRD-{approved}.md"

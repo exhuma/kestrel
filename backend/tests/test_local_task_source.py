@@ -98,6 +98,7 @@ async def test_children_stay_inside_task(tmp_path) -> None:
         "parent": "local:hello",
         "code_repo": "/tmp/sandbox.git",
         "base_branch": "release",
+        "key": "",
     }
 
 
@@ -109,3 +110,38 @@ async def test_rejects_paths_outside_local_task_root(tmp_path) -> None:
 
     with pytest.raises(ValueError):
         await source.get_task("local:../outside")
+
+
+@pytest.mark.asyncio
+async def test_a_work_item_is_created_once_per_key(tmp_path) -> None:
+    """Ensure a retry with the same key returns the child it made."""
+    _write_task(tmp_path, "hello")
+    source = LocalTaskSource(str(tmp_path))
+
+    first = await source.create_subtask("local:hello", "A", doc("a"), key="k1")
+    again = await source.create_subtask("local:hello", "A", doc("a"), key="k1")
+    other = await source.create_subtask("local:hello", "B", doc("b"), key="k2")
+
+    assert first == again == "local:hello/children/subtask-1"
+    assert other == "local:hello/children/subtask-2"
+
+
+@pytest.mark.asyncio
+async def test_an_order_and_a_document_are_written_to_the_folder(
+    tmp_path,
+) -> None:
+    """Ensure links and attachments land where a person can read them."""
+    _write_task(tmp_path, "hello")
+    source = LocalTaskSource(str(tmp_path))
+    first = await source.create_subtask("local:hello", "A", doc("a"), key="a")
+    second = await source.create_subtask("local:hello", "B", doc("b"), key="b")
+
+    await source.link_subtasks(first, second)
+    path = await source.attach_document("local:hello", "PRD.md", doc("Spec"))
+
+    child = tmp_path / "hello" / "children" / "subtask-2" / "task.json"
+    assert json.loads(child.read_text())["blocked_by"] == [first]
+    assert (tmp_path / "hello" / "attachments" / "PRD.md").read_text() == (
+        "Spec"
+    )
+    assert path.endswith("PRD.md")

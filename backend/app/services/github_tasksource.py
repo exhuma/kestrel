@@ -8,14 +8,17 @@ mirrors ``ports.py``'s own ``TaskSource``/``CodeHost`` role split.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Literal
 
 from app.config_models import TaskSourceConfig
 from app.document_formats.markdown import parse_markdown, render_markdown
-from app.documents import Document, Text, paragraph
+from app.documents import Document, Marker, Strong, Text, paragraph
 from app.ports import CommentPage, Feedback, LifecycleEvent, Person, Task
 from app.services.github import GitHubClient, parse_github_ref
 from app.services.task_source_utils import as_posted, parse_iso
+
+_log = logging.getLogger("kestrel.github")
 
 #: Prefix minted onto every issue-comment ``Feedback.external_id`` (feature
 #: 013) — carries the repo so a comment id stays unique across repos.
@@ -76,21 +79,38 @@ class GitHubTaskSource:
         parent_ref: str,
         title: str,
         body: Document,
+        key: str = "",
     ) -> str:
         """Create a follow-up issue in the same repo (feature 012).
 
         Linked to its parent via a reference line in the body (GitHub
         issues have no native sub-issue type at this API layer); created
         with no labels at all, so it can never carry the trigger label.
+        *key* is kept in the body as a correlation marker; there is no
+        lookup by it, so a retry after a crash may create a second issue.
         """
         repo, parent_number = parse_github_ref(parent_ref)
+        mark = (Marker(key),) if key else ()
         full_body = Document((
             paragraph(Text(f"Sub-task of #{parent_number}")), *body.blocks,
+            *mark,
         ))
         number = await self._client.create_issue(
             repo, title, render_markdown(full_body)
         )
         return f"{repo}#{number}"
+
+    async def link_subtasks(self, blocking_ref: str, blocked_ref: str) -> None:
+        """GitHub issues have no blocking links here: nothing to do."""
+        _log.debug("no issue link for %s -> %s", blocking_ref, blocked_ref)
+
+    async def attach_document(
+        self, ref: str, name: str, document: Document
+    ) -> str:
+        """GitHub issues take no attachments: post the document, headed
+        with its name, as a comment."""
+        titled = Document((paragraph(Strong(name)), *document.blocks))
+        return await self.post_comment(ref, titled)
 
     async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
         """No-op because GitHub child creation includes all required context."""

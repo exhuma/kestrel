@@ -184,23 +184,38 @@ class TaskSource(Protocol):
         parent_ref: str,
         title: str,
         body: Document,
+        key: str = "",
     ) -> str:
-        """Create a follow-up task linked to ``parent_ref`` (feature 012).
-
-        **Currently unused** (feature 031): approved decomposition tasks
-        stay cards inside the request's workflow and are no longer
-        published. Kept, with every adapter, for mirroring those cards
-        back to the task source as sub-tasks (GitHub #64).
+        """Create the work item for one approved task of ``parent_ref``
+        (#64): a sub-task, or — for a Jira source with
+        ``work_items_project`` — an issue in that project linked to it.
 
         ``body`` is final and self-contained; any ``Marker`` blocks in it
-        are preserved through the source's own write/read round trip (the
-        caller decides *which* markers, the adapter *how* they look).
-        Implementations MUST create the ticket without satisfying this
+        are preserved through the source's own write/read round trip.
+        Implementations MUST create the item without satisfying this
         source's own ingestion-trigger condition (e.g. GitHub: no
-        ``trigger_label``), so publishing a follow-up task never itself
-        starts a new run.
+        ``trigger_label``), so a work item never itself starts a run.
 
-        :returns: The new ticket's source-native ref.
+        :param key: Identifies the item across attempts. When an item
+            carrying it already exists (created before a crash), its ref
+            is returned and nothing new is created. Empty: no lookup.
+        :returns: The item's source-native ref.
+        """
+        ...
+
+    async def link_subtasks(self, blocking_ref: str, blocked_ref: str) -> None:
+        """Record on the source that ``blocking_ref`` must be done before
+        ``blocked_ref``. A source without issue links does nothing."""
+        ...
+
+    async def attach_document(
+        self, ref: str, name: str, document: Document
+    ) -> str:
+        """Put *document* on the ticket as a file named *name* (the
+        approved PRD). A source without attachments posts it as a comment
+        instead.
+
+        :returns: Where it went (a URL or path).
         """
         ...
 

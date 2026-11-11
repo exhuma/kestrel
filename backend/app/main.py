@@ -81,6 +81,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_ci_poll_service,
         get_projection_retry_service,
         get_recovery_service,
+        get_work_item_publisher,
     )
 
     poll_tasks.append(asyncio.create_task(get_recovery_service().run_forever()))
@@ -95,6 +96,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # that failed to post waits in the projection ledger for this loop.
     poll_tasks.append(
         asyncio.create_task(get_projection_retry_service().run_forever())
+    )
+
+    # Approved tasks become work items on the task source (#64); this
+    # loop finishes whatever a pass could not.
+    poll_tasks.append(
+        asyncio.create_task(get_work_item_publisher().run_forever())
     )
 
     # A comment that could not be built waits for this pass.

@@ -128,6 +128,21 @@ class TaskSourceConfig(BaseModel):
     #: when the issue is ready for CAB or should move on, and relays CAB
     #: decisions. Unset ⇒ no change owner; CAB decisions go through the UI.
     change_owner_field: str = ""
+    #: Jira: where the approved tasks of a request are created (#64).
+    #: Unset: as sub-tasks of the request's issue. Set: as issues of
+    #: ``work_items_issue_type`` in this project, each linked to the
+    #: request's issue with ``work_items_link_type``. Keep this project out
+    #: of ``jql``: kestrel must never ingest its own work items.
+    work_items_project: str = ""
+    #: Jira: the issue type of a work item; empty means "Sub-task" without
+    #: ``work_items_project`` and "Task" with it.
+    work_items_issue_type: str = ""
+    #: Jira: the link type between a work item in another project and the
+    #: request's issue.
+    work_items_link_type: str = "Relates"
+    #: Jira: the link type that says one work item must be done before
+    #: another (its outward description reads "blocks").
+    work_items_blocks_link_type: str = "Blocks"
     #: Jira: code host for resolved repos and its (self-hosted) URL + token env.
     code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""
@@ -168,6 +183,12 @@ class TaskSourceConfig(BaseModel):
         if self.type == "local" and self.code_host != "local":
             raise ValueError("local task source requires code_host = local")
         return self
+
+    def work_item_type(self) -> str:
+        """The issue type a work item is created as (Jira)."""
+        if self.work_items_issue_type:
+            return self.work_items_issue_type
+        return "Task" if self.work_items_project else "Sub-task"
 
     def token(self) -> str | None:
         """Resolve this source's token from its (defaulted) env var."""

@@ -22,13 +22,18 @@ from app.persistence.board_projection_store import BoardProjectionStore
 
 #: FR-033's closed vocabulary of default-projected milestones, plus the
 #: kinds feature 046 adds: a gate opening, a status line, a reply's
-#: outcome.
+#: outcome; and #64's: a file attached to the ticket, a work item, and a
+#: link between two work items.
 VALID_PROJECTION_KINDS = frozenset(
     {
         "gate", "escalation", "approved_artifact", "delivery",
-        "gate_opened", "status", "reply",
+        "gate_opened", "status", "reply", "attachment", "work_item",
+        "work_item_link",
     }
 )
+#: Kinds the work-item publisher creates and retries itself
+#: (``work_items.py``); the comment retry loop leaves them alone.
+WORK_ITEM_KINDS = frozenset({"work_item", "work_item_link"})
 
 
 @dataclass(frozen=True)
@@ -102,6 +107,18 @@ class ProjectionsService:
         if record is None or record.state != "completed":
             return None
         return record.updated_at
+
+    def external_id(self, idempotency_key: str) -> str | None:
+        """What the source made of a delivered projection (a comment URL,
+        a work item's key), or ``None`` while it is not delivered."""
+        record = self._store.get_by_idempotency_key(idempotency_key)
+        if record is None or record.state != "completed":
+            return None
+        return record.external_id
+
+    def record(self, idempotency_key: str) -> ExternalProjectionRecord | None:
+        """The ledger row for *idempotency_key*, if there is one."""
+        return self._store.get_by_idempotency_key(idempotency_key)
 
     def complete(
         self, projection_id: str, *, external_id: str | None = None

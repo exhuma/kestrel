@@ -97,10 +97,15 @@ class LocalTaskSource:
         parent_ref: str,
         title: str,
         body: Document,
+        key: str = "",
     ) -> str:
-        """Create a child task below its root-contained parent folder."""
+        """Create a child task below its root-contained parent folder, or
+        return the child already created for *key*."""
         parent = self._task_dir(parent_ref)
         children = parent / "children"
+        existing = self._child_with_key(children, key)
+        if existing is not None:
+            return local_task_ref(existing, self._root)
         number = 1
         while (children / f"subtask-{number}" / "task.json").exists():
             number += 1
@@ -113,9 +118,39 @@ class LocalTaskSource:
             "parent": parent_ref,
             "code_repo": parent_data.get("code_repo"),
             "base_branch": parent_data.get("base_branch"),
+            "key": key,
         }
         (child / "task.json").write_text(json.dumps(data), encoding="utf-8")
         return local_task_ref(child, self._root)
+
+    @staticmethod
+    def _child_with_key(children: Path, key: str) -> Path | None:
+        if not key or not children.is_dir():
+            return None
+        for task_file in sorted(children.glob("*/task.json")):
+            data = json.loads(task_file.read_text(encoding="utf-8"))
+            if data.get("key") == key:
+                return task_file.parent
+        return None
+
+    async def link_subtasks(self, blocking_ref: str, blocked_ref: str) -> None:
+        """Record the order in the blocked child's ``task.json``."""
+        path = self._task_dir(blocked_ref) / "task.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        after = data.setdefault("blocked_by", [])
+        if blocking_ref not in after:
+            after.append(blocking_ref)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    async def attach_document(
+        self, ref: str, name: str, document: Document
+    ) -> str:
+        """Write *document* to ``attachments/<name>`` in the task folder."""
+        directory = self._task_dir(ref) / "attachments"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / Path(name).name
+        path.write_text(render_markdown(document), encoding="utf-8")
+        return str(path)
 
     async def complete_subtask(self, _parent_ref: str, _task_ref: str) -> None:
         """No-op because local child creation copies repository context."""

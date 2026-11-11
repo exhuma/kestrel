@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.config_models import TaskSourceConfig
-from app.services.local_task_poll import LocalTaskPollService
+from app.services.local_task_poll import LocalTaskPollService, _task_dirs
 from tests.local_task_helpers import write_local_task as _write_task
 
 _TWO_CYCLES = 2
@@ -81,3 +81,12 @@ async def test_ingest_skips_local_task_missing_code_repo(tmp_path) -> None:
     await LocalTaskPollService(_source(tmp_path), ingestion).run_cycle()
 
     assert ingestion.calls == []
+
+
+def test_work_items_are_not_tasks_of_their_own(tmp_path) -> None:
+    """Ensure kestrel never ingests the children it created."""
+    for folder in ("hello", "hello/children/subtask-1"):
+        (tmp_path / folder).mkdir(parents=True)
+        (tmp_path / folder / "task.json").write_text("{}")
+
+    assert _task_dirs(str(tmp_path)) == [tmp_path / "hello"]

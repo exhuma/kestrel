@@ -8,6 +8,7 @@ phase, for the one milestone kind wired so far: a resolved human gate.
 """
 from __future__ import annotations
 
+from app.documents import Document
 from app.ports import TaskSource
 from app.services.board.projections import (
     ProjectionRequest,
@@ -34,10 +35,30 @@ async def post_projection(
     if record.state != "pending" or record.attempts:
         return
     try:
-        external_id = await task_source.post_comment(
-            request.task_ref, request.payload
+        external_id = await deliver(
+            request.kind, request.idempotency_key, task_source,
+            request.task_ref, request.payload,
         )
     except Exception as exc:  # noqa: BLE001 — record, don't propagate
         projections.fail(record.id, str(exc))
         return
     projections.complete(record.id, external_id=external_id)
+
+
+async def deliver(
+    kind: str,
+    idempotency_key: str,
+    task_source: TaskSource,
+    task_ref: str,
+    payload: Document,
+) -> str:
+    """Put one projection on the ticket: an ``attachment`` as a file, named
+    by the last part of its key (``attachment:<card>:PRD.md``); any other
+    kind as a comment.
+
+    :returns: What the source made of it (a URL or path).
+    """
+    if kind == "attachment":
+        name = idempotency_key.rsplit(":", 1)[-1]
+        return await task_source.attach_document(task_ref, name, payload)
+    return await task_source.post_comment(task_ref, payload)
