@@ -70,20 +70,21 @@ running the image.
 
 ## Where backends apply
 
-Every board specialist (`requester`, `pm`,
-`uiux`, `developer`, `infosec`, `dba`, `architect`, `ops`, `qa`,
-`coordinator`, `coder`, `verifier`, `input-security`, `liaison`) uses its own
-manifest's `model_policy` — `"default"` for `default_backend`, or a
-pinned backend id.
+A backend is an autonomous agent that works in a checked-out repository. Only
+turns with a checkout run on one: coding, verification, decomposition,
+estimation, and the interviews of technical personas (developer, architect,
+dba, infosec, ops, qa, uiux), who read the code they ask about. Every turn
+without a checkout runs on kestrel's own
+[internal reasoning](configuration.md#internal-reasoning) instead, never on a
+backend.
 
-A specialist only accepts a backend that satisfies its `required_abilities`:
-`coder` needs file-editing (`claude`/`opencode`), since it is the only role
-that holds a repository write lease, while most other roles need only text
-— so a backend declared text-only (`caps = ["text"]`) may serve them (it
-just won't read the repo). A bad mapping (e.g. a text-only backend pinned to
-`coder`) fails capability-checked routing
-(`SpecialistBackendPolicy.backend_for`) with a clear error rather than
-silently dispatching anyway.
+For a turn with a checkout, a specialist uses its manifest's `model_policy`:
+`"default"` for `default_backend`, or a pinned backend id. A specialist only
+accepts a backend that satisfies its `required_abilities`: `coder` needs
+file-editing (`claude`/`opencode`), since it is the only role that holds a
+repository write lease. A bad mapping (a text-only backend pinned to `coder`)
+fails capability-checked routing (`SpecialistBackendPolicy.backend_for`) with
+a clear error rather than silently dispatching anyway.
 
 ## Concurrency and rate limits
 

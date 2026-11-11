@@ -11,6 +11,14 @@ holds the record. Constitution 2.0.0.
 
 ### Breaking
 
+- **Internal reasoning is required.** Kestrel now does its own thinking on an
+  OpenAI-compatible endpoint set in a new `[reasoning]` table, with the key in
+  `KESTREL_REASONING_API_KEY`; it does not start without them. Every turn
+  without a checked-out repository runs there instead of on an agent backend,
+  and each role can use its own endpoint or model. Technical interviewers now
+  get a read-only checkout and stay on the agent backend.
+  `board_input_security_timeout_seconds` is removed. See
+  `docs/configuration.md`.
 - **PostgreSQL replaces SQLite.** `KESTREL_DATABASE_URL` is required
   (`postgresql://user:password@host:5432/kestrel`); kestrel does not
   start without it. The schema is one fresh baseline migration: existing

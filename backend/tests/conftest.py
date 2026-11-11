@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -31,6 +32,11 @@ def pytest_configure(config: pytest.Config) -> None:
         )
     config.add_cleanup(database_support.end_run)
     os.environ["KESTREL_DATABASE_URL"] = database_support.start_run()
+    # Internal reasoning is required; no test reaches this endpoint.
+    os.environ.setdefault("KESTREL_REASONING", json.dumps({
+        "base_url": "http://reasoning.invalid/v1", "model": "test-model",
+    }))
+    os.environ.setdefault("KESTREL_REASONING_API_KEY", "test-key")
 
 
 @pytest.fixture(autouse=True)

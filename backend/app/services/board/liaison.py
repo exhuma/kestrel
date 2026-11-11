@@ -27,7 +27,7 @@ from app.backends.base import (
     TurnResult,
 )
 from app.documents import Document
-from app.policy import SpecialistBackendPolicy
+from app.models_board import SpecialistDefinition
 from app.services.board.agent_text import to_prompt
 from app.services.board.specialists import SpecialistRoster
 from app.text_extract import extract_tag
@@ -83,6 +83,14 @@ class LiaisonAsk:
 
 class _TurnBackend(Protocol):
     async def run_turn(self, req: TurnRequest) -> TurnResult: ...
+
+
+class ChoosesBackend(Protocol):
+    """Where a role's turns run (``ReasoningPolicy``)."""
+
+    def backend_for(self, specialist: SpecialistDefinition) -> _TurnBackend:
+        """The backend *specialist*'s turns run on."""
+        ...
 
 
 def without_marker(text: str, marker: str) -> str:
@@ -178,7 +186,7 @@ class LiaisonService:
     def __init__(
         self,
         roster: SpecialistRoster,
-        backend_policy: SpecialistBackendPolicy,
+        backend_policy: ChoosesBackend,
         timeout_seconds: float,
     ) -> None:
         self._roster = roster

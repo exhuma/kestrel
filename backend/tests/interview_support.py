@@ -30,7 +30,7 @@ def specialist(role_id: str, *card_types: str) -> SpecialistDefinition:
     return SpecialistDefinition(
         id=role_id, label=role_id.upper(), purpose=f"{role_id} expertise",
         allowed_card_types=card_types, required_abilities=(),
-        model_policy="default", workspace_permission="read_only",
+        model_policy="default", workspace_permission="none",
         prompt=f"You are {role_id}.",
     )
 

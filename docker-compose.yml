@@ -83,10 +83,14 @@ services:
       KESTREL_DATABASE_URL: postgresql://kestrel:${KESTREL_DB_PASSWORD:-kestrel}@postgres:5432/kestrel
       # The repos claude works in (matches the ./workspaces bind mount above).
       KESTREL_WORKSPACE_ROOT: /workspaces
+      # Required: kestrel's internal reasoning endpoint (OpenAI-compatible).
+      # Or set [reasoning] in the mounted config file instead of these.
+      KESTREL_REASONING: '{"base_url": "${KESTREL_REASONING_BASE_URL:?set KESTREL_REASONING_BASE_URL}", "model": "${KESTREL_REASONING_MODEL:?set KESTREL_REASONING_MODEL}"}'
+      KESTREL_REASONING_API_KEY: ${KESTREL_REASONING_API_KEY:?set KESTREL_REASONING_API_KEY}
       # Optional: a token unlocks GitHub ingestion features.
       KESTREL_GITHUB_TOKEN: ${KESTREL_GITHUB_TOKEN:-}
       # Permission mode passed to spawned claude sessions.
-      KESTREL_PERMISSION_MODE: ${KESTREL_PERMISSION_MODE:-acceptEdits}
+      KESTREL_PERMISSION_MODE: ${KESTREL_PERMISSION_MODE:-edit}
       # Console logs: 'text' (default) or 'json' (one JSON per line) for a
       # log pipeline (OTEL, Logstash). See docs/observability.md.
       KESTREL_LOG_FORMAT: ${KESTREL_LOG_FORMAT:-text}

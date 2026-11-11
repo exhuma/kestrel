@@ -18,7 +18,8 @@ API and (when packaged) the built SPA.
 | Component | Responsibility |
 | --- | --- |
 | **FastAPI backend** (`backend/app`) | HTTP API, board orchestration, SSE streaming |
-| **Backend adapters** (`backend/app/backends`) | Dispatch targets behind one `Backend` protocol: `claude_cli`, `opencode` |
+| **Backend adapters** (`backend/app/backends`) | Agents that work in a checkout, behind one `Backend` protocol: `claude_cli`, `opencode` |
+| **Internal reasoning** (`backend/app/reasoning`) | Kestrel's own thinking on an OpenAI-compatible chat endpoint: every turn without a checkout |
 | **Persistence** (`backend/app/persistence`) | PostgreSQL via SQLAlchemy and psycopg, schema managed by Alembic |
 | **SPA** (`frontend/`) | Vue 3 + Vuetify UI; in the image it is served same-origin by the backend |
 
@@ -31,6 +32,13 @@ API and (when packaged) the built SPA.
   superset of its `required_abilities`, so a text-only backend can serve a
   text-only role but not `coder`. Adapters never leak a tool's flags or
   output format upward.
+- **Agent or internal reasoning.** A turn that works in a checked-out
+  repository runs on an agent backend; every other turn (screening, reading
+  replies, the coordinator, the understanding, business interviews, the PRD,
+  the clarification check) runs on `ReasoningClient` (`reasoning/client.py`),
+  one chat completion with no tools. `ReasoningPolicy` resolves each role's
+  endpoint from `[reasoning]` and its `roles` tables, and the board's
+  dispatch routes a card with `workspace_permission = "none"` to it.
 - **A canonical event vocabulary** (`models.py`) normalizes each backend's
   native stream (claude's `stream-json`, opencode's messages) onto one
   shape. Agent output is not stored: it goes to the server log under the
@@ -131,9 +139,9 @@ entity reference; this is the operator-relevant shape:
   or human-supplied input (a task body, a gate answer, a direct session
   prompt) passes through `QuarantineService` before it can reach an agent, a
   workflow transition, or a task-source write. Oversized content
-  (`board_input_max_bytes`), a missing/incapable `input-security`
-  specialist, and any malformed or timed-out classification
-  (`board_input_security_timeout_seconds`) all fail **closed** into a
+  (`board_input_max_bytes`), a missing `input-security` specialist, and any
+  malformed, filtered or timed-out classification (the reasoning
+  `timeout_seconds`) all fail **closed** into a
   `security_review` card — nothing here ever treats an unclear result as
   safe. An operator releases or discards a pending review via `POST
   /api/board/security-reviews/{id}/resolve`; suspect content itself never

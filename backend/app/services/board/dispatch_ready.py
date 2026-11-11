@@ -57,6 +57,7 @@ from app.services.board.escalations import (
     route_clarification,
 )
 from app.services.board.gates import GatesService
+from app.services.board.liaison import ChoosesBackend
 from app.services.board.live_activity import (
     LiveActivity,
     announcer,
@@ -124,6 +125,9 @@ class DispatchServices:
     board: BoardService | None = None
     unreadable_retry_cap: int = 1
     live: LiveActivity | None = None
+    #: Where a card without a workspace runs (``ReasoningPolicy``); with
+    #: none, every card runs on its role's agent backend.
+    reasoning: ChoosesBackend | None = None
 
 
 async def dispatch_ready_work(
@@ -196,6 +200,12 @@ def _claim_for(
             workflow_id, specialist.id, exc,
         )
         return None
+    if (
+        card.workspace_permission == WorkspacePermission.NONE.value
+        and services.reasoning is not None
+    ):
+        # No repository to work in: kestrel reasons itself, no agent.
+        backend = services.reasoning.backend_for(specialist)
     return backend, card
 
 

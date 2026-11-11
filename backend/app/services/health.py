@@ -21,6 +21,7 @@ from typing import Awaitable, Callable
 
 from app.config import get_settings
 from app.ports import WorkItem
+from app.reasoning.policy import get_reasoning_policy
 from app.services.task_sources import get_task_source_registry
 from app.storage.health_bus import HealthBus
 
@@ -204,6 +205,10 @@ def _health_checks() -> list[tuple[str, CheckFn]]:
     if settings.local_sources():
         local = registry.sources["local-task"].check_health
         checks.append(("local", local))
+    checks.extend(
+        (label, client.check_health)
+        for label, client in get_reasoning_policy().health_checks()
+    )
     return checks
 
 

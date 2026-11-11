@@ -27,17 +27,17 @@ from app.persistence.board_quarantine_store import (
     QuarantineRequest,
     ReviewResolution,
 )
-from app.policy import SpecialistBackendPolicy, SpecialistCapabilityError
 from app.services.board.dispatch import (
     ClassificationError,
     ClassificationResult,
     build_classification_envelope,
     classify_input,
 )
+from app.services.board.liaison import ChoosesBackend, without_marker
 from app.services.board.specialists import SpecialistRoster
 
 #: Bumped when the deterministic screening/classification policy changes.
-POLICY_VERSION = "v1"
+POLICY_VERSION = "v2"
 
 _logger = logging.getLogger("kestrel.board.quarantine")
 
@@ -78,6 +78,22 @@ class ExistingWorkflowIntake:
     category: str
     content: Document
     workflow: Workflow | None = None
+    #: What the content is, in one sentence, for the screening.
+    context: str = ""
+    #: The reply marker, removed before screening: it is not the reply.
+    marker: str = ""
+
+
+@dataclass(frozen=True)
+class _Screening:
+    """One piece of content to screen, and what to record if it is held."""
+
+    workflow: Workflow | None
+    source_identity: str
+    content: Document
+    card_title: str
+    context: str = ""
+    marker: str = ""
 
 
 class QuarantineService:
@@ -87,7 +103,7 @@ class QuarantineService:
         self,
         quarantine_store: BoardQuarantineStore,
         roster: SpecialistRoster,
-        backend_policy: SpecialistBackendPolicy,
+        backend_policy: ChoosesBackend,
         max_bytes: int,
         classify_timeout_seconds: float,
     ) -> None:
@@ -99,12 +115,12 @@ class QuarantineService:
 
     async def intake_for_new_task(self, intake: NewTaskIntake) -> IntakeOutcome:
         """Screen a newly ingested task's body (FR-018)."""
-        return await self._intake(
+        return await self._intake(_Screening(
             workflow=None,
             source_identity=f"{intake.source}:{intake.task_ref}",
             content=intake.body,
             card_title=f"Security review: {intake.task_ref}",
-        )
+        ))
 
     async def intake_for_existing_workflow(
         self, intake: ExistingWorkflowIntake
@@ -115,45 +131,44 @@ class QuarantineService:
             intake.workflow.id if intake.workflow is not None
             else intake.identity_ref
         )
-        return await self._intake(
+        return await self._intake(_Screening(
             workflow=intake.workflow,
             source_identity=f"{identity_base}:{intake.category}",
             content=intake.content,
             card_title=f"Security review: {intake.category}",
-        )
+            context=intake.context,
+            marker=intake.marker,
+        ))
 
-    async def _intake(
-        self,
-        *,
-        workflow: Workflow | None,
-        source_identity: str,
-        content: Document,
-        card_title: str,
-    ) -> IntakeOutcome:
+    async def _intake(self, screening: _Screening) -> IntakeOutcome:
+        content = screening.content
         text = render_markdown(content)
         content_hash = hashlib.sha256(
             text.encode("utf-8", "replace")
         ).hexdigest()
         existing = self._existing_outcome(
-            source_identity, content_hash, content
+            screening.source_identity, content_hash, content
         )
         if existing is not None:
             return existing
-        classification = await self._screen(text, source_identity)
+        classification = await self._screen(
+            without_marker(text, screening.marker), screening
+        )
         if classification.safe:
             return IntakeOutcome(released=True, safe_content=content)
         review = self._store.quarantine(
             QuarantineRequest(
-                workflow=workflow,
-                source_identity=source_identity,
+                workflow=screening.workflow,
+                source_identity=screening.source_identity,
                 content_hash=content_hash,
                 policy_version=POLICY_VERSION,
                 safe_content_ref=(
-                    f"quarantine://{source_identity}/{content_hash[:12]}"
+                    f"quarantine://{screening.source_identity}/"
+                    f"{content_hash[:12]}"
                 ),
                 classification_category=classification.category,
                 reason=classification.reason,
-                card_title=card_title,
+                card_title=screening.card_title,
             )
         )
         return _outcome_for(review, safe_content=None)
@@ -175,7 +190,7 @@ class QuarantineService:
         return _outcome_for(review, safe_content=None)
 
     async def _screen(
-        self, content: str, source_identity: str
+        self, content: str, screening: _Screening
     ) -> ClassificationResult:
         """Deterministic bounds check, then the input-security specialist."""
         if len(content.encode("utf-8", "replace")) > self._max_bytes:
@@ -189,13 +204,10 @@ class QuarantineService:
                 category="unavailable",
                 reason="input-security role not configured",
             )
-        try:
-            backend = self._backend_policy.backend_for(specialist)
-        except SpecialistCapabilityError:
-            return ClassificationResult(
-                safe=False, category="unavailable", reason="no capable backend"
-            )
-        envelope = build_classification_envelope(specialist.prompt, content)
+        backend = self._backend_policy.backend_for(specialist)
+        envelope = build_classification_envelope(
+            specialist.prompt, content, screening.context
+        )
         try:
             return await classify_input(
                 backend,
@@ -205,7 +217,7 @@ class QuarantineService:
         except ClassificationError as exc:
             _logger.warning(
                 "input-security classification failed for %s: %s",
-                source_identity,
+                screening.source_identity,
                 exc,
             )
             return ClassificationResult(
@@ -221,7 +233,12 @@ class QuarantineService:
             return (
                 "the input-security check did not finish within "
                 f"{self._classify_timeout_seconds:g}s "
-                "(board_input_security_timeout_seconds)"
+                "(the reasoning timeout_seconds)"
+            )
+        if category == "content_filter":
+            return (
+                "the AI provider's content filter blocked the "
+                "input-security check"
             )
         if category == "backend_error":
             return "the input-security backend failed; see the kestrel log"

@@ -14,6 +14,7 @@ from pydantic_settings import (
 
 from app.config_file import config_file_source
 from app.config_models import BackendConfig, TaskSourceConfig
+from app.config_reasoning import ReasoningConfig
 
 _log = logging.getLogger("kestrel.config")
 
@@ -189,18 +190,14 @@ class Settings(BaseSettings):
     #: ``KESTREL_BOARD_INPUT_MAX_BYTES``). Oversized input is quarantined
     #: rather than truncated, so no partial untrusted content is ever used.
     board_input_max_bytes: int = Field(default=65536, gt=0)
-    #: Timeout in seconds for the input-security specialist's classification
-    #: call (feature 026, ``KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS``). A
-    #: timeout is treated as a malformed result and fails closed into
-    #: quarantine.
-    board_input_security_timeout_seconds: float = Field(default=30.0, gt=0)
-    #: Timeout in seconds for one agent turn on the board — the
-    #: coordinator's, or any specialist's on a card
-    #: (``KESTREL_BOARD_TURN_TIMEOUT_SECONDS``). Separate from the input-
-    #: security timeout: a coder's turn legitimately runs for minutes,
-    #: and a slow local model needs far more than a classification does.
-    #: Defaults to the claim lease, past which recovery would reclaim the
-    #: card anyway.
+    #: Kestrel's internal reasoning endpoint (``[reasoning]``): required.
+    #: Every turn without a checked-out repository runs on it; see
+    #: :mod:`app.config_reasoning`.
+    reasoning: ReasoningConfig | None = None
+    #: Timeout in seconds for one turn on the board — the coordinator's,
+    #: or any specialist's on a card (``KESTREL_BOARD_TURN_TIMEOUT_SECONDS``).
+    #: A coder's turn legitimately runs for minutes. Defaults to the claim
+    #: lease, past which recovery would reclaim the card anyway.
     board_turn_timeout_seconds: float = Field(default=600.0, gt=0)
     #: How long a card claim lease is held before it is considered abandoned
     #: and eligible for recovery (feature 026,
@@ -301,6 +298,23 @@ class Settings(BaseSettings):
                 "KESTREL_DATABASE_URL is not set: kestrel needs a PostgreSQL "
                 "database, e.g. "
                 "postgresql://user:password@host:5432/kestrel"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _require_reasoning(self) -> Settings:
+        """Fail at startup when internal reasoning cannot work."""
+        if self.reasoning is None:
+            raise ValueError(
+                "[reasoning] is not configured: kestrel needs an "
+                "OpenAI-compatible endpoint for its internal reasoning "
+                "(base_url, model, and the API key in "
+                "KESTREL_REASONING_API_KEY); see docs/configuration.md"
+            )
+        problems = self.reasoning.problems()
+        if problems:
+            raise ValueError(
+                "[reasoning] is incomplete: " + "; ".join(problems)
             )
         return self
 

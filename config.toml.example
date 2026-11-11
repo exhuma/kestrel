@@ -16,7 +16,8 @@
 #      backend id from `[[backends]]`).
 #
 # SECRETS STAY IN THE ENVIRONMENT: KESTREL_GITHUB_TOKEN,
-# KESTREL_WEBHOOK_SECRET, KESTREL_JIRA_API_TOKEN, KESTREL_CODE_HOST_TOKEN, and
+# KESTREL_WEBHOOK_SECRET, KESTREL_JIRA_API_TOKEN, KESTREL_CODE_HOST_TOKEN,
+# KESTREL_REASONING_API_KEY, and
 # per-backend api keys/passwords are never put here (except a backend's inline
 # `api_key`/`password`, which is tolerated only because this file is
 # gitignored).
@@ -65,13 +66,8 @@ specialists_root = "./specialists"
 # item, gate/questionnaire answer, direct session prompt) accepted before
 # intake. Oversized input is quarantined rather than truncated.
 board_input_max_bytes = 65536
-# Timeout in seconds for the input-security specialist's classification call.
-# A timeout fails closed into quarantine, the same as a malformed result.
-board_input_security_timeout_seconds = 30.0
-# Timeout in seconds for one agent turn on the board: the coordinator's, or a
-# specialist's on a card. Kept separate from the screening timeout above,
-# because a coder's turn legitimately runs for minutes, and a slow local model
-# needs far longer than a classification does.
+# Timeout in seconds for one turn on the board: the coordinator's, or a
+# specialist's on a card. A coder's turn legitimately runs for minutes.
 board_turn_timeout_seconds = 600.0
 # How long a card claim lease is held before it is considered abandoned and
 # eligible for retry/reassignment/escalation on recovery.
@@ -112,6 +108,28 @@ board_understanding_redraft_cap = 2
 # How many times a card whose result cannot be read is retried on its own
 # before it escalates to the coordinator. 0 escalates at once.
 board_unreadable_retry_cap = 1
+
+# --- internal reasoning (required) ------------------------------------------
+# Kestrel's own thinking: every turn that has no checked-out repository
+# (screening, reading ticket replies, coordinating, the understanding, the
+# business interviews, the PRD) runs on this OpenAI-compatible chat endpoint,
+# never on an agent backend. kestrel does not start without it. The key stays
+# in the environment, in the variable `api_key_env` names.
+[reasoning]
+base_url = "https://llm.example.com/v1"   # kestrel posts to <base_url>/chat/completions
+model = "gpt-4.1-mini"
+# api_key_env = "KESTREL_REASONING_API_KEY"  # the default
+# timeout_seconds = 120
+# max_concurrency = 4                        # per base_url, across the process
+# verify_ssl = true
+
+# A role can use another endpoint or model; anything it leaves out comes from
+# [reasoning]. Role names are the specialist ids (input-security, liaison,
+# coordinator, pm, requester, ...); an unknown role fails at startup.
+# [reasoning.roles.input-security]
+# model = "a-model-for-screening"
+# base_url = "https://other.example.com/v1"
+# api_key_env = "KESTREL_SCREENING_API_KEY"
 
 # --- task sources -----------------------------------------------------------
 # Each [[task_sources]] entry declares where kestrel pulls work from. Secrets

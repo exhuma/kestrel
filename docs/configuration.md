@@ -24,6 +24,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_GITHUB_API_BASE` | `https://api.github.com` | GitHub REST API base URL (override for GitHub Enterprise) |
 | `KESTREL_GIT_BASE` | `https://github.com` | Base URL for git clones |
 | `KESTREL_DATABASE_URL` | _(required)_ | The PostgreSQL database, as `postgresql://user:password@host:5432/kestrel`. Kestrel does not start without it. Holds the password, so keep it in the environment |
+| `KESTREL_REASONING_API_KEY` | _(required)_ | The API key of the internal reasoning endpoint (see [Internal reasoning](#internal-reasoning)); a role or `[reasoning]` may name another variable with `api_key_env`. Kestrel does not start without it. |
 | `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
@@ -36,7 +37,6 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
 | `KESTREL_SPECIALISTS_ROOT` | `./specialists` | Root of file-backed specialist role definitions for the work board (feature 026). Treated as a trust boundary — a manifest resolving outside this root is refused |
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
-| `KESTREL_BOARD_INPUT_SECURITY_TIMEOUT_SECONDS` | `30.0` | Timeout for the input-security specialist's classification call; a timeout fails closed into quarantine. The liaison's reading of a ticket reply (feature 046) uses it too; a timeout there makes kestrel ask the person back |
 | `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a card claim lease is held before it is considered abandoned |
 | `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
@@ -73,6 +73,51 @@ sets one, and the environment fills in the rest. A key in the file that is not
 a setting fails at startup. Secrets belong in the environment, not in the
 file, except a backend's inline `password`/`api_key`. The backend routing and
 the task sources are file-only.
+
+## Internal reasoning
+
+Kestrel does its own thinking on an OpenAI-compatible chat endpoint, apart
+from the agent backends. The rule is simple: **a turn that works in a
+checked-out repository runs on an agent backend; every other turn runs on
+internal reasoning.** That covers screening untrusted input, reading ticket
+replies, the coordinator, the understanding, the strategic interview, the PRD,
+interviews by personas that need no code, and the check of a clarification.
+Interviews by technical personas, decomposition, estimation, coding and
+verification keep running on agent backends with a checkout.
+
+The `[reasoning]` table in `config.toml` is **required**. Kestrel does not
+start when it is missing, when `base_url` or `model` is empty, or when the
+variable holding the key is unset.
+
+```toml
+[reasoning]
+base_url = "https://llm.example.com/v1"   # kestrel posts to <base_url>/chat/completions
+model = "gpt-4.1-mini"
+# api_key_env = "KESTREL_REASONING_API_KEY"  # the default
+# timeout_seconds = 120
+# max_concurrency = 4                        # per base_url, across the process
+# verify_ssl = true
+```
+
+Each role can use its own endpoint or model in a `[reasoning.roles.<role>]`
+table. A field it leaves out comes from `[reasoning]`. Role names are the
+specialist ids (`input-security`, `liaison`, `coordinator`, `pm`,
+`requester`, …); a table for an unknown role fails at startup.
+
+```toml
+[reasoning.roles.input-security]
+model = "a-model-for-screening"
+base_url = "https://other.example.com/v1"
+api_key_env = "KESTREL_SCREENING_API_KEY"
+```
+
+A reasoning turn has no tools and no files: it sends one prompt and reads one
+answer. A 429 is retried with backoff. When the provider's content filter
+blocks a call, kestrel says so: a held input reads "the AI provider's content
+filter blocked the input-security check", and a card's turn reads "blocked by
+the AI provider's content filter". The status icon lists each distinct
+endpoint as `reasoning` (and `reasoning:<role>`), checked with `GET
+<base_url>/models`.
 
 ## Task sources
 
@@ -306,6 +351,8 @@ compose `environment:` block). Kestrel consumes:
   Jira, which is poll-only);
 - `KESTREL_JIRA_API_TOKEN`, or the variable a source names in `token_env`;
 - `KESTREL_CODE_HOST_TOKEN`, or the variable named in `code_host_token_env`;
+- `KESTREL_REASONING_API_KEY`, or the variable `[reasoning]` or a role names
+  in `api_key_env`: the internal reasoning endpoint;
 - per-backend credentials named by a backend's `api_key_env` (for example
   the opencode server password).
 

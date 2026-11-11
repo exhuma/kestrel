@@ -70,6 +70,13 @@ however much the agent wrote. `DEBUG` also lowers the level for everything
 else; set `KESTREL_LOG_LEVEL=debug` to read a turn step by step, and filter on
 the session id.
 
+Internal reasoning turns (every turn without a checkout, see
+[Configuration](configuration.md#internal-reasoning)) log one `INFO` line each
+through `kestrel.reasoning`, with the session id (`rsn-…`), role, card, model,
+duration and token counts. Their prompts and answers are not logged. The
+attempt row of such a card still names the role's agent backend in
+`backend_id`; the `rsn-` session id is what tells it apart.
+
 To find the output of one card attempt:
 
 1. The attempt row (`board_card_attempt`) stores the session id as soon as the

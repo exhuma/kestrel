@@ -92,6 +92,7 @@ stringData:
   KESTREL_DATABASE_URL: "postgresql://kestrel:<password>@<db host>:5432/kestrel"
   KESTREL_JIRA_API_TOKEN: "<jira api token>"
   KESTREL_GITHUB_TOKEN: "<code host token>"      # see the note below
+  KESTREL_REASONING_API_KEY: "<reasoning endpoint key>"
   OPENCODE_SERVER_PASSWORD: "<long random string>"
   OAUTH2_PROXY_CLIENT_SECRET: "<idp client secret>"
   OAUTH2_PROXY_COOKIE_SECRET: "<32 random bytes, url-safe base64>"
@@ -176,6 +177,12 @@ data:
     # Every specialist with model_policy = "default".
     # Set this before the first [[backends]] table.
     default_backend = "oc"
+
+    # Kestrel's own reasoning (required): every turn without a checkout.
+    [reasoning]
+    base_url = "https://<openai-compatible endpoint>/v1"
+    model = "<model>"
+    # api_key_env = "KESTREL_REASONING_API_KEY"   # the default
 
     [[task_sources]]
     type = "jira"
@@ -324,6 +331,8 @@ spec:
               valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_JIRA_API_TOKEN}}
             - name: KESTREL_GITHUB_TOKEN
               valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_GITHUB_TOKEN}}
+            - name: KESTREL_REASONING_API_KEY
+              valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_REASONING_API_KEY}}
             - name: OPENCODE_SERVER_PASSWORD
               valueFrom: {secretKeyRef: {name: kestrel, key: OPENCODE_SERVER_PASSWORD}}
           volumeMounts:

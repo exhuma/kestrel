@@ -21,7 +21,12 @@ Authentication reuses your **host** Claude login, mounted into the container.
 # 1. Log in to Claude on the host once (creates ~/.claude):
 claude   # run once, log in, then quit
 
-# 2. Fetch docker-compose.yml from the release and start it:
+# 2. Point kestrel at an OpenAI-compatible endpoint for its own reasoning:
+export KESTREL_REASONING_BASE_URL=https://llm.example.com/v1
+export KESTREL_REASONING_MODEL=gpt-4.1-mini
+export KESTREL_REASONING_API_KEY=<key>
+
+# 3. Fetch docker-compose.yml from the release and start it:
 docker compose up
 ```
 

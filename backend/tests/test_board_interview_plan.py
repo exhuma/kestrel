@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from app.services.board.interview_plan import (
     route_plan_result,
 )
 from app.services.board.retries import UnreadableResultError
+from app.services.board.specialists import SpecialistRoster
 from tests.interview_support import interview_stack
 
 
@@ -132,3 +134,30 @@ def test_an_unreadable_plan_fails_closed(tmp_path: Path) -> None:
         route_plan_result("I think pm", plan, interview_of(services))
 
     assert "refinement" not in _kinds(store)
+
+
+def test_an_interviewer_gets_the_repository_access_it_asks_for(
+    tmp_path: Path,
+) -> None:
+    """Ensure a technical interviewer can read the code it asks about,
+    and a business one runs without a checkout."""
+    services, store, _gates, _artifacts = interview_stack(tmp_path)
+    reader = replace(
+        services.roster.get("dba"), workspace_permission="read_only"
+    )
+    roster = SpecialistRoster({
+        **{sid: services.roster.get(sid) for sid in services.roster.ids()},
+        "dba": reader,
+    })
+    plan = _accepted_plan(store)
+
+    route_plan_result(
+        _plan_reply("dba", "pm"), plan,
+        replace(interview_of(services), roster=roster),
+    )
+
+    access = {
+        c.eligible_roles[0]: c.workspace_permission
+        for c in store.list_cards("wf-1") if c.kind == "refinement"
+    }
+    assert access == {"dba": "read_only", "pm": "none"}

@@ -70,7 +70,7 @@ async def test_github_profile_registers_exactly_one_entry(
 
     checks = health_module._health_checks()
 
-    assert [name for name, _ in checks] == ["github"]
+    assert [name for name, _ in checks] == ["github", "reasoning"]
 
 
 @pytest.mark.asyncio
@@ -94,7 +94,7 @@ async def test_jira_and_its_gitlab_code_host_are_two_independent_entries(
 
     checks = health_module._health_checks()
 
-    assert [name for name, _ in checks] == ["jira", "gitlab"]
+    assert [name for name, _ in checks] == ["jira", "gitlab", "reasoning"]
 
 
 @pytest.mark.asyncio
@@ -110,7 +110,9 @@ async def test_unconfigured_roles_register_nothing(monkeypatch) -> None:
         health_module, "get_task_source_registry", lambda: service
     )
 
-    assert health_module._health_checks() == []
+    assert [name for name, _ in health_module._health_checks()] == [
+        "reasoning"
+    ]
 
 
 @pytest.mark.asyncio
@@ -124,4 +126,6 @@ async def test_local_only_setup_registers_one_entry(monkeypatch) -> None:
         health_module, "get_task_source_registry", lambda: service
     )
 
-    assert [name for name, _ in health_module._health_checks()] == ["local"]
+    assert [name for name, _ in health_module._health_checks()] == [
+        "local", "reasoning",
+    ]

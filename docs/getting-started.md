@@ -24,8 +24,15 @@ requirements are Docker and a Claude login.
 ```bash
 # Fetch the published compose file (or copy it from this repo), then:
 mkdir -p workspaces
+# kestrel's own reasoning endpoint (required, any OpenAI-compatible API):
+export KESTREL_REASONING_BASE_URL=https://llm.example.com/v1
+export KESTREL_REASONING_MODEL=gpt-4.1-mini
+export KESTREL_REASONING_API_KEY=<key>
 docker compose up
 ```
+
+See [Internal reasoning](configuration.md#internal-reasoning) for what runs
+on that endpoint.
 
 The `mkdir -p workspaces` step matters: the container runs as a non-root
 user by default (uid/gid `1000`, see [Volumes](#volumes)), and a directory

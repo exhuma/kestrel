@@ -56,6 +56,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     roster = get_specialist_roster()
     _logger.info("board specialists loaded: %s", sorted(roster.ids()))
+    # A [reasoning.roles.<role>] table for a role that does not exist is
+    # a typo: refuse it before any turn would quietly use the default.
+    from app.reasoning.policy import get_reasoning_policy
+
+    get_reasoning_policy().require_known_roles(roster.ids())
 
     # Source poll loops (features 002/003/004): one background loop per
     # configured task source — the GitHub reconcile backstop and the Jira poll
