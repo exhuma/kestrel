@@ -144,11 +144,11 @@ async def test_a_failed_coordinator_turn_is_retried(tmp_path: Path) -> None:
 
 
 def test_turns_get_their_own_timeout() -> None:
-    """Ensure agent turns no longer inherit the 30 s screening timeout."""
+    """Ensure agent turns do not share the reasoning timeout."""
     settings = Settings(_env_file=None)
-    screening, turn = 30.0, 600.0
+    reasoning, turn = 120.0, 600.0
 
-    assert settings.board_input_security_timeout_seconds == screening
+    assert settings.reasoning.timeout_seconds == reasoning
     assert settings.board_turn_timeout_seconds == turn
 
 

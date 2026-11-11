@@ -78,8 +78,6 @@ class ProjectionRetryService:
         return posted
 
     def _due(self, record: ExternalProjectionRecord, now: datetime) -> bool:
-        if record.task_ref is None or record.payload is None:
-            return False  # a row from before the ledger kept its payload
         if record.attempts >= MAX_ATTEMPTS:
             return False
         return due_at(record, self._interval_seconds) <= now

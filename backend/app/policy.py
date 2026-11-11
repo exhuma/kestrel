@@ -73,7 +73,7 @@ def get_specialist_backend_policy() -> SpecialistBackendPolicy:
     """
     settings = get_settings()
     return SpecialistBackendPolicy(
-        get_backend_registry(), settings.default_session_backend
+        get_backend_registry(), settings.default_backend
     )
 
 

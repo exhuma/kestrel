@@ -3,10 +3,8 @@
 Poll-only transport (no inbound endpoint). Each cycle queries one configured
 Jira task source by its whole JQL, resolves each RFC's target code repository
 (from a configurable field or a titled web link), and funnels it through the
-shared source-neutral ingestion guard. Also clears dismissals for RFCs that have
-left the qualifying filter — the Jira re-trigger gesture (FR-033), scoped by the
-source's issue-key prefix. One service instance is bound to one ``jira`` task
-source (feature 004).
+shared source-neutral ingestion guard. One service instance is bound to one
+``jira`` task source (feature 004).
 """
 
 from __future__ import annotations
@@ -18,7 +16,6 @@ from urllib.parse import urlparse
 
 from app.config import get_settings
 from app.config_models import TaskSourceConfig
-from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.ports import WorkItem
 from app.services.github import GitHubClient
 from app.services.ingestion import IngestionService, get_ingestion_service
@@ -63,13 +60,11 @@ class JiraPollService:
         jira: JiraClient,
         code_host: object,
         ingestion: IngestionService,
-        dismissals: DismissalStore,
     ) -> None:
         self.source = source
         self.jira = jira
         self.code_host = code_host
         self.ingestion = ingestion
-        self.dismissals = dismissals
 
     @property
     def name(self) -> str:
@@ -128,14 +123,6 @@ class JiraPollService:
             return None
         return repo, (base or default)
 
-    def _clear_stale_dismissals(self, qualifying: set[str]) -> None:
-        # Re-trigger gesture (FR-033): clear the dismissal of any RFC in this
-        # source that no longer qualifies, so re-qualifying starts fresh.
-        prefix = f"{self.source.key}-"
-        for ref in self.dismissals.all():
-            if ref.startswith(prefix) and ref not in qualifying:
-                self.dismissals.clear(ref)
-
     async def run_cycle(self) -> None:
         """Poll the source once; failures are isolated per cycle/issue."""
         try:
@@ -144,8 +131,6 @@ class JiraPollService:
             _log.exception("jira: poll query failed")
             return
         _log.info("jira: %d qualifying RFC(s)", len(tasks))
-        qualifying = {task.ref for task in tasks}
-        self._clear_stale_dismissals(qualifying)
         for task in tasks:
             await self._ingest(task)
 
@@ -216,7 +201,6 @@ def _build_jira_service(source: TaskSourceConfig) -> JiraPollService:
         jira,
         build_code_host(source, github, settings.git_base),
         get_ingestion_service(),
-        get_dismissal_store(),
     )
 
 

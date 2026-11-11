@@ -149,8 +149,9 @@ class BoardService:
         :param wait_reason: Safe explanation, when entering a waiting state.
         :param payload: Safe event payload (JSON), e.g. who decided a gate
             (feature 046).
-        :raises PolicyViolation: if the card is unknown or the transition
-            is not allowed from its current state.
+        :raises PolicyViolation: if the card is unknown, the transition
+            is not allowed from its current state, or another caller
+            moved the card meanwhile.
         """
         card = self._store.get_card(card_id)
         if card is None:
@@ -162,9 +163,13 @@ class BoardService:
                 f"cannot transition card {card_id} from {card.state} "
                 f"to {target_state}"
             )
-        self._store.set_card_state(
-            card_id, target_state, wait_reason=wait_reason
-        )
+        if not self._store.set_card_state(
+            card_id, target_state, wait_reason=wait_reason,
+            from_state=card.state,
+        ):
+            raise PolicyViolation(
+                f"card {card_id} left {card.state} meanwhile"
+            )
         self._after_mutation(card.workflow_id, card_id, event_type, payload)
         return self._store.get_card(card_id)
 

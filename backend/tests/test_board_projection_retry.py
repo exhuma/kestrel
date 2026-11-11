@@ -167,19 +167,6 @@ async def test_a_row_taken_on_is_not_taken_on_again(tmp_path: Path) -> None:
     assert await _retrier(stack).poll_once(now=later) == 0
     assert stack.source.comments() == []
 
-
-@pytest.mark.asyncio
-async def test_a_row_from_before_the_ledger_kept_payloads_is_left_alone(
-    tmp_path: Path,
-) -> None:
-    """Ensure an old row, with no payload or task_ref, is never retried."""
-    stack = build_stack(tmp_path)
-    old = stack.projections._store.plan(ExternalProjectionRecord(
-        id="projection-old", workflow_id=WORKFLOW_ID, kind="gate",
-        idempotency_key="gate:old", payload_hash="h",
-    ))
-    stack.projections.fail(old.id, "boom")
-
     posted = await _retrier(stack).poll_once(
         now=now_utc(None) + _FAR_FUTURE
     )

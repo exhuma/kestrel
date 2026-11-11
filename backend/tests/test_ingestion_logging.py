@@ -28,22 +28,10 @@ class _FakeTaskSources:
         self.code_hosts: dict[str, object] = {}
 
 
-class _Dismissals:
-    def __init__(self, dismissed=()) -> None:
-        self._d = set(dismissed)
-
-    def is_dismissed(self, ref):
-        return ref in self._d
-
-    def all(self):
-        return list(self._d)
-
-
-def _svc(dismissed=()) -> IngestionService:
+def _svc() -> IngestionService:
     return IngestionService(
         Settings(jira_project="RFC"),
         _FakeTaskSources(),
-        _Dismissals(dismissed),
         fake_board_intake(),
     )
 
@@ -64,16 +52,12 @@ async def test_started_and_duplicate_outcomes_logged(caplog) -> None:
 
 
 @pytest.mark.asyncio
-async def test_dismissed_and_filtered_outcomes_logged(caplog) -> None:
-    """Ensure dismissed + unwatched (GitHub) outcomes are logged."""
+async def test_filtered_outcome_logged(caplog) -> None:
+    """Ensure an unwatched (GitHub) outcome is logged."""
     with caplog.at_level("INFO", logger="kestrel.ingestion"):
-        await _svc(dismissed={"RFC-9"}).maybe_start_run(
-            source="jira-issue", task_ref="RFC-9", code_repo="team/svc"
-        )
         # A GitHub source with an unwatched repo is skipped-filtered.
         await _svc().maybe_start_run(
             source="github-issue", task_ref="o/r#5", code_repo="o/r",
             issue_number=5,
         )
-    assert "outcome=dismissed RFC-9" in caplog.text
     assert "outcome=skipped-filtered o/r#5" in caplog.text

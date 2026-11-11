@@ -14,7 +14,13 @@ import json
 import uuid
 from dataclasses import dataclass
 
-from app.models_board import CardKind, CardRelation, CardState, WorkCard
+from app.models_board import (
+    CardKind,
+    CardRelation,
+    CardState,
+    WorkCard,
+    WorkspacePermission,
+)
 from app.services.board.decomposition import RoutingServices, escalate
 from app.services.board.interview_batch import (
     InterviewBoard,
@@ -96,7 +102,7 @@ def route_plan_result(
         ) from exc
     chosen = _valid(named, services, cards)
     if chosen:
-        _start_batch(card, chosen, routing)
+        _start_batch(card, chosen, services)
     elif first:
         escalate(routing.coordinator, card, "interview_plan",
                  "Interview plan named no interviewer")
@@ -158,11 +164,17 @@ def _valid(
 
 
 def _start_batch(
-    plan: WorkCard, chosen: list[str], routing: RoutingServices
+    plan: WorkCard, chosen: list[str], services: InterviewServices
 ) -> None:
+    """Open one interview per chosen profile. An interviewer works with
+    the repository access its manifest asks for, so a technical one can
+    read the code it asks about; one that needs none runs on kestrel's
+    own reasoning."""
+    routing = services.routing
     cards = routing.store.list_cards(plan.workflow_id)
     for sid in chosen:
         number = rounds_used(cards, sid) + 1
+        interviewer = services.roster.get(sid)
         card = WorkCard(
             id=f"card-{uuid.uuid4().hex[:8]}",
             workflow_id=plan.workflow_id,
@@ -170,6 +182,10 @@ def _start_batch(
             title=f"{sid} interview questions (round {number})",
             state=CardState.READY,
             eligible_roles=(sid,),
+            workspace_permission=(
+                interviewer.workspace_permission if interviewer
+                else WorkspacePermission.NONE.value
+            ),
         )
         routing.store.create_card(card)
         routing.store.add_relation(

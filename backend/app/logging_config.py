@@ -30,6 +30,12 @@ _OTEL_TRACE_ATTR = "otelTraceID"
 _OTEL_SPAN_ATTR = "otelSpanID"
 
 
+#: Record attributes a caller may attach with ``extra=``; the JSON format
+#: lifts them into top-level fields. ``session_id`` / ``card_id`` are set on
+#: every ``kestrel.agent`` record (see :mod:`app.backends.agent_log`).
+_EXTRA_FIELDS = ("session_id", "card_id")
+
+
 class TraceContextFilter(logging.Filter):
     """Stamp ``trace_id`` and ``span_id`` onto every record it sees.
 
@@ -64,6 +70,10 @@ class JsonFormatter(logging.Formatter):
             span_id = getattr(record, "span_id", None)
             if span_id and span_id != "-":
                 payload["span_id"] = span_id
+        for key in _EXTRA_FIELDS:
+            value = getattr(record, key, None)
+            if value:
+                payload[key] = value
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         if record.stack_info:

@@ -33,6 +33,8 @@ from tests.announcement_support import (
 )
 from tests.reply_support import STRANGER, ReplyStack, build_reply_stack
 
+pytestmark = pytest.mark.integration
+
 #: Gate openings in this request: understanding, strategic interview,
 #: CAB-1, one refinement batch, two PRD drafts, CAB-2.
 _OPENINGS = 7

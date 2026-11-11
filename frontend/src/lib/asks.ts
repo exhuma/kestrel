@@ -17,6 +17,11 @@ export type AskKind =
   | 'approval'
   /** Untrusted content held at intake, released or discarded. */
   | 'quarantine'
+  /** Work that failed and has stopped, retried or abandoned. */
+  | 'failed'
+  /** A problem the verifier could not settle: clarified, accepted as
+   *  built, or abandoned. */
+  | 'escalation'
 
 export interface PendingAsk {
   kind: AskKind
@@ -38,12 +43,23 @@ const GATE_TITLES: Readonly<Record<string, string>> = {
   answer: 'Answer the interview questions',
 }
 
+/** Gates that are not a plain approve/reject decision. */
+const GATE_ASK_KINDS: Readonly<Record<string, AskKind>> = {
+  answer: 'interview',
+  resolve_escalation: 'escalation',
+  resolve_policy_risk: 'escalation',
+}
+
 function isGateAsk(card: WorkCardSummary): boolean {
   return card.gate !== null && card.allowed_actions.includes('resolve_gate')
 }
 
 function isQuarantineAsk(card: WorkCardSummary): boolean {
   return card.state === 'quarantined' && card.security_review_id !== null
+}
+
+function isFailedAsk(card: WorkCardSummary): boolean {
+  return card.state === 'failed' && card.allowed_actions.includes('retry')
 }
 
 /** Decisions whose rejection must say what is wrong: the redraft works
@@ -64,7 +80,7 @@ export function inlineReading(ask: PendingAsk): string | null {
 function toGateAsk(card: WorkCardSummary): PendingAsk {
   const requested = card.gate?.requested_decision ?? ''
   return {
-    kind: requested === 'answer' ? 'interview' : 'approval',
+    kind: GATE_ASK_KINDS[requested] ?? 'approval',
     card,
     title: GATE_TITLES[requested] ?? card.title,
     requiresRejectionFeedback: REJECTION_NEEDS_FEEDBACK.has(requested),
@@ -80,13 +96,24 @@ function toQuarantineAsk(card: WorkCardSummary): PendingAsk {
   }
 }
 
+function toFailedAsk(card: WorkCardSummary): PendingAsk {
+  return {
+    kind: 'failed',
+    card,
+    title: `"${card.title}" failed`,
+    requiresRejectionFeedback: false,
+  }
+}
+
 /** Every outstanding ask, quarantine first: untrusted content outranks
  *  any decision, because until it is resolved the request may not be what
- *  it appears to be. */
+ *  it appears to be. Failed work comes next: nothing moves it on but the
+ *  operator. */
 export function pendingAsks(cards: WorkCardSummary[]): PendingAsk[] {
   const quarantine = cards.filter(isQuarantineAsk).map(toQuarantineAsk)
+  const failed = cards.filter(isFailedAsk).map(toFailedAsk)
   const gates = cards.filter(isGateAsk).map(toGateAsk)
-  return [...quarantine, ...gates]
+  return [...quarantine, ...failed, ...gates]
 }
 
 /** The single ask to state prominently, or `null` when the request wants

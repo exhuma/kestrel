@@ -115,6 +115,16 @@ class CardKind(StrEnum):
     #: The coordinator's removal of questions asked twice, before a
     #: batch's interviews open (feature 038). Created only by code.
     QUESTION_REVIEW = "question_review"
+    #: A problem the verifier cannot settle, held for the requester to
+    #: clarify, accept as built or abandon. Created only by code.
+    ESCALATION_GATE = "escalation_gate"
+    #: A policy risk the verifier flagged: an ``escalation_gate`` for the
+    #: change owner, so that the reporter alone cannot accept the risk.
+    POLICY_RISK_GATE = "policy_risk_gate"
+    #: `pm`'s judgement of whether a clarification only settles the
+    #: escalated problem or changes what was approved. Created only by
+    #: code, when an ``escalation_gate`` is answered with a clarification.
+    CLARIFICATION_REVIEW = "clarification_review"
 
 
 #: Human-gate kinds: no specialist claims these, only the operator resolves
@@ -127,7 +137,15 @@ GATE_CARD_KINDS = frozenset(
         CardKind.DECOMPOSITION_GATE,
         CardKind.CAB1_GATE,
         CardKind.STRATEGIC_INTERVIEW_GATE,
+        CardKind.ESCALATION_GATE,
+        CardKind.POLICY_RISK_GATE,
     }
+)
+
+#: Gates that hold a problem the verifier could not settle. They differ
+#: only in who decides them (``reply_rules.py``).
+ESCALATION_GATE_KINDS = frozenset(
+    {CardKind.ESCALATION_GATE, CardKind.POLICY_RISK_GATE}
 )
 
 
@@ -227,10 +245,9 @@ class ClaimRequest:
     :param specialist_id: The claiming specialist's id.
     :param lease_seconds: How long the claim lease lasts.
     :param backend_id: The backend the attempt will run on, if known.
-    :param workspace_repo: When set, also acquire this repository's write
-        lease; fails the whole claim if it is already held.
-    :param workspace_lease_seconds: Workspace lease duration; defaults to
-        ``lease_seconds`` when unset.
+    :param workspace_repo: When set, the claim also holds this
+        repository's write lease; fails the whole claim if another
+        active claim already holds it.
     """
 
     card_id: str
@@ -238,7 +255,6 @@ class ClaimRequest:
     lease_seconds: float
     backend_id: str | None = None
     workspace_repo: str | None = None
-    workspace_lease_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -311,20 +327,6 @@ class ClaimLease:
 
 
 @dataclass(frozen=True)
-class WorkspaceLease:
-    """A repository write lease; at most one active per repository.
-
-    :param repo: The repository this lease guards.
-    :param claim_card_id: The card whose claim holds this lease.
-    :param expires_at: When the lease is considered abandoned.
-    """
-
-    repo: str
-    claim_card_id: str
-    expires_at: datetime
-
-
-@dataclass(frozen=True)
 class SpecialistDefinition:
     """One operator-owned role contract (data-model.md "Specialist
     Definition"; FR-007).
@@ -340,7 +342,6 @@ class SpecialistDefinition:
     :param model_policy: ``"default"`` for the configured default session
         backend, or a specific backend id.
     :param workspace_permission: ``none``, ``read_only``, or ``write``.
-    :param retry_limit: Maximum attempts before escalation.
     :param prompt: The role's prompt content, loaded from its prompt file.
     """
 
@@ -351,6 +352,5 @@ class SpecialistDefinition:
     required_abilities: tuple[str, ...]
     model_policy: str
     workspace_permission: str
-    retry_limit: int
     prompt: str
 

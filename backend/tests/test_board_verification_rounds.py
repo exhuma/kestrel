@@ -7,7 +7,11 @@ from pathlib import Path
 from app.models_board import WorkCard
 from app.persistence.board_store import BoardStore
 from app.services.board.coordinator import CoordinatorService
-from app.services.board.verification import route_verifier_result
+from app.services.board.verification import (
+    Escalation,
+    VerificationRouting,
+    route_verifier_result,
+)
 from app.services.board.verification_rounds import RoundContext
 from tests.test_board_decomposition import _setup
 
@@ -46,8 +50,10 @@ class _Task:
         self.store.create_card(card)
         return card
 
-    def route(self, text: str, card: WorkCard | None = None) -> None:
-        route_verifier_result(
+    def route(
+        self, text: str, card: WorkCard | None = None
+    ) -> VerificationRouting:
+        return route_verifier_result(
             text, card or self.verification, self.coordinator,
             RoundContext(self.store.list_cards, _CAP),
         )
@@ -93,21 +99,22 @@ def test_the_cap_escalates_instead_of_fixing_again(tmp_path: Path) -> None:
     task = _Task(tmp_path)
     second = task.add_verification("ver-2")
 
-    task.route(_findings("nonconformance"), second)
+    routing = task.route(_findings("nonconformance"), second)
 
-    (review,) = task.new_cards()
-    assert review.kind == "coordinator_review"
-    assert review.title == "Verification cap reached: Schema"
-    assert review.task_node_id == "t1"
+    assert task.new_cards() == []
+    assert routing.escalations == [
+        Escalation("Verification cap reached: Schema", "escalation_gate")
+    ]
 
 
-def test_escalations_are_tied_to_the_task(tmp_path: Path) -> None:
+def test_an_escalation_creates_no_card_for_the_task(tmp_path: Path) -> None:
+    """Ensure an escalation is handed back for a person to decide."""
     task = _Task(tmp_path)
 
-    task.route(_findings("ambiguity"))
+    routing = task.route(_findings("ambiguity"))
 
-    (review,) = task.new_cards()
-    assert (review.kind, review.task_node_id) == ("coordinator_review", "t1")
+    assert task.new_cards() == []
+    assert len(routing.escalations) == 1
 
 
 def test_an_untagged_verification_is_routed_as_before(

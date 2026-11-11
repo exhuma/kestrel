@@ -9,7 +9,7 @@ root_package = app
 
 # Constitution Principle II: "routers -> services -> stores, downward only."
 # storage and persistence are coupled peers (persistence reaches storage's bus
-# via the app.notifications leaf), so they are one "stores" tier rather than an
+# via a leaf module), so they are one "stores" tier rather than an
 # ordered pair — modelled as the layer chain below plus the forbidden contract.
 [importlinter:contract:layering]
 name = Backend layering (routers -> services -> persistence, downward only)
@@ -44,7 +44,6 @@ source_modules =
 forbidden_modules =
     app.backends.claude_cli
     app.backends.opencode
-    app.backends.openai_compat
 
 # Constitution Principle VI: documents are modelled, never strings. Parsing and
 # rendering a platform format happen only in the adapter at a system boundary.
@@ -67,11 +66,9 @@ forbidden_modules =
 ignore_imports =
     # Task sources and code hosts.
     app.services.github -> app.document_formats.markdown
-    app.services.github_reviews -> app.document_formats.markdown
     app.services.github_tasksource -> app.document_formats.markdown
     app.services.gitlab -> app.document_formats.markdown
     app.services.jira -> app.document_formats.adf
-    app.services.jira -> app.document_formats.markdown
     app.services.jira_client -> app.document_formats.adf
     app.services.jira_client -> app.document_formats.markdown
     app.services.local_task_source -> app.document_formats.markdown
@@ -80,6 +77,5 @@ ignore_imports =
     app.services.board.quarantine -> app.document_formats.markdown
     # Persistence.
     app.persistence.document_column -> app.document_formats.document_json
-    app.persistence.document_column -> app.document_formats.markdown
     # The HTTP API.
     app.routers.document_out -> app.document_formats.markdown

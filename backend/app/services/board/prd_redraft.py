@@ -36,7 +36,7 @@ def maybe_redraft_prd(
     if prd_gate.kind != CardKind.PRD_GATE.value:
         return
     if coordinator is None:
-        _redraft_directly(prd_gate, store)
+        redraft_prd(prd_gate.workflow_id, store)
         return
     if _redrafts_so_far(prd_gate.workflow_id, store) >= redraft_cap:
         _escalate_cap(prd_gate, coordinator)
@@ -54,13 +54,14 @@ def _redrafts_so_far(workflow_id: str, store: BoardStore) -> int:
     return max(total - 1, 0)
 
 
-def _redraft_directly(prd_gate: WorkCard, store: BoardStore) -> None:
-    """The pre-028 fallback: deterministically create a fresh ``prd``
-    card, unconditional and uncapped."""
+def redraft_prd(workflow_id: str, store: BoardStore) -> None:
+    """Deterministically create a fresh ``prd`` card, unconditional and
+    uncapped: the pre-028 fallback, and the way back to sign-off for a
+    clarification that changes what was approved."""
     store.create_card(
         WorkCard(
             id=f"card-{uuid.uuid4().hex[:8]}",
-            workflow_id=prd_gate.workflow_id,
+            workflow_id=workflow_id,
             kind=CardKind.PRD.value,
             title="Redraft PRD",
             state=CardState.READY,

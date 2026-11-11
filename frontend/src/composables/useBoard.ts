@@ -158,6 +158,42 @@ async function applyIntervention(
   }
 }
 
+/** The server's own words for a refused request, when it gave any. */
+function refusal(e: unknown): string {
+  const detail = e instanceof ApiError ? detailOf(e.data) : null
+  return detail ?? describe(e)
+}
+
+function detailOf(body: unknown): string | null {
+  try {
+    const detail: unknown = JSON.parse(String(body)).detail
+    return typeof detail === 'string' ? detail : null
+  } catch {
+    return null
+  }
+}
+
+/** Send the delivered request back for more work.
+ *
+ *  @returns Why it was refused, or `null` when it went through. */
+async function requestChanges(feedback: string): Promise<string | null> {
+  const workflowId = current.value?.id
+  const revision = current.value?.revision
+  if (!workflowId || revision === undefined) return 'Nothing is selected.'
+  try {
+    await api.post<{ card_id: string }>(
+      `/api/board/workflows/${workflowId}/request-changes`,
+      {
+        feedback,
+        expected_revision: revision,
+      },
+    )
+    return null
+  } catch (e) {
+    return refusal(e)
+  }
+}
+
 // Release/discard live on the dedicated security-review endpoint, not the
 // generic interventions route (see routers/board.py) — the server ticks
 // the workflow's SSE stream itself, so this just posts and lets the
@@ -201,6 +237,7 @@ export function useBoard() {
       if (owner === me) resetBoardSelection()
     },
     applyIntervention,
+    requestChanges,
     resolveQuarantine,
   }
 }

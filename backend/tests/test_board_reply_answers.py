@@ -160,3 +160,26 @@ def test_a_confirmation_reuses_the_decision_sentence() -> None:
         "thank you. CAB declined the strategic fit; this request stops here."
         in rejected.plain_text()
     )
+
+
+_INTERVIEW_COMMENTS = [
+    lambda ctx: words.strategic_interview(ctx, 2),
+    lambda ctx: words.refinement_batch(ctx, [words.InterviewAsk("dba", 1)]),
+    lambda ctx: answers.interview_pointer(ctx, _AUTHOR),
+]
+
+
+@pytest.mark.parametrize("build", _INTERVIEW_COMMENTS)
+def test_an_interview_comment_points_at_its_link(build) -> None:
+    """Ensure the comment says where the link is when there is one."""
+    assert "kestrel (link below)" in build(_ctx()).plain_text()
+
+
+@pytest.mark.parametrize("build", _INTERVIEW_COMMENTS)
+def test_an_interview_comment_promises_no_link_without_one(build) -> None:
+    """Ensure no link is promised when kestrel has no public address."""
+    text = build(_ctx(base_url="")).plain_text()
+
+    assert "link below" not in text
+    assert "kestrel in kestrel" not in text
+    assert "short form in kestrel" in text

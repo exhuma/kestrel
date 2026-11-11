@@ -15,7 +15,7 @@ variables (at least ``OTEL_EXPORTER_OTLP_ENDPOINT``); see
 This kit owns traces and W3C trace-context only. Application metrics
 (``/metrics``, Prometheus/VictoriaMetrics) are owned by
 ``module-observability-metrics`` and are intentionally not wired here — kestrel
-is a single-user localhost tool with no scrape infrastructure.
+is a single-operator tool with no scrape infrastructure.
 """
 from __future__ import annotations
 

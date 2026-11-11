@@ -17,12 +17,8 @@ import pytest
 from app.backends.base import TurnRequest, TurnResult
 from app.documents import Text, document, paragraph
 from app.models_board import SpecialistDefinition, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -36,6 +32,8 @@ from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
+
+pytestmark = pytest.mark.integration
 
 _STRATEGIC_QUESTIONS = (
     '<REFINEMENT_QUESTIONS>{"questions": '
@@ -65,7 +63,7 @@ def _persona(role_id: str, *card_types: str) -> SpecialistDefinition:
         id=role_id, label=role_id, purpose="test role",
         allowed_card_types=card_types, required_abilities=(),
         model_policy="default", workspace_permission="read_only",
-        retry_limit=1, prompt=f"You are {role_id}.",
+        prompt=f"You are {role_id}.",
     )
 
 
@@ -75,15 +73,13 @@ def _stack(tmp_path: Path, *, cab1: bool) -> tuple[
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     claims_store = BoardClaimsStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     gate_store = BoardGateStore(factory)
     artifact_store = BoardArtifactStore(factory)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     board_service = BoardService(store)
     artifacts = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     gates = GatesService(
         store, gate_store, board_service, artifacts,
         required=GateRequirements(prd=True, cab1=cab1),
@@ -99,7 +95,6 @@ def _stack(tmp_path: Path, *, cab1: bool) -> tuple[
     claims = ClaimsService(
         store=store, claims_store=claims_store, roster=roster,
         max_parallel_read_cards=4, default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
     services = DispatchServices(
         claims, roster, artifacts, coordinator=coordinator, gates=gates,

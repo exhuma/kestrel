@@ -48,21 +48,6 @@ async def test_get_default_branch() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_issue_sends_body() -> None:
-    """Ensure update_issue PATCHes the issue with the new body."""
-    seen = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["method"] = req.method
-        seen["json"] = json.loads(req.content)
-        return httpx.Response(200, json={"number": 7})
-
-    await _client(handler).update_issue("o/r", 7, "new body")
-    assert seen["method"] == "PATCH"
-    assert seen["json"] == {"body": "new body"}
-
-
-@pytest.mark.asyncio
 async def test_create_pull_request_returns_html_url() -> None:
     """Ensure create_pull_request posts a draft PR and returns its url."""
     seen = {}
@@ -213,3 +198,15 @@ async def test_list_issues_by_label_paginates_and_excludes_prs() -> None:
     issues = await _client(handler).list_issues_by_label("o/r", "kestrel")
     assert [i.number for i in issues] == [1, 3]
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_error_message_bounds_the_response_body() -> None:
+    """Ensure a huge error body does not end up whole in the error."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="y" * 5000)
+
+    with pytest.raises(GitHubError) as info:
+        await _client(handler).get_issue("o/r", 7)
+    assert len(str(info.value)) < 1000

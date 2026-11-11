@@ -55,7 +55,6 @@ def _specialist(role_id: str) -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="do the thing",
     )
 
@@ -252,7 +251,6 @@ class TestCardSummary:
             producer_card_id="card-1",
             logical_name="report",
             revision=2,
-            content_ref="board-artifact://abc",
             content_hash="abc",
             trust="agent_output",
         )

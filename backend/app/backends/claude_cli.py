@@ -14,16 +14,13 @@ from app.backends.base import (
     Backend,
     BackendTurnError,
     Capability,
-    LivenessResult,
     ModelCatalog,
     TurnRequest,
     TurnResult,
 )
 from app.backends.limiter import BackendLimiter
 from app.config import Settings
-from app.models import CanonicalEvent, EventKind
 from app.services.runner import SessionRunner
-from app.storage.registry import SessionRegistry
 
 
 class ClaudeCliBackend(Backend):
@@ -34,32 +31,12 @@ class ClaudeCliBackend(Backend):
     def __init__(
         self,
         settings: Settings,
-        registry: SessionRegistry,
         backend_id: str = "claude",
         limiter: BackendLimiter | None = None,
     ) -> None:
         self.id = backend_id
-        self.registry = registry
         self._limiter = limiter or BackendLimiter()
-        self._runner = SessionRunner(settings, registry, self._limiter)
-
-    async def start(self, prompt: str) -> str:
-        return await self._runner.start(prompt)
-
-    async def resume(self, session_id: str, prompt: str) -> str:
-        return await self._runner.resume(session_id, prompt)
-
-    def terminate(self, session_id: str) -> bool:
-        return self._runner.terminate(session_id)
-
-    async def check_alive(self, session_id: str) -> LivenessResult:
-        """No independent remote-liveness signal — always alive.
-
-        The claude CLI has no persistent server-side session to probe;
-        its own subprocess lifecycle already drives status transitions.
-        """
-        del session_id
-        return LivenessResult(alive=True)
+        self._runner = SessionRunner(settings, self._limiter)
 
     async def list_models(self) -> ModelCatalog:
         """Report unknown because the CLI has no stable catalogue interface."""
@@ -68,41 +45,15 @@ class ClaudeCliBackend(Backend):
     async def run_turn(
         self,
         req: TurnRequest,
-        on_session_id: Callable[[str], None] | None = None,
         on_queue_change: Callable[[bool], None] | None = None,
     ) -> TurnResult:
-        return await self._run_turn(req, on_session_id, on_queue_change)
-
-    async def _run_turn(
-        self,
-        req: TurnRequest,
-        on_session_id: Callable[[str], None] | None,
-        on_queue_change: Callable[[bool], None] | None,
-    ) -> TurnResult:
         """Run one admitted Claude turn to its terminal event."""
-        sid = await self._runner.run_blocking(
-            req.prompt,
-            req.cwd,
-            req.permission_mode,
-            resume_id=req.resume_id,
-            on_session_id=on_session_id,
-            on_queue_change=on_queue_change,
-            model=req.model,
-        )
-        result = self._terminal_result(sid)
+        turn = await self._runner.run_blocking(req, on_queue_change)
+        result = turn.result
         text = result.text if result and isinstance(result.text, str) else ""
         if result is not None and result.is_error:
             raise BackendTurnError(
                 f"agent backend error: {text or 'the agent reported an error'}"
             )
-        return TurnResult(session_id=sid, final_text=text)
-
-    def _terminal_result(self, session_id: str) -> CanonicalEvent | None:
-        """Return the session's terminal RESULT event, or None."""
-        record = self.registry.get(session_id)
-        if record is None:
-            return None
-        for event in reversed(record.events):
-            if event.kind == EventKind.RESULT:
-                return event
-        return None
+        assert turn.session_id is not None  # run_blocking guarantees it
+        return TurnResult(session_id=turn.session_id, final_text=text)

@@ -2,7 +2,7 @@
 
 Exercises ``app.persistence.board_claims_store.BoardClaimsStore`` (claims)
 alongside ``app.persistence.board_store.BoardStore`` (reads/seeding)
-against a real, migrated SQLite database — the same convention as the
+against a real, migrated PostgreSQL database — the same convention as the
 existing store tests (e.g. ``test_child_task_store.py``).
 """
 from __future__ import annotations
@@ -15,7 +15,6 @@ from app.models_board import ClaimRequest, WorkCard, Workflow
 from app.models_board_records import ClaimOutcome
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
-from app.persistence.board_tables import BoardWorkspaceLeaseRow
 from app.services.board.claims import ClaimsService
 from app.services.board.specialists import SpecialistRoster
 from tests.board_test_support import board_session_factory
@@ -184,23 +183,22 @@ class TestWorkspaceLeaseRelease:
 
         assert _claim_writer(store, "card-3").success
 
-    def test_a_lease_left_by_a_finished_claim_does_not_block(
+    def test_recovering_or_releasing_a_writer_frees_the_repository(
         self, tmp_path: Path
     ) -> None:
-        """Ensure a lease row a finished claim left behind by older code
-        is taken over rather than waited out."""
-        factory = board_session_factory(tmp_path)
-        store = _Stores(BoardStore(factory), BoardClaimsStore(factory))
-        store.board.create_workflow(_WORKFLOW)
-        _writer(store, "card-1")
-        _writer(store, "card-2")
-        with factory.begin() as db:
-            db.add(BoardWorkspaceLeaseRow(
-                repo="owner/repo", claim_card_id="card-1",
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            ))
+        """Ensure the repository goes with the claim, however it ends."""
+        store = _seeded_store(tmp_path)
+        for card_id in ("card-2", "card-3", "card-4"):
+            _writer(store, card_id)
+        now = datetime.now(timezone.utc)
+        store.claims.claim_card(ClaimRequest(
+            "card-2", "coder", 60, workspace_repo="owner/repo"
+        ), now=now)
+        store.claims.expire_leases(now=now + timedelta(seconds=120))
+        _claim_writer(store, "card-3")
+        store.claims.release_claim("card-3")
 
-        assert _claim_writer(store, "card-2").success
+        assert _claim_writer(store, "card-4").success
 
 
 def test_a_reader_never_keeps_the_writer_out(tmp_path: Path) -> None:
@@ -225,7 +223,6 @@ def test_a_reader_never_keeps_the_writer_out(tmp_path: Path) -> None:
         store=store.board, claims_store=store.claims,
         roster=SpecialistRoster({"developer": developer, "coder": coder}),
         max_parallel_read_cards=4, default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
 
     service.claim_next_ready_card("wf-1", "developer")
@@ -349,3 +346,54 @@ class TestActiveLease:
         assert lease is not None
         assert lease.specialist_id == "developer"
         assert lease.attempt_sequence == 1
+
+
+def _claimed_card(tmp_path: Path) -> tuple[BoardStore, BoardClaimsStore]:
+    factory = board_session_factory(tmp_path)
+    board, claims = BoardStore(factory), BoardClaimsStore(factory)
+    board.create_workflow(_WORKFLOW)
+    board.create_card(WorkCard(
+        id="card-1", workflow_id="wf-1", kind="analysis", title="Look",
+        state="ready", eligible_roles=("developer",),
+    ))
+    claims.claim_card(ClaimRequest("card-1", "developer", 600))
+    return board, claims
+
+
+def test_an_outage_returns_the_card_without_using_its_attempt(
+    tmp_path: Path,
+) -> None:
+    """Ensure the card can run again and still has its one real attempt."""
+    board, claims = _claimed_card(tmp_path)
+
+    released = claims.release_after_outage("card-1", 1, max_releases=3)
+
+    card = board.get_card("card-1")
+    assert released is True
+    assert (card.state, card.attempt_limit) == ("ready", 2)
+    assert claims.get_active_lease("card-1") is None
+    again = claims.claim_card(ClaimRequest("card-1", "developer", 600))
+    assert (again.success, again.attempt_sequence) == (True, 2)
+
+
+def test_an_outage_retry_stops_at_its_limit(tmp_path: Path) -> None:
+    """Ensure a backend that never returns cannot loop for ever."""
+    board, claims = _claimed_card(tmp_path)
+    claims.release_after_outage("card-1", 1, max_releases=1)
+    claims.claim_card(ClaimRequest("card-1", "developer", 600))
+
+    released = claims.release_after_outage("card-1", 2, max_releases=1)
+
+    assert released is False
+    assert board.get_card("card-1").state == "claimed"
+    assert claims.get_active_lease("card-1") is not None
+
+
+def test_an_outage_cannot_release_a_superseded_attempt(tmp_path: Path) -> None:
+    """Ensure a late report for an old attempt leaves the claim alone."""
+    board, claims = _claimed_card(tmp_path)
+
+    released = claims.release_after_outage("card-1", 99, max_releases=3)
+
+    assert released is False
+    assert board.get_card("card-1").state == "claimed"

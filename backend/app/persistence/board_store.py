@@ -161,7 +161,8 @@ class BoardStore:
             )
 
     def list_relations(self, workflow_id: str) -> list[CardRelation]:
-        """Return every relation among *workflow_id*'s cards."""
+        """Return every relation among *workflow_id*'s cards, in the
+        order they were made."""
         with self._factory() as db:
             rows = (
                 db.query(BoardCardRelationRow)
@@ -170,6 +171,7 @@ class BoardStore:
                     BoardCardRelationRow.card_id == BoardCardRow.id,
                 )
                 .filter(BoardCardRow.workflow_id == workflow_id)
+                .order_by(BoardCardRelationRow.id)
                 .all()
             )
             return [
@@ -203,11 +205,19 @@ class BoardStore:
             return [_row_to_workflow(row) for row in query.all()]
 
     def bump_workflow_revision(self, workflow_id: str) -> int:
-        """Increment and return a workflow's snapshot revision."""
+        """Increment and return a workflow's snapshot revision.
+
+        The database adds the one: concurrent bumps queue on the row and
+        each counts, where reading the revision and writing back its
+        successor would lose one under READ COMMITTED.
+        """
         with self._factory.begin() as db:
-            workflow = db.get(BoardWorkflowRow, workflow_id)
-            workflow.revision += 1
-            return workflow.revision
+            return db.execute(
+                update(BoardWorkflowRow)
+                .where(BoardWorkflowRow.id == workflow_id)
+                .values(revision=BoardWorkflowRow.revision + 1)
+                .returning(BoardWorkflowRow.revision)
+            ).scalar_one()
 
     def record_delivery(
         self,
@@ -239,12 +249,17 @@ class BoardStore:
 
         :returns: The workflow's ``ci_repair_round`` after this call.
         """
+        rounds = 1 if status == "failed" else 0
         with self._factory.begin() as db:
-            workflow = db.get(BoardWorkflowRow, workflow_id)
-            workflow.ci_status = status
-            if status == "failed":
-                workflow.ci_repair_round += 1
-            return workflow.ci_repair_round
+            return db.execute(
+                update(BoardWorkflowRow)
+                .where(BoardWorkflowRow.id == workflow_id)
+                .values(
+                    ci_status=status,
+                    ci_repair_round=BoardWorkflowRow.ci_repair_round + rounds,
+                )
+                .returning(BoardWorkflowRow.ci_repair_round)
+            ).scalar_one()
 
     def record_approved_prd(
         self, workflow_id: str, content: Document
@@ -276,19 +291,28 @@ class BoardStore:
         state: str,
         *,
         wait_reason: str | None = None,
-        now: datetime | None = None,
-    ) -> None:
-        """Set a card's state directly (policy already validated it)."""
+        from_state: str | None = None,
+    ) -> bool:
+        """Set a card's state directly (policy already validated it).
+
+        :param from_state: The state the caller validated the move from:
+            when given, the card moves only if it is still in it, so a
+            move decided on a state the card has left since (another
+            caller moved it meanwhile) is not written over the newer one.
+        :returns: Whether the card was moved.
+        """
+        statement = update(BoardCardRow).where(BoardCardRow.id == card_id)
+        if from_state is not None:
+            statement = statement.where(BoardCardRow.state == from_state)
         with self._factory.begin() as db:
-            db.execute(
-                update(BoardCardRow)
-                .where(BoardCardRow.id == card_id)
-                .values(
+            moved = db.execute(
+                statement.values(
                     state=state,
                     wait_reason=wait_reason,
-                    updated_at=now_utc(now),
+                    updated_at=now_utc(None),
                 )
             )
+            return moved.rowcount == 1
 
     def append_event(
         self, event: BoardEventRecord, *, now: datetime | None = None
@@ -336,11 +360,12 @@ class BoardStore:
             return _row_to_card(row) if row is not None else None
 
     def list_cards(self, workflow_id: str) -> list[WorkCard]:
-        """Return every card belonging to *workflow_id*."""
+        """Return every card belonging to *workflow_id*, oldest first."""
         with self._factory() as db:
             rows = (
                 db.query(BoardCardRow)
                 .filter(BoardCardRow.workflow_id == workflow_id)
+                .order_by(BoardCardRow.created_at, BoardCardRow.id)
                 .all()
             )
             return [_row_to_card(row) for row in rows]

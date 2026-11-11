@@ -3,19 +3,20 @@ tests (feature 026, T028).
 
 The coordinator only *proposes* actions; ``CoordinatorService`` is the
 policy-delegated authority that validates and applies them (FR-005),
-recording every proposal — accepted or rejected — in the ledger before
-(and regardless of) whether it's applied (FR-006).
+recording every proposal — accepted or rejected — as a board event,
+whether or not it's applied (FR-006).
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from app.models_board import WorkCard, Workflow
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.services.board.coordinator import (
+    ACTION_EVENT,
     CoordinatorService,
     CreateCardAction,
     CreateReconciliationCardAction,
@@ -32,7 +33,6 @@ def _coordinator(
 ) -> tuple[CoordinatorService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     board_service = BoardService(store)
     store.create_workflow(
         Workflow(
@@ -55,7 +55,7 @@ def _coordinator(
         )
     )
     service = CoordinatorService(
-        store, coordinator_store, board_service,
+        store, board_service,
         decomposition_required=decomposition_required,
         prd_gate_required=prd_gate_required,
     )
@@ -347,8 +347,8 @@ class TestValidationAndApplication:
     def test_multiple_actions_each_get_their_own_ledger_entry(
         self, tmp_path: Path
     ) -> None:
-        coordinator, _store = _coordinator(tmp_path)
-        records = coordinator.apply_actions(
+        coordinator, store = _coordinator(tmp_path)
+        coordinator.apply_actions(
             "wf-1",
             "task.ingested",
             [
@@ -356,8 +356,12 @@ class TestValidationAndApplication:
                 CreateCardAction(kind="analysis", title="b"),
             ],
         )
-        first, second = records
-        assert first.sequence != second.sequence
+        recorded = [
+            json.loads(e.payload)["action"]["title"]
+            for e in store.list_events("wf-1")
+            if (e.event_type, e.causation_id) == (ACTION_EVENT, "task.ingested")
+        ]
+        assert recorded == ["a", "b"]
 
 
 class TestReplay:

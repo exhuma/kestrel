@@ -15,8 +15,6 @@ from app.documents import Document, Marker
 #: Every comment kestrel posts carries it, so kestrel never acts on its own
 #: comments while it posts through the operator's account (feature 046).
 POSTED = "posted"
-#: Marks a ticket body kestrel has refined (feature 001).
-REFINED = "refined"
 
 #: Length of a bare numeric UTC-offset suffix, e.g. "+0000" or "-0500".
 _OFFSET_LEN = 5

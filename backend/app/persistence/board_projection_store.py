@@ -181,23 +181,6 @@ class BoardProjectionStore:
             )
             return taken == 1
 
-    def owned_external_ids(self, workflow_id: str) -> list[tuple[str, str]]:
-        """Return ``(kind, external_id)`` for every completed, Kestrel-owned
-        external resource for *workflow_id* — the durable cleanup ledger
-        (FR-035): cleanup may change only these, never anything else."""
-        with self._factory() as db:
-            rows = (
-                db.query(BoardExternalProjectionRow)
-                .filter(
-                    BoardExternalProjectionRow.workflow_id == workflow_id,
-                    BoardExternalProjectionRow.state == "completed",
-                    BoardExternalProjectionRow.external_id.is_not(None),
-                )
-                .all()
-            )
-            return [(row.kind, row.external_id) for row in rows]
-
-
 @lru_cache
 def get_board_projection_store() -> BoardProjectionStore:
     """Return the process-wide BoardProjectionStore singleton."""

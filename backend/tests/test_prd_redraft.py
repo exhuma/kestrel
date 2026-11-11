@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.models_board import CardKind, WorkCard, Workflow
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.prd_redraft import maybe_redraft_prd
@@ -23,7 +22,7 @@ def _setup(tmp_path: Path) -> tuple[BoardStore, CoordinatorService]:
     store = BoardStore(factory)
     board_service = BoardService(store)
     coordinator = CoordinatorService(
-        store, BoardCoordinatorStore(factory), board_service,
+        store, board_service,
     )
     store.create_workflow(_WORKFLOW)
     return store, coordinator

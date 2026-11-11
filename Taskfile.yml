@@ -60,10 +60,9 @@ tasks:
       # The package launcher gives the same unified logging the container uses,
       # with hot-reload — see docs/development.md.
       KESTREL_CONFIG_FILE: '../config.toml'
-      KESTREL_RELOAD: '1'
       KESTREL_PORT: '8000'
     cmds:
-      - uv run python -m app
+      - uv run python -m app --reload
 
   frontend:
     desc: 'Run the Vite frontend dev server on :5173.'

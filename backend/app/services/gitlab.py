@@ -11,18 +11,11 @@ from urllib.parse import quote
 
 import httpx
 
-from app.document_formats.markdown import parse_markdown, render_markdown
+from app.document_formats.markdown import render_markdown
 from app.documents import Document
-from app.ports import ChangeRequest, Feedback, Person, RequiredCiStatus
+from app.ports import ChangeRequest, RequiredCiStatus
 from app.services.ci_status import gitlab_status
 from app.services.exceptions import GitError
-from app.services.task_source_utils import parse_iso
-
-#: Prefix minted onto every MR-note ``Feedback.external_id`` (feature 013,
-#: US3) — carries the repo and MR iid so ``acknowledge`` can reconstruct
-#: the award-emoji endpoint from just the ``Feedback`` object.
-_NOTE_ID_PREFIX = "gl-note:"
-_DISCUSSION_NOTE_ID_PREFIX = "gl-discussion-note:"
 
 #: GitLab's own three MR states, mapped 1:1 onto ``ChangeRequest.state``
 #: ("opened" is GitLab's spelling; the port uses "open" everywhere else).
@@ -35,95 +28,19 @@ class GitLabError(GitError):
     """A GitLab REST call failed."""
 
 
-def _parse_note_external_id(external_id: str) -> tuple[str, int, int] | None:
-    """Recover ``(repo, mr_iid, note_id)`` from a minted MR-note id."""
-    if not external_id.startswith(_NOTE_ID_PREFIX):
-        return None
-    rest = external_id[len(_NOTE_ID_PREFIX):]
-    repo_and_iid, _, note_id = rest.rpartition("#")
-    repo, _, mr_iid = repo_and_iid.rpartition("#")
-    if not repo or not mr_iid.isdigit() or not note_id.isdigit():
-        return None
-    return repo, int(mr_iid), int(note_id)
-
-
-def _parse_discussion_note_external_id(
-    external_id: str,
-) -> tuple[str, int, str, int] | None:
-    """Recover a discussion note's location from its minted external id."""
-    if not external_id.startswith(_DISCUSSION_NOTE_ID_PREFIX):
-        return None
-    rest = external_id[len(_DISCUSSION_NOTE_ID_PREFIX):]
-    parts = rest.rsplit("#", 3)
-    if len(parts) != 4:
-        return None
-    repo, mr_iid, discussion, note_id = parts
-    if not (
-        repo and mr_iid.isdigit() and discussion and note_id.isdigit()
-    ):
-        return None
-    return repo, int(mr_iid), discussion, int(note_id)
-
-
-def _note_feedback(
-    repo: str, number: int, note: dict, discussion_id: str = ""
-) -> Feedback | None:
-    """Map one raw MR note to review-origin ``Feedback``.
-
-    System notes (GitLab's auto-generated activity log entries — "changed
-    the description", "assigned to @x") are excluded here, at the source,
-    the same way GitHub's Bot-typed comments are (research.md R6): they
-    are not reviewer-authored signal.
-    """
-    if note.get("system") or _deleted_author(note.get("author")):
-        return None
-    author = note["author"]
-    prefix = _DISCUSSION_NOTE_ID_PREFIX if discussion_id else _NOTE_ID_PREFIX
-    location = f"#{discussion_id}" if discussion_id else ""
-    return Feedback(
-        external_id=f"{prefix}{repo}#{number}{location}#{note['id']}",
-        origin="review",
-        author=Person(author.get("username", ""), author.get("name", "")),
-        body=parse_markdown(note.get("body") or ""),
-        created_at=parse_iso(note["created_at"]),
-    )
-
-
-def _deleted_author(author: object) -> bool:
-    """Return whether a GitLab note's author is absent or marked deleted."""
-    if not isinstance(author, dict):
-        return True
-    return bool(author.get("deleted") or author.get("state") == "deleted")
-
-
-def _is_inline_discussion(discussion: dict) -> bool:
-    """Return whether any note anchors this GitLab discussion to a diff."""
-    notes = discussion.get("notes", [])
-    return any(note.get("position") is not None for note in notes)
-
-
 class GitLabCodeHost:
     """``CodeHost`` over the GitLab REST API (merge requests).
 
     :param base_url: Instance base URL, e.g. ``https://gitlab.internal``.
     :param token: Personal access token (sent as ``PRIVATE-TOKEN``; never
         logged).
-    :param is_gitea: Whether this instance actually points at a Gitea/
-        Forgejo server (feature 013, US3) — Gitea shares GitLab's
-        merge-request-based ``CodeHost`` shape for everything this class
-        implemented before feature 013, but review-comment reading is not
-        implemented against its API this feature (plan.md's "Not added"
-        note), so ``list_review_comments``/``acknowledge`` degrade to a
-        safe no-op rather than calling a GitLab-only endpoint.
     """
 
     def __init__(
-        self, base_url: str, token: str, verify: bool = True,
-        is_gitea: bool = False,
+        self, base_url: str, token: str, verify: bool = True
     ) -> None:
         self._base = base_url.rstrip("/")
         self._token = token
-        self._is_gitea = is_gitea
         self._http = httpx.AsyncClient(
             base_url=f"{self._base}/api/v4", verify=verify
         )
@@ -243,37 +160,6 @@ class GitLabCodeHost:
         by_name = {job.get("name"): job for job in jobs}
         return [gitlab_status(name, by_name.get(name)) for name in names]
 
-    async def list_review_comments(
-        self, repo: str, number: int, since: str | None = None
-    ) -> list[Feedback]:
-        """Every reviewer-authored note on the MR (feature 013, US3).
-
-        Not implemented against Gitea's API this feature (degraded, not
-        wrong) — see plan.md's "Not added" note; a Gitea-backed instance
-        always returns ``[]`` here.
-        """
-        if self._is_gitea:
-            return []
-        path = f"/projects/{self._pid(repo)}/merge_requests/{number}"
-        notes = await self._list_pages(f"{path}/notes")
-        discussions = await self._list_pages(f"{path}/discussions")
-        cutoff = parse_iso(since) if since else None
-        mapped = [_note_feedback(repo, number, note) for note in notes]
-        mapped.extend(
-            _note_feedback(repo, number, note, discussion["id"])
-            for discussion in discussions
-            if _is_inline_discussion(discussion)
-            for note in discussion.get("notes", [])
-        )
-        items = {
-            item.external_id: item for item in mapped if item is not None
-        }.values()
-        return sorted(
-            (item for item in items
-             if cutoff is None or item.created_at >= cutoff),
-            key=lambda item: item.created_at,
-        )
-
     async def _list_pages(self, path: str) -> list[dict]:
         """Read every ascending GitLab page at ``path``."""
         page = 1
@@ -291,36 +177,3 @@ class GitLabCodeHost:
             if not next_page:
                 return items
             page = int(next_page)
-
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """React to the triggering note via GitLab's award-emoji API.
-
-        :returns: ``False`` (never raises) for a Gitea-backed instance, or
-            an ``external_id`` this adapter didn't mint.
-        """
-        if self._is_gitea:
-            return False
-        parsed = _parse_note_external_id(feedback.external_id)
-        discussion = _parse_discussion_note_external_id(feedback.external_id)
-        if parsed is None and discussion is None:
-            return False
-        if parsed is not None:
-            repo, mr_iid, note_id = parsed
-            path = f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
-            path += f"/notes/{note_id}/award_emoji"
-        elif discussion is not None:
-            repo, mr_iid, discussion_id, note_id = discussion
-            path = f"/projects/{self._pid(repo)}/merge_requests/{mr_iid}"
-            path += f"/discussions/{discussion_id}/notes/{note_id}/award_emoji"
-        else:
-            return False
-        try:
-            await self._request(
-                "POST", path,
-                json={"name": token},
-            )
-            return True
-        except Exception:  # noqa: BLE001 — best-effort acknowledgment
-            return False

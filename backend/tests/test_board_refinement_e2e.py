@@ -18,6 +18,8 @@ from app.backends.base import TurnRequest, TurnResult
 from app.services.board.dispatch_ready import dispatch_ready_work
 from tests.interview_support import interview_stack
 
+pytestmark = pytest.mark.integration
+
 _DEADLINE = "What is the deadline?"
 _STORAGE = "Where is the exported data stored?"
 _PERSONAL = "Does the export contain personal data?"

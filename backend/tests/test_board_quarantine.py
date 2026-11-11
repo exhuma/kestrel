@@ -56,7 +56,7 @@ def _input_security() -> SpecialistDefinition:
     return SpecialistDefinition(
         id="input-security", label="Input Security", purpose="screens input",
         allowed_card_types=(), required_abilities=(), model_policy="default",
-        workspace_permission="none", retry_limit=1, prompt="Classify this.",
+        workspace_permission="none", prompt="Classify this.",
     )
 
 
@@ -267,5 +267,49 @@ async def test_a_timeout_is_quarantined_as_a_timeout(tmp_path: Path) -> None:
     reason = store.get_card(outcome.card_id).wait_reason
     assert reason == (
         "the input-security check did not finish within 0.05s "
-        "(board_input_security_timeout_seconds)"
+        "(the reasoning timeout_seconds)"
     )
+
+
+class _Recording(_FakeBackend):
+    def __init__(self) -> None:
+        super().__init__(
+            '<CLASSIFICATION>{"safe": true, "category": "ordinary", '
+            '"reason": "an approval"}</CLASSIFICATION>'
+        )
+        self.prompt = ""
+
+    async def run_turn(self, req: TurnRequest) -> TurnResult:
+        self.prompt = req.prompt
+        return await super().run_turn(req)
+
+
+@pytest.mark.asyncio
+async def test_a_reply_is_screened_with_its_context_and_without_the_marker(
+    tmp_path: Path,
+) -> None:
+    """Ensure screening knows what it reads, and does not read the
+    marker as an instruction aimed at an agent."""
+    factory = board_session_factory(tmp_path)
+    backend = _Recording()
+    service = QuarantineService(
+        BoardQuarantineStore(factory),
+        SpecialistRoster({"input-security": _input_security()}),
+        _FakeBackendPolicy(backend),
+        max_bytes=65536, classify_timeout_seconds=5,
+    )
+
+    outcome = await service.intake_for_existing_workflow(
+        ExistingWorkflowIntake(
+            identity_ref="c-1", category="gate_reply:c-1",
+            content=doc("@kestrel ok go"),
+            context="This is a reply to kestrel's request.",
+            marker="@kestrel",
+        )
+    )
+
+    assert outcome.released
+    assert "This is a reply to kestrel's request." in backend.prompt
+    data = backend.prompt.split("<UNTRUSTED_CONTENT>")[1]
+    assert "@kestrel" not in data
+    assert "ok go" in data

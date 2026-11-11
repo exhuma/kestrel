@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.models_board import WorkCard
 from app.persistence.board_store import get_board_store
 from app.persistence.comment_store import CommentStore, get_comment_store
-from app.policy import get_specialist_backend_policy
+from app.reasoning.policy import get_reasoning_policy
 from app.services.board.bootstrap import (
     get_announcement_service,
     get_gates_service,
@@ -39,12 +39,12 @@ _running: set[asyncio.Task[Any]] = set()
 
 @lru_cache
 def get_liaison_service() -> LiaisonService:
-    """Return the process-wide LiaisonService singleton. Its turn is as
-    short as a screening one, so it shares that timeout."""
+    """Return the process-wide LiaisonService singleton, which reads
+    replies on kestrel's own reasoning endpoint."""
     return LiaisonService(
         get_specialist_roster(),
-        get_specialist_backend_policy(),
-        get_settings().board_input_security_timeout_seconds,
+        get_reasoning_policy(),
+        get_reasoning_policy().timeout_for("liaison"),
     )
 
 

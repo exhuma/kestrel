@@ -15,7 +15,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from app.models_board import CardKind, CardState, WorkCard
+from app.models_board import (
+    ESCALATION_GATE_KINDS,
+    CardKind,
+    CardState,
+    WorkCard,
+)
 from app.persistence.board_store import BoardStore
 from app.services.board.agent_text import from_agent
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
@@ -245,4 +250,20 @@ def gather_refinement_context(
             )
             if feedback:
                 sections.append(f"### Prior rejection feedback\n{feedback}")
+        elif (
+            card.kind in ESCALATION_GATE_KINDS
+            and card.state == CardState.CANCELLED.value
+        ):
+            sections.extend(_clarification_section(card, artifacts))
     return "\n\n".join(sections)
+
+
+def _clarification_section(
+    gate: WorkCard, artifacts: ArtifactsService
+) -> list[str]:
+    """What the requester said about an escalated problem, if anything
+    (a gate cancelled to abandon the request says nothing)."""
+    said = artifacts.latest_content_for_card(gate.id, RESPONSE_LOGICAL_NAME)
+    if not said:
+        return []
+    return [f"### Clarification after sign-off\n{gate.title}\n\n{said}"]

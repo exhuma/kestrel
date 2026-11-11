@@ -22,7 +22,6 @@ from app.documents import (
 )
 from app.persistence.board_quarantine_store import BoardQuarantineStore
 from app.persistence.board_store import BoardStore
-from app.persistence.dismissal_store import DismissalStore
 from app.routers.document_out import api_markdown
 from app.services.board.quarantine import QuarantineService
 from app.services.board.service import BoardService
@@ -129,9 +128,9 @@ async def test_a_jira_description_keeps_its_structure_end_to_end(
     )
     ingestion = IngestionService(
         Settings(task_sources=[TaskSourceConfig(
-            type="jira", base_url="https://jira.example", jql="x", key="RFC",
+            type="jira", base_url="https://jira.example", jql="x",
         )]),
-        _Sources(), DismissalStore(factory),
+        _Sources(),
         BoardIntake(quarantine, BoardService(store)),
     )
 

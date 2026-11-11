@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import DateTime, ForeignKey, MetaData
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -13,29 +13,31 @@ from sqlalchemy.orm import (
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all kestrel tables."""
+    """Declarative base for all kestrel tables.
+
+    The naming convention gives every constraint a predictable name, so a
+    migration can refer to it.
+    """
+
+    metadata = MetaData(
+        naming_convention={
+            "pk": "pk_%(table_name)s",
+            "fk": "fk_%(table_name)s_%(column_0_name)s",
+            "uq": "uq_%(table_name)s_%(column_0_name)s",
+            "ix": "ix_%(table_name)s_%(column_0_name)s",
+        }
+    )
 
 
-class SessionRow(Base):
-    """One dispatched claude session."""
+def deferred_fk(target: str) -> ForeignKey:
+    """A foreign key to *target* (``table.column``), checked at commit.
 
-    __tablename__ = "session"
-
-    session_id: Mapped[str] = mapped_column(primary_key=True)
-    cwd: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-
-class EventRow(Base):
-    """One parsed stream-json event belonging to a session."""
-
-    __tablename__ = "event"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(ForeignKey("session.session_id"))
-    type: Mapped[str] = mapped_column()
-    raw: Mapped[str] = mapped_column(Text)
+    The unit of work orders one flush's inserts by mapper name, not by
+    foreign key, so a parent and its child added in the same transaction
+    may reach the database child first. A deferred check still rejects a
+    dangling reference, at commit.
+    """
+    return ForeignKey(target, deferrable=True, initially="DEFERRED")
 
 
 class WebhookDeliveryRow(Base):
@@ -53,35 +55,3 @@ class WebhookDeliveryRow(Base):
     repo: Mapped[str | None] = mapped_column(nullable=True)
     issue_number: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
-
-
-class IssueDismissalRow(Base):
-    """A durable tombstone that a ticket's run was rejected/abandoned.
-
-    Suppresses re-ingestion/reconciliation for a ``task_ref`` until the
-    ticket stops qualifying (GitHub: trigger label removed; Jira: the RFC
-    leaves the qualifying JQL). Source-neutral key (feature 003, FR-033;
-    generalized from the feature-002 ``(repo, issue_number)`` composite).
-    """
-
-    __tablename__ = "issue_dismissal"
-
-    task_ref: Mapped[str] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-
-
-class NotificationRow(Base):
-    """One recorded notification for the in-app notification center."""
-
-    __tablename__ = "notification"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    workflow_id: Mapped[str] = mapped_column(ForeignKey("board_workflow.id"))
-    repo: Mapped[str] = mapped_column()
-    #: GitHub issue number; ``NULL`` for a Jira-sourced run (feature 003),
-    #: whose ticket has no numeric id — identify the run via ``workflow_id``.
-    issue_number: Mapped[int | None] = mapped_column(nullable=True)
-    status: Mapped[str] = mapped_column()
-    message: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    read: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -4,6 +4,5 @@ purpose = "Owns intent, business value, scope, and acceptance criteria."
 allowed_card_types = ["analysis", "refinement", "strategic_interview"]
 required_abilities = ["text"]
 model_policy = "default"
-workspace_permission = "read_only"
-retry_limit = 1
+workspace_permission = "none"
 prompt_file = "prompt.md"

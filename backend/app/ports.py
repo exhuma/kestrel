@@ -1,7 +1,7 @@
 """Task Source / Code Host ports and verification evidence (feature 003).
 
 A run's origin is two distinct concerns: a **task source** (the ticket — read
-it, comment on it, attach to it, deep-link to it) and a **code host** (the
+it, comment on it, create sub-tasks of it) and a **code host** (the
 repository — provision a working copy, open a merge/pull request). GitHub
 implements both; Jira implements the task source and delegates the code host to
 a configured, self-hostable git host (GitLab/Gitea). Keeping these as protocols
@@ -148,10 +148,9 @@ class LifecycleEvent:
     """One run-lifecycle transition, source-neutral (feature 006).
 
     Built by ``LifecycleTransitioner`` from a ``WorkflowRun`` at each
-    lifecycle-worthy status change and passed to ``TaskSource.transition``
-    and the operator hooks mechanism. ``kind`` is derived from
-    ``run.status`` via a single exclusive mapping — a failed/escalated/
-    rejected run can never produce ``kind="done"``.
+    lifecycle-worthy status change and passed to ``TaskSource.transition``.
+    ``kind`` is derived from ``run.status`` via a single exclusive mapping —
+    a failed/escalated/rejected run can never produce ``kind="done"``.
     """
 
     kind: Literal["start", "done", "failed", "escalated", "rejected"]
@@ -178,21 +177,6 @@ class TaskSource(Protocol):
         The adapter adds the ownership marker (``Marker("posted")``)
         unless comment marking is disabled for this source.
         """
-        ...
-
-    async def attach(
-        self, ref: str, name: str, data: bytes, mimetype: str
-    ) -> None:
-        """Attach a binary file to the ticket (may no-op on some sources).
-
-        Carries raw ``data`` plus its ``mimetype`` so any file type (a
-        text PRD, a PNG screenshot) can be uploaded; a source without an
-        attachment API (GitHub issues) no-ops.
-        """
-        ...
-
-    async def publish_refined(self, ref: str, content: Document) -> None:
-        """Record the approved PRD on the ticket (update body / attach)."""
         ...
 
     async def create_subtask(
@@ -225,24 +209,6 @@ class TaskSource(Protocol):
 
         May raise :class:`SubtaskContextError` after a remote write failure;
         callers retain ``task_ref`` and retry this operation rather than create.
-        """
-        ...
-
-    def display_label(self, ref: str) -> str:
-        """Short human-readable identity for the ticket (feature 009).
-
-        Pure formatting of ``ref`` — no I/O — so it's cheap to compute
-        for every run in a list. Surfaced to the UI (workflow list and
-        detail header) as the run's primary identifying label.
-        """
-        ...
-
-    def deep_link_ref(self, ref: str) -> str:
-        """Browser-navigable URL to the ticket, or "" (feature 009).
-
-        "" means this source has no destination a browser can open for
-        ``ref`` (e.g. a local file) — the UI shows ``display_label``
-        as plain text instead of a link in that case.
         """
         ...
 
@@ -299,16 +265,6 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """Best-effort reaction on the triggering comment (feature 013).
-
-        :returns: ``False`` (never raises) when this source has no such
-            capability.
-        """
-        ...
-
     async def check_health(self) -> bool:
         """Best-effort reachability + auth probe (feature 014).
 
@@ -317,15 +273,6 @@ class TaskSource(Protocol):
         itself, not any one ticket. A failure (network, TLS, auth,
         timeout) raises: the health service treats any exception as
         unhealthy and logs why (contracts/health-check-port.md).
-        """
-        ...
-
-    async def cleanup_artifact(self, kind: str, external_id: str) -> str:
-        """Remove or restore a recorded resource and return its final state.
-
-        Returns ``"cleaned"``, ``"closed"``, or ``"absent"``. A source
-        without a cleanup capability may raise, allowing the caller to retain
-        required cleanup work while best-effort entries are reported.
         """
         ...
 
@@ -393,29 +340,6 @@ class CodeHost(Protocol):
         The result contains one entry for every requested name. A check not
         yet reported is ``pending``; no provider-specific status leaks above
         this boundary.
-        """
-        ...
-
-    async def list_review_comments(
-        self, repo: str, number: int, since: str | None = None
-    ) -> list[Feedback]:
-        """Every reviewer-authored signal on the request, ``origin="review"``.
-
-        Merges the request's conversation comments, review-body comments,
-        and inline review comments into one newest-cursor-forward list —
-        the same ``since``-cursor contract as ``TaskSource.list_comments``.
-        """
-        ...
-
-    async def acknowledge(
-        self, feedback: Feedback, token: str = "eyes"
-    ) -> bool:
-        """Best-effort reaction on the triggering review comment.
-
-        :returns: ``False`` (never raises) when this source has no such
-            capability, or ``feedback`` does not carry a reactable
-            ``external_id`` (e.g. a review's own summary comment, which
-            GitHub exposes no reaction endpoint for).
         """
         ...
 

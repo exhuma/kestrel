@@ -12,7 +12,6 @@ from app.backends.registry import BackendRegistry, UnknownBackendError
 from app.config import BackendConfig, Settings
 from app.models_board import SpecialistDefinition
 from app.policy import SpecialistBackendPolicy, SpecialistCapabilityError
-from app.storage.registry import SessionRegistry
 
 
 def _result_claude(tmp_path: Path, payload: str) -> Path:
@@ -42,18 +41,18 @@ def _settings(**kw: object) -> Settings:
     kw.setdefault(
         "backends", [BackendConfig(id="claude", type="claude_cli")]
     )
-    kw.setdefault("default_session_backend", "claude")
+    kw.setdefault("default_backend", "claude")
     return Settings(
         claude_bin=kw.pop("claude_bin", "claude"),
         workspace_root=str(kw.pop("workspace_root", "/tmp/ws")),
-        permission_mode="acceptEdits",
+        permission_mode="edit",
         **kw,  # type: ignore[arg-type]
     )
 
 
 def test_claude_backend_advertises_text_and_file_edits() -> None:
     """Ensure the claude backend can serve both text and edit steps."""
-    backend = ClaudeCliBackend(_settings(), SessionRegistry(), backend_id="c")
+    backend = ClaudeCliBackend(_settings(), backend_id="c")
     assert backend.id == "c"
     assert backend.caps == frozenset({Capability.TEXT, Capability.FILE_EDITS})
 
@@ -65,54 +64,50 @@ async def test_run_turn_returns_the_result_deliverable(tmp_path: Path) -> None:
         claude_bin=str(_result_claude(tmp_path, "the deliverable")),
         workspace_root=str(tmp_path / "ws"),
     )
-    reg = SessionRegistry()
-    backend = ClaudeCliBackend(settings, reg)
+    backend = ClaudeCliBackend(settings)
 
     seen: list[str] = []
     result = await backend.run_turn(
         TurnRequest(
             prompt="hi",
             cwd=str(tmp_path / "step"),
-            permission_mode="plan",
-        ),
-        on_session_id=seen.append,
+            permission_mode="read_only",
+            on_session_id=seen.append,
+        )
     )
 
     assert result.session_id == "turn-1"
     assert result.final_text == "the deliverable"
     assert seen == ["turn-1"]
-    assert reg.get("turn-1").status == "idle"
 
 
 def test_registry_builds_default_claude_backend() -> None:
     """Ensure the default config yields a resolvable claude backend."""
-    registry = BackendRegistry(_settings(), SessionRegistry())
-    assert isinstance(registry.default_session_backend(), ClaudeCliBackend)
+    registry = BackendRegistry(_settings())
+    assert isinstance(registry.default_backend(), ClaudeCliBackend)
     assert registry.get("claude").id == "claude"
 
 
 def test_registry_applies_configured_capability_override() -> None:
-    """Ensure an on-site coding backend can declare file-edit capability."""
+    """Ensure a backend can declare a narrower capability set."""
     settings = _settings(
         backends=[
             BackendConfig(
                 id="local",
-                type="openai_compat",
-                base_url="http://x/v1",
-                caps=["text", "file_edits"],
+                type="opencode",
+                base_url="http://x",
+                caps=["text"],
             )
         ],
-        default_session_backend="local",
+        default_backend="local",
     )
-    registry = BackendRegistry(settings, SessionRegistry())
-    assert registry.get("local").caps == frozenset(
-        {Capability.TEXT, Capability.FILE_EDITS}
-    )
+    registry = BackendRegistry(settings)
+    assert registry.get("local").caps == frozenset({Capability.TEXT})
 
 
 def test_registry_unknown_backend_raises() -> None:
     """Ensure resolving an unconfigured backend id raises."""
-    registry = BackendRegistry(_settings(), SessionRegistry())
+    registry = BackendRegistry(_settings())
     with pytest.raises(UnknownBackendError):
         registry.get("nope")
 
@@ -122,9 +117,8 @@ def test_registry_unknown_backend_error_lists_configured_ids() -> None:
     registry = BackendRegistry(
         _settings(
             backends=[BackendConfig(id="oc", type="opencode")],
-            default_session_backend="oc",
-        ),
-        SessionRegistry(),
+            default_backend="oc",
+        )
     )
     with pytest.raises(UnknownBackendError, match=r"nope.*\['oc'\]"):
         registry.get("nope")
@@ -134,25 +128,25 @@ def test_registry_rejects_a_missing_default_at_build() -> None:
     """Ensure a default pointing at no backend fails fast, not on dispatch."""
     settings = _settings(
         backends=[BackendConfig(id="claude", type="claude_cli")],
-        default_session_backend="ghost",
+        default_backend="ghost",
     )
     with pytest.raises(UnknownBackendError, match=r"ghost.*\['claude'\]"):
-        BackendRegistry(settings, SessionRegistry())
+        BackendRegistry(settings)
 
 
 # ---- SpecialistBackendPolicy (feature 026: specialist capability routing) --
 
 def _mixed_registry() -> BackendRegistry:
-    """A registry with a file-editing agent and a text-only LLM."""
+    """A registry with a file-editing agent and a text-only backend."""
     settings = _settings(
         backends=[
             BackendConfig(id="claude", type="claude_cli"),
             BackendConfig(
-                id="local", type="openai_compat", base_url="http://x/v1"
+                id="local", type="opencode", base_url="http://x", caps=["text"]
             ),
         ],
     )
-    return BackendRegistry(settings, SessionRegistry())
+    return BackendRegistry(settings)
 
 
 
@@ -166,7 +160,6 @@ def _specialist(**overrides: object) -> SpecialistDefinition:
         "required_abilities": ("text",),
         "model_policy": "default",
         "workspace_permission": "read_only",
-        "retry_limit": 1,
         "prompt": "Ask about approach.",
     }
     fields.update(overrides)
@@ -174,7 +167,7 @@ def _specialist(**overrides: object) -> SpecialistDefinition:
 
 
 def test_specialist_policy_uses_default_backend() -> None:
-    """A ``"default"`` model_policy resolves to the default session backend."""
+    """A ``"default"`` model_policy resolves to the default backend."""
     policy = SpecialistBackendPolicy(_mixed_registry(), "claude")
     assert policy.backend_for(_specialist()).id == "claude"
 

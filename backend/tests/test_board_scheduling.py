@@ -17,12 +17,8 @@ import pytest
 
 from app.backends.base import TurnRequest, TurnResult
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.policy import SpecialistCapabilityError
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
@@ -83,7 +79,6 @@ def _specialist(role_id: str = "developer") -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="You are the developer specialist.",
     )
 
@@ -97,7 +92,6 @@ def _coordinator_specialist() -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="none",
-        retry_limit=1,
         prompt="You are the COORDINATOR.",
     )
 
@@ -107,15 +101,13 @@ def _coordinator_specialist() -> SpecialistDefinition:
 def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     board_service = BoardService(store)
     roster = SpecialistRoster(
         {"developer": _specialist(), "coordinator": _coordinator_specialist()}
     )
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     store.create_workflow(_WORKFLOW)
     scheduling = SchedulingService(
@@ -181,7 +173,6 @@ class TestClaimAndDispatch:
             roster=SpecialistRoster({"developer": _specialist()}),
             max_parallel_read_cards=4,
             default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         backend = _FakeBackend("<RESULT>ok</RESULT>")
 
@@ -212,7 +203,6 @@ class TestClaimAndDispatch:
             roster=SpecialistRoster({"developer": _specialist()}),
             max_parallel_read_cards=4,
             default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         backend = _FakeBackend("<RESULT>ok</RESULT>")
 
@@ -346,7 +336,6 @@ def _dispatch_services(tmp_path: Path, roster: SpecialistRoster) -> tuple[
     claims_store = BoardClaimsStore(factory)
     board_service = BoardService(store)
     artifact_store = BoardArtifactStore(factory)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     store.create_workflow(_WORKFLOW)
     claims = ClaimsService(
         store=store,
@@ -354,10 +343,9 @@ def _dispatch_services(tmp_path: Path, roster: SpecialistRoster) -> tuple[
         roster=roster,
         max_parallel_read_cards=4,
         default_lease_seconds=60,
-        default_workspace_lease_seconds=600,
     )
     artifacts = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
     return DispatchServices(claims, roster, artifacts), store
 

@@ -21,9 +21,13 @@ import re
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.backends.base import TurnRequest, TurnResult
+from app.backends.base import (
+    PERMISSION_READ_ONLY,
+    TurnRequest,
+    TurnResult,
+)
 from app.documents import Document
-from app.policy import SpecialistBackendPolicy
+from app.models_board import SpecialistDefinition
 from app.services.board.agent_text import to_prompt
 from app.services.board.specialists import SpecialistRoster
 from app.text_extract import extract_tag
@@ -81,6 +85,14 @@ class _TurnBackend(Protocol):
     async def run_turn(self, req: TurnRequest) -> TurnResult: ...
 
 
+class ChoosesBackend(Protocol):
+    """Where a role's turns run (``ReasoningPolicy``)."""
+
+    def backend_for(self, specialist: SpecialistDefinition) -> _TurnBackend:
+        """The backend *specialist*'s turns run on."""
+        ...
+
+
 def without_marker(text: str, marker: str) -> str:
     """*text* without the reply marker, matched as a whole word."""
     if not marker:
@@ -89,9 +101,14 @@ def without_marker(text: str, marker: str) -> str:
     return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
 
+def without_data_tags(text: str) -> str:
+    """*text* unable to close the data section it is put in."""
+    return _DATA_TAG.sub("", text)
+
+
 def build_envelope(prompt: str, ask: LiaisonAsk) -> str:
     """The trust-separated liaison prompt (``contracts/liaison-turn.md``)."""
-    reply = _DATA_TAG.sub("", without_marker(to_prompt(ask.reply), ask.marker))
+    reply = without_data_tags(without_marker(to_prompt(ask.reply), ask.marker))
     return (
         f"{prompt}\n\n"
         "You are reading a reply on the ticket to this open decision:\n"
@@ -147,7 +164,9 @@ async def interpret(
 ) -> Interpretation:
     """One liaison turn. Never raises: whatever goes wrong reads as
     ``unclear``."""
-    request = TurnRequest(prompt=envelope, cwd="", permission_mode="plan")
+    request = TurnRequest(
+        prompt=envelope, cwd="", permission_mode=PERMISSION_READ_ONLY
+    )
     try:
         result = await asyncio.wait_for(
             backend.run_turn(request), timeout=timeout_seconds
@@ -167,7 +186,7 @@ class LiaisonService:
     def __init__(
         self,
         roster: SpecialistRoster,
-        backend_policy: SpecialistBackendPolicy,
+        backend_policy: ChoosesBackend,
         timeout_seconds: float,
     ) -> None:
         self._roster = roster

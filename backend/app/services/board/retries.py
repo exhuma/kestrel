@@ -18,6 +18,7 @@ import json
 import uuid
 
 from app.models_board import (
+    ESCALATION_GATE_KINDS,
     CardKind,
     CardRelation,
     CardState,
@@ -49,9 +50,22 @@ def live_attempts(cards: list[WorkCard]) -> list[WorkCard]:
     """*cards* without the attempts another attempt replaced."""
     replaced = {
         c.source_card_id for c in cards
-        if c.source_card_id and c.kind != CardKind.COORDINATOR_REVIEW.value
+        if c.source_card_id and not _follows_up(c, cards)
     }
     return [c for c in cards if c.id not in replaced]
+
+
+def _follows_up(card: WorkCard, cards: list[WorkCard]) -> bool:
+    """Whether *card* is about its source card, not another go at it: an
+    escalation of it, or the first review of a gate's clarification (a
+    retried review has a review as its source, and is an attempt)."""
+    if card.kind == CardKind.COORDINATOR_REVIEW.value:
+        return True
+    return card.kind == CardKind.CLARIFICATION_REVIEW.value and any(
+        c.id == card.source_card_id
+        and c.kind in ESCALATION_GATE_KINDS
+        for c in cards
+    )
 
 
 def retries_of(card: WorkCard, cards: list[WorkCard]) -> int:
@@ -101,7 +115,9 @@ def detail_of(reason: str) -> str:
 def retry_context(card: WorkCard, store: BoardStore) -> str:
     """What a retried card's prompt adds: why its previous attempt could
     not be used. ``""`` for any other card."""
-    if not card.source_card_id or card.kind == CardKind.COORDINATOR_REVIEW:
+    if not card.source_card_id or _follows_up(
+        card, [c for c in [store.get_card(card.source_card_id)] if c]
+    ):
         return ""
     reason = next(
         (

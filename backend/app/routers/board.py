@@ -15,7 +15,6 @@ from fastapi.responses import StreamingResponse
 from app import sse
 from app.models_board import CardAction
 from app.models_board_records import SecurityReviewRecord
-from app.persistence.board_artifact_content_store import ContentNotFoundError
 from app.persistence.board_artifact_store import (
     BoardArtifactStore,
     get_board_artifact_store,
@@ -41,6 +40,8 @@ from app.schemas import (
     BoardInterventionIn,
     BoardSnapshotOut,
     QuarantineInterventionIn,
+    RequestChangesIn,
+    RequestChangesOut,
     SecurityReviewOut,
     WorkCardSummaryOut,
     WorkflowSummaryOut,
@@ -50,6 +51,7 @@ from app.services.board.bootstrap import (
     get_artifacts_service,
     get_interventions_service,
     get_quarantine_service,
+    get_request_changes_service,
     schedule_escalation_projection,
     schedule_gate_followup,
     schedule_gate_projection,
@@ -65,6 +67,7 @@ from app.services.board.interventions import (
     StaleInterventionError,
 )
 from app.services.board.quarantine import QuarantineService
+from app.services.board.requested_changes import RequestChangesService
 from app.services.ingestion import schedule_intake_continuation
 from app.storage.workflow_bus import WorkflowBus, get_workflow_bus
 
@@ -146,24 +149,18 @@ async def get_artifact_content(
     It is agent output crossing into the browser: the frontend must never
     let it become live markup (feature 043 FR-005).
 
-    :raises HTTPException: 404 if the artifact, or its stored content, is
-        unknown.
+    :raises HTTPException: 404 if the artifact is unknown.
     """
     artifact = artifact_store.get(artifact_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="unknown artifact")
-    try:
-        if artifact.mime_type == DOCUMENT_MIME:
-            return BoardArtifactContentOut(
-                content=api_markdown(artifacts.read_document(artifact_id)),
-                trust=artifact.trust,
-                mime_type=MARKDOWN_MIME,
-            )
-        content = artifacts.read_content(artifact_id)
-    except ContentNotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail="artifact content missing"
-        ) from exc
+    if artifact.mime_type == DOCUMENT_MIME:
+        return BoardArtifactContentOut(
+            content=api_markdown(artifacts.read_document(artifact_id)),
+            trust=artifact.trust,
+            mime_type=MARKDOWN_MIME,
+        )
+    content = artifacts.read_content(artifact_id)
     return BoardArtifactContentOut(
         content=content or "",
         trust=artifact.trust,
@@ -223,30 +220,6 @@ async def stream_board_workflows(
 
 
 @router.get(
-    "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
-)
-async def list_board_events(
-    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
-) -> list[BoardEventOut]:
-    """Return one workflow's board event history, oldest first — the
-    narrative feed's data source.
-
-    Not streamed: board SSE is full-snapshot replacement (never
-    incremental patches), and a growing append-only log does not fit
-    that shape. The client re-fetches this after the snapshot stream
-    ticks instead.
-
-    :raises HTTPException: 404 if ``workflow_id`` is unknown.
-    """
-    workflow = deps.board.get_workflow(workflow_id)
-    if workflow is None:
-        raise HTTPException(status_code=404, detail="unknown workflow")
-    events = deps.board.list_events(workflow_id)
-    cards = deps.board.list_cards(workflow_id)
-    return board_events(events, cards, deps.roster)
-
-
-@router.get(
     "/workflows/{workflow_id}/board", response_model=BoardSnapshotOut
 )
 async def get_board(
@@ -297,25 +270,57 @@ async def stream_board(
 
 
 @router.get(
-    "/workflows/{workflow_id}/cards/{card_id}",
-    response_model=WorkCardSummaryOut,
+    "/workflows/{workflow_id}/events", response_model=list[BoardEventOut]
 )
-async def get_board_card(
-    workflow_id: str,
-    card_id: str,
-    deps: BoardReadDeps = Depends(board_read_deps),
-) -> WorkCardSummaryOut:
-    """Return one card's board-visible summary.
+async def list_board_events(
+    workflow_id: str, deps: BoardReadDeps = Depends(board_read_deps)
+) -> list[BoardEventOut]:
+    """Return one workflow's board event history, oldest first — the
+    narrative feed's data source.
 
-    :raises HTTPException: 404 if the workflow or card is unknown, or the
-        card does not belong to ``workflow_id``.
+    Not streamed: board SSE is full-snapshot replacement (never
+    incremental patches), and a growing append-only log does not fit
+    that shape. The client re-fetches this after the snapshot stream
+    ticks instead.
+
+    :raises HTTPException: 404 if ``workflow_id`` is unknown.
     """
-    card = deps.board.get_card(card_id)
-    if card is None or card.workflow_id != workflow_id:
-        raise HTTPException(status_code=404, detail="unknown card")
-    relations = deps.board.list_relations(workflow_id)
+    workflow = deps.board.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="unknown workflow")
+    events = deps.board.list_events(workflow_id)
     cards = deps.board.list_cards(workflow_id)
-    return card_summary(card, relations, board_lookups(cards, deps))
+    return board_events(events, cards, deps.roster)
+
+
+@router.post(
+    "/workflows/{workflow_id}/request-changes",
+    response_model=RequestChangesOut,
+)
+async def request_changes(
+    workflow_id: str,
+    body: RequestChangesIn,
+    deps: BoardReadDeps = Depends(board_read_deps),
+    service: RequestChangesService = Depends(get_request_changes_service),
+) -> RequestChangesOut:
+    """Send a delivered request back for more work on its branch.
+
+    :raises HTTPException: 404 if the workflow is unknown; 409 if
+        ``expected_revision`` is stale; 422 if changes cannot be requested
+        now, for a reason stated in the response.
+    """
+    workflow = deps.board.get_workflow(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="unknown workflow")
+    try:
+        card = await service.request(
+            workflow, body.feedback, expected_revision=body.expected_revision
+        )
+    except StaleInterventionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InvalidInterventionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return RequestChangesOut(card_id=card.id)
 
 
 @router.post(

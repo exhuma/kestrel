@@ -5,21 +5,18 @@ import asyncio
 import logging
 from functools import lru_cache
 
-from app.backends.base import Backend
 from app.config import get_settings
 from app.documents import Strong, paragraph
 from app.models_board import CardKind, WorkCard
-from app.persistence.board_artifact_content_store import (
-    get_board_artifact_content_store,
-)
 from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
-from app.persistence.board_coordinator_store import get_board_coordinator_store
 from app.persistence.board_gate_store import get_board_gate_store
 from app.persistence.board_projection_store import get_board_projection_store
 from app.persistence.board_quarantine_store import get_board_quarantine_store
 from app.persistence.board_store import get_board_store
 from app.policy import get_specialist_backend_policy
+from app.reasoning.client import ReasoningClient
+from app.reasoning.policy import get_reasoning_policy
 from app.services.board.announcements.common import finish
 from app.services.board.announcements.content import GateContent
 from app.services.board.announcements.service import (
@@ -42,6 +39,7 @@ from app.services.board.live_activity import (
     turn_failure,
 )
 from app.services.board.materialise import (
+    MaterialiseTarget,
     approved_candidate,
     render_breakdown,
 )
@@ -49,6 +47,7 @@ from app.services.board.projection_retry import ProjectionRetryService
 from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
 from app.services.board.recovery import RecoveryService
+from app.services.board.requested_changes import RequestChangesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
 from app.services.board.workspace import WorkspaceService
@@ -84,9 +83,9 @@ def get_quarantine_service() -> QuarantineService:
     return QuarantineService(
         get_board_quarantine_store(),
         get_specialist_roster(),
-        get_specialist_backend_policy(),
+        get_reasoning_policy(),
         settings.board_input_max_bytes,
-        settings.board_input_security_timeout_seconds,
+        get_reasoning_policy().timeout_for("input-security"),
     )
 
 
@@ -100,7 +99,7 @@ def get_claims_service() -> ClaimsService:
         roster=get_specialist_roster(),
         max_parallel_read_cards=settings.board_max_parallel_read_cards,
         default_lease_seconds=settings.board_claim_lease_seconds,
-        default_workspace_lease_seconds=settings.board_workspace_lease_seconds,
+        max_outage_retries=settings.board_backend_outage_retries,
     )
 
 
@@ -108,7 +107,7 @@ def get_claims_service() -> ClaimsService:
 def get_coordinator_service() -> CoordinatorService:
     """Return the process-wide CoordinatorService singleton."""
     return CoordinatorService(
-        get_board_store(), get_board_coordinator_store(), get_board_service(),
+        get_board_store(), get_board_service(),
         # Every gate is mandatory: CAB-1, PRD sign-off and CAB-2 (#70).
         decomposition_required=True,
         prd_gate_required=True,
@@ -122,7 +121,6 @@ def get_artifacts_service() -> ArtifactsService:
         get_board_store(),
         get_board_artifact_store(),
         get_board_service(),
-        get_board_artifact_content_store(),
     )
 
 
@@ -160,6 +158,16 @@ def get_interventions_service() -> InterventionsService:
         get_board_claims_store(),
         get_board_service(),
         get_gates_service(),
+    )
+
+
+@lru_cache
+def get_request_changes_service() -> RequestChangesService:
+    """Return the process-wide RequestChangesService singleton."""
+    return RequestChangesService(
+        MaterialiseTarget(get_board_store(), get_artifacts_service()),
+        get_board_service(),
+        get_task_source_registry().code_hosts,
     )
 
 
@@ -261,6 +269,7 @@ def get_dispatch_services() -> DispatchServices:
         board=get_board_service(),
         live=get_live_activity(),
         unreadable_retry_cap=get_settings().board_unreadable_retry_cap,
+        reasoning=get_reasoning_policy(),
     )
 
 
@@ -286,7 +295,7 @@ def _trigger_scheduling(workflow_id: str) -> None:
     ``WorkflowService._spawn_driver``'s background-task pattern.
     """
     coordinator = get_specialist_roster().get("coordinator")
-    backend = get_specialist_backend_policy().backend_for(coordinator)
+    backend = get_reasoning_policy().backend_for(coordinator)
     task = asyncio.create_task(_wake_and_dispatch(workflow_id, backend))
     task.add_done_callback(
         lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
@@ -294,7 +303,7 @@ def _trigger_scheduling(workflow_id: str) -> None:
 
 
 async def _wake_and_dispatch(
-    workflow_id: str, coordinator_backend: Backend
+    workflow_id: str, coordinator_backend: ReasoningClient
 ) -> None:
     """One coordinator turn, then one best-effort dispatch pass per role.
 

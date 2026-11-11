@@ -265,6 +265,11 @@ class ReplyService:
                 category=f"{GATE_REPLY}:{reply.feedback.external_id}",
                 content=reply.feedback.body,
                 workflow=reply.workflow,
+                context=(
+                    "This is a comment on a ticket, replying to kestrel's "
+                    f"request to {decision_words(gate)[0]}."
+                ),
+                marker=self._deps.marker,
             )
         )
         if not screened.released:

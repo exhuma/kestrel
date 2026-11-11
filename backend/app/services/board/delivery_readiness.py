@@ -21,6 +21,11 @@ from app.models_board import (
     RelationKind,
     WorkCard,
 )
+from app.persistence.board_store import BoardStore
+from app.services.board.coordinator import (
+    CoordinatorService,
+    CreateCardAction,
+)
 
 #: Kinds whose open (or failed) cards mean the code is not settled yet.
 _SETTLING_KINDS = frozenset(
@@ -29,6 +34,16 @@ _SETTLING_KINDS = frozenset(
         CardKind.VERIFICATION.value,
         CardKind.RECONCILIATION.value,
         CardKind.COORDINATOR_REVIEW.value,
+        CardKind.ESCALATION_GATE.value,
+        CardKind.POLICY_RISK_GATE.value,
+        CardKind.CLARIFICATION_REVIEW.value,
+        # A plan going back through sign-off: what is built so far is not
+        # what will be approved, so nothing may ship meanwhile.
+        CardKind.PRD.value,
+        CardKind.PRD_GATE.value,
+        CardKind.DECOMPOSITION.value,
+        CardKind.ESTIMATION.value,
+        CardKind.DECOMPOSITION_GATE.value,
     }
 )
 
@@ -38,8 +53,8 @@ def delivery_due(
 ) -> bool:
     """Whether a clean verification should now request delivery.
 
-    True when no implementation, verification, reconciliation or
-    coordinator-review card is still open or ``failed``, and every
+    True when no card that can still change the code or the plan is
+    open or ``failed``, and every
     ``done`` implementation card of an approved CAB-2 task has a
     ``done`` verification depending on it. Coordinator-created work
     carries no such edge, so for it the clean verification that calls
@@ -49,6 +64,21 @@ def delivery_due(
     if any(_unsettled(card) for card in cards):
         return False
     return _tagged_done_ids(cards) <= _verified_ids(cards, relations)
+
+
+def request_delivery(
+    workflow_id: str, store: BoardStore, coordinator: CoordinatorService
+) -> None:
+    """Create the ``delivery`` card if the coding work is now settled.
+    Keyed by the finished work it delivers, so one set of done
+    implementation cards delivers exactly once."""
+    cards = store.list_cards(workflow_id)
+    if not delivery_due(cards, store.list_relations(workflow_id)):
+        return
+    coordinator.apply_actions(
+        workflow_id, delivery_trigger(cards),
+        [CreateCardAction(kind=CardKind.DELIVERY.value, title="Deliver")],
+    )
 
 
 def delivery_trigger(cards: list[WorkCard]) -> str:

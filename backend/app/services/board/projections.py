@@ -123,8 +123,3 @@ class ProjectionsService:
         """Take a failed projection on for another post; ``False`` when
         someone else already has, or it is no longer failed."""
         return self._store.begin_retry(projection_id)
-
-    def owned_external_ids(self, workflow_id: str) -> list[tuple[str, str]]:
-        """Return ``(kind, external_id)`` for every external resource
-        Kestrel owns for *workflow_id* — the cleanup boundary (FR-035)."""
-        return self._store.owned_external_ids(workflow_id)

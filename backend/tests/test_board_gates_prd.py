@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.documents import Text, document, paragraph
 from app.models_board import CardRelation, WorkCard
+from app.persistence.document_column import DOCUMENT_MIME, encode_document
 from app.services.board.artifacts import ArtifactDraft
 from app.services.board.interview_batch import (
     InterviewBoard,
@@ -180,6 +182,10 @@ class TestPrdApproval:
         self, tmp_path: Path
     ) -> None:
         service, store = _service(tmp_path)
+        store.create_card(WorkCard(
+            id="card-1", workflow_id="wf-1", kind="prd", title="Draft PRD",
+            state="done",
+        ))
         artifact = service._artifacts.store_reference_artifact(
             _draft_artifact("card-1", "the full plan")
         )
@@ -243,7 +249,8 @@ class TestPrdRedraft:
 def _draft_artifact(card_id: str, content: str) -> ArtifactDraft:
     return ArtifactDraft(
         producer_card_id=card_id, logical_name="draft", revision=1,
-        content=content, trust="agent_output",
+        content=encode_document(document(paragraph(Text(content)))),
+        trust="agent_output", mime_type=DOCUMENT_MIME,
     )
 
 

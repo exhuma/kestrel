@@ -10,14 +10,23 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
 import httpx
 
+from app.backends.base import BackendUnavailable
+
 _logger = logging.getLogger(__name__)
+
+#: How long to wait before reopening a lost event stream, in seconds.
+RECONNECT_SECONDS = 2.0
+
+#: What httpx raises when the server has gone away. A timeout is not one
+#: of these: a slow model is not an outage.
+CONNECTION_LOST = (httpx.NetworkError, httpx.RemoteProtocolError)
 
 #: Told each ``message.part.updated`` part of the turn's session
 #: (feature 036: the tool-loop guard).
@@ -62,6 +71,13 @@ async def permission_handler(
             await task
 
 
+def directory_params(directory: str | None) -> dict[str, str] | None:
+    """The ``directory`` query parameter, as an absolute path (or ``None``)."""
+    if not directory:
+        return None
+    return {"directory": str(Path(directory).absolute())}
+
+
 async def run_permission_loop(
     conn: OpenCodeConnection,
     session_id: str,
@@ -70,21 +86,22 @@ async def run_permission_loop(
     watch: PartWatcher | None = None,
 ) -> None:
     """Stream ``/event``, answer this session's permission prompts, and
-    show *watch* its message parts."""
+    show *watch* its message parts.
+
+    A lost connection is not this loop's failure to report: if the
+    server is gone the turn's own request fails, and if only the stream
+    dropped the turn goes on. So the stream is reopened until the turn
+    ends and cancels this task.
+    """
     turn = _Turn(conn, session_id, directory, read_only, watch)
     client = conn.client or httpx.AsyncClient(timeout=None)
-    params = {"directory": os.path.abspath(directory)} if directory else None
+    reported = False
     try:
-        async with client.stream(
-            "GET",
-            f"{conn.base_url}/event",
-            params=params,
-            auth=conn.auth,
-        ) as resp:
-            async for line in resp.aiter_lines():
-                event = _parse(line)
-                if event is not None:
-                    await turn.handle(event)
+        while not await _follow_events(client, conn, directory, turn):
+            log = _logger.debug if reported else _logger.warning
+            log("opencode event stream lost for session %s", session_id)
+            reported = True
+            await asyncio.sleep(RECONNECT_SECONDS)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -95,6 +112,33 @@ async def run_permission_loop(
     finally:
         if conn.client is None:
             await client.aclose()
+
+
+async def _follow_events(
+    client: httpx.AsyncClient,
+    conn: OpenCodeConnection,
+    directory: str | None,
+    turn: _Turn,
+) -> bool:
+    """Handle the event stream until it ends.
+
+    :returns: ``True`` when the server ended the stream, ``False`` when
+        the connection was lost.
+    """
+    try:
+        async with client.stream(
+            "GET",
+            f"{conn.base_url}/event",
+            params=directory_params(directory),
+            auth=conn.auth,
+        ) as resp:
+            async for line in resp.aiter_lines():
+                event = _parse(line)
+                if event is not None:
+                    await turn.handle(event)
+    except (*CONNECTION_LOST, BackendUnavailable):
+        return False
+    return True
 
 
 def _parse(line: str) -> dict | None:

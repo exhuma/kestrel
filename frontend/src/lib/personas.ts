@@ -4,8 +4,8 @@
  *
  * Pure and display-only. The vocabulary below mirrors the literals the
  * backend actually appends (`app/services/board/`) — `workflow.created`,
- * `card.*`, `gate.*`, `intervention.*`, `coordinator.*`, `refinement.*`
- * and `dev_reset.*`. An event type not listed here renders its own name
+ * `card.*`, `gate.*`, `intervention.*`, `coordinator.*` and
+ * `refinement.*`. An event type not listed here renders its own name
  * rather than being dropped: the feed's job is to carry the whole story,
  * including the parts this module has not been taught yet.
  */
@@ -44,10 +44,9 @@ const OPERATOR_EVENTS: ReadonlySet<string> = new Set([
   'gate.rejected_dependent_cancelled',
   'intervention.retry',
   'intervention.cancel',
+  'intervention.request_changes',
   'intervention.reassign',
   'manual_task.completed',
-  'dev_reset.cleanup',
-  'dev_reset.rerun',
 ])
 
 const TONES: Readonly<Record<string, FeedTone>> = {
@@ -61,6 +60,7 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'gate.rejected': 'warning',
   'gate.rejected_dependent_cancelled': 'warning',
   'intervention.retry': 'warning',
+  'intervention.request_changes': 'warning',
   'intervention.cancel': 'warning',
   'intervention.reassign': 'info',
   'manual_task.completed': 'success',
@@ -74,8 +74,6 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'card.recovery_retry': 'warning',
   'card.unreadable_retry': 'warning',
   'card.recovery_escalated': 'error',
-  'dev_reset.cleanup': 'warning',
-  'dev_reset.rerun': 'warning',
 }
 
 const SUMMARIES: Readonly<Record<string, string>> = {
@@ -89,6 +87,7 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'gate.rejected_dependent_cancelled':
     'Dependent work cancelled by that rejection',
   'intervention.retry': 'You retried this card',
+  'intervention.request_changes': 'You requested changes',
   'intervention.cancel': 'You cancelled this card',
   'intervention.reassign': 'You returned this card to the queue',
   'manual_task.completed': 'You marked a manual task done',
@@ -104,8 +103,6 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'card.unreadable_retry':
     'The result could not be read; the work is being tried again',
   'card.recovery_escalated': 'Recovery escalated a failed card',
-  'dev_reset.cleanup': 'Developer reset: workflow cleaned up',
-  'dev_reset.rerun': 'Developer reset: workflow rerun',
 }
 
 /** Gate decisions that can come from a ticket reply (feature 046). */

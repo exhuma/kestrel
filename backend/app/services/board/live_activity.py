@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Protocol
 
-from app.backends.base import TurnStopped
+from app.backends.base import BackendUnavailable, TurnStopped
+from app.reasoning.client import ReasoningBlocked
 
 #: Told a tool's name each time the agent calls one (feature 036).
 NoteTool = Callable[[str], None]
@@ -140,6 +141,12 @@ def turn_failure(actor: str, error: Exception) -> str:
     stopped = _stopped(error)
     if stopped is not None:
         return f"{actor}'s turn was stopped: {stopped.reason}"
+    if isinstance(error.__cause__, ReasoningBlocked):
+        return (
+            f"{actor}'s turn was blocked by the AI provider's content filter"
+        )
+    if isinstance(error.__cause__, BackendUnavailable):
+        return f"{actor}'s turn was interrupted: the agent backend went away"
     if "timed out" in str(error):
         return f"{actor}'s turn timed out"
     return f"{actor}'s turn failed; see the kestrel log"

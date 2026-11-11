@@ -46,15 +46,11 @@ class HandoffArtifact:
     :param producer_card_id: The card that produced this artifact.
     :param logical_name: Stable name; unique with ``revision``.
     :param revision: Monotonic version for this ``logical_name``.
-    :param content_ref: Durable reference to the content, stored outside
-        board snapshots.
-    :param content_hash: Integrity hash of the referenced content.
+    :param content_hash: SHA-256 of the content (stored with the
+        artifact, read on its own: ``BoardArtifactStore.read_content``).
     :param trust: At least ``untrusted``, ``released``, ``agent_output``,
         or ``operator_approved``.
-    :param mime_type: The referenced content's media type.
-    :param retention: Operational retention policy.
-    :param project_material: Explicit opt-in for inclusion in the project
-        change; orchestration-only artifacts default to ``False``.
+    :param mime_type: The content's media type.
     :param input_artifacts: Exact consumed input-artifact ids, never
         mutable "latest" pointers.
     """
@@ -63,12 +59,9 @@ class HandoffArtifact:
     producer_card_id: str
     logical_name: str
     revision: int
-    content_ref: str
     content_hash: str
     trust: str
     mime_type: str = "text/plain"
-    retention: str = "standard"
-    project_material: bool = False
     input_artifacts: tuple[str, ...] = ()
 
 
@@ -193,23 +186,15 @@ class CompleteOutcome:
 @dataclass(frozen=True)
 class CoordinatorActionRecord:
     """One proposed structured action and its policy outcome (data-model.md
-    "Coordinator Action"; FR-005).
+    "Coordinator Action"; FR-005), the payload of its board event.
 
-    :param id: Stable record identity.
-    :param workflow_id: The workflow this action targets.
-    :param trigger: What woke the coordinator (e.g. ``"card.done"``).
-    :param sequence: Monotonic per-workflow ordering.
-    :param action_payload: The proposed action, JSON-serialized.
+    :param action: The proposed action, JSON-serializable.
     :param validation_decision: ``"accepted"`` or ``"rejected"``.
     :param rejection_reason: Safe reason, when rejected.
     :param applied: Whether the accepted action was actually applied.
     """
 
-    id: str
-    workflow_id: str
-    trigger: str
-    sequence: int
-    action_payload: str
+    action: dict[str, object]
     validation_decision: str
     rejection_reason: str | None = None
     applied: bool = False
@@ -249,21 +234,18 @@ class ExternalProjectionRecord:
     :param workflow_id: The workflow this milestone belongs to.
     :param kind: ``"gate"``, ``"escalation"``, ``"approved_artifact"``,
         ``"delivery"``, or (feature 046) ``"gate_opened"``, ``"status"``,
-        ``"reply"`` (a legacy row may still read ``"child_work"``, which
-        feature 031 no longer writes).
+        ``"reply"``.
     :param idempotency_key: Unique per real-world event; a webhook and a
         poll cycle racing to report the same milestone still project it
         at most once.
     :param payload_hash: Integrity hash of the safe payload sent.
     :param state: ``"pending"``, ``"completed"``, or
         ``"retryable_failure"``.
+    :param task_ref: Where to post it (feature 046).
+    :param payload: What to post, kept so a failed post can be retried.
     :param error: Safe failure reason, when ``retryable_failure``.
     :param external_id: The task-source resource Kestrel now owns, once
-        ``completed`` — the durable cleanup ledger (FR-035).
-    :param task_ref: Where to post it (feature 046); ``None`` on a row
-        from before the ledger kept its payload.
-    :param payload: What to post, kept so a failed post can be retried;
-        ``None`` on an old row.
+        ``completed``.
     :param attempts: How many times a retry has taken this row on.
     :param updated_at: When the row last changed: the retry backoff's
         clock.
@@ -274,10 +256,10 @@ class ExternalProjectionRecord:
     kind: str
     idempotency_key: str
     payload_hash: str
+    task_ref: str
+    payload: Document
     state: str = "pending"
     error: str | None = None
     external_id: str | None = None
-    task_ref: str | None = None
-    payload: Document | None = None
     attempts: int = 0
     updated_at: datetime | None = None

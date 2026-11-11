@@ -4,7 +4,10 @@
 
 **Created**: 2026-07-21
 
-**Status**: Baseline (describes shipped behavior, not proposed work)
+**Status**: Superseded (2026-10-24). Describes kestrel as of July 2026: the
+fixed driver (removed in feature 026), ad-hoc sessions and SQLite (removed in
+the slim-core work, #90). Kept as history; `docs/architecture.md` describes
+the current system.
 
 **Input**: Reverse-engineered from `docs/architecture.md`, the constitution
 (`.specify/memory/constitution.md`), and the backend/frontend source as of this

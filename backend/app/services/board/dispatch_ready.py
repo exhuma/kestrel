@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.backends.base import PERMISSION_EDIT, PERMISSION_READ_ONLY
 from app.models_board import (
     CardKind,
     SpecialistDefinition,
@@ -32,6 +35,7 @@ from app.services.board.claims import (
 )
 from app.services.board.coordinator import CoordinatorService
 from app.services.board.dispatch import (
+    BackendLostError,
     CardTurnError,
     _TurnBackend,
     build_card_envelope,
@@ -48,13 +52,19 @@ from app.services.board.dispatch_extras import (
     interview_of,
     retry_or_escalate,
 )
+from app.services.board.escalations import (
+    DECISION_OF,
+    route_clarification,
+)
 from app.services.board.gates import GatesService
+from app.services.board.liaison import ChoosesBackend
 from app.services.board.live_activity import (
     LiveActivity,
     announcer,
     tracking,
     turn_failure,
 )
+from app.services.board.materialise import MaterialiseTarget
 from app.services.board.question_review import reconcile_interviews
 from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
@@ -115,6 +125,9 @@ class DispatchServices:
     board: BoardService | None = None
     unreadable_retry_cap: int = 1
     live: LiveActivity | None = None
+    #: Where a card without a workspace runs (``ReasoningPolicy``); with
+    #: none, every card runs on its role's agent backend.
+    reasoning: ChoosesBackend | None = None
 
 
 async def dispatch_ready_work(
@@ -135,7 +148,7 @@ async def dispatch_ready_work(
     A ``read_only``/``write`` card gets a real, git-backed ``cwd``
     (T041's ``WorkspaceService``) when ``services.workspace`` is
     configured; a ``write`` card additionally runs with
-    ``permission_mode="acceptEdits"`` so a ``FILE_EDITS`` specialist can
+    ``permission_mode="edit"`` so a ``FILE_EDITS`` specialist can
     actually edit. After every role has been tried, one pass also
     attempts any ``ready`` ``delivery`` card (T069) — pushing a cleanly
     verified workflow's branch and opening its change request is a
@@ -187,7 +200,57 @@ def _claim_for(
             workflow_id, specialist.id, exc,
         )
         return None
+    if (
+        card.workspace_permission == WorkspacePermission.NONE.value
+        and services.reasoning is not None
+    ):
+        # No repository to work in: kestrel reasons itself, no agent.
+        backend = services.reasoning.backend_for(specialist)
     return backend, card
+
+
+def _session_recorder(
+    claims: ClaimsService, card: WorkCard
+) -> Callable[[str], None]:
+    """A callback that stores the backend's session id on the card's
+    current attempt. It never fails the turn: the id is only a pointer
+    into the server log, so a failed write is logged, not raised."""
+
+    def record(session_id: str) -> None:
+        try:
+            claims.record_session(card.id, card.attempt_count, session_id)
+        except SQLAlchemyError:  # a pointer must not fail the turn
+            _dispatch_log.exception(
+                "card %s: could not record session %s on attempt %d",
+                card.id, session_id, card.attempt_count,
+            )
+
+    return record
+
+
+def _report_failed_turn(
+    workflow_id: str,
+    specialist: SpecialistDefinition,
+    card: WorkCard,
+    error: CardTurnError,
+    services: DispatchServices,
+) -> None:
+    """Say a turn failed, once. A card whose backend went away goes back
+    to ``ready`` straight away for the recovery sweep to pick up; any
+    other failed turn keeps its claim until the lease runs out."""
+    retrying = isinstance(
+        error, BackendLostError
+    ) and services.claims.release_after_outage(card)
+    _dispatch_log.warning(
+        "workflow %s: %s's turn on card %s failed%s: %s",
+        workflow_id, specialist.id, card.id,
+        " and will be retried" if retrying else "", error,
+    )
+    if services.board is not None:
+        services.board.record_problem(
+            workflow_id, event_type="card.turn_failed", card_id=card.id,
+            detail=turn_failure(specialist.label, error),
+        )
 
 
 async def _dispatch_one(
@@ -217,23 +280,19 @@ async def _dispatch_one(
             services.live, workflow_id, specialist.label, card.title,
             on_change=announcer(services.board, workflow_id),
         ) as note_tool:
-            request = card_request(
-                envelope, cwd=cwd, permission_mode=permission_mode,
-                on_tool=note_tool,
+            request = replace(
+                card_request(
+                    envelope, cwd=cwd, permission_mode=permission_mode,
+                    on_tool=note_tool,
+                ),
+                card_id=card.id,
+                on_session_id=_session_recorder(services.claims, card),
             )
             result = await run_card_turn(
                 backend, request, timeout_seconds=timeout_seconds
             )
     except CardTurnError as exc:
-        _dispatch_log.warning(
-            "workflow %s: %s's turn on card %s failed: %s",
-            workflow_id, specialist.id, card.id, exc,
-        )
-        if services.board is not None:
-            services.board.record_problem(
-                workflow_id, event_type="card.turn_failed", card_id=card.id,
-                detail=turn_failure(specialist.label, exc),
-            )
+        _report_failed_turn(workflow_id, specialist, card, exc, services)
         return
     outcome = services.claims.complete(
         card.id, card.attempt_count,
@@ -270,6 +329,9 @@ async def _route_result(
     if card.kind == CardKind.VERIFICATION.value and services.coordinator:
         await _route_verification(workflow_id, card, final_text, services)
         return
+    if card.kind == CardKind.CLARIFICATION_REVIEW.value and services.board:
+        await _route_clarification(workflow_id, card, final_text, services)
+        return
     route = ROUTES.get(card.kind)
     if route is None or not (services.coordinator and services.gates):
         return
@@ -300,27 +362,33 @@ async def _route_verification(
             workflow_id, card.id,
         )
         return
-    for index, summary in enumerate(routing.escalations):
-        await _project_escalation(workflow_id, card, index, summary, services)
+    if services.gates is not None:
+        for escalation in routing.escalations:
+            services.gates.create_gate(
+                workflow_id, kind=escalation.kind, title=escalation.title,
+                requested_decision=DECISION_OF[escalation.kind],
+            )
     if routing.clean:
         _request_delivery(workflow_id, services)
 
 
-async def _project_escalation(
+async def _route_clarification(
     workflow_id: str,
     card: WorkCard,
-    index: int,
-    summary: str,
+    final_text: str,
     services: DispatchServices,
 ) -> None:
-    """Best-effort projection of one escalation finding (T067)."""
-    if services.announcements is None:
-        return
-    await services.announcements.escalated(
-        workflow_id,
-        f"escalation:{card.id}:{card.attempt_count}:{index}",
-        summary,
+    """Act on a clarification's review, and say on the ticket what it
+    decided. Only called with a board to start the fix through."""
+    judged = route_clarification(
+        final_text, card,
+        MaterialiseTarget(services.claims.store, services.artifacts),
+        services.board,
     )
+    if services.announcements is not None:
+        await services.announcements.clarification_judged(
+            workflow_id, card.id, judged
+        )
 
 
 async def _resolve_workspace(
@@ -329,7 +397,7 @@ async def _resolve_workspace(
     """Resolve a card's ``(cwd, permission_mode)``, provisioning a real
     workspace for ``read_only``/``write`` cards.
 
-    :returns: ``("", "plan")`` for a ``none``-permission card, or once a
+    :returns: ``("", "read_only")`` for a ``none``-permission card, or once a
         real workspace is configured and provisioned; ``None`` if a
         ``read_only``/``write`` card needed one but couldn't get one —
         the caller must then leave the card claimed for recovery rather
@@ -337,7 +405,7 @@ async def _resolve_workspace(
         access its result implicitly claims.
     """
     if card.workspace_permission == WorkspacePermission.NONE.value:
-        return "", "plan"
+        return "", PERMISSION_READ_ONLY
     if services.workspace is None or services.task_sources is None:
         _dispatch_log.warning(
             "workflow %s: card %s needs a workspace but none is "
@@ -365,11 +433,12 @@ async def _resolve_workspace(
         )
         return None
     # A verification card is read_only (it must never edit files/commit)
-    # but still needs to run tests/checks via tool execution, which "plan"
-    # (proposal-only) mode does not reliably support headlessly — so it
+    # but still needs to run tests/checks via tool execution, which a
+    # proposal-only mode does not reliably support headlessly — so it
     # gets the same execution-capable mode a write card does.
     needs_execution = (
         card.workspace_permission == WorkspacePermission.WRITE.value
         or card.kind == CardKind.VERIFICATION.value
     )
-    return cwd, ("acceptEdits" if needs_execution else "plan")
+    mode = PERMISSION_EDIT if needs_execution else PERMISSION_READ_ONLY
+    return cwd, mode

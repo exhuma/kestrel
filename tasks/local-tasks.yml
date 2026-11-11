@@ -72,8 +72,17 @@ tasks:
     cmds:
       - >-
         rm -rf .kestrel-local-tasks backend/.kestrel-workspaces
-        backend/.kestrel-screenshots backend/kestrel.db backend/kestrel.db-shm
-        backend/kestrel.db-wal
+        backend/.kestrel-screenshots
+      - task: reset-db
+
+  reset-db:
+    desc: 'Empty the development database by rebuilding its schema.'
+    dir: backend
+    env:
+      KESTREL_CONFIG_FILE: ../config.toml
+    cmds:
+      - uv run alembic downgrade base
+      - uv run alembic upgrade head
 
   branches:
     desc: 'List branches in the local task bare repository.'

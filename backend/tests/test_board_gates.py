@@ -13,10 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from app.documents import Text, document, paragraph
 from app.models_board import CardRelation, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_store import BoardStore
@@ -53,7 +51,6 @@ def _service(
     gate_store = BoardGateStore(factory)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board_service,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     store.create_workflow(workflow)
     service = GatesService(
@@ -148,19 +145,26 @@ class TestPrdScope:
     def test_approval_records_the_target_artifact(
         self, tmp_path: Path
     ) -> None:
-        service, _store = _service(tmp_path)
+        service, store = _service(tmp_path)
+        store.create_card(WorkCard(
+            id="card-prd", workflow_id="wf-1", kind="prd", title="Draft PRD",
+            state="done",
+        ))
+        artifact = service._artifacts.store_document(
+            "card-prd", "prd", 1, document(paragraph(Text("the plan")))
+        )
         card = service.create_gate(
             "wf-1",
             kind="prd_gate",
             title="Approve PRD",
             requested_decision="Approve the PRD?",
-            target_artifact_id="artifact-prd-1",
+            target_artifact_id=artifact.id,
         )
 
         service.resolve(card.id, "approved")
 
         record = service.get_gate(card.id)
-        assert record.target_artifact_id == "artifact-prd-1"
+        assert record.target_artifact_id == artifact.id
 
 
 class TestRejection:

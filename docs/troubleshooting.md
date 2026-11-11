@@ -23,6 +23,13 @@ The compose file mounts `~/.claude` and `~/.claude.json` read-only into
 **directory** — both are needed. After re-logging-in on the host, run
 `docker compose restart` so refreshed credentials are re-copied.
 
+## What did the agent do on a card?
+
+Agent output is only in the server log, keyed by session id; see
+[Observability → Agent output](observability.md#agent-output) for how to get
+from a card attempt (`board_card_attempt.session_id`) to its log lines, and
+set `KESTREL_LOG_LEVEL=debug` to see every tool call.
+
 ## MCP servers and plugins
 
 Spawned `claude` sessions pick up **your** user-level MCP servers and plugins
@@ -49,7 +56,7 @@ Supported MCP server runtimes are the ones bundled in the image: **node/npx**,
 ## A backend at `localhost` is unreachable from the container
 
 Inside the container `localhost` is the container itself, not the Docker host.
-A host-run Ollama or `opencode serve` must be addressed as
+A host-run `opencode serve` must be addressed as
 `http://host.docker.internal:PORT` in `config.toml`, not `localhost`. See
 [Backends → Reaching a backend from the Docker container](backends.md#reaching-a-backend-from-the-docker-container).
 
@@ -66,8 +73,9 @@ ports:
 
 `GET /readyz` (the healthcheck endpoint) returns 503 when the database is
 unreachable. Check the logs (`docker compose logs kestrel`) for a migration or
-database error, and verify the `/data` volume is writable. Confirm readiness
-directly:
+database error, check that the `postgres` service is healthy
+(`docker compose ps`) and that `KESTREL_DATABASE_URL` points at it, and
+verify the `/data` volume is writable. Confirm readiness directly:
 
 ```bash
 curl -s http://localhost:8000/readyz
@@ -91,8 +99,8 @@ from-source run reports `0.0.0-dev`.
 docker compose restart kestrel
 ```
 
-Confirm the effective config with `GET /api/backends` or the startup log line
-(`backends: … | ad-hoc sessions dispatch to: …`).
+Confirm the effective config with the startup log line
+(`backends: … | default backend: …`).
 
 ## Mount permission errors on `./workspaces`
 
@@ -114,9 +122,9 @@ mkdir -p workspaces
 sudo chown 1000:1000 workspaces   # match your `user:` override, if any
 ```
 
-The same applies to any other bind mount you add (e.g. `KESTREL_CONFIG_FILE`
-or a `hooks_dir`) — Docker auto-creates a missing bind-mount source owned by
-root, which this non-root default then rejects.
+The same applies to any other bind mount you add (e.g. `KESTREL_CONFIG_FILE`):
+Docker auto-creates a missing bind-mount source owned by root, which this
+non-root default then rejects.
 
 ### Sharing `./workspaces` with another container (e.g. an opencode sidecar)
 

@@ -12,13 +12,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import pytest
-
 from app.models_board import CardRelation, WorkCard, Workflow
-from app.models_board_records import HandoffArtifact
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
@@ -45,10 +39,9 @@ def _service(tmp_path: Path) -> _Stores:
     store = BoardStore(factory)
     artifact_store = BoardArtifactStore(factory)
     board_service = BoardService(store)
-    content_store = BoardArtifactContentStore(tmp_path / "artifacts")
     store.create_workflow(_WORKFLOW)
     service = ArtifactsService(
-        store, artifact_store, board_service, content_store
+        store, artifact_store, board_service
     )
     return service, store, artifact_store
 
@@ -65,18 +58,16 @@ def _card(card_id: str, **overrides: object) -> WorkCard:
     return WorkCard(**fields)
 
 
-def _artifact(**overrides: object) -> HandoffArtifact:
+def _artifact(**overrides: object) -> ArtifactDraft:
     fields: dict[str, object] = {
-        "id": "artifact-1",
         "producer_card_id": "card-1",
         "logical_name": "report",
         "revision": 1,
-        "content_ref": "file:///tmp/report.md",
-        "content_hash": "sha256:abc",
+        "content": "body",
         "trust": "agent_output",
     }
     fields.update(overrides)
-    return HandoffArtifact(**fields)
+    return ArtifactDraft(**fields)
 
 
 class TestResultAcceptance:
@@ -88,7 +79,7 @@ class TestResultAcceptance:
         service, store, _artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
 
-        card = service.accept_result("card-1", _artifact())
+        card = service.submit_result(_artifact())
 
         assert card.state == "done"
         assert store.get_card("card-1").state == "done"
@@ -97,10 +88,10 @@ class TestResultAcceptance:
         service, store, artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
 
-        service.accept_result("card-1", _artifact())
+        service.submit_result(_artifact())
 
         recorded = artifacts.list_for_card("card-1")
-        assert [a.id for a in recorded] == ["artifact-1"]
+        assert [a.logical_name for a in recorded] == ["report"]
 
 
 class TestDependencyCascade:
@@ -114,7 +105,7 @@ class TestDependencyCascade:
         store.create_card(_card("card-2", state="waiting_dependency"))
         store.add_relation(CardRelation("card-2", "card-1"))
 
-        service.accept_result("card-1", _artifact())
+        service.submit_result(_artifact())
 
         assert store.get_card("card-2").state == "ready"
 
@@ -128,7 +119,7 @@ class TestDependencyCascade:
         store.add_relation(CardRelation("card-2", "card-1"))
         store.add_relation(CardRelation("card-2", "card-1b"))
 
-        service.accept_result("card-1", _artifact())
+        service.submit_result(_artifact())
 
         assert store.get_card("card-2").state == "waiting_dependency"
 
@@ -143,22 +134,14 @@ class TestReconciliation:
         service, store, _artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
-        service.accept_result(
-            "card-1", _artifact(
-                id="artifact-1", producer_card_id="card-1",
-                logical_name="design",
-            )
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-1", logical_name="design",
+        ))
 
-        service.accept_result(
-            "card-2",
-            _artifact(
-                id="artifact-2",
-                producer_card_id="card-2",
-                logical_name="design",
-                content_hash="sha256:different",
-            ),
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-2", logical_name="design",
+            content="different",
+        ))
 
         relations = store.list_relations("wf-1")
         reconciliation_targets = {
@@ -174,25 +157,19 @@ class TestReconciliation:
         service, store, artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
-        service.accept_result(
-            "card-1", _artifact(
-                id="artifact-1", producer_card_id="card-1",
-                logical_name="design",
-            )
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-1", logical_name="design",
+        ))
 
-        service.accept_result(
-            "card-2",
-            _artifact(
-                id="artifact-2",
-                producer_card_id="card-2",
-                logical_name="design",
-                content_hash="sha256:different",
-            ),
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-2", logical_name="design",
+            content="different",
+        ))
 
-        assert artifacts.get("artifact-1").content_hash == "sha256:abc"
-        assert artifacts.get("artifact-2").content_hash == "sha256:different"
+        assert [
+            artifacts.read_content(artifacts.list_for_card(card_id)[0].id)
+            for card_id in ("card-1", "card-2")
+        ] == ["body", "different"]
 
     def test_matching_outputs_do_not_create_a_reconciliation_card(
         self, tmp_path: Path
@@ -200,20 +177,13 @@ class TestReconciliation:
         service, store, _artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
-        service.accept_result(
-            "card-1", _artifact(
-                id="artifact-1", producer_card_id="card-1",
-                logical_name="design",
-            )
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-1", logical_name="design",
+        ))
 
-        service.accept_result(
-            "card-2",
-            _artifact(
-                id="artifact-2", producer_card_id="card-2",
-                logical_name="design",
-            ),
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-2", logical_name="design",
+        ))
 
         relations = store.list_relations("wf-1")
         assert not any(r.kind == "reconciliation" for r in relations)
@@ -226,17 +196,11 @@ class TestReconciliation:
         service, store, _artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
-        service.accept_result(
-            "card-1", _artifact(id="artifact-1", producer_card_id="card-1")
-        )
+        service.submit_result(_artifact(producer_card_id="card-1"))
 
-        service.accept_result(
-            "card-2",
-            _artifact(
-                id="artifact-2", producer_card_id="card-2",
-                content_hash="sha256:different",
-            ),
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-2", content="different",
+        ))
 
         kinds = [c.kind for c in store.list_cards("wf-1")]
         assert "reconciliation" not in kinds
@@ -247,19 +211,12 @@ class TestReconciliation:
         service, store, _artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
         store.create_card(_card("card-2"))
-        service.accept_result(
-            "card-1", _artifact(id="artifact-1", producer_card_id="card-1")
-        )
+        service.submit_result(_artifact(producer_card_id="card-1"))
 
-        service.accept_result(
-            "card-2",
-            _artifact(
-                id="artifact-2",
-                producer_card_id="card-2",
-                logical_name="summary",
-                content_hash="sha256:different",
-            ),
-        )
+        service.submit_result(_artifact(
+            producer_card_id="card-2", logical_name="summary",
+            content="different",
+        ))
 
         relations = store.list_relations("wf-1")
         assert not any(r.kind == "reconciliation" for r in relations)
@@ -291,44 +248,16 @@ class TestSubmitResult:
         ).hexdigest()
         assert recorded.content_hash == expected_hash
 
-    def test_stored_content_is_readable_back_through_the_ref(
-        self, tmp_path: Path
-    ) -> None:
+    def test_stored_content_is_read_back(self, tmp_path: Path) -> None:
         service, store, artifacts = _service(tmp_path)
         store.create_card(_card("card-1"))
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
 
-        service.submit_result(
-            ArtifactDraft(
-                producer_card_id="card-1",
-                logical_name="report",
-                revision=1,
-                content="the actual result body",
-                trust="agent_output",
-            )
-        )
+        service.submit_result(_artifact(content="the actual result body"))
 
         recorded = artifacts.list_for_card("card-1")[0]
-        assert content_store.read(recorded.content_ref) == (
-            "the actual result body"
-        )
+        assert service.read_content(recorded.id) == "the actual result body"
 
-    def test_no_content_store_configured_raises(self, tmp_path: Path) -> None:
-        factory = board_session_factory(tmp_path)
-        store = BoardStore(factory)
-        artifact_store = BoardArtifactStore(factory)
-        board_service = BoardService(store)
-        store.create_workflow(_WORKFLOW)
-        store.create_card(_card("card-1"))
-        service = ArtifactsService(store, artifact_store, board_service)
+    def test_an_unknown_artifact_has_no_content(self, tmp_path: Path) -> None:
+        service, _store, _artifacts = _service(tmp_path)
 
-        with pytest.raises(ValueError, match="content store"):
-            service.submit_result(
-                ArtifactDraft(
-                    producer_card_id="card-1",
-                    logical_name="report",
-                    revision=1,
-                    content="x",
-                    trust="agent_output",
-                )
-            )
+        assert service.read_content("artifact-missing") is None

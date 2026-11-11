@@ -95,21 +95,28 @@ def approved_candidate(candidate_json: str) -> Candidate | None:
 
 
 def materialise_decomposition(
-    workflow_id: str, candidate_json: str, target: MaterialiseTarget
+    workflow_id: str,
+    candidate_json: str,
+    target: MaterialiseTarget,
+    plan_number: int = 1,
 ) -> None:
     """Create the cards, edges and ``task_spec`` artifacts for every
     approved task in *candidate_json*.
 
-    A no-op when the workflow already holds a card created from an
-    approved task, so applying the same approval twice creates nothing
-    new (FR-004).
+    A no-op when the workflow already holds a card created from this
+    plan, so applying the same approval twice creates nothing new
+    (FR-004). *plan_number* counts the plans CAB-2 approved for this
+    request: a later one (the PRD changed after sign-off) has its own
+    task ids, since each proposal numbers its tasks from scratch.
     """
-    if any(c.task_node_id for c in target.store.list_cards(workflow_id)):
+    parsed = approved_candidate(candidate_json)
+    if parsed is None:
         return
-    candidate = approved_candidate(candidate_json)
-    if candidate is None:
-        return
+    candidate = _numbered(parsed, plan_number)
     known = {task.task_node_id for task in candidate.tasks}
+    existing = target.store.list_cards(workflow_id)
+    if any(c.task_node_id in known for c in existing):
+        return
     heads = {
         task.task_node_id: _create_task_cards(workflow_id, task, known, target)
         for task in candidate.tasks
@@ -121,6 +128,21 @@ def materialise_decomposition(
             _depend(
                 target.store, heads[task.task_node_id], heads[prerequisite]
             )
+
+
+def _numbered(candidate: Candidate, plan_number: int) -> Candidate:
+    """*candidate* with task ids that are unique to plan *plan_number*."""
+    if plan_number <= 1:
+        return candidate
+    prefix = f"plan{plan_number}-"
+    return replace(candidate, tasks=tuple(
+        replace(
+            task,
+            task_node_id=f"{prefix}{task.task_node_id}",
+            prerequisites=tuple(f"{prefix}{p}" for p in task.prerequisites),
+        )
+        for task in candidate.tasks
+    ))
 
 
 @dataclass(frozen=True)

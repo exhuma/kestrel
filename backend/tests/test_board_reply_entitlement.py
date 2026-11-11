@@ -238,3 +238,12 @@ def test_a_gate_not_put_on_the_ticket_is_decided_by_nobody() -> None:
     task = _task(REPORTER, CHANGE_OWNER)
 
     assert not entitled(CardKind.SECURITY_REVIEW.value, REPORTER, task)
+
+
+def test_only_the_change_owner_settles_a_policy_risk() -> None:
+    """Ensure the reporter cannot accept a policy risk from the ticket."""
+    task = _task(REPORTER, CHANGE_OWNER)
+    kind = CardKind.POLICY_RISK_GATE.value
+
+    assert entitled(kind, CHANGE_OWNER, task)
+    assert not entitled(kind, REPORTER, task)

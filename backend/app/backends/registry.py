@@ -6,10 +6,8 @@ from functools import lru_cache
 from app.backends.base import Backend, Capability
 from app.backends.claude_cli import ClaudeCliBackend
 from app.backends.limiter import BackendLimiter
-from app.backends.openai_compat import OpenAICompatBackend
 from app.backends.opencode import OpenCodeBackend
 from app.config import BackendConfig, Settings, get_settings
-from app.storage.registry import SessionRegistry, get_registry
 
 
 class UnknownBackendError(KeyError):
@@ -19,35 +17,23 @@ class UnknownBackendError(KeyError):
 class BackendRegistry:
     """Owns one :class:`Backend` instance per configured backend."""
 
-    def __init__(
-        self, settings: Settings, session_registry: SessionRegistry
-    ) -> None:
+    def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._session_registry = session_registry
         self._backends: dict[str, Backend] = {
             cfg.id: self._build(cfg) for cfg in settings.backends
         }
         # Fail fast on a misconfigured default rather than at first dispatch.
-        self.default_session_backend()
+        self.default_backend()
 
     def _build(self, cfg: BackendConfig) -> Backend:
         backend: Backend
         limiter = BackendLimiter(cfg.max_concurrency)
         if cfg.type == "claude_cli":
             backend = ClaudeCliBackend(
-                self._settings,
-                self._session_registry,
-                backend_id=cfg.id,
-                limiter=limiter,
-            )
-        elif cfg.type == "openai_compat":
-            backend = OpenAICompatBackend(
-                self._settings, self._session_registry, cfg, limiter=limiter
+                self._settings, backend_id=cfg.id, limiter=limiter
             )
         elif cfg.type == "opencode":
-            backend = OpenCodeBackend(
-                self._settings, self._session_registry, cfg, limiter=limiter
-            )
+            backend = OpenCodeBackend(self._settings, cfg, limiter=limiter)
         else:
             raise NotImplementedError(
                 f"backend type {cfg.type!r} is not implemented yet"
@@ -72,10 +58,10 @@ class BackendRegistry:
                 f"{sorted(self._backends)})"
             ) from None
 
-    def default_session_backend(self) -> Backend:
-        """Return the backend used for ad-hoc ``/api/sessions`` dispatch.
+    def default_backend(self) -> Backend:
+        """Return the backend a ``"default"`` model policy resolves to.
 
-        :raises UnknownBackendError: If ``default_session_backend`` names
+        :raises UnknownBackendError: If ``default_backend`` names
             no configured backend — commonly a TOML ordering mistake: a
             bare key placed after a ``[[backends]]`` header parses as a
             field of that table, not a top-level setting (rejected loudly
@@ -83,15 +69,15 @@ class BackendRegistry:
             simply never changed from its ``"claude"`` default.
         """
         try:
-            return self.get(self._settings.default_session_backend)
+            return self.get(self._settings.default_backend)
         except UnknownBackendError:
             configured = sorted(self._backends)
             raise UnknownBackendError(
-                f"default_session_backend="
-                f"{self._settings.default_session_backend!r} has no "
+                f"default_backend="
+                f"{self._settings.default_backend!r} has no "
                 f"matching `backends` entry (configured ids: "
                 f"{configured}). Check config.toml: "
-                "`default_session_backend` must be set before any "
+                "`default_backend` must be set before any "
                 "[[backends]] table — a bare key placed after an "
                 "array-of-tables header becomes part of that table, "
                 "not a top-level setting."
@@ -105,4 +91,4 @@ class BackendRegistry:
 @lru_cache
 def get_backend_registry() -> BackendRegistry:
     """Return the process-wide BackendRegistry singleton."""
-    return BackendRegistry(get_settings(), get_registry())
+    return BackendRegistry(get_settings())

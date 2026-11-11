@@ -16,12 +16,8 @@ from tests.test_jira_poll import (
     _FakeIngestion,
     _FakeJira,
 )
-from tests.test_jira_poll import (
-    _FakeDismissals as _JiraDismissals,
-)
 from tests.test_reconcile import (
     _board_intake,
-    _FakeDismissals,
     _FakeGitHub,
     _FakeTaskSources,
 )
@@ -31,12 +27,10 @@ from tests.test_reconcile import (
 async def test_reconcile_list_work_items_starts_no_run() -> None:
     """Ensure the GitHub listing returns items and starts no run."""
     source = TaskSourceConfig(type="github", watched_repos=["o/r"])
-    dis = _FakeDismissals()
     board_intake = _board_intake()
     ingestion = IngestionService(
         Settings(_env_file=None, task_sources=[source]),
         _FakeTaskSources(),
-        dis,
         board_intake,
     )
     svc = ReconcileService(
@@ -45,7 +39,6 @@ async def test_reconcile_list_work_items_starts_no_run() -> None:
             issues=[Issue(5, "Fix", "b", labels=frozenset({"kestrel"}))]
         ),
         ingestion,
-        dis,
     )
     items = await svc.list_work_items()
     assert items == [WorkItem("github-issue", "o/r#5", "Fix", "o/r")]
@@ -56,13 +49,13 @@ async def test_reconcile_list_work_items_starts_no_run() -> None:
 async def test_jira_list_work_items_starts_no_run() -> None:
     """Ensure the Jira listing resolves repos and starts no run."""
     cfg = TaskSourceConfig(
-        type="jira", base_url="https://j", jql="q", key="RFC",
+        type="jira", base_url="https://j", jql="q",
         repo_field="cf1",
     )
     jira = _FakeJira([Task("RFC-1", "t", "b")], fields={"RFC-1": "team/svc"})
     ing = _FakeIngestion()
     svc = JiraPollService(
-        cfg, jira, _FakeCodeHost(), ing, _JiraDismissals()
+        cfg, jira, _FakeCodeHost(), ing
     )
     items = await svc.list_work_items()
     assert items == [
@@ -79,7 +72,7 @@ def test_configured_poll_sources_gates_on_type(
     monkeypatch.setattr(poll_source, "get_jira_poll_services", lambda: ("J",))
     monkeypatch.setattr(poll_source, "get_health_poll_service", lambda: "H")
     gh = TaskSourceConfig(type="github", watched_repos=["o/r"])
-    jira = TaskSourceConfig(type="jira", base_url="https://j", jql="q", key="R")
+    jira = TaskSourceConfig(type="jira", base_url="https://j", jql="q")
     assert poll_source.configured_poll_sources(Settings(_env_file=None)) == []
     both = Settings(_env_file=None, task_sources=[gh, jira])
     assert poll_source.configured_poll_sources(both) == ["R", "J", "H"]

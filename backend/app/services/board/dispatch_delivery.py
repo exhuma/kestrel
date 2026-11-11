@@ -15,15 +15,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.models_board import CardKind, CardState, WorkCard, Workflow
-from app.services.board.coordinator import (
-    CreateCardAction,
-    TransitionCardAction,
-)
+from app.services.board.coordinator import TransitionCardAction
 from app.services.board.delivery import deliver
-from app.services.board.delivery_readiness import (
-    delivery_due,
-    delivery_trigger,
-)
+from app.services.board.delivery_readiness import request_delivery
 from app.services.change_requests import change_request_number
 
 if TYPE_CHECKING:
@@ -40,18 +34,9 @@ def _request_delivery(
 
     Never claimed by a specialist — ``_dispatch_pending_delivery`` below
     actually performs it, in this same dispatch pass or the next one a
-    retry re-triggers. Keyed by the finished work it delivers, so one
-    set of done implementation cards delivers exactly once.
+    retry re-triggers.
     """
-    store = services.claims.store
-    cards = store.list_cards(workflow_id)
-    if not delivery_due(cards, store.list_relations(workflow_id)):
-        return
-    trigger = delivery_trigger(cards)
-    services.coordinator.apply_actions(
-        workflow_id, trigger,
-        [CreateCardAction(kind=CardKind.DELIVERY.value, title="Deliver")],
-    )
+    request_delivery(workflow_id, services.claims.store, services.coordinator)
 
 
 async def _dispatch_pending_delivery(

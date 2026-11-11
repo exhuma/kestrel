@@ -40,13 +40,12 @@ def _svc(
 ) -> JiraPollService:
     cfg = TaskSourceConfig(
         type="jira", base_url="https://jira.example",
-        jql='project = "RFC"', key="RFC", repo_field=repo_field,
+        jql='project = "RFC"', repo_field=repo_field,
     )
     return JiraPollService(
         cfg,
         _FakeJira(field_value, links=links),
         _FakeCodeHost(reachable=reachable, default=default),
-        None,
         None,
     )
 
@@ -99,6 +98,16 @@ async def test_resolves_repo_with_explicit_base_branch() -> None:
     """Ensure owner/name@branch overrides the default branch."""
     assert await _svc("team/svc@develop")._resolve_repo("RFC-1") == (
         "team/svc", "develop"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_delivered_branch_can_be_the_base() -> None:
+    """Ensure a follow-up ticket can name a branch containing slashes."""
+    ref = "team/svc@kestrel/board/wf-1234"
+
+    assert await _svc(ref)._resolve_repo("RFC-1") == (
+        "team/svc", "kestrel/board/wf-1234"
     )
 
 
@@ -157,7 +166,7 @@ async def test_subtask_link_failure_exposes_created_child_for_repair() -> None:
         return httpx.Response(500 if link_attempts == 1 else 201, json={})
 
     config = TaskSourceConfig(
-        type="jira", base_url="https://jira.example", jql="x", key="RFC",
+        type="jira", base_url="https://jira.example", jql="x",
         repo_field="",
     )
     src = JiraTaskSource(_client(handler), config=config)

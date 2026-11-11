@@ -347,3 +347,127 @@ describe('ActionBanner whose move (feature 035)', () => {
     )
   })
 })
+
+describe('ActionBanner for failed work', () => {
+  function failedCard(
+    allowed: WorkCardSummary['allowed_actions'] = ['retry', 'cancel'],
+  ): WorkCardSummary {
+    return workCardSummary({
+      id: 'card-9',
+      state: 'failed',
+      title: 'Implement the export',
+      allowed_actions: allowed,
+    })
+  }
+
+  it('offers retry and abandon', () => {
+    const wrapper = mountBanner([failedCard()])
+
+    expect(wrapper.text()).toContain('"Implement the export" failed')
+    expect(button(wrapper, 'Retry')).toBeDefined()
+    expect(button(wrapper, 'Abandon')).toBeDefined()
+  })
+
+  it('retries the card after confirmation', async () => {
+    await confirmVia(mountBanner([failedCard()]), 'Retry')
+
+    expect(mockApplyIntervention).toHaveBeenCalledWith('card-9', 'retry')
+  })
+
+  it('abandons the card after confirmation', async () => {
+    await confirmVia(mountBanner([failedCard()]), 'Abandon')
+
+    expect(mockApplyIntervention).toHaveBeenCalledWith('card-9', 'cancel')
+  })
+
+  it('does nothing until the operator confirms', async () => {
+    const wrapper = mountBanner([failedCard()])
+
+    await button(wrapper, 'Abandon')?.trigger('click')
+    await flushPromises()
+
+    expect(mockApplyIntervention).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('cannot be undone')
+  })
+
+  it('hides abandon when the server does not allow it', () => {
+    const wrapper = mountBanner([failedCard(['retry'])])
+
+    expect(button(wrapper, 'Abandon')).toBeUndefined()
+  })
+})
+
+describe('ActionBanner on an escalation', () => {
+  const escalation = () =>
+    gateCard('resolve_escalation', {
+      title: 'Escalation: the two rules conflict',
+      allowed_actions: ['resolve_gate', 'cancel'],
+    })
+
+  it('states the problem and offers the three answers', () => {
+    const wrapper = mountBanner([escalation()])
+    expect(wrapper.text()).toContain('Escalation: the two rules conflict')
+    for (const label of ['Clarify', 'Accept as built', 'Abandon']) {
+      expect(button(wrapper, label)).toBeDefined()
+    }
+    expect(button(wrapper, 'Approve')).toBeUndefined()
+  })
+
+  it('accepts as built by approving the gate', async () => {
+    const wrapper = mountBanner([escalation()])
+    await confirmVia(wrapper, 'Accept as built')
+    expect(mockApplyIntervention).toHaveBeenCalledWith(
+      'card-1',
+      'resolve_gate',
+      'approved',
+    )
+  })
+
+  it('sends a clarification as the rejection reason, once written', async () => {
+    const wrapper = mountBanner([escalation()])
+    await button(wrapper, 'Clarify')?.trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('PRD sign-off and CAB')
+    const send = () =>
+      wrapper
+        .findAllComponents({ name: 'VBtn' })
+        .filter((b) => b.text() === 'Clarify')
+        .at(-1)
+    await send()?.trigger('click')
+    expect(mockApplyIntervention).not.toHaveBeenCalled()
+
+    wrapper
+      .findComponent({ name: 'VTextarea' })
+      .vm.$emit('update:modelValue', 'Use sessionStorage')
+    await flushPromises()
+    await send()?.trigger('click')
+    await flushPromises()
+    expect(mockApplyIntervention).toHaveBeenCalledWith(
+      'card-1',
+      'resolve_gate',
+      'rejected',
+      'Use sessionStorage',
+    )
+  })
+
+  it('abandons by cancelling the gate', async () => {
+    const wrapper = mountBanner([escalation()])
+    await confirmVia(wrapper, 'Abandon')
+    expect(mockApplyIntervention).toHaveBeenCalledWith('card-1', 'cancel')
+  })
+})
+
+describe('ActionBanner on a policy risk', () => {
+  it('offers the same three answers', () => {
+    const wrapper = mountBanner([
+      gateCard('resolve_policy_risk', {
+        title: 'Escalation: it stores personal data',
+        allowed_actions: ['resolve_gate', 'cancel'],
+      }),
+    ])
+    expect(wrapper.text()).toContain('it stores personal data')
+    for (const label of ['Clarify', 'Accept as built', 'Abandon']) {
+      expect(button(wrapper, label)).toBeDefined()
+    }
+  })
+})

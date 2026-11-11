@@ -5,5 +5,4 @@ allowed_card_types = []
 required_abilities = []
 model_policy = "default"
 workspace_permission = "none"
-retry_limit = 1
 prompt_file = "prompt.md"

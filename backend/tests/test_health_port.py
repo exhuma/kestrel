@@ -35,10 +35,8 @@ def _jira(handler) -> JiraClient:
     return client
 
 
-def _gitlab(handler, is_gitea: bool = False) -> GitLabCodeHost:
-    host = GitLabCodeHost(
-        "https://gitlab.internal", "glpat-secret", is_gitea=is_gitea
-    )
+def _gitlab(handler) -> GitLabCodeHost:
+    host = GitLabCodeHost("https://gitlab.internal", "glpat-secret")
     host._http = httpx.AsyncClient(
         base_url="https://gitlab.internal/api/v4",
         transport=httpx.MockTransport(handler),
@@ -112,17 +110,6 @@ async def test_gitlab_check_health_raises_on_http_error() -> None:
     host = _gitlab(lambda _req: httpx.Response(401, json={}))
     with pytest.raises(GitLabError, match="401"):
         await host.check_health()
-
-
-@pytest.mark.asyncio
-async def test_gitea_check_health_uses_the_same_call() -> None:
-    """Ensure the is_gitea flag doesn't change check_health's behavior
-    (this adapter already assumes GitLab-API-compatible endpoints for
-    both — see get_default_branch)."""
-    host = _gitlab(
-        lambda _req: httpx.Response(200, json={"id": 1}), is_gitea=True
-    )
-    assert await host.check_health() is True
 
 
 @pytest.mark.asyncio

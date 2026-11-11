@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.config import Settings, get_settings
-from app.persistence.dismissal_store import DismissalStore, get_dismissal_store
 from app.persistence.webhook_delivery_store import (
     WebhookDeliveryStore,
     get_webhook_delivery_store,
@@ -102,16 +101,14 @@ class _WebhookDeps:
     route function itself under the arg-count limit)."""
 
     deliveries: WebhookDeliveryStore
-    dismissals: DismissalStore
     ingestion: IngestionService
 
 
 def _webhook_deps(
     deliveries: WebhookDeliveryStore = Depends(get_webhook_delivery_store),
-    dismissals: DismissalStore = Depends(get_dismissal_store),
     ingestion: IngestionService = Depends(get_ingestion_service),
 ) -> _WebhookDeps:
-    return _WebhookDeps(deliveries, dismissals, ingestion)
+    return _WebhookDeps(deliveries, ingestion)
 
 
 @router.post("/webhook", dependencies=[Depends(verify_signature)])
@@ -124,7 +121,7 @@ async def github_webhook(
     Accept a GitHub webhook and, if qualifying, start a run.
 
     Order: signature (dependency) → parse → event/action/label/repo gating
-    → dismissal → dedup → dispatch. Authentic-but-non-triggering deliveries
+    → dedup → dispatch. Authentic-but-non-triggering deliveries
     are acknowledged with 200 so GitHub stops retrying (FR-011); a
     qualifying delivery returns 202 with the work dispatched in the
     background (FR-005).
@@ -159,11 +156,6 @@ async def github_webhook(
         is_trigger = (
             gh_source is not None and label == gh_source.trigger_label
         )
-        # Label removed: clear any dismissal so a re-label starts fresh.
-        if action == "unlabeled":
-            if watched and is_trigger and issue_number is not None:
-                deps.dismissals.clear(f"{repo}#{issue_number}")
-            return _ack(200, "ignored", issue_number)
         if (
             action != "labeled"
             or not is_trigger
@@ -173,8 +165,6 @@ async def github_webhook(
             return _ack(200, "ignored", issue_number)
         if issue_number is None:
             return _ack(400, "ignored", None)
-        if deps.dismissals.is_dismissed(f"{repo}#{issue_number}"):
-            return _ack(200, "ignored", issue_number)
         # Dedup: record and check at-most-once. A re-delivery is
         # acknowledged without starting a second run (FR-004).
         if deps.deliveries.seen(

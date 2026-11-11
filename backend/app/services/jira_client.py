@@ -67,17 +67,16 @@ class JiraClient:
             verify=verify,
         )
 
-    def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}
         if self._auth_mode == "bearer" and self._token:
             headers["Authorization"] = f"Bearer {self._token}"
-        if extra:
-            headers.update(extra)
         return headers
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
-        headers = kw.pop("headers", None) or self._headers()
-        resp = await self._http.request(method, path, headers=headers, **kw)
+        resp = await self._http.request(
+            method, path, headers=self._headers(), **kw
+        )
         if resp.status_code >= _FIRST_FAILURE_STATUS:
             # Redact: neither the token nor Basic credentials are echoed.
             raise JiraError(
@@ -121,7 +120,7 @@ class JiraClient:
 
         Cloud uses enhanced ``/search/jql`` token pagination. Server/DC keeps
         the v2 ``/search`` ``startAt``/``total`` page model. Collecting every
-        page keeps the poll's dismissal-clear logic correct.
+        page keeps the poll's view of the qualifying set complete.
         """
         body = {"jql": jql, "fields": fields, "maxResults": max_results}
         if self._cloud:
@@ -196,29 +195,6 @@ class JiraClient:
             "POST", f"/issue/{key}/comment", json={"body": self._render(body)}
         )
         return resp.json().get("self", "")
-
-    async def delete_resource(self, path: str) -> None:
-        """Delete an absolute Jira resource URL, ignoring a missing resource."""
-        try:
-            await self._request("DELETE", path)
-        except JiraError as exc:
-            if "-> 404:" not in str(exc):
-                raise
-
-    async def delete_issue(self, key: str) -> None:
-        """Delete a Kestrel-created issue, treating an absent issue as clean."""
-        await self.delete_resource(f"/issue/{key}")
-
-    async def add_attachment(
-        self, key: str, name: str, data: bytes, mimetype: str
-    ) -> None:
-        """Attach a binary file to the issue. Requires the XSRF header."""
-        await self._request(
-            "POST",
-            f"/issue/{key}/attachments",
-            headers=self._headers({"X-Atlassian-Token": "no-check"}),
-            files={"file": (name, data, mimetype)},
-        )
 
     async def create_subtask(
         self,

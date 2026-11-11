@@ -34,7 +34,9 @@ const otherAskCount = computed(() =>
 )
 
 const tone = computed(() =>
-  ask.value?.kind === 'quarantine' ? 'error' : 'warning',
+  ask.value?.kind === 'quarantine' || ask.value?.kind === 'failed'
+    ? 'error'
+    : 'warning',
 )
 
 /** What the operator is deciding on, readable before approving (#66):
@@ -57,6 +59,7 @@ type Confirmation = {
   label: string
   prompt: string
   needsFeedback: boolean
+  feedbackLabel?: string
   run: (feedback: string) => Promise<void>
 }
 const confirming = ref<Confirmation | null>(null)
@@ -138,6 +141,52 @@ function discard(a: PendingAsk): void {
   })
 }
 
+function clarify(a: PendingAsk): void {
+  confirm({
+    label: 'Clarify',
+    prompt:
+      'Say how this should be resolved. If it changes what was approved, it goes back through PRD sign-off and CAB.',
+    needsFeedback: true,
+    feedbackLabel: 'Your clarification',
+    run: async (text) => {
+      await applyIntervention(a.card.id, 'resolve_gate', 'rejected', text)
+    },
+  })
+}
+
+function acceptAsBuilt(a: PendingAsk): void {
+  confirm({
+    label: 'Accept as built',
+    prompt: 'Accept the work as it is built and move on to delivery?',
+    needsFeedback: false,
+    run: async () => {
+      await applyIntervention(a.card.id, 'resolve_gate', 'approved')
+    },
+  })
+}
+
+function retry(a: PendingAsk): void {
+  confirm({
+    label: 'Retry',
+    prompt: `Run "${a.card.title}" again?`,
+    needsFeedback: false,
+    run: async () => {
+      await applyIntervention(a.card.id, 'retry')
+    },
+  })
+}
+
+function abandon(a: PendingAsk): void {
+  confirm({
+    label: 'Abandon',
+    prompt: `Abandon "${a.card.title}"? It will not run again, and work that depends on it will not start. This cannot be undone.`,
+    needsFeedback: false,
+    run: async () => {
+      await applyIntervention(a.card.id, 'cancel')
+    },
+  })
+}
+
 /** A 409 means this decision was already made (feature 037: a gate is
  *  checked on its own, so other work moving on never causes one) — say
  *  that in words rather than a bare status code (FR-046). */
@@ -203,6 +252,32 @@ const staleMessage = computed(() =>
               Discard
             </v-btn>
           </template>
+
+          <template v-if="ask.kind === 'escalation'">
+            <v-btn color="primary" variant="tonal" @click="clarify(ask)">
+              Clarify
+            </v-btn>
+            <v-btn color="success" variant="tonal" @click="acceptAsBuilt(ask)">
+              Accept as built
+            </v-btn>
+            <v-btn color="error" variant="tonal" @click="abandon(ask)">
+              Abandon
+            </v-btn>
+          </template>
+
+          <template v-if="ask.kind === 'failed'">
+            <v-btn color="primary" variant="tonal" @click="retry(ask)">
+              Retry
+            </v-btn>
+            <v-btn
+              v-if="ask.card.allowed_actions.includes('cancel')"
+              color="error"
+              variant="tonal"
+              @click="abandon(ask)"
+            >
+              Abandon
+            </v-btn>
+          </template>
         </div>
       </template>
     </v-alert>
@@ -230,7 +305,7 @@ const staleMessage = computed(() =>
           <v-textarea
             v-if="confirming?.needsFeedback"
             v-model="feedback"
-            label="What needs to change"
+            :label="confirming?.feedbackLabel ?? 'What needs to change'"
             rows="4"
           />
         </v-card-text>

@@ -113,3 +113,32 @@ async def test_ensure_workspace_raises_git_error_for_a_bad_remote(
                 str(tmp_path / "does-not-exist.git"), "o/r", "main", "wf-1"
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_can_build_on_another_workflows_branch(
+    tmp_path: Path,
+) -> None:
+    """Ensure a follow-up ticket can start from a delivered branch.
+
+    A repository reference of ``group/repo@kestrel/board/wf-a`` makes that
+    branch the base (docs/setup-jira-workflow.md).
+    """
+    bare = _seed_bare_remote(tmp_path)
+    svc = WorkspaceService(str(tmp_path / "workspaces"))
+    first = Path(await svc.ensure_workspace(
+        WorkspaceRequest(str(bare), "o/r", "main", "wf-a")
+    ))
+    (first / "first.txt").write_text("from the first request\n")
+    _run("git", "add", "-A", cwd=first)
+    _run(
+        "git", "-c", "user.email=t@t.io", "-c", "user.name=t",
+        "-c", "commit.gpgsign=false", "commit", "-m", "first", cwd=first,
+    )
+    await svc.push("wf-a", None)
+
+    follow_up = Path(await svc.ensure_workspace(
+        WorkspaceRequest(str(bare), "o/r", svc.branch_name("wf-a"), "wf-b")
+    ))
+
+    assert (follow_up / "first.txt").is_file()

@@ -20,6 +20,7 @@ import PhaseSpine from '../components/cockpit/PhaseSpine.vue'
 import NarrativeFeed from '../components/cockpit/NarrativeFeed.vue'
 import ArtifactRail from '../components/cockpit/ArtifactRail.vue'
 import ManualTaskList from '../components/cockpit/ManualTaskList.vue'
+import RequestChanges from '../components/cockpit/RequestChanges.vue'
 import WorkList from '../components/cockpit/WorkList.vue'
 import ActivityLine from '../components/common/ActivityLine.vue'
 
@@ -84,6 +85,8 @@ onUnmounted(() => {
         :cards="snapshot.cards"
         :workflow-id="workflowId"
       />
+
+      <RequestChanges v-if="snapshot.outcome === 'done'" class="mb-4" />
 
       <v-sheet class="pa-2 mb-4" rounded>
         <PhaseSpine :phase="snapshot.phase" :phases="snapshot.phases" />

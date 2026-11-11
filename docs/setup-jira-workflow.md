@@ -22,7 +22,6 @@ deployment = "server"                 # cloud (ADF/v3) | server (text/v2)
 auth = "basic"                         # basic (Cloud email+API token) | bearer (Server/DC PAT)
 email = "you@example.com"              # basic only
 jql = 'project = "RFC" AND status = "Ready for Kestrel"'  # the whole query, yours to write
-key = "RFC"                            # issue-key prefix; scopes dismissals only
 verify_ssl = true                      # false ⇒ skip TLS checks on REST/API calls
 repo_field = "customfield_10050"       # optional; holds owner/name[@base_branch]
 repo_link_text = "Repository"          # web-link title to resolve the repo (default)
@@ -41,8 +40,7 @@ KESTREL_CODE_HOST_TOKEN=***   # PAT for a self-hosted code host
 
 Kestrel stays agnostic of your Jira conventions: the whole `jql` query and the
 repository resolution are configuration. You write the entire JQL (there is no
-separate project key); `key` is only the issue-key prefix used to scope the
-re-trigger gesture.
+separate project key).
 
 Set `deployment = "cloud"` for an `atlassian.net` site. Cloud requests use
 REST v3 and render Kestrel's controlled Markdown as Atlassian Document Format
@@ -142,6 +140,34 @@ decomposition (CAB-2) creates no child tickets or Sub-tasks: its tasks become
 cards inside the request's own workflow, and the RFC gets one breakdown
 comment (feature 031).
 
+### When the delivered work needs changes
+
+Kestrel does not read comments on a merge request. If you are not happy with
+what it delivered, there are two ways to get more work done.
+
+**Request changes**, for feedback on the delivered work itself. Open the
+request in kestrel, press **Request changes** and say what should change.
+The coder works on it on the same branch, the verifier checks it, and the
+same merge request is updated. The button appears once the request is done
+and nothing else is open. Kestrel refuses if the merge request has already
+been merged or closed.
+
+**A follow-up ticket**, for something that deserves its own requirements and
+gates. Create a new ticket that describes the change and links the merge
+request, and in its repository field name the first delivery's branch as
+the base:
+
+```
+group/project@kestrel/board/wf-043c8473
+```
+
+The workflow id is in the first request's address in kestrel, after
+`#/requests/`, and the branch is also the source branch of its merge request.
+The follow-up goes through the whole pipeline, starts from the first
+delivery's code, and opens its own merge request **into that branch**.
+Merge the follow-up first. If you merge the first one first and its source
+branch is deleted, retarget the follow-up's merge request by hand.
+
 ### What the ticket shows
 
 kestrel comments on the ticket whenever a person is needed, so nobody has to
@@ -160,6 +186,9 @@ posting it twice.
 | CAB-2 opens | "Ready for CAB": the executive summary, with totals, risks and the task table | the change owner |
 | The work is delivered | The change request link; the ticket should move on | the change owner |
 | The request fails, or stops because a decision was rejected | What failed or was rejected; the ticket should move on | the change owner |
+| The verifier stops on a problem it may not settle | The problem, and how to clarify it or accept the work | the reporter |
+| The verifier flags a policy risk | The risk, and how to clarify it or accept the work | the change owner |
+| A clarification was judged | Whether a fix started, or the PRD goes back through sign-off and CAB | nobody |
 | CI fails or is repaired; a card is escalated | A plain status line | nobody |
 
 All interview rounds that open together get one comment. If the ticket has no
@@ -231,19 +260,10 @@ what they mean, for example `@kestrel approved`, or `@kestrel no, because
 - The reply is read only while `comment_sentinel_enabled` is on, because
   kestrel needs its ownership marker to tell its own comments from replies.
 
-### Re-triggering an RFC
+### Lifecycle sync
 
-The old fixed driver recorded a "dismissal" when a PRD was rejected or a run
-abandoned, so polling wouldn't silently re-create it, clearing that
-dismissal only once the RFC left and re-entered the qualifying filter. That
-dismissal-setting code was removed with the driver and has no board-domain
-replacement, so there is currently no dismissal to clear or re-trigger by
-cycling the RFC's status.
-
-### Lifecycle sync and operator hooks
-
-`transition_start`/`transition_done`/etc., `time_spent_field`, and
-`hooks_dir` are still accepted on a Jira source entry, but nothing currently
-applies them — see [Configuration → Lifecycle sync and operator hooks
-(currently dormant)](configuration.md#lifecycle-sync-and-operator-hooks-currently-dormant).
+`transition_start`/`transition_done` and `time_spent_field` are still
+accepted on a Jira source entry, but nothing currently applies them — see
+[Configuration → Lifecycle sync
+(currently dormant)](configuration.md#lifecycle-sync-currently-dormant).
 kestrel never transitions the RFC itself; moving it stays with its owners.

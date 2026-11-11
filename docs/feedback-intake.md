@@ -3,7 +3,7 @@
 **This feature no longer exists.** Everything this document used to
 describe — steering a run in flight from a marked ticket/PR comment, the
 `@kestrel approve`/`reject`/`request changes` gate-decision protocol, source
-reactions/replies, translation, and child-task retirement — was implemented
+reactions/replies, and child-task retirement — was implemented
 entirely inside the fixed six-step workflow driver
 (`describe → refine → technical_analysis → design → code → verify`). That
 driver, its `FeedbackIntakeService`/`FeedbackDispatcher`/`FeedbackPollService`
@@ -13,7 +13,9 @@ migration as part of spec
 Phase 10 "clean break" (see
 [Architecture](architecture.md#the-work-board-spec-026)).
 
-PR and MR review feedback has **no replacement yet**; that is spec 044.
+Kestrel does not read comments on a pull or merge request; that is spec
+044. Until then, a person passes review feedback on from the request page:
+see [When the delivered work needs changes](setup-jira-workflow.md#when-the-delivered-work-needs-changes).
 
 Replies on a **ticket** are a different matter. Since feature 046, kestrel
 reads `@kestrel` replies on a Jira ticket and decides the open gate from
@@ -24,8 +26,7 @@ ticket](architecture.md#working-with-kestrel-on-the-ticket-feature-046) and
 [Jira workflow](setup-jira-workflow.md#replying-on-the-ticket). It reuses
 the `KESTREL_FEEDBACK_MARKER` setting. The other settings of the old
 feature (`KESTREL_FEEDBACK_IGNORE_AUTHORS`, `KESTREL_FEEDBACK_WINDOW_DAYS`)
-have been removed; a leftover key is ignored at startup. The `[translation]`
-table is still accepted, but nothing reads it.
+have been removed; a leftover key is ignored at startup.
 
 **What to use instead today:** every board workflow — however it was
 created (GitHub, Jira, or a local task) — is worked entirely through the

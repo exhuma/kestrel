@@ -44,7 +44,6 @@ _REQUIRED_FIELDS = frozenset(
         "required_abilities",
         "model_policy",
         "workspace_permission",
-        "retry_limit",
         "prompt_file",
     }
 )
@@ -121,7 +120,6 @@ def _load_one(root: Path, entry: Path) -> SpecialistDefinition:
         required_abilities=tuple(data["required_abilities"]),
         model_policy=data["model_policy"],
         workspace_permission=data["workspace_permission"],
-        retry_limit=data["retry_limit"],
         prompt=prompt,
     )
 

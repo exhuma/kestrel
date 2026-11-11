@@ -8,6 +8,8 @@ import pytest
 
 from app.main import create_app
 
+pytestmark = pytest.mark.integration
+
 
 def _client():
     app = create_app()

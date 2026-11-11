@@ -10,7 +10,6 @@ import pytest
 from app.config import Settings
 from app.config_models import TaskSourceConfig
 from app.models_board import WorkCard, Workflow
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
 from app.persistence.board_store import BoardStore
 from app.ports import RequiredCiStatus
 from app.services.board.ci_poll import CiPollService
@@ -64,7 +63,7 @@ def _service(
     store = BoardStore(factory)
     board_service = BoardService(store)
     coordinator = CoordinatorService(
-        store, BoardCoordinatorStore(factory), board_service
+        store, board_service
     )
     store.create_workflow(_WORKFLOW)
     service = CiPollService(
@@ -128,7 +127,7 @@ class TestEligibility:
         store = BoardStore(factory)
         board_service = BoardService(store)
         coordinator = CoordinatorService(
-            store, BoardCoordinatorStore(factory), board_service
+            store, board_service
         )
         store.create_workflow(_WORKFLOW)
         settings = Settings(_env_file=None)  # no task_sources configured

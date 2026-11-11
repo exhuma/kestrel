@@ -1,7 +1,6 @@
 """Tests for the GitHub TaskSource / CodeHost port adapters (feature 003)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Callable
 
 import httpx
@@ -90,31 +89,6 @@ async def test_task_source_comment_carries_self_sentinel() -> None:
     assert "hello\\n\\n<!-- kestrel:posted -->" in seen["body"]
 
 
-def test_task_source_display_label_and_deep_link() -> None:
-    """Ensure GitHubTaskSource's display_label/deep_link_ref (feature 009)
-    are the ref itself and the issue URL, respectively."""
-    src = GitHubTaskSource(_client(lambda r: httpx.Response(200)))
-    assert src.display_label("o/r#7") == "o/r#7"
-    assert src.deep_link_ref("o/r#7") == "https://github.com/o/r/issues/7"
-
-
-@pytest.mark.asyncio
-async def test_publish_refined_updates_issue_with_sentinel() -> None:
-    """Ensure publish_refined PATCHes the body + appends the sentinel."""
-    seen, handler = _recording_handler(httpx.Response(200, json={}))
-
-    src = GitHubTaskSource(_client(handler))
-    await src.publish_refined("o/r#7", doc("PRD text"))
-    assert seen["method"] == "PATCH"
-    assert seen["url"].endswith("/repos/o/r/issues/7")
-    assert "PRD text" in seen["body"]
-    # The persisted body carries the refined marker.
-    import json
-
-    body = json.loads(seen["body"])["body"]
-    assert body.endswith("<!-- kestrel:refined -->")
-
-
 @pytest.mark.asyncio
 async def test_create_subtask_creates_issue_without_trigger_label() -> None:
     """Ensure create_subtask (feature 012) POSTs a new issue in the same
@@ -138,18 +112,6 @@ async def test_create_subtask_creates_issue_without_trigger_label() -> None:
     assert "labels" not in payload
     assert "Sub-task of #7" in payload["body"]
     assert "<!-- kestrel:subtask -->" in payload["body"]
-
-
-@pytest.mark.asyncio
-async def test_attach_is_noop() -> None:
-    """Ensure GitHub attach() is a no-op (no HTTP call)."""
-
-    def handler(req: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("attach must not call GitHub")
-
-    assert await GitHubTaskSource(_client(handler)).attach(
-        "o/r#7", "shot.png", b"\x89PNG", "image/png"
-    ) is None
 
 
 @pytest.mark.asyncio
@@ -366,58 +328,3 @@ async def test_list_comments_since_cursor_includes_same_time_items() -> None:
     assert [i.external_id for i in second] == [
         "gh-issue-comment:o/r#2", "gh-issue-comment:o/r#3",
     ]
-
-
-@pytest.mark.asyncio
-async def test_acknowledge_reacts_to_the_comment() -> None:
-    """Ensure acknowledge hits the reactions endpoint for the right repo
-    and comment id, recovered from the Feedback's external_id."""
-    seen = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["url"] = str(req.url)
-        seen["body"] = req.read().decode()
-        return httpx.Response(200, json={"id": 1})
-
-    src = GitHubTaskSource(_client(handler))
-    feedback = Feedback(
-        external_id="gh-issue-comment:o/r#8812", origin="ticket",
-        author=Person("octocat"), body=doc("hi"),
-        created_at=datetime.now(timezone.utc),
-    )
-    ok = await src.acknowledge(feedback)
-    assert ok is True
-    assert seen["url"].endswith("/repos/o/r/issues/comments/8812/reactions")
-    assert "eyes" in seen["body"]
-
-
-@pytest.mark.asyncio
-async def test_acknowledge_returns_false_for_unparseable_external_id() -> None:
-    """Ensure a non-comment external_id (no match) returns False, no call."""
-
-    def handler(req: httpx.Request) -> httpx.Response:  # pragma: no cover
-        raise AssertionError("must not call GitHub")
-
-    src = GitHubTaskSource(_client(handler))
-    feedback = Feedback(
-        external_id="jira-comment:RFC-1:5", origin="ticket",
-        author=Person("octocat"), body=doc("hi"),
-        created_at=datetime.now(timezone.utc),
-    )
-    assert await src.acknowledge(feedback) is False
-
-
-@pytest.mark.asyncio
-async def test_acknowledge_swallows_errors_and_returns_false() -> None:
-    """Ensure a failing reaction call returns False, never raises."""
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, text="boom")
-
-    src = GitHubTaskSource(_client(handler))
-    feedback = Feedback(
-        external_id="gh-issue-comment:o/r#1", origin="ticket",
-        author=Person("octocat"), body=doc("hi"),
-        created_at=datetime.now(timezone.utc),
-    )
-    assert await src.acknowledge(feedback) is False

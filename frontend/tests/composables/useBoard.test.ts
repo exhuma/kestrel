@@ -327,3 +327,45 @@ describe('useBoard resolveQuarantine', () => {
     expect(error.value).toBe('Request failed (404)')
   })
 })
+
+describe('useBoard requestChanges', () => {
+  function respondWith(status: number, body: string): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn(async () => new Response(body, { status }))
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('posts the feedback with the revision it saw', async () => {
+    useBoard().current.value = snapshot('wf-1', { revision: 7 })
+    const fetchMock = respondWith(200, '{"card_id":"card-1"}')
+
+    const refused = await useBoard().requestChanges('Rename the button')
+
+    expect(refused).toBeNull()
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(url).toContain('/api/board/workflows/wf-1/request-changes')
+    expect(JSON.parse(String(init.body))).toEqual({
+      feedback: 'Rename the button',
+      expected_revision: 7,
+    })
+  })
+
+  it('returns the reason the server gave for refusing', async () => {
+    useBoard().current.value = snapshot('wf-1')
+    respondWith(422, '{"detail":"the change request is merged"}')
+
+    expect(await useBoard().requestChanges('x')).toBe(
+      'the change request is merged',
+    )
+  })
+
+  it('falls back to the status when there is no reason', async () => {
+    useBoard().current.value = snapshot('wf-1')
+    respondWith(500, 'oops')
+
+    expect(await useBoard().requestChanges('x')).toBe('Request failed (500)')
+  })
+})

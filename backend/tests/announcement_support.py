@@ -9,9 +9,6 @@ from typing import cast
 
 from app.documents import Document, Marker, Text, document, paragraph
 from app.models_board import CardKind, CardRelation, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_projection_store import BoardProjectionStore
@@ -124,7 +121,6 @@ def build_stack(
     board = BoardService(store, on_gate_opened=opened.append)
     artifacts = ArtifactsService(
         store, BoardArtifactStore(factory), board,
-        BoardArtifactContentStore(tmp_path / "artifacts"),
     )
     gates = GatesService(
         store, BoardGateStore(factory), board, artifacts,

@@ -3,8 +3,8 @@
 Exercises the rewired ``IngestionService.maybe_start_run`` for GitHub,
 Jira, and local task-source bodies: the request is created
 first, then screened (feature 032): safe content reaches it, suspect
-content is quarantined in place; existing filters (unwatched repo,
-dismissed ticket) still short-circuit before either is touched.
+content is quarantined in place; existing filters (unwatched repo)
+still short-circuit before either is touched.
 """
 from __future__ import annotations
 
@@ -17,17 +17,6 @@ from app.config_models import TaskSourceConfig
 from app.ports import Task
 from app.services.ingestion import BoardIntake, IngestionService
 from tests.intake_doubles import FakeIntakeBoard, FakeIntakeQuarantine
-
-
-class _FakeDismissals:
-    def __init__(self) -> None:
-        self._d: set[str] = set()
-
-    def is_dismissed(self, task_ref: str) -> bool:
-        return task_ref in self._d
-
-    def add(self, task_ref: str) -> None:
-        self._d.add(task_ref)
 
 
 class _FakeTaskSource:
@@ -68,7 +57,6 @@ class _Case:
     source_key: str
     task: Task
     released: bool
-    dismissed: bool = False
     watched: bool = True
     board_raises_duplicate: bool = False
 
@@ -89,13 +77,10 @@ def _service(
     task_sources = _FakeTaskSources(
         {case.source_key: _FakeTaskSource(case.task)}
     )
-    dismissals = _FakeDismissals()
-    if case.dismissed:
-        dismissals.add(case.task.ref)
     quarantine = FakeIntakeQuarantine(released=case.released)
     board = FakeIntakeBoard(raise_duplicate=case.board_raises_duplicate)
     service = IngestionService(
-        settings, task_sources, dismissals, BoardIntake(quarantine, board)
+        settings, task_sources, BoardIntake(quarantine, board)
     )
     return service, quarantine, board
 
@@ -185,7 +170,7 @@ class TestSuspectIntakeNeverReachesTheRequest:
 
 
 class TestExistingFiltersStillApply:
-    """Unwatched/dismissed filters short-circuit before quarantine runs."""
+    """The unwatched filter short-circuits before quarantine runs."""
 
     @pytest.mark.asyncio
     async def test_unwatched_repo_never_reaches_quarantine(self) -> None:
@@ -204,29 +189,6 @@ class TestExistingFiltersStillApply:
             task_ref="owner/repo#3",
             code_repo="owner/repo",
             issue_number=3,
-        )
-
-        assert result is None
-        assert quarantine.calls == []
-        assert board.calls == []
-
-    @pytest.mark.asyncio
-    async def test_dismissed_ticket_never_reaches_quarantine(self) -> None:
-        task = Task(ref="owner/repo#4", title="x", body="body")
-        service, quarantine, board = _service(
-            _Case(
-                source_key="github-issue",
-                task=task,
-                released=True,
-                dismissed=True,
-            )
-        )
-
-        result = await service.maybe_start_run(
-            source="github-issue",
-            task_ref="owner/repo#4",
-            code_repo="owner/repo",
-            issue_number=4,
         )
 
         assert result is None

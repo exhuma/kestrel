@@ -1,8 +1,7 @@
 """Process-wide pub/sub for source health status (feature 014).
 
-Health is global, not per-workflow — like the notification center's own
-bus (``notification_bus.py``), this bus is keyless: a publish is a tick
-telling every subscriber "some entry's status changed, re-read the
+Health is global, not per-workflow, so this bus is keyless: a publish is
+a tick telling every subscriber "some entry's status changed, re-read the
 list". The SSE route re-serialises the current list on each tick.
 """
 from __future__ import annotations

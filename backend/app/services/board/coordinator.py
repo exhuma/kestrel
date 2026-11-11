@@ -1,17 +1,18 @@
 """The event-driven board coordinator (feature 026, FR-004..FR-006).
 
 The coordinator only *proposes* bounded, structured actions; it never
-mutates the board directly. Every proposal is recorded in the ledger and
-validated against deterministic policy before it can create, transition,
-or link a card — an invalid or malformed proposal is rejected and
-mutates nothing (Edge Cases). Only the coordinator creates downstream
-cards (FR-006); specialists submit proposals, they don't act on them.
+mutates the board directly. Every proposal is recorded in the board's
+history (a ``coordinator.action`` event) and validated against
+deterministic policy before it can create, transition, or link a card —
+an invalid or malformed proposal is rejected and mutates nothing (Edge
+Cases). Only the coordinator creates downstream cards (FR-006);
+specialists submit proposals, they don't act on them.
 """
 from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from app.models_board import (
     CardKind,
@@ -21,8 +22,7 @@ from app.models_board import (
     WorkCard,
     WorkspacePermission,
 )
-from app.models_board_records import CoordinatorActionRecord
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
+from app.models_board_records import BoardEventRecord, CoordinatorActionRecord
 from app.persistence.board_store import BoardStore
 from app.services.board.policy import is_valid_transition
 from app.services.board.service import BoardService
@@ -179,20 +179,22 @@ class _ApplyBatch:
     enforce_prd: bool
 
 
+#: The event recording a proposed action (FR-005), caused by its trigger.
+ACTION_EVENT = "coordinator.action"
+
+
 class CoordinatorService:
     """Validates and applies coordinator-proposed board actions."""
 
     def __init__(
         self,
         store: BoardStore,
-        coordinator_store: BoardCoordinatorStore,
         board_service: BoardService,
         *,
         decomposition_required: bool = False,
         prd_gate_required: bool = False,
     ) -> None:
         self._store = store
-        self._coordinator_store = coordinator_store
         self._board_service = board_service
         #: The other half of "enforced decomposition" (T068): blocks any
         #: work-creating action until decomposition resolves for this
@@ -218,10 +220,13 @@ class CoordinatorService:
 
         Idempotent per ``(workflow_id, trigger)``: a second call for a
         trigger already recorded for this workflow is a no-op, so a
-        replayed wake-up event cannot double-apply (event claiming).
+        replayed wake-up event cannot double-apply (event claiming); one
+        turn per workflow runs at a time (``SchedulingService``'s lock).
         """
-        prior = self._coordinator_store.list_actions(workflow_id)
-        if any(record.trigger == trigger for record in prior):
+        if any(
+            event.event_type == ACTION_EVENT and event.causation_id == trigger
+            for event in self._store.list_events(workflow_id)
+        ):
             return []
         cards = {c.id: c for c in self._store.list_cards(workflow_id)}
         batch = _ApplyBatch(
@@ -229,15 +234,10 @@ class CoordinatorService:
             self._decomposition_pending(workflow_id, cards),
             self._prd_pending(workflow_id, cards),
         )
-        sequence = self._coordinator_store.next_sequence(workflow_id)
-        results: list[CoordinatorActionRecord] = []
-        for offset, action in enumerate(actions):
-            results.append(
-                self._apply_one(
-                    workflow_id, trigger, sequence + offset, batch, action
-                )
-            )
-        return results
+        return [
+            self._apply_one(workflow_id, trigger, batch, action)
+            for action in actions
+        ]
 
     def _decomposition_pending(
         self, workflow_id: str, cards: dict[str, WorkCard]
@@ -274,7 +274,6 @@ class CoordinatorService:
         self,
         workflow_id: str,
         trigger: str,
-        sequence: int,
         batch: "_ApplyBatch",
         action: ProposedAction,
     ) -> CoordinatorActionRecord:
@@ -287,18 +286,16 @@ class CoordinatorService:
             if new_card is not None:
                 batch.cards[new_card.id] = new_card
             applied = True
-        return self._coordinator_store.record_action(
-            CoordinatorActionRecord(
-                id=f"action-{uuid.uuid4().hex[:8]}",
-                workflow_id=workflow_id,
-                trigger=trigger,
-                sequence=sequence,
-                action_payload=json.dumps(_action_payload(action)),
-                validation_decision="rejected" if reason else "accepted",
-                rejection_reason=reason,
-                applied=applied,
-            )
+        record = CoordinatorActionRecord(
+            _action_payload(action),
+            validation_decision="rejected" if reason else "accepted",
+            rejection_reason=reason, applied=applied,
         )
+        self._store.append_event(BoardEventRecord(
+            workflow_id=workflow_id, event_type=ACTION_EVENT,
+            payload=json.dumps(asdict(record)), causation_id=trigger,
+        ))
+        return record
 
     def _apply(
         self, workflow_id: str, action: ProposedAction
@@ -486,7 +483,7 @@ def _validate_reconciliation(
 
 
 def _action_payload(action: ProposedAction) -> dict[str, object]:
-    """Safe, JSON-serializable record of a proposed action for the ledger."""
+    """Safe, JSON-serializable record of a proposed action for its event."""
     payload = dict(action.__dict__)
     payload["type"] = _action_type_name(action)
     return payload

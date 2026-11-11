@@ -10,6 +10,8 @@ from app.persistence.board_quarantine_store import ReviewResolution
 from app.services.board.bootstrap import get_quarantine_service
 from app.services.board.bootstrap_replies import get_held_replies
 
+pytestmark = pytest.mark.integration
+
 
 class _FakeQuarantine:
     def __init__(self, *, pending: bool = True) -> None:

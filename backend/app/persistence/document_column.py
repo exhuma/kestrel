@@ -1,9 +1,7 @@
 """A database column holding a :class:`~app.documents.Document`.
 
 Persistence is a system boundary (constitution Principle VI): documents
-are stored as document JSON. A value written before feature 046 is the
-Markdown that was stored then; it is parsed when read, so no row needs
-migrating.
+are stored as document JSON.
 """
 from __future__ import annotations
 
@@ -12,13 +10,10 @@ from sqlalchemy.engine import Dialect
 from sqlalchemy.types import TypeDecorator
 
 from app.document_formats.document_json import dump_document, load_document
-from app.document_formats.markdown import parse_markdown
 from app.documents import Document
 
 #: The media type of an artifact that holds a document (feature 046).
 DOCUMENT_MIME = "application/vnd.kestrel.document+json"
-#: Artifacts stored before feature 046 held their documents as Markdown.
-_LEGACY_MARKDOWN_MIME = "text/markdown"
 
 
 def encode_document(value: Document) -> str:
@@ -26,18 +21,9 @@ def encode_document(value: Document) -> str:
     return dump_document(value)
 
 
-def decode_document(text: str, mime_type: str = DOCUMENT_MIME) -> Document:
-    """A stored document back, legacy Markdown included.
-
-    Content stored as document JSON is loaded; anything else (a Markdown
-    artifact written before feature 046) is parsed as Markdown.
-    """
-    if mime_type != _LEGACY_MARKDOWN_MIME:
-        try:
-            return load_document(text)
-        except ValueError:
-            pass
-    return parse_markdown(text)
+def decode_document(text: str) -> Document:
+    """A stored document back from its document JSON text."""
+    return load_document(text)
 
 
 class DocumentText(TypeDecorator[Document]):
@@ -55,5 +41,5 @@ class DocumentText(TypeDecorator[Document]):
     def process_result_value(
         self, value: str | None, _dialect: Dialect
     ) -> Document | None:
-        """Read JSON text back; a legacy Markdown value is parsed."""
+        """Read JSON text back into a document."""
         return None if value is None else decode_document(value)

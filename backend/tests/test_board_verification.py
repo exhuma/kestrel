@@ -8,12 +8,9 @@ from pathlib import Path
 import pytest
 
 from app.models_board import SpecialistDefinition, WorkCard, Workflow
-from app.persistence.board_artifact_content_store import (
-    BoardArtifactContentStore,
-)
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_claims_store import BoardClaimsStore
-from app.persistence.board_coordinator_store import BoardCoordinatorStore
+from app.persistence.board_gate_store import BoardGateStore
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactsService
@@ -23,10 +20,14 @@ from app.services.board.dispatch_ready import (
     DispatchServices,
     dispatch_ready_work,
 )
+from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
-from app.services.board.verification import route_verifier_result
+from app.services.board.verification import (
+    Escalation,
+    route_verifier_result,
+)
 from tests.announcement_support import announcing
 from tests.board_test_support import board_session_factory
 from tests.test_board_scheduling import _FakeBackend
@@ -42,7 +43,6 @@ def _findings_block(*entries: str) -> str:
 def _setup(tmp_path: Path) -> tuple[CoordinatorService, BoardStore, WorkCard]:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
-    coordinator_store = BoardCoordinatorStore(factory)
     board_service = BoardService(store)
     store.create_workflow(
         Workflow(
@@ -64,7 +64,7 @@ def _setup(tmp_path: Path) -> tuple[CoordinatorService, BoardStore, WorkCard]:
         attempt_count=1,
     )
     store.create_card(card)
-    coordinator = CoordinatorService(store, coordinator_store, board_service)
+    coordinator = CoordinatorService(store, board_service)
     return coordinator, store, card
 
 
@@ -89,7 +89,7 @@ class TestRemediationRouting:
 
 
 class TestEscalationRouting:
-    def test_an_escalation_finding_creates_a_coordinator_review_card(
+    def test_an_escalation_finding_is_returned_for_a_person_to_decide(
         self, tmp_path: Path
     ) -> None:
         coordinator, store, card = _setup(tmp_path)
@@ -97,24 +97,24 @@ class TestEscalationRouting:
             '{"category": "ambiguity", "summary": "unclear boundary"}'
         )
 
-        route_verifier_result(text, card, coordinator)
+        routing = route_verifier_result(text, card, coordinator)
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "coordinator_review"
-        assert new_cards[0].eligible_roles == ()
-        assert "unclear boundary" in new_cards[0].title
+        assert routing.escalations == [
+            Escalation("Escalation: unclear boundary", "escalation_gate")
+        ]
+        assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
 
     def test_an_unparseable_result_escalates_fail_closed(
         self, tmp_path: Path
     ) -> None:
         coordinator, store, card = _setup(tmp_path)
 
-        route_verifier_result("no structured block here", card, coordinator)
+        routing = route_verifier_result(
+            "no structured block here", card, coordinator
+        )
 
-        new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert len(new_cards) == 1
-        assert new_cards[0].kind == "coordinator_review"
+        assert len(routing.escalations) == 1
+        assert [c.id for c in store.list_cards("wf-1")] == ["card-1"]
 
 
 class TestMixedAndEmptyResults:
@@ -125,11 +125,12 @@ class TestMixedAndEmptyResults:
             '{"category": "policy_risk", "summary": "risky"}',
         )
 
-        route_verifier_result(text, card, coordinator)
+        routing = route_verifier_result(text, card, coordinator)
 
         new_cards = [c for c in store.list_cards("wf-1") if c.id != "card-1"]
-        assert sorted(c.kind for c in new_cards) == [
-            "coordinator_review", "implementation",
+        assert [c.kind for c in new_cards] == ["implementation"]
+        assert routing.escalations == [
+            Escalation("Escalation: risky", "policy_risk_gate")
         ]
 
     def test_a_clean_result_creates_no_follow_up_cards(
@@ -208,7 +209,6 @@ def _verifier() -> SpecialistDefinition:
         required_abilities=(),
         model_policy="default",
         workspace_permission="read_only",
-        retry_limit=1,
         prompt="You are the verifier.",
     )
 
@@ -225,10 +225,8 @@ class TestEndToEndDispatchRouting:
         factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
         roster = SpecialistRoster({"verifier": _verifier()})
         store.create_workflow(
             Workflow(
@@ -246,13 +244,12 @@ class TestEndToEndDispatchRouting:
         claims = ClaimsService(
             store=store, claims_store=claims_store, roster=roster,
             max_parallel_read_cards=4, default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         artifacts = ArtifactsService(
-            store, artifact_store, board_service, content_store
+            store, artifact_store, board_service
         )
         coordinator = CoordinatorService(
-            store, coordinator_store, board_service
+            store, board_service
         )
         services = DispatchServices(
             claims, roster, artifacts, coordinator=coordinator
@@ -274,16 +271,14 @@ class TestEndToEndDispatchRouting:
         assert "off-by-one" in remediation[0].title
 
     @pytest.mark.asyncio
-    async def test_an_escalation_finding_projects_to_the_task_source(
+    async def test_an_escalation_finding_opens_a_gate(
         self, tmp_path: Path,
     ) -> None:
         factory = board_session_factory(tmp_path)
         store = BoardStore(factory)
         claims_store = BoardClaimsStore(factory)
-        coordinator_store = BoardCoordinatorStore(factory)
         board_service = BoardService(store)
         artifact_store = BoardArtifactStore(factory)
-        content_store = BoardArtifactContentStore(tmp_path / "artifacts")
         projections = ProjectionsService(BoardProjectionStore(factory))
         roster = SpecialistRoster({"verifier": _verifier()})
         store.create_workflow(
@@ -302,17 +297,19 @@ class TestEndToEndDispatchRouting:
         claims = ClaimsService(
             store=store, claims_store=claims_store, roster=roster,
             max_parallel_read_cards=4, default_lease_seconds=60,
-            default_workspace_lease_seconds=600,
         )
         artifacts = ArtifactsService(
-            store, artifact_store, board_service, content_store
+            store, artifact_store, board_service
         )
         coordinator = CoordinatorService(
-            store, coordinator_store, board_service
+            store, board_service
         )
         task_source = _FakeTaskSource()
+        gates = GatesService(
+            store, BoardGateStore(factory), board_service, artifacts
+        )
         services = DispatchServices(
-            claims, roster, artifacts, coordinator=coordinator,
+            claims, roster, artifacts, coordinator=coordinator, gates=gates,
             task_sources=_FakeTaskSources({"github-issue": task_source}),
             announcements=announcing(
                 store, projections, {"github-issue": task_source}
@@ -326,9 +323,11 @@ class TestEndToEndDispatchRouting:
             "wf-1", services, lambda _s: backend, timeout_seconds=5
         )
 
-        assert task_source.calls == [
-            ("owner/repo#1", "Escalation: unclear boundary")
+        (gate,) = [
+            c for c in store.list_cards("wf-1") if c.kind == "escalation_gate"
         ]
+        assert gate.state == "awaiting_human"
+        assert gate.title == "Escalation: unclear boundary"
 
 
 class _FakeTaskSource:

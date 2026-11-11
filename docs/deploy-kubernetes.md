@@ -27,7 +27,8 @@ page only says how to wire them up in a cluster.
  |       v                                                           |
  |   /data (PVC)  /workspaces (PVC, shared with opencode)            |
  +-------------------------------------------------------------------+
-        kestrel -> Jira Cloud (poll), code host (git push), IdP (proxy)
+        kestrel -> PostgreSQL, Jira Cloud (poll), code host (git push),
+                   IdP (proxy)
 ```
 
 The shape follows from the constitution's access model: the API is
@@ -46,12 +47,16 @@ Three things to know before you start:
   `X-Forwarded-Email` and `X-Forwarded-Preferred-Username` without checking
   them. The proxy must be the only way in. Never expose port 8000, and do not
   add a second Service or Ingress that points past the proxy.
-- **One replica, never two.** State is SQLite and the ingestion, comment and
-  recovery loops run inside the process. A second replica would post every
-  comment to Jira twice. Use `replicas: 1` and `strategy: Recreate`.
+- **One replica, never two.** The ingestion, comment and recovery loops
+  run inside the process. A second replica would post every comment to Jira
+  twice. Use `replicas: 1` and `strategy: Recreate`.
 
 ## Prerequisites
 
+- A PostgreSQL server (13 or later) with an empty database and a user that
+  owns it, for example database `kestrel` and user `kestrel`. Kestrel
+  creates its tables on first start. Running the server is not covered
+  here; use your platform's managed PostgreSQL or an operator.
 - A cluster with an Ingress controller, a default StorageClass that supports
   `ReadWriteOnce` volumes, and a way to get TLS for the external host name.
 - DNS for the external URL, for example `kestrel.example.com`.
@@ -84,14 +89,19 @@ metadata:
   name: kestrel
 type: Opaque
 stringData:
+  KESTREL_DATABASE_URL: "postgresql://kestrel:<password>@<db host>:5432/kestrel"
   KESTREL_JIRA_API_TOKEN: "<jira api token>"
   KESTREL_GITHUB_TOKEN: "<code host token>"      # see the note below
+  KESTREL_REASONING_API_KEY: "<reasoning endpoint key>"
   OPENCODE_SERVER_PASSWORD: "<long random string>"
   OAUTH2_PROXY_CLIENT_SECRET: "<idp client secret>"
   OAUTH2_PROXY_COOKIE_SECRET: "<32 random bytes, url-safe base64>"
   ANTHROPIC_API_KEY: "<model provider key>"       # for opencode only
 ```
 
+- `KESTREL_DATABASE_URL` is a standard PostgreSQL URL.
+  Percent-encode special characters in the password. Add
+  `?sslmode=require` (or `verify-full`) when the server expects TLS.
 - Generate the cookie secret with
   `openssl rand -base64 32 | tr -- '+/' '-_'` (32 random bytes, URL-safe
   base64, as oauth2-proxy expects).
@@ -110,10 +120,11 @@ stringData:
 
 ## Storage
 
-Two `ReadWriteOnce` claims. `/data` holds the SQLite database, the board's
-handoff artifacts (`/data/board-artifacts`, set by the image) and the
-container `HOME`. `/workspaces` holds the bare mirrors, git worktrees and
-session directories, and is shared with the opencode sidecar.
+Two `ReadWriteOnce` claims. `/data` holds the container `HOME` (the
+seeded Claude configuration, session history and plugin caches); all board
+state is in the database.
+`/workspaces` holds the bare mirrors, git worktrees and session directories,
+and is shared with the opencode sidecar.
 
 ```yaml
 apiVersion: v1
@@ -163,9 +174,15 @@ data:
     # A reply must contain this word for kestrel to act on it.
     feedback_marker = "@kestrel"
 
-    # Ad-hoc sessions and every specialist with model_policy = "default".
+    # Every specialist with model_policy = "default".
     # Set this before the first [[backends]] table.
-    default_session_backend = "oc"
+    default_backend = "oc"
+
+    # Kestrel's own reasoning (required): every turn without a checkout.
+    [reasoning]
+    base_url = "https://<openai-compatible endpoint>/v1"
+    model = "<model>"
+    # api_key_env = "KESTREL_REASONING_API_KEY"   # the default
 
     [[task_sources]]
     type = "jira"
@@ -173,7 +190,6 @@ data:
     deployment = "cloud"                  # REST v3 and ADF
     auth = "basic"                        # Cloud: email + API token
     email = "<account email>"
-    key = "<PROJECT>"
     jql = '''project = <PROJECT> AND creator in membersOf("DTN_COSS") AND status = "Ready for kestrel" ORDER BY created ASC'''
     repo_field = "customfield_<repo field id>"   # holds owner/name[@branch]
     # or leave repo_field out and put a web link titled "Repository" on the
@@ -194,14 +210,13 @@ data:
 
 Notes on the file:
 
-- `public_base_url` is **not** a config-file key. Set it with the
-  `KESTREL_PUBLIC_BASE_URL` environment variable (below). It is the external
-  URL, and it builds the link that ends every comment kestrel posts on a
-  ticket. Left empty, comments carry no link.
+- Set the external URL with the `KESTREL_PUBLIC_BASE_URL` environment
+  variable (below). It builds the link that ends every comment kestrel posts
+  on a ticket, including the link to an interview form. Left empty, comments
+  carry no link and kestrel warns about it at startup.
 - Find the custom field ids with Jira's field list (`GET
   /rest/api/3/field`, look for the field names); they look like
   `customfield_10050`. The change owner field must be a **user picker**.
-- `key` only scopes dismissals; it is not part of the query.
 - The Jira poll uses one interval for every source (`poll_interval_seconds`).
   Kestrel reads ticket replies every 60 seconds by default
   (`board_comment_poll_interval_seconds`).
@@ -310,10 +325,14 @@ spec:
             - {name: KESTREL_CONFIG_FILE, value: /config/config.toml}
             - {name: KESTREL_PUBLIC_BASE_URL, value: "https://kestrel.example.com"}
             - {name: KESTREL_LOG_FORMAT, value: json}
+            - name: KESTREL_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_DATABASE_URL}}
             - name: KESTREL_JIRA_API_TOKEN
               valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_JIRA_API_TOKEN}}
             - name: KESTREL_GITHUB_TOKEN
               valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_GITHUB_TOKEN}}
+            - name: KESTREL_REASONING_API_KEY
+              valueFrom: {secretKeyRef: {name: kestrel, key: KESTREL_REASONING_API_KEY}}
             - name: OPENCODE_SERVER_PASSWORD
               valueFrom: {secretKeyRef: {name: kestrel, key: OPENCODE_SERVER_PASSWORD}}
           volumeMounts:
@@ -512,12 +531,13 @@ kubectl logs deployment/kestrel -c kestrel --tail=100
 Things to look for in the kestrel log:
 
 - Alembic output ending in a successful `upgrade head`. It runs on every
-  start; a start with nothing to apply is quiet.
+  start; a start with nothing to apply is quiet. `KESTREL_DATABASE_URL is
+  not set` means the Secret key is missing; a connection error means the
+  database cannot be reached or the credentials are wrong.
 - `loading config file: /config/config.toml`. If it is missing, the
   ConfigMap is not mounted or `KESTREL_CONFIG_FILE` is wrong, and the pod
   exits with `config_file not found`.
-- The effective backends line (`backends: … | ad-hoc sessions dispatch to:
-  …`) naming `oc`.
+- The effective backends line (`backends: … | default backend: …`) naming `oc`.
 - No warning like `jira task source … has no token`.
 - `FATAL: … is not writable by uid 1000:1000` means the volume ownership is
   wrong; see Troubleshooting.
@@ -576,30 +596,23 @@ Change the opencode image and the oauth2-proxy version the same way.
 
 ### Backup
 
-Back up `/data`: the SQLite database **and** the board artifacts under
-`/data/board-artifacts` belong together. The workspaces can be rebuilt from
-the code host and need no backup, but a deleted workspace volume loses
-unpushed work.
+Back up the database: it holds all board state, artifact bodies
+included. `/data` only holds the container `HOME`; back it up too if you
+want to keep the Claude session history. The workspaces can be rebuilt
+from the code host and need no backup, but a deleted workspace volume
+loses unpushed work.
 
-The most dependable way is a volume snapshot of `kestrel-data` taken with the
-pod scaled to zero:
+Scale the pod to zero so nothing writes while you copy, dump the database
+with `pg_dump` (or use your platform's database backups), and, if you
+keep it, take a volume snapshot of `kestrel-data` (needs a CSI driver
+with snapshot support):
 
 ```bash
 kubectl scale deployment/kestrel --replicas=0
-# create a VolumeSnapshot of PVC kestrel-data (needs a CSI driver with
-# snapshot support), then:
+pg_dump --format=custom --file=kestrel.dump \
+  "postgresql://kestrel:<password>@<db host>:5432/kestrel"
+# create a VolumeSnapshot of PVC kestrel-data, then:
 kubectl scale deployment/kestrel --replicas=1
-```
-
-Without snapshots, a consistent copy of the database while the pod runs is
-possible with SQLite's own backup API, followed by copying the file and the
-artifacts out:
-
-```bash
-kubectl exec deployment/kestrel -c kestrel -- python -c \
-  "import sqlite3; s=sqlite3.connect('/data/kestrel.db'); d=sqlite3.connect('/data/kestrel-backup.db'); s.backup(d)"
-kubectl exec deployment/kestrel -c kestrel -- \
-  tar czf - -C /data kestrel-backup.db board-artifacts > kestrel-data.tgz
 ```
 
 ## Troubleshooting
@@ -661,8 +674,21 @@ header options (see the container section).
 in the Ingress is cutting the event stream. Apply the annotations above or
 their equivalent for your controller.
 
+**Turns fail with `connection to opencode lost`.** The sidecar went away, most
+often because it ran out of memory. Check its last state and raise its memory
+limit if it says `OOMKilled`:
+
+```bash
+kubectl get pod -l app=kestrel -o jsonpath='{range .items[0].status.containerStatuses[*]}{.name}{" "}{.lastState.terminated.reason}{"\n"}{end}'
+kubectl logs deployment/kestrel -c opencode --previous --tail=100
+```
+
+The affected card goes back to `ready` and is retried about once a minute, up
+to `board_backend_outage_retries` times, without using up an attempt.
+
 **Comments on the ticket have no link.** `KESTREL_PUBLIC_BASE_URL` is unset.
-Note it is an environment variable, not a `config.toml` key.
+Set it to the external URL and restart the pod. Comments already posted do
+not change.
 
 **Replies on the ticket are ignored.** Check, in this order:
 

@@ -30,7 +30,6 @@ root-relative path. For example, `frontend/hello/task.json` has reference
 .kestrel-local-tasks/frontend/hello/
 ├── task.json
 ├── comments/
-├── attachments/
 └── children/
 ```
 
@@ -44,8 +43,8 @@ root-relative path. For example, `frontend/hello/task.json` has reference
 ```
 
 Discovery is recursive and sorted by root-relative path. `task.json` is the
-only file that defines a task. Attachments and generated children are written
-only in their owner's `attachments/` and `children/` directories.
+only file that defines a task. Generated children are written only in their
+parent's `children/` directory.
 
 ## Feedback
 
@@ -90,8 +89,9 @@ Set `LOCAL_AUTHOR` to add a sanitized readable suffix, for example
 `LOCAL_AUTHOR=malbert` creates a filename ending in `-malbert.md`.
 
 `task local-tasks:reset` removes all local tasks and Kestrel development
-persistence: `backend/kestrel.db` (including SQLite sidecars), workspaces, and
-screenshots. It does not alter `/tmp/pyaltiplano.git`.
+persistence: workspaces and screenshots, and it empties the database by
+rebuilding its schema (`task local-tasks:reset-db` does only that). It does
+not alter `/tmp/pyaltiplano.git`.
 
 Run the canonical `task dev` command to start the backend and frontend together.
 

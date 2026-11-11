@@ -17,9 +17,9 @@ small and tested on its own:
   written after kestrel's announcement of that gate was posted (the
   ledger's completion time; clock skew with the ticket is accepted). Such
   a comment is ignored without an answer.
-- **Who may decide**: the reporter decides the requester's gates, the
-  change owner the two CAB gates, both by account id. An empty account id
-  (a Jira Server user without one) never matches anyone.
+- **Who may decide**: the reporter decides the requester's gates, the change
+  owner the two CAB gates and a policy risk, both by account id. An empty
+  account id (a Jira Server user without one) never matches anyone.
 """
 from __future__ import annotations
 
@@ -43,8 +43,10 @@ _DECIDES = {
     CardKind.STRATEGIC_INTERVIEW_GATE.value: REPORTER,
     CardKind.REFINEMENT_GATE.value: REPORTER,
     CardKind.PRD_GATE.value: REPORTER,
+    CardKind.ESCALATION_GATE.value: REPORTER,
     CardKind.CAB1_GATE.value: CHANGE_OWNER,
     CardKind.DECOMPOSITION_GATE.value: CHANGE_OWNER,
+    CardKind.POLICY_RISK_GATE.value: CHANGE_OWNER,
 }
 
 #: An interview's gate asks for answers on a form, never for a decision.
@@ -61,6 +63,20 @@ _DECISIONS = {
         "sign off the PRD",
         "kestrel wrote up the product requirements and asked for them to "
         "be approved, or for what to change.",
+    ),
+    "resolve_escalation": (
+        "settle a problem the verifier could not",
+        "kestrel asked how to resolve a problem found in the finished "
+        "work. Accepting the work as built is an approval. A reply saying "
+        "how to resolve it is a rejection, and its reason must carry that "
+        "explanation in full, in the person's own words.",
+    ),
+    "resolve_policy_risk": (
+        "settle a policy risk the verifier flagged",
+        "the change owner was asked how to resolve a policy risk found in "
+        "the finished work. Accepting the work as built is an approval. A "
+        "reply saying how to resolve it is a rejection, and its reason must "
+        "carry that explanation in full, in the person's own words.",
     ),
     "approve_strategic_fit": (
         "approve the strategic fit (CAB-1)",

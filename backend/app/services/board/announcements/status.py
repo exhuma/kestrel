@@ -76,6 +76,18 @@ def escalation(ctx: Context, summary: str) -> Document:
     return finish(ctx, (paragraph(Text(f"Escalation: {summary}")),))
 
 
+def clarification_judged(ctx: Context, clarifies: bool) -> Document:
+    """How a clarification was judged, and what happens because of it."""
+    return finish(ctx, (paragraph(Text(
+        "kestrel read this as settling the problem within what was "
+        "approved, so no new approval is needed. The fix is under way."
+        if clarifies else
+        "This changes what was approved, or kestrel could not be sure "
+        "that it does not. The PRD is being revised and goes back through "
+        "sign-off and CAB."
+    )),))
+
+
 def gate_decided(
     ctx: Context, kind: str, decision: str, title: str
 ) -> Document:

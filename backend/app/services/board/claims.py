@@ -38,7 +38,8 @@ class ClaimsService:
     roster: SpecialistRoster
     max_parallel_read_cards: int
     default_lease_seconds: float
-    default_workspace_lease_seconds: float
+    #: How often one card may go back to ``ready`` after losing its backend.
+    max_outage_retries: int = 30
 
     def claim_next_ready_card(
         self,
@@ -109,16 +110,26 @@ class ClaimsService:
             self.default_lease_seconds,
             backend_id=backend_id,
             workspace_repo=repo,
-            workspace_lease_seconds=self.default_workspace_lease_seconds,
         )
 
-    def heartbeat(
-        self, card_id: str, *, extend_seconds: float | None = None
+    def release_after_outage(self, card: WorkCard) -> bool:
+        """Put *card* back to ``ready`` after its backend went away
+        (``BoardClaimsStore.release_after_outage``).
+
+        :returns: Whether the card will be tried again.
+        """
+        return self.claims_store.release_after_outage(
+            card.id, card.attempt_count,
+            max_releases=self.max_outage_retries,
+        )
+
+    def record_session(
+        self, card_id: str, attempt_sequence: int, session_id: str
     ) -> bool:
-        """Extend an active claim's lease (see ``BoardClaimsStore``)."""
-        return self.claims_store.heartbeat_claim(
-            card_id,
-            extend_seconds=extend_seconds or self.default_lease_seconds,
+        """Store the backend's session id on an attempt
+        (``BoardClaimsStore.record_session``)."""
+        return self.claims_store.record_session(
+            card_id, attempt_sequence, session_id
         )
 
     def complete(

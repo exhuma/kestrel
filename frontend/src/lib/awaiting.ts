@@ -18,9 +18,11 @@ const ASKS: Readonly<Record<string, string>> = {
   approve_strategic_fit: 'decide strategic fit',
   approve_prd: 'sign off the PRD',
   approve_decomposition: 'go / no-go',
+  resolve_escalation: 'settle the problem',
+  resolve_policy_risk: 'settle the policy risk',
   do_task: 'do the task',
   review_input: 'review the input',
-  retry_or_cancel: 'retry or cancel',
+  retry_or_cancel: 'retry or abandon',
   review: 'review',
 }
 
