@@ -139,6 +139,13 @@ class AnnouncementService:
             lambda ctx: status.clarification_judged(ctx, clarifies),
         )
 
+    async def attach(
+        self, workflow_id: str, key: str, attached: Document
+    ) -> None:
+        """Put *attached* on the ticket as a file. *key* ends with the
+        file's name (``attachment:<card>:PRD.md``)."""
+        await self.post(workflow_id, "attachment", key, lambda _ctx: attached)
+
     async def gate_decided(
         self, workflow_id: str, card: WorkCard, decision: str
     ) -> None:

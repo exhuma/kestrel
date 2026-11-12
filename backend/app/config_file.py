@@ -18,6 +18,14 @@ from pydantic_settings import (
 
 _log = logging.getLogger("kestrel.config")
 
+#: Settings that were removed, and what took their place.
+_REMOVED = {
+    "board_turn_timeout_seconds": (
+        "was replaced by board_turn_idle_seconds (no activity) and "
+        "board_turn_max_seconds (in all)"
+    ),
+}
+
 
 class ConfigFileSource(TomlConfigSettingsSource):
     """Values from the TOML config file, validated strictly.
@@ -43,8 +51,11 @@ class ConfigFileSource(TomlConfigSettingsSource):
             raise ValueError(f"invalid TOML in {path}: {exc}") from exc
         unknown = sorted(set(self.toml_data) - set(settings_cls.model_fields))
         if unknown:
+            hints = "".join(
+                f"; {key} {_REMOVED[key]}" for key in unknown if key in _REMOVED
+            )
             raise ValueError(
-                f"unknown setting(s) in {path}: {', '.join(unknown)}"
+                f"unknown setting(s) in {path}: {', '.join(unknown)}{hints}"
             )
 
 

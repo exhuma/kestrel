@@ -53,8 +53,6 @@ class BackendConfig(BaseModel):
     #: HTTP Basic username for a secured ``opencode`` server. Defaults to
     #: opencode's own default ("opencode") when a password is configured.
     username: str | None = None
-    #: Per-request timeout in seconds for the opencode backend.
-    timeout: float | None = None
     #: Maximum in-flight turns across this backend in one kestrel process.
     max_concurrency: int = Field(default=1, ge=1)
     #: Maximum OpenCode retries after a provider rate-limit response.
@@ -71,6 +69,19 @@ class BackendConfig(BaseModel):
     #: Abort a turn once one tool is called this many times with the
     #: same input — a model stuck in a loop (opencode; feature 036).
     max_repeated_tool_calls: int = Field(default=5, ge=2)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_turn_timeout(cls, data: object) -> object:
+        """Explain the removed ``timeout`` instead of a bare "extra
+        field": turns are bounded by kestrel's turn limits now."""
+        if isinstance(data, dict) and "timeout" in data:
+            raise ValueError(
+                "a backend's timeout is no longer a setting: a turn runs "
+                "while its agent is active, up to board_turn_idle_seconds "
+                "without activity and board_turn_max_seconds in all"
+            )
+        return data
 
     @model_validator(mode="after")
     def _tools_only_where_honoured(self) -> BackendConfig:
@@ -128,6 +139,21 @@ class TaskSourceConfig(BaseModel):
     #: when the issue is ready for CAB or should move on, and relays CAB
     #: decisions. Unset ⇒ no change owner; CAB decisions go through the UI.
     change_owner_field: str = ""
+    #: Jira: where the approved tasks of a request are created (#64).
+    #: Unset: as sub-tasks of the request's issue. Set: as issues of
+    #: ``work_items_issue_type`` in this project, each linked to the
+    #: request's issue with ``work_items_link_type``. Keep this project out
+    #: of ``jql``: kestrel must never ingest its own work items.
+    work_items_project: str = ""
+    #: Jira: the issue type of a work item; empty means "Sub-task" without
+    #: ``work_items_project`` and "Task" with it.
+    work_items_issue_type: str = ""
+    #: Jira: the link type between a work item in another project and the
+    #: request's issue.
+    work_items_link_type: str = "Relates"
+    #: Jira: the link type that says one work item must be done before
+    #: another (its outward description reads "blocks").
+    work_items_blocks_link_type: str = "Blocks"
     #: Jira: code host for resolved repos and its (self-hosted) URL + token env.
     code_host: Literal["github", "gitlab", "gitea", "local"] = "github"
     code_host_base_url: str = ""
@@ -168,6 +194,12 @@ class TaskSourceConfig(BaseModel):
         if self.type == "local" and self.code_host != "local":
             raise ValueError("local task source requires code_host = local")
         return self
+
+    def work_item_type(self) -> str:
+        """The issue type a work item is created as (Jira)."""
+        if self.work_items_issue_type:
+            return self.work_items_issue_type
+        return "Task" if self.work_items_project else "Sub-task"
 
     def token(self) -> str | None:
         """Resolve this source's token from its (defaulted) env var."""

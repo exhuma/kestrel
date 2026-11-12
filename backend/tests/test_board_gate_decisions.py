@@ -26,7 +26,8 @@ from tests.announcement_support import (
 _PAGE = f"{BASE_URL}/#/requests/{WORKFLOW_ID}"
 
 _SENTENCES = [
-    (CardKind.UNDERSTANDING_GATE, "approved", "Understanding confirmed."),
+    (CardKind.UNDERSTANDING_GATE, "approved",
+     "Understanding confirmed. It is attached to this ticket as a file."),
     (
         CardKind.UNDERSTANDING_GATE, "rejected",
         "Understanding corrected, kestrel is rewriting it.",
@@ -36,7 +37,8 @@ _SENTENCES = [
         CardKind.CAB1_GATE, "rejected",
         "CAB declined the strategic fit; this request stops here.",
     ),
-    (CardKind.PRD_GATE, "approved", "PRD signed off."),
+    (CardKind.PRD_GATE, "approved",
+     "PRD signed off. It is attached to this ticket as a file."),
     (
         CardKind.PRD_GATE, "rejected",
         "PRD sent back with feedback, kestrel is revising it.",

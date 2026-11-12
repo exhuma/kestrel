@@ -15,6 +15,7 @@ import httpx
 from app.document_formats.markdown import render_markdown
 from app.documents import Document
 from app.ports import ChangeRequest, RequiredCiStatus
+from app.services.change_requests import splice_section
 from app.services.exceptions import GitHubError
 from app.services.github_ci import required_ci_statuses
 from app.services.http_support import track_client, truncate_body
@@ -295,6 +296,14 @@ class GitHubClient:
         resp = await self._request("GET", f"/repos/{repo}/pulls/{number}")
         return resp.json()
 
+    async def update_pull_request_body(
+        self, repo: str, number: int, body: str
+    ) -> None:
+        """Replace a pull request's body."""
+        await self._request(
+            "PATCH", f"/repos/{repo}/pulls/{number}", json={"body": body}
+        )
+
     async def create_pull_request(
         self,
         repo: str,
@@ -361,6 +370,24 @@ class GitHubCodeHost:
         rendered = render_markdown(body)
         return await self._client.create_pull_request(
             repo, head=head, base=base, title=title, body=rendered, draft=draft
+        )
+
+    async def write_kestrel_section(
+        self, repo: str, number: int, section: Document
+    ) -> None:
+        """Rewrite kestrel's section of the pull request's body."""
+        current = await self._client.get_pull_request(repo, number)
+        body = splice_section(
+            current.get("body") or "", render_markdown(section)
+        )
+        await self._client.update_pull_request_body(repo, number, body)
+
+    async def comment_on_change_request(
+        self, repo: str, number: int, body: Document
+    ) -> str:
+        """Comment on the pull request's conversation."""
+        return await self._client.create_issue_comment(
+            repo, number, render_markdown(body)
         )
 
     async def get_change_request(

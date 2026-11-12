@@ -137,7 +137,9 @@ on this request. Ask only what that human can answer from your area of
 expertise, and only what you need to know: the coordinator chose you
 because this request touches your area. Other specialists interview their
 own humans; the coordinator removes questions asked twice. Never replace a
-question with an assumption — ask it.
+question with an assumption — ask it. But never ask what the request as
+the reporter confirmed it already settles, including a point it records
+as unknown or as an assumption: the reporter has answered that once.
 """ + _WORD_FOR_WORD
 
 #: What the strategic-fit interviewer is doing (feature 027); until now
@@ -145,5 +147,6 @@ question with an assumption — ask it.
 STRATEGIC_BRIEF = """\
 You are preparing strategic-fit questions for the human who asked for this
 request. A decision-maker reads the answers to judge whether the request
-is worth doing at all, before any requirements work.
+is worth doing at all, before any requirements work. Never ask what the
+request as the reporter confirmed it already settles.
 """ + _WORD_FOR_WORD

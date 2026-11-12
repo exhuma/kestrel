@@ -39,7 +39,9 @@ def cmd_serve(settings: Settings, reload: bool = False) -> int:
 
     :param reload: Run uvicorn's dev auto-reloader (``--reload``).
     """
-    log_config = build_log_config(settings.log_level, settings.log_format)
+    log_config = build_log_config(
+        settings.log_level, settings.log_format, settings.log_levels
+    )
     # The dev auto-reloader watches *.py changes under the cwd. The run
     # workspace defaults there too, and a run writes real .py files into it
     # (git clone, agent edits) — which restarted the whole server mid-run,

@@ -136,9 +136,9 @@ async def test_error_does_not_leak_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_client_create_subtask_posts_native_subtask_issue() -> None:
-    """Ensure JiraClient.create_subtask POSTs a native Sub-task issue type
-    with the parent field set (feature 012)."""
+async def test_client_create_issue_posts_the_fields_and_description() -> None:
+    """Ensure JiraClient.create_issue POSTs the given fields with the
+    description rendered for the deployment (#64)."""
     seen = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -148,8 +148,12 @@ async def test_client_create_subtask_posts_native_subtask_issue() -> None:
         return httpx.Response(201, json={"key": "RFC-2"})
 
     client = _client(handler, auth="basic", email="e", token="t")
-    key = await client.create_subtask(
-        "RFC-1", "RFC", "Do the thing", doc("body")
+    key = await client.create_issue(
+        {
+            "project": {"key": "RFC"}, "summary": "Do the thing",
+            "issuetype": {"name": "Sub-task"}, "parent": {"key": "RFC-1"},
+        },
+        doc("body"),
     )
     assert key == "RFC-2"
     assert seen["method"] == "POST"

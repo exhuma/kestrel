@@ -23,8 +23,6 @@ from app.documents import (
     Block,
     Document,
     Heading,
-    ListItem,
-    OrderedList,
     Paragraph,
     Strong,
     Text,
@@ -311,25 +309,4 @@ def task_context(
         return ""
     spec = artifacts.latest_document_for_card(head.id, TASK_SPEC_LOGICAL_NAME)
     return f"Approved task:\n{to_prompt(spec)}" if spec else ""
-
-
-def render_breakdown(candidate: Candidate) -> Document:
-    """The one comment posted to the request's ticket on approval
-    (FR-006), in place of one child ticket per task."""
-    intro = paragraph(Text(
-        "Approved task breakdown (CAB-2). kestrel works these tasks inside "
-        "this request and delivers them as one change; no separate "
-        "tickets are created."
-    ))
-    if not candidate.tasks:
-        return document(intro)
-    items = tuple(
-        ListItem((paragraph(Text(f"{task.title} ({_who(task)})")),))
-        for task in candidate.tasks
-    )
-    return document(intro, OrderedList(1, items))
-
-
-def _who(task: DecompositionTask) -> str:
-    return "manual, for a human" if task.classification == MANUAL else "coding"
 

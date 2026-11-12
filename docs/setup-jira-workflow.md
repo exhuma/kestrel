@@ -30,6 +30,11 @@ code_host = "gitlab"                   # github | gitlab | gitea (self-hostable)
 code_host_base_url = "https://gitlab.internal.example.com"
 # token_env = "KESTREL_JIRA_API_TOKEN"           # default; the API token (Cloud) / PAT
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"  # default; PAT for the code host
+# Where approved tasks become work items (see "Work items" below):
+# work_items_project = "DEV"          # unset: sub-tasks of the request
+# work_items_issue_type = "Task"      # default: Sub-task, or Task with a project
+# work_items_link_type = "Relates"    # request <-> work item, with a project
+# work_items_blocks_link_type = "Blocks"
 ```
 
 ```bash
@@ -47,6 +52,34 @@ REST v3 and render Kestrel's controlled Markdown as Atlassian Document Format
 (ADF), including review gates, requested-change summaries, and lifecycle
 footers. Jira Server/DC keeps REST v2 and plain-text bodies with
 `deployment = "server"`.
+
+### Work items
+
+When CAB-2 approves a breakdown, kestrel creates one work item per approved
+task, coding and manual alike, so the plan lives in Jira and not only in
+kestrel. Each item carries the task's text, its estimate and a link to the
+request in kestrel. A task that must wait for another gets a link of type
+`work_items_blocks_link_type` ("Blocks" by default) from the task it waits
+for. A comment on the request then lists every task with its item's key.
+
+Where the items go is your choice:
+
+- **Without `work_items_project`** they are sub-tasks of the request, of type
+  `work_items_issue_type` ("Sub-task" by default). They inherit the
+  request's repository field or link.
+- **With `work_items_project`** they are issues in that project, of type
+  `work_items_issue_type` ("Task" by default), each linked to the request with
+  `work_items_link_type` ("Relates" by default). Jira does not allow sub-tasks
+  across projects. This suits an organisation whose intake project is
+  cross-cutting and whose delivery work lives in a team's project. Keep that
+  project out of `jql`, so kestrel never takes its own work items in as new
+  requests.
+
+The status icon checks these names against Jira, so a type or link name your
+Jira does not have shows up before a breakdown is approved. If Jira cannot be
+reached when the breakdown is approved, kestrel keeps trying, and never creates
+an item twice: each item carries a `kestrel-…` label it is found by. Moving
+the items' status as the work progresses is not built yet (#64).
 
 ### The change owner
 
@@ -125,8 +158,9 @@ just an intended contract.
    Interview questions are answered on kestrel's short forms, reached by a
    link. Watching card state, retrying or reassigning a card and resolving
    a quarantined review stay in the Kestrel UI (the Board), which can also
-   answer any gate. A resolved gate, an escalation, an approved PRD, and a
-   clean verification's delivery each post one comment back to the RFC;
+   answer any gate. A resolved gate, an escalation, an approved PRD (also
+   attached as a file), the approved tasks' work items, and a clean
+   verification's delivery each post one comment back to the RFC;
    day-to-day card-by-card progress is still Board-only. See
    [Architecture → Specialist dispatch, delivery, and write-back](architecture.md#specialist-dispatch-delivery-and-write-back-spec-026-complete-as-of-t078)
    for the full list of what projects and what doesn't.
@@ -136,9 +170,9 @@ technical_analysis → design → code → verify` sequence and its native Jira
 Sub-task decomposition — removed in the Phase 10 clean break, then rebuilt
 on the board's own terms (spec 026 T068/T078): refinement/PRD/decomposition
 gates exist again, resolved on the ticket or on the Board. An approved
-decomposition (CAB-2) creates no child tickets or Sub-tasks: its tasks become
-cards inside the request's own workflow, and the RFC gets one breakdown
-comment (feature 031).
+decomposition (CAB-2) becomes cards inside the request's own workflow, and
+each approved task also becomes a work item in Jira (see
+[Work items](#work-items)); the RFC gets one comment listing them.
 
 ### When the delivered work needs changes
 
@@ -151,6 +185,13 @@ The coder works on it on the same branch, the verifier checks it, and the
 same merge request is updated. The button appears once the request is done
 and nothing else is open. Kestrel refuses if the merge request has already
 been merged or closed.
+
+Each later round shows on the merge request. Kestrel pushes the new commits
+and comments with them and the coder's summary of the change; when nothing
+needed changing, the comment says so and why. The description has a section
+headed **Maintained by kestrel**: what the change implements, each later
+round, and the screenshots. Kestrel rewrites only that section, so anything
+you write above or below it stays.
 
 **A follow-up ticket**, for something that deserves its own requirements and
 gates. Create a new ticket that describes the change and links the merge
@@ -184,6 +225,9 @@ posting it twice.
 | The PRD gate opens | The PRD in full | the reporter |
 | CAB-1 opens | "Ready for CAB": the strategic-fit answers | the change owner |
 | CAB-2 opens | "Ready for CAB": the executive summary, with totals, risks and the task table | the change owner |
+| The understanding is confirmed | A short note; the restatement is attached as `Understanding.md` (`Understanding-2.md` when confirmed again) | nobody |
+| The PRD is signed off | A short note; the PRD is attached to the ticket as `PRD.md` (`PRD-2.md` when signed off again) | nobody |
+| CAB-2 approves the breakdown | Each approved task with its work item's key | nobody |
 | The work is delivered | The change request link; the ticket should move on | the change owner |
 | The request fails, or stops because a decision was rejected | What failed or was rejected; the ticket should move on | the change owner |
 | The verifier stops on a problem it may not settle | The problem, and how to clarify it or accept the work | the reporter |
@@ -236,9 +280,16 @@ what they mean, for example `@kestrel approved`, or `@kestrel no, because
   the reply is read, compared by account. Anyone else is told they cannot
   decide this here, and nothing changes. With no change owner on the ticket
   nobody is entitled to a CAB decision there; it is taken in kestrel.
+- **Answering the understanding.** kestrel's restatement is short and
+  non-technical, and asks at most three questions. Answer them in your own
+  words; "I don't know" and "not relevant" are fine answers. Answers count
+  as a correction: kestrel writes a revised restatement that includes them,
+  and asks you to confirm that. Your answers, whole, are what the revision
+  works from, and every later step works from the confirmed restatement.
 - **A no needs a reason** for the understanding and the PRD. If a rejection
   has none, or kestrel cannot tell what was meant, it asks again and decides
-  nothing.
+  nothing. Whatever you write with a decision is kept and passed on in your
+  own words.
 - **Only replies written after the announcement count.** A reply counts
   only if it was written after kestrel posted the comment announcing that
   gate. Older comments (written before it, or all of a thread's history the

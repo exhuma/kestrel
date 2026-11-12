@@ -8,48 +8,54 @@ query by session id returns a turn's whole story. The id is stored on the
 card attempt (``board_card_attempt.session_id``) to get from the board to it.
 
 Levels: canonical events at DEBUG, the turn's start and result at INFO, a
-failed turn or an error result at WARNING. Free text is truncated
-(:data:`MAX_TEXT`) so a log line stays bounded however much the agent says.
+failed tool call, a failed turn or an error result at WARNING. Free text is
+cut to ``log_text_limit`` characters (:data:`MAX_TEXT` by default, ``0``
+keeps everything), so a log line stays bounded however much the agent says.
+A failed tool call keeps more of its error (:data:`TOOL_ERROR_TEXT`): it is
+often the one line that explains why a turn went wrong.
 """
 from __future__ import annotations
 
 import logging
 
-from app.models import CanonicalEvent
+from app.models import CanonicalEvent, EventKind
 
 #: Name of the logger every agent record goes through.
 LOGGER_NAME = "kestrel.agent"
 #: Longest stretch of agent free text kept in one log line, in characters.
 MAX_TEXT = 500
+#: How much of a failed tool call's error a WARNING line keeps, at least.
+TOOL_ERROR_TEXT = 2000
 
 _logger = logging.getLogger(LOGGER_NAME)
 
 
 def clip(text: str | None, limit: int = MAX_TEXT) -> str:
-    """Collapse *text* onto one line and cut it to *limit* characters.
+    """Collapse *text* onto one line and cut it to *limit* characters
+    (``0``: keep it all).
 
     :returns: The text, with ``…(+N chars)`` noting what was left out.
     """
     if not text:
         return ""
     flat = " ".join(text.split())
-    if len(flat) <= limit:
+    if limit <= 0 or len(flat) <= limit:
         return flat
     return f"{flat[:limit]}…(+{len(flat) - limit} chars)"
 
 
-def describe(event: CanonicalEvent) -> str:
+def describe(event: CanonicalEvent, limit: int = MAX_TEXT) -> str:
     """One bounded line describing a canonical event."""
     parts = [event.kind.value]
     if event.tool_name:
         parts.append(event.tool_name)
     if event.tool_summary:
-        parts.append(clip(event.tool_summary, MAX_TEXT // 2))
+        parts.append(clip(event.tool_summary, limit // 2))
     if event.subtype:
         parts.append(event.subtype)
     if event.is_error:
         parts.append("(error)")
-    body = clip(event.text or event.summary)
+    body = clip(event.text or event.summary, limit)
     if body:
         parts.append(body)
     return " ".join(parts)
@@ -61,6 +67,7 @@ class AgentLog:
     :param session_id: The backend's session id; on every record.
     :param card_id: The card the turn works for, if any.
     :param backend_id: The backend running the session, if known.
+    :param text_limit: The most agent text one line keeps (``0``: all).
     """
 
     def __init__(
@@ -68,10 +75,14 @@ class AgentLog:
         session_id: str,
         card_id: str | None = None,
         backend_id: str | None = None,
+        text_limit: int = MAX_TEXT,
     ) -> None:
         self._session_id = session_id
         self._card_id = card_id
         self._backend_id = backend_id
+        self._limit = text_limit
+        #: The tool the agent called last, to name it if its call fails.
+        self._last_tool: str | None = None
 
     def _emit(self, level: int, message: str) -> None:
         """Log *message*, tagged with the session (and card) id."""
@@ -94,9 +105,19 @@ class AgentLog:
         )
 
     def event(self, event: CanonicalEvent) -> None:
-        """Log one canonical event at DEBUG."""
+        """Log one canonical event at DEBUG, and a failed tool call also
+        at WARNING, so it is seen at the usual log level."""
+        if event.kind == EventKind.TOOL_USE:
+            self._last_tool = event.tool_name
         if _logger.isEnabledFor(logging.DEBUG):
-            self._emit(logging.DEBUG, describe(event))
+            self._emit(logging.DEBUG, describe(event, self._limit))
+        if event.kind == EventKind.TOOL_RESULT and event.is_error:
+            limit = max(self._limit, TOOL_ERROR_TEXT) if self._limit else 0
+            self._emit(
+                logging.WARNING,
+                f"tool call failed: {self._last_tool or '?'}: "
+                f"{clip(event.text or event.summary, limit)}",
+            )
 
     def finished(
         self,
@@ -110,7 +131,7 @@ class AgentLog:
         status = "failed" if is_error else "finished"
         self._emit(
             logging.WARNING if is_error else logging.INFO,
-            f"agent turn {status}{took}: {clip(text)}",
+            f"agent turn {status}{took}: {clip(text, self._limit)}",
         )
 
     def failed(self, reason: str) -> None:

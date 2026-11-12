@@ -16,7 +16,11 @@ from datetime import datetime, timedelta
 from app.models_board_records import ExternalProjectionRecord
 from app.persistence.board_store import BoardStore
 from app.persistence.board_time import now_utc
-from app.services.board.projections import ProjectionsService
+from app.services.board.projections import (
+    WORK_ITEM_KINDS,
+    ProjectionsService,
+)
+from app.services.board.write_back import deliver
 from app.services.task_sources import TaskSourceRegistry
 
 _logger = logging.getLogger("kestrel.board.projection_retry")
@@ -71,6 +75,8 @@ class ProjectionRetryService:
         moment = now_utc(now)
         posted = 0
         for record in self._projections.retryable():
+            if record.kind in WORK_ITEM_KINDS:
+                continue  # the work-item publisher retries its own
             if not self._due(record, moment):
                 continue
             if await self._retry(record):
@@ -96,8 +102,9 @@ class ProjectionRetryService:
         if not self._projections.begin_retry(record.id):
             return False
         try:
-            external_id = await source.post_comment(
-                record.task_ref, record.payload
+            external_id = await deliver(
+                record.kind, record.idempotency_key, source,
+                record.task_ref, record.payload,
             )
         except Exception as exc:  # record it, try again later
             self._projections.fail(record.id, str(exc))

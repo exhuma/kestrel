@@ -27,7 +27,39 @@ background work, or with tracing disabled). Enable [Tracing](#tracing) to
 populate them and to correlate a request across services.
 
 `KESTREL_LOG_LEVEL` sets verbosity (`debug`, `info`, `warning`, …; default
-`info`).
+`info`). `KESTREL_LOG_LEVELS` sets single loggers apart from it, as
+`logger=level` pairs separated by commas, so one part can be followed at
+`debug` while the rest stays at `info`:
+
+```text
+KESTREL_LOG_LEVELS=kestrel.reasoning=debug,kestrel.agent=debug
+```
+
+A pair kestrel cannot read stops it at startup.
+
+### Following what kestrel does
+
+Three loggers tell a request's story, from the decisions down to the words:
+
+| Logger | Level | What it says |
+| --- | --- | --- |
+| `kestrel.board.decisions` | `INFO` | Every decision and why: a card claimed (by which role, on which backend or `reasoning:<role>`) and finished; each action the coordinator applied or had rejected; a verification's findings with their category and summary, and its round (`round 2 of 3`); an escalation opened; delivery requested, or held and by which cards; a screening verdict; how a ticket reply was read; an unreadable result retried or escalated |
+| `kestrel.reasoning` | `INFO`, `DEBUG` | One line per internal-reasoning call (role, card, model, time, tokens). At `DEBUG`: the whole prompt and the whole answer |
+| `kestrel.agent` | `WARNING`, `INFO`, `DEBUG` | A failed tool call with its error, at `WARNING`; each agent turn's start and result at `INFO`; every event of the turn at `DEBUG` (see [Agent output](#agent-output)) |
+
+The decisions are on at the usual `info` level: work handed back to the coder
+again and again shows each round's findings, and a tool that fails (a request
+through the wrong proxy, a failing command) shows its error. The decision lines
+hold only short summaries kestrel wrote itself.
+
+The transcripts are for tuning prompts and debugging. A reasoning prompt holds
+the ticket's text, the PRD and the people's answers, so they are logged only
+when you turn on `debug` for `kestrel.reasoning`. Keep that out of a shared log
+pipeline you would not put ticket content in.
+
+With `KESTREL_LOG_FORMAT=json`, every decision line carries `workflow_id` (and
+`card_id` where there is one), so one request is one filter: `workflow_id =
+"wf-…"`.
 
 ### JSON logs
 
@@ -40,7 +72,8 @@ for ingestion by a log pipeline (OpenTelemetry collectors, Logstash, Loki,
 ```
 
 `trace_id` (and `span_id`) fields are added to records emitted while a span is
-active (tracing enabled). Agent records add `session_id` and `card_id` (see
+active (tracing enabled). Agent and reasoning records add `session_id` and
+`card_id`, decision records `workflow_id` and `card_id` (see
 [Agent output](#agent-output)). Exceptions add an `exception` field with the
 formatted traceback. In `docker-compose.yml`:
 
@@ -65,9 +98,13 @@ in the message (`session=<id> card=<id> …`) and, with
 | `WARNING` | An error result, or a turn that ended without one (crash, timeout, stop) |
 | `DEBUG` | Every event of the turn: assistant text, tool calls and results, reasoning |
 
-Free text is cut to 500 characters per line, so a log line stays small
-however much the agent wrote. `DEBUG` also lowers the level for everything
-else; set `KESTREL_LOG_LEVEL=debug` to read a turn step by step, and filter on
+Free text is cut to `KESTREL_LOG_TEXT_LIMIT` characters per line (500 by
+default; `0` keeps everything), so a log line stays small however much the
+agent wrote. A failed tool call keeps at least 2,000 characters of its error.
+The model's own reasoning is logged as a `reasoning` event when the backend
+passes it on (opencode's reasoning parts, Claude's thinking blocks). To read a
+turn step by step without lowering the level for everything else, set
+`KESTREL_LOG_LEVELS=kestrel.agent=debug`, and filter on
 the session id.
 
 Internal reasoning turns (every turn without a checkout, see

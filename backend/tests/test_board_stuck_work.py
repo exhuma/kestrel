@@ -20,6 +20,7 @@ from app.services.board.live_activity import LiveActivity
 from app.services.board.recovery import RecoveryService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.board_test_support import board_session_factory
 from tests.test_board_scheduling import (
     _dispatch_services,
@@ -143,13 +144,15 @@ async def test_a_failed_coordinator_turn_is_retried(tmp_path: Path) -> None:
     assert backend.last_request is not None
 
 
-def test_turns_get_their_own_timeout() -> None:
-    """Ensure agent turns do not share the reasoning timeout."""
+def test_turns_get_their_own_limits() -> None:
+    """Ensure agent turns are bounded by activity, not the reasoning
+    timeout: 15 minutes idle, six hours in all."""
     settings = Settings(_env_file=None)
-    reasoning, turn = 120.0, 600.0
+    reasoning, idle, ceiling = 120.0, 900.0, 21600.0
 
     assert settings.reasoning.timeout_seconds == reasoning
-    assert settings.board_turn_timeout_seconds == turn
+    assert settings.board_turn_idle_seconds == idle
+    assert settings.board_turn_max_seconds == ceiling
 
 
 @pytest.mark.asyncio
@@ -178,7 +181,7 @@ async def test_a_failed_card_turn_is_recorded_on_the_request(
     )
 
     await dispatch_ready_work(
-        "wf-1", services, lambda _s: _Failing(), timeout_seconds=5
+        "wf-1", services, lambda _s: _Failing(), limits=TurnLimits.within(5)
     )
 
     assert seen_live == ["Investigate"]  # live only during the turn

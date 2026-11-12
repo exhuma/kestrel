@@ -18,6 +18,7 @@ from app.models_board import CardKind, CardState, WorkCard, Workflow
 from app.services.board.coordinator import TransitionCardAction
 from app.services.board.delivery import deliver
 from app.services.board.delivery_readiness import request_delivery
+from app.services.board.delivery_rounds import history_of, record_round
 from app.services.change_requests import change_request_number
 
 if TYPE_CHECKING:
@@ -105,8 +106,13 @@ async def _deliver_one(
         workflow_id, f"delivery:{card.id}:claim",
         [TransitionCardAction(card.id, CardState.CLAIMED.value)],
     )
+    rounds = history_of(
+        workflow_id, services.claims.store, services.artifacts
+    )
     try:
-        location = await deliver(workflow, code_host, services.workspace)
+        delivered = await deliver(
+            workflow, code_host, services.workspace, rounds
+        )
     except Exception:  # noqa: BLE001 — record failure, never crash dispatch
         _dispatch_log.exception(
             "workflow %s: delivery failed for card %s", workflow_id, card.id,
@@ -116,7 +122,9 @@ async def _deliver_one(
             [TransitionCardAction(card.id, CardState.FAILED.value)],
         )
         return
+    location = delivered.location
     _record_delivery(workflow, location, services)
+    record_round(services.claims.store, card.id, rounds, delivered.line)
     services.coordinator.apply_actions(
         workflow_id, f"delivery:{card.id}:review",
         [TransitionCardAction(card.id, CardState.REVIEW.value)],

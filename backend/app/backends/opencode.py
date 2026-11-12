@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable
+from collections.abc import Awaitable, Callable
 
 import httpx
 
@@ -39,7 +39,10 @@ from app.backends.rate_limit import retry_rate_limited
 from app.config import BackendConfig, Settings
 from app.models import CanonicalEvent, EventKind
 
-_DEFAULT_TIMEOUT = 600.0  # a file-editing turn can run for minutes
+#: How long one short request (create a session, read messages, abort)
+#: may take. The turn's own ``POST /message`` waits as long as the turn
+#: runs: kestrel's turn limits stop it (``turn_limits``), not this.
+_REQUEST_TIMEOUT = 60.0
 _logger = logging.getLogger(__name__)
 
 
@@ -60,7 +63,6 @@ class OpenCodeBackend(Backend):
         self._base_url = (cfg.base_url or "http://localhost:4096").rstrip("/")
         self._model = split_model(cfg.model)
         self._client = client  # injectable for tests
-        self._timeout = cfg.timeout or _DEFAULT_TIMEOUT
         self._limiter = limiter or BackendLimiter(cfg.max_concurrency)
         self._rate_limit_retries = cfg.rate_limit_retries
         self._rate_limit_backoff_seconds = cfg.rate_limit_backoff_seconds
@@ -100,7 +102,10 @@ class OpenCodeBackend(Backend):
         try:
             if sid is None:
                 sid = await self._create_session(req.cwd)
-            log = AgentLog(sid, req.card_id, self.id)
+            log = AgentLog(
+                sid, req.card_id, self.id,
+                text_limit=self.settings.log_text_limit,
+            )
             log.started(resumed=req.resume_id is not None)
             if req.on_session_id is not None:
                 req.on_session_id(sid)
@@ -165,7 +170,10 @@ class OpenCodeBackend(Backend):
             body["tools"] = tools
         async with permission_handler(
             self._conn, session_id, directory, read_only,
-            guard_watch(self._conn, session_id, directory, guard),
+            _reporting(
+                req.on_activity,
+                guard_watch(self._conn, session_id, directory, guard),
+            ),
         ):
             response = await retry_rate_limited(
                 lambda: self._request(
@@ -264,7 +272,8 @@ class OpenCodeBackend(Backend):
         wrong base.
         """
         params = directory_params(directory)
-        client = self._client or httpx.AsyncClient(timeout=self._timeout)
+        client = self._client or httpx.AsyncClient()
+        turn = method == "POST" and path.endswith("/message")
         try:
             resp = await client.request(
                 method,
@@ -272,6 +281,7 @@ class OpenCodeBackend(Backend):
                 json=json,
                 params=params,
                 auth=self._auth,
+                timeout=None if turn else _REQUEST_TIMEOUT,
             )
             resp.raise_for_status()
             return resp.json()
@@ -288,3 +298,19 @@ class OpenCodeBackend(Backend):
         finally:
             if self._client is None:
                 await client.aclose()
+
+
+def _reporting(
+    on_activity: Callable[[], None] | None,
+    watch: Callable[[object], Awaitable[None]],
+) -> Callable[[object], Awaitable[None]]:
+    """*watch*, also reporting each of the session's parts as activity:
+    every streamed text, reasoning or tool part shows the agent working."""
+    if on_activity is None:
+        return watch
+
+    async def reporting(part: object) -> None:
+        on_activity()
+        await watch(part)
+
+    return reporting

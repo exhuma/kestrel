@@ -157,11 +157,11 @@ async def test_a_late_reply_never_decides_the_next_gate(
 
 
 @pytest.mark.asyncio
-async def test_a_reasoned_rejection_passes_its_reason_on(
+async def test_a_rejection_passes_the_whole_reply_on(
     tmp_path: Path,
 ) -> None:
-    """Ensure the reason reaches the gate as its answer, as the UI's
-    correction would."""
+    """Ensure the person's own words reach the gate as its answer, not
+    the liaison's summary, as the UI's correction would."""
     stack = build_reply_stack(tmp_path)
     gate = await _understanding(stack)
     stack.ticket.write(REPORTER, "@kestrel no — it must also cover exports")
@@ -171,7 +171,7 @@ async def test_a_reasoned_rejection_passes_its_reason_on(
     assert _state(stack, gate.id) == "cancelled"
     response = stack.board.artifacts.latest_for_card(gate.id, "response")
     assert stack.board.artifacts.read_content(response.id) == (
-        "it must also cover exports"
+        "no — it must also cover exports"
     )
     assert "thank you. Understanding corrected" in stack.ticket.answers()[0]
 
@@ -323,3 +323,22 @@ async def test_the_release_route_continues_a_held_reply_in_the_background(
     await asyncio.gather(*bootstrap_replies._running)
 
     assert _state(stack, gate.id) == "done"
+
+
+
+@pytest.mark.asyncio
+async def test_an_approval_keeps_what_the_person_added(
+    tmp_path: Path,
+) -> None:
+    """Ensure details given with an approval are kept for later steps."""
+    stack = build_reply_stack(tmp_path)
+    gate = await _understanding(stack)
+    stack.ticket.write(REPORTER, "@kestrel yes, and it is for the EU team")
+
+    await stack.read()
+
+    assert _state(stack, gate.id) == "done"
+    response = stack.board.artifacts.latest_for_card(gate.id, "response")
+    assert stack.board.artifacts.read_content(response.id) == (
+        "yes, and it is for the EU team"
+    )

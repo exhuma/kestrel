@@ -121,6 +121,15 @@ def _map_assistant(data: dict[str, object], sid: str | None) -> CanonicalEvent:
             session_id=sid,
             text="\n".join(texts),
         )
+    thinking = [
+        b["thinking"] for b in blocks
+        if b.get("type") == "thinking" and isinstance(b.get("thinking"), str)
+    ]
+    if thinking:
+        return CanonicalEvent(
+            kind=EventKind.SYSTEM, session_id=sid, subtype="reasoning",
+            summary="\n".join(thinking),
+        )
     return _unknown(data, sid)
 
 

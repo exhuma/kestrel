@@ -97,12 +97,22 @@ entity reference; this is the operator-relevant shape:
   `dependency`/`reconciliation`/`supersedes` edge; only `dependency` edges
   gate readiness.
 - **Claims and leases.** A specialist claims one `ready` card at a time
-  (`ClaimLease`, time-bounded, `board_claim_lease_seconds`). A
-  write-permission card's claim also holds its repository, so only one
-  writer can touch a given repo at once — read-only cards may run
-  concurrently, up to `board_max_parallel_read_cards`. A background sweep
-  (`board_recovery_interval_seconds`) reclaims expired leases and applies
-  each card's bounded retry/reassign/escalate policy.
+  (`ClaimLease`, `board_claim_lease_seconds`). A write-permission card's
+  claim also holds its repository, so only one writer can touch a given repo
+  at once; read-only cards may run concurrently, up to
+  `board_max_parallel_read_cards`. While a turn runs, kestrel renews its
+  claim every third of the lease (`claim_heartbeat.py`). A failed turn ends
+  its attempt at once (`BoardClaimsStore.end_attempt_failed`): the card is
+  `ready` again while it has attempts left, else `failed`. The background
+  sweep (`board_recovery_interval_seconds`) only recovers claims whose
+  kestrel process died mid-turn.
+- **Turn limits.** An agent turn runs while its agent works
+  (`turn_limits.py`). Each backend reports activity through
+  `TurnRequest.on_activity`: opencode for every part of its session on the
+  event stream, the Claude CLI for every stream-json line. A turn is stopped
+  after `board_turn_idle_seconds` without activity, or after
+  `board_turn_max_seconds` in all; stopping it aborts the agent's session.
+  The tool budget stops a looping turn earlier still.
 - **Handoff artifacts.** A card's accepted output is retained as an
   immutable, versioned `HandoffArtifact` (its body and its SHA-256 in the
   `board_artifact` row), with explicit pinned-revision input provenance.
@@ -310,10 +320,17 @@ Prerequisites become dependency edges between the tasks' head cards. Every
 card carries its task in `board_card.task_node_id`, and each head card holds
 the approved text and estimate as a `task_spec` artifact. That artifact is
 what every card on the task works from (`_extra_context_for`). The
-coordinator cannot change these cards. The request's ticket gets one
-breakdown comment instead of one ticket per task. `TaskSource.create_subtask`
-stays on the port, unused, for mirroring cards back as sub-tasks later
-(backlog epic #63).
+coordinator cannot change these cards. Each approved task also becomes a work
+item on the task source (`work_items.py`, #64): `TaskSource.create_subtask`
+creates a sub-task, or an issue in the source's `work_items_project` linked to
+the request, and `link_subtasks` records prerequisites. Each step is a row in
+the projection ledger (kinds `work_item` and `work_item_link`; the item's key
+is the row's `external_id`, the card-to-item mapping), so it happens once. The
+publisher's own loop retries failed steps, and an item carries a label made
+from its row's key so one created just before a crash is found again. One
+comment then lists each task with its item. Moving the items' status is not
+built yet. On PRD sign-off, the approved PRD is attached to the ticket
+(projection kind `attachment`, delivered by `TaskSource.attach_document`).
 
 The result is **one request → one workflow → one branch → one PR** by
 construction. A tagged verification with findings creates tagged
@@ -419,14 +436,23 @@ what it shows** (spec 043). `board_workflow.change_request_url` sits
 beside the number and is exposed on the board snapshot, and the
 cockpit's "Pull request" entry links to it. A redelivery onto the
 existing change request keeps both values: its location is a note, not
-a URL, and earlier it cleared the recorded number. When delivery opens
-the change request, `delivery_body.py` composes the body. It lists the
-PNGs the coder committed under `.kestrel/screenshots/` (or states the
-reason in the `README.md` there) as images served by
-`CodeHost.file_url` from the pushed branch. A redelivery leaves the body
-as it is. The cockpit renders Markdown artifacts through `markdown-it`
-with raw HTML disabled, so agent output never becomes live markup
-(amended 029 FR-015).
+a URL, and earlier it cleared the recorded number. The description holds
+a visible section kestrel maintains (`delivery_body.py`): what the change
+implements, each later round, and the PNGs the coder committed under
+`.kestrel/screenshots/` (or the reason in the `README.md` there), served by
+`CodeHost.file_url` from the pushed branch. A redelivery rewrites only that
+section (`CodeHost.write_kestrel_section`, `splice_section`), so text people
+wrote around it stays, and comments on the change request
+(`delivery_rounds.py`): the commits it pushed, listed from
+`refs/remotes/origin/<branch>` (recorded on every push), or that nothing
+needed changing, with the coder's `<CHANGE_SUMMARY>`. A `delivery.round`
+board event records which implementation cards each delivery covered.
+Agent tooling stays out of the commit: `.kestrel/scratch/` is in the
+mirror's `info/exclude`, the coder is told to keep helper files there, the
+verifier reports a committed one as a nonconformance, and delivery logs a
+warning for anything under `.kestrel/` that is not a screenshot. The cockpit
+renders Markdown artifacts through `markdown-it` with raw HTML disabled, so
+agent output never becomes live markup (amended 029 FR-015).
 
 **As of 2026-09-27, the refinement-interview and PRD-approval gates are
 built** (spec 026 T078) — the last of the four human gates the data

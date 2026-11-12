@@ -18,7 +18,9 @@ ANSWER_GATES = frozenset({
 })
 
 _SENTENCES = {
-    (CardKind.UNDERSTANDING_GATE.value, True): "Understanding confirmed.",
+    (CardKind.UNDERSTANDING_GATE.value, True): (
+        "Understanding confirmed. It is attached to this ticket as a file."
+    ),
     (CardKind.UNDERSTANDING_GATE.value, False): (
         "Understanding corrected, kestrel is rewriting it."
     ),
@@ -26,7 +28,9 @@ _SENTENCES = {
     (CardKind.CAB1_GATE.value, False): (
         "CAB declined the strategic fit; this request stops here."
     ),
-    (CardKind.PRD_GATE.value, True): "PRD signed off.",
+    (CardKind.PRD_GATE.value, True): (
+        "PRD signed off. It is attached to this ticket as a file."
+    ),
     (CardKind.PRD_GATE.value, False): (
         "PRD sent back with feedback, kestrel is revising it."
     ),

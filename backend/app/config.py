@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     #: human-readable lines (default), ``json`` for one JSON document per
     #: line to feed a log pipeline (OTEL, Logstash, …).
     log_format: Literal["text", "json"] = "text"
+    #: Per-logger levels over ``log_level`` (``KESTREL_LOG_LEVELS``), as
+    #: ``logger=level`` pairs separated by commas, e.g.
+    #: ``kestrel.reasoning=debug,kestrel.agent=debug`` to follow kestrel's
+    #: reasoning and its agents while everything else stays at info.
+    log_levels: str = ""
+    #: The most agent text one ``kestrel.agent`` line keeps, in characters
+    #: (``KESTREL_LOG_TEXT_LIMIT``); ``0`` keeps everything.
+    log_text_limit: int = Field(default=500, ge=0)
     #: Enable OpenTelemetry tracing (``KESTREL_OTEL_ENABLED``). Off by
     #: default: a personal localhost tool pays nothing until a collector is
     #: configured. When true, spans export over OTLP to
@@ -194,14 +202,20 @@ class Settings(BaseSettings):
     #: Every turn without a checked-out repository runs on it; see
     #: :mod:`app.config_reasoning`.
     reasoning: ReasoningConfig | None = None
-    #: Timeout in seconds for one turn on the board — the coordinator's,
-    #: or any specialist's on a card (``KESTREL_BOARD_TURN_TIMEOUT_SECONDS``).
-    #: A coder's turn legitimately runs for minutes. Defaults to the claim
-    #: lease, past which recovery would reclaim the card anyway.
-    board_turn_timeout_seconds: float = Field(default=600.0, gt=0)
-    #: How long a card claim lease is held before it is considered abandoned
-    #: and eligible for recovery (feature 026,
-    #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``).
+    #: How long an agent turn may go without doing anything (a tool call,
+    #: a streamed part) before kestrel stops it, in seconds
+    #: (``KESTREL_BOARD_TURN_IDLE_SECONDS``). A busy turn is never stopped
+    #: by this, however long it runs.
+    board_turn_idle_seconds: float = Field(default=900.0, gt=0)
+    #: The most one agent turn may run in all, in seconds
+    #: (``KESTREL_BOARD_TURN_MAX_SECONDS``): the last guard against a turn
+    #: that stays active but never finishes. Six hours by default.
+    board_turn_max_seconds: float = Field(default=21600.0, gt=0)
+    #: How long a claim lasts without renewal, in seconds (feature 026,
+    #: ``KESTREL_BOARD_CLAIM_LEASE_SECONDS``). Kestrel renews it while the
+    #: turn runs, so it only decides how soon a card is recovered after
+    #: the kestrel process died mid-turn. A failed turn frees its card at
+    #: once.
     board_claim_lease_seconds: int = Field(default=600, gt=0)
     #: How often one card may go back to ready after its agent backend
     #: went away, without using up an attempt. Retries are paced by the

@@ -22,6 +22,7 @@ from app.models_board import (
     WorkCard,
 )
 from app.persistence.board_store import BoardStore
+from app.services.board import decision_log
 from app.services.board.coordinator import (
     CoordinatorService,
     CreateCardAction,
@@ -73,7 +74,11 @@ def request_delivery(
     Keyed by the finished work it delivers, so one set of done
     implementation cards delivers exactly once."""
     cards = store.list_cards(workflow_id)
-    if not delivery_due(cards, store.list_relations(workflow_id)):
+    due = delivery_due(cards, store.list_relations(workflow_id))
+    decision_log.delivery(
+        workflow_id, [c for c in cards if _unsettled(c)], requested=due
+    )
+    if not due:
         return
     coordinator.apply_actions(
         workflow_id, delivery_trigger(cards),

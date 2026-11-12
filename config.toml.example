@@ -66,11 +66,14 @@ specialists_root = "./specialists"
 # item, gate/questionnaire answer, direct session prompt) accepted before
 # intake. Oversized input is quarantined rather than truncated.
 board_input_max_bytes = 65536
-# Timeout in seconds for one turn on the board: the coordinator's, or a
-# specialist's on a card. A coder's turn legitimately runs for minutes.
-board_turn_timeout_seconds = 600.0
-# How long a card claim lease is held before it is considered abandoned and
-# eligible for retry/reassignment/escalation on recovery.
+# An agent turn runs while its agent works. It is stopped after this many
+# seconds without any activity (a tool call, a streamed part) ...
+board_turn_idle_seconds = 900
+# ... or after this many seconds in all, however active (six hours).
+board_turn_max_seconds = 21600
+# How long a claim lasts without renewal. Kestrel renews it while the turn
+# runs, so this only decides how soon a card is recovered after kestrel
+# itself died mid-turn. A failed turn frees its card at once.
 board_claim_lease_seconds = 600
 # How often one card may go back to ready after its agent backend went away,
 # without using up an attempt. Paced by the recovery sweep (about 1 per minute).

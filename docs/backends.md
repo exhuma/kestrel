@@ -86,6 +86,19 @@ repository write lease. A bad mapping (a text-only backend pinned to `coder`)
 fails capability-checked routing (`SpecialistBackendPolicy.backend_for`) with
 a clear error rather than silently dispatching anyway.
 
+## How long a turn may run
+
+A turn runs as long as its agent keeps working: a coding turn may take
+minutes or hours. Kestrel stops it only when the agent shows no activity
+for `board_turn_idle_seconds` (15 minutes by default), or when it has run
+for `board_turn_max_seconds` in all (six hours). The card's claim is renewed
+while the turn runs, and a failed turn's card is free for its retry at once.
+
+A harness reports activity by calling `TurnRequest.on_activity` whenever its
+agent does something. opencode does this for every part of its session on
+the event stream; the Claude CLI for every line it writes. A backend has no
+`timeout` setting any more.
+
 ## Concurrency and rate limits
 
 Every configured backend has a process-wide concurrency cap. It is shared by
@@ -193,6 +206,15 @@ password = "changeme"                      # inline (gitignored file), or:
 > Names are opencode's own, and wildcards work (`"gitlab_*"`). opencode checks
 > `write` and `apply_patch` under `edit`, so list `edit` to allow any file
 > change. Read-only turns stay read-only whatever the list says.
+>
+> **UI work needs a browser tool.** For a change to a user interface, the
+> coder looks at the running app with a browser MCP server in your opencode
+> config (for example Playwright) and takes the screenshots with it, and the
+> verifier checks the app the same way. Both are told never to script a
+> browser themselves. List the server's tools in `allowed_tools` (for example
+> `"playwright_*"`, below). If the page on `localhost` goes through an HTTP
+> proxy, add `localhost,127.0.0.1` to `NO_PROXY` in the opencode container;
+> the browser inherits its environment.
 >
 > **Allowing an MCP server.** opencode names an MCP server's tools
 > `<server>_<tool>`, where `<server>` is the server's key in *your opencode

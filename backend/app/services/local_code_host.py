@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from app.documents import Document
 from app.ports import RequiredCiStatus
 
 
@@ -50,6 +51,17 @@ class LocalCodeHost:
         """Where *path* lives on *branch*, as a ``git show`` spec — there is
         no web view, and no change request to show it in (feature 043)."""
         return f"{self._repo_path(repo)}:{branch}:{path}"
+
+    async def write_kestrel_section(
+        self, _repo: str, _number: int, _section: Document
+    ) -> None:
+        """A local repository has no change request to describe."""
+
+    async def comment_on_change_request(
+        self, _repo: str, _number: int, _body: Document
+    ) -> str:
+        """A local repository has no change request to comment on."""
+        return ""
 
     async def required_ci_statuses(
         self, _repo: str, _number: int, names: list[str]

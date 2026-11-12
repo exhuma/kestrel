@@ -27,6 +27,7 @@ from app.reasoning.policy import ReasoningPolicy
 from app.services.board.dispatch import ClassificationError, classify_input
 from app.services.board.dispatch_ready import dispatch_ready_work
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.test_board_scheduling import (
     _dispatch_services,
     _FakeBackend,
@@ -247,7 +248,7 @@ async def test_only_a_card_without_a_workspace_runs_on_reasoning(
     agent = _FakeBackend("from the agent")
 
     await dispatch_ready_work(
-        "wf-1", services, lambda _s: agent, timeout_seconds=5
+        "wf-1", services, lambda _s: agent, limits=TurnLimits.within(5)
     )
 
     assert (reasoning.last_request is not None) is reasons

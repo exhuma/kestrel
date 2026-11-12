@@ -74,9 +74,8 @@ class JiraClient:
         return headers
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
-        resp = await self._http.request(
-            method, path, headers=self._headers(), **kw
-        )
+        headers = {**self._headers(), **kw.pop("headers", {})}
+        resp = await self._http.request(method, path, headers=headers, **kw)
         if resp.status_code >= _FIRST_FAILURE_STATUS:
             # Redact: neither the token nor Basic credentials are echoed.
             raise JiraError(
@@ -196,31 +195,70 @@ class JiraClient:
         )
         return resp.json().get("self", "")
 
-    async def create_subtask(
-        self,
-        parent_key: str,
-        project_key: str,
-        summary: str,
-        body: Document,
-        extra_fields: dict[str, object] | None = None,
+    async def create_issue(
+        self, fields: dict[str, object], body: Document
     ) -> str:
-        """Create a native Sub-task issue linked to ``parent_key``.
-
-        Jira's own subdivision primitive (distinct from a plain linked
-        issue), so the parent/child relationship is native, not just a
-        body reference.
-        """
-        fields = {
-            "project": {"key": project_key},
-            "summary": summary,
-            "description": self._render(body),
-            "issuetype": {"name": "Sub-task"},
-            "parent": {"key": parent_key},
-        }
-        if extra_fields:
-            fields.update(extra_fields)
-        resp = await self._request("POST", "/issue", json={"fields": fields})
+        """Create an issue from Jira *fields* plus a description; return
+        its key. Callers name the project, type, summary and any parent."""
+        payload = {**fields, "description": self._render(body)}
+        resp = await self._request("POST", "/issue", json={"fields": payload})
         return resp.json()["key"]
+
+    async def find_by_label(self, label: str) -> str | None:
+        """The key of an issue carrying *label*, or ``None``."""
+        body = {"jql": f'labels = "{label}"', "fields": ["summary"],
+                "maxResults": 1}
+        path = "/search/jql" if self._cloud else "/search"
+        resp = await self._request("POST", path, json=body)
+        issues = resp.json().get("issues") or []
+        return str(issues[0]["key"]) if issues else None
+
+    async def link_issues(
+        self, link_type: str, outward_key: str, inward_key: str
+    ) -> None:
+        """Link two issues so that *outward_key* reads with the link
+        type's outward description ("blocks") towards *inward_key*.
+
+        Jira's REST names the two ends the other way round: the issue
+        given as ``inwardIssue`` is the one the outward description
+        applies to.
+        """
+        await self._request(
+            "POST", "/issueLink",
+            json={
+                "type": {"name": link_type},
+                "inwardIssue": {"key": outward_key},
+                "outwardIssue": {"key": inward_key},
+            },
+        )
+
+    async def attach_markdown(
+        self, key: str, name: str, document: Document
+    ) -> str:
+        """Attach *document* to the issue as a Markdown file; return its
+        content URL. Jira refuses an upload without the XSRF opt-out
+        header."""
+        data = render_markdown(document).encode("utf-8")
+        resp = await self._request(
+            "POST", f"/issue/{key}/attachments",
+            headers={"X-Atlassian-Token": "no-check"},
+            files={"file": (name, data, "text/markdown")},
+        )
+        uploaded = resp.json()
+        first = uploaded[0] if isinstance(uploaded, list) and uploaded else {}
+        return str(first.get("content") or first.get("self") or "")
+
+    async def link_type_names(self) -> set[str]:
+        """The names of the issue link types this Jira has."""
+        resp = await self._request("GET", "/issueLinkType")
+        types = resp.json().get("issueLinkTypes") or []
+        return {str(t.get("name")) for t in types}
+
+    async def issue_type_names(self, project_key: str) -> set[str]:
+        """The names of the issue types *project_key* offers."""
+        resp = await self._request("GET", f"/project/{project_key}")
+        types = resp.json().get("issueTypes") or []
+        return {str(t.get("name")) for t in types}
 
     async def add_remote_link(self, key: str, url: str, title: str) -> None:
         """Add a titled web link to an issue for repository resolution."""

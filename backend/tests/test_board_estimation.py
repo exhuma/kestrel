@@ -25,6 +25,7 @@ from app.services.board.estimation import (
 from app.services.board.exec_summary import HEADER
 from app.services.board.retries import UnreadableResultError
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from app.services.board.workspace import WorkspaceService
 from tests.board_test_support import board_session_factory
 from tests.test_board_decomposition import _setup
@@ -282,7 +283,7 @@ class TestEndToEnd:
         for _ in range(2):
             await dispatch_ready_work(
                 "wf-1", services, lambda s: backends[s.id],
-                timeout_seconds=5,
+                limits=TurnLimits.within(5),
             )
 
         developer_prompt = backends["developer"].last_request.prompt

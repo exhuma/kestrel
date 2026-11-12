@@ -28,6 +28,8 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_CONFIG_FILE` | _(empty)_ | Path to the TOML config file (backend routing + applicative overrides). See [Backends](backends.md). |
 | `KESTREL_LOG_LEVEL` | `info` | Console log verbosity (`debug`, `info`, `warning`, …) |
 | `KESTREL_LOG_FORMAT` | `text` | Console log format: `text` (human-readable) or `json`. See [Observability](observability.md) |
+| `KESTREL_LOG_LEVELS` | _(empty)_ | Single loggers at their own level, as `logger=level` pairs separated by commas, e.g. `kestrel.reasoning=debug` to log every internal-reasoning prompt and answer. See [Observability](observability.md#following-what-kestrel-does). |
+| `KESTREL_LOG_TEXT_LIMIT` | `500` | The most agent text one `kestrel.agent` line keeps; `0` keeps everything. |
 | `KESTREL_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing. When true, also set the `OTEL_*` vars below. See [Observability → Tracing](observability.md#tracing) |
 | `KESTREL_OTEL_SERVICE_NAME` | `kestrel` | `service.name` reported on exported spans |
 | `KESTREL_WEBHOOK_SECRET` | _(empty)_ | HMAC shared secret verifying GitHub webhook deliveries. Empty disables the webhook path. Never logged. See [GitHub workflow](setup-github-workflow.md) |
@@ -37,7 +39,7 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_POLL_INTERVAL_SECONDS` | `300` | How often every task source is re-checked (GitHub reconcile + Jira poll) |
 | `KESTREL_SPECIALISTS_ROOT` | `./specialists` | Root of file-backed specialist role definitions for the work board (feature 026). Treated as a trust boundary — a manifest resolving outside this root is refused |
 | `KESTREL_BOARD_INPUT_MAX_BYTES` | `65536` | Maximum size of one untrusted board input (task body, feedback, gate answer, direct prompt) accepted before intake; oversized input is quarantined |
-| `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a card claim lease is held before it is considered abandoned |
+| `KESTREL_BOARD_CLAIM_LEASE_SECONDS` | `600` | How long a claim lasts without renewal. Kestrel renews it while the turn runs, so it only decides how soon a card is recovered after kestrel itself died mid-turn; a failed turn frees its card at once |
 | `KESTREL_BOARD_MAX_PARALLEL_READ_CARDS` | `4` | Maximum read-only board cards claimed and active at once |
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
 | `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |
@@ -49,7 +51,8 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_HEALTH_CHECK_TIMEOUT_SECONDS` | `10` | How long one source health check may take before it counts as unhealthy |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Verification rounds one approved coding task gets before it escalates to coordinator review |
 | `KESTREL_MAX_CI_REPAIR_ITERATIONS` | `2` | Repair attempts after a failing required CI check on a delivered change request, independent of the verify rounds |
-| `KESTREL_BOARD_TURN_TIMEOUT_SECONDS` | `600.0` | Timeout for one agent turn on the board (the coordinator's or a specialist's). Raise it for slow local models |
+| `KESTREL_BOARD_TURN_IDLE_SECONDS` | `900` | How long an agent turn may go without any activity (a tool call, a streamed part) before kestrel stops it. A turn that keeps working is never stopped by this |
+| `KESTREL_BOARD_TURN_MAX_SECONDS` | `21600` | The most one agent turn may run in all (six hours), however active: the last guard against a turn that never finishes |
 | `KESTREL_BOARD_CI_POLL_INTERVAL_SECONDS` | `60.0` | How often the CI sweep checks delivered workflows' required CI status. A no-op without `required_ci_statuses` on the source |
 | `KESTREL_BOARD_UNREADABLE_RETRY_CAP` | `1` | How often a card whose result cannot be read is retried before it escalates to the coordinator. `0` escalates at once |
 | `KESTREL_BOARD_CAB1_INTERVIEW_MAX_QUESTIONS` | `3` | Hard cap on the questions of the strategic-fit interview before CAB-1 |
@@ -150,6 +153,10 @@ verify_ssl = true                      # false ⇒ skip TLS checks on REST/API c
 repo_field = "customfield_10050"       # optional; else a titled web link is used
 repo_link_text = "Repository"          # web-link title to match (default)
 change_owner_field = ""                # optional; Jira user field naming the change owner
+work_items_project = ""                # optional; approved tasks become issues here, else sub-tasks
+work_items_issue_type = ""             # default Sub-task, or Task with a project
+work_items_link_type = "Relates"       # request <-> work item in another project
+work_items_blocks_link_type = "Blocks" # a task waits for another
 code_host = "github"                   # github | gitlab | gitea (self-hostable)
 code_host_base_url = ""                # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"

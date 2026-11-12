@@ -26,11 +26,16 @@ _log = logging.getLogger("kestrel.local_task_poll")
 
 
 def _task_dirs(tasks_dir: str) -> list[Path]:
-    """Return task directories recursively in deterministic path order."""
+    """Return task directories recursively in deterministic path order.
+    A task's work items, under its ``children`` folder, are not tasks of
+    their own: kestrel never ingests what it created."""
     root = Path(tasks_dir)
     if not root.is_dir():
         return []
-    return sorted(path.parent for path in root.rglob("task.json"))
+    return sorted(
+        path.parent for path in root.rglob("task.json")
+        if "children" not in path.relative_to(root).parts
+    )
 
 
 def _read_local_task(path: Path) -> dict | None:

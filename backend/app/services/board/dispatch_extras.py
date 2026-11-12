@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from app.models_board import CardKind, WorkCard
 from app.models_board_records import BoardEventRecord
 from app.persistence.board_store import BoardStore
+from app.services.board import decision_log
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.coordinator import CreateCardAction
 from app.services.board.decomposition import (
@@ -56,6 +57,7 @@ from app.services.board.retries import (
     retry_context,
 )
 from app.services.board.understanding import (
+    confirmed_understanding,
     route_understanding_result,
     understanding_context,
 )
@@ -112,6 +114,16 @@ def extra_context_for(
     retry = retry_context(card, services.claims.store)
     base = _context_for(workflow_id, card, services)
     return "\n\n".join(part for part in (retry, base) if part)
+
+
+def understanding_for(card: WorkCard, services: DispatchServices) -> str:
+    """The understanding the reporter confirmed, for every card after it
+    (an understanding card writes it, so it gets none)."""
+    if card.kind == CardKind.UNDERSTANDING.value:
+        return ""
+    return confirmed_understanding(
+        card.workflow_id, services.claims.store, services.artifacts
+    )
 
 
 def _context_for(
@@ -221,7 +233,9 @@ def retry_or_escalate(
     operator can retry it (feature 042)."""
     store = services.claims.store
     cards = store.list_cards(card.workflow_id)
-    if retries_of(card, cards) < services.unreadable_retry_cap:
+    retrying = retries_of(card, cards) < services.unreadable_retry_cap
+    decision_log.unreadable(card, error.reason, retrying=retrying)
+    if retrying:
         attempt = retry_card(store, card)
         note_attempt(services, attempt, detail_of(error.reason))
         return

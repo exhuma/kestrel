@@ -56,8 +56,13 @@ INTERVIEW = "answer"
 _DECISIONS = {
     "confirm_understanding": (
         "confirm kestrel's understanding of the request",
-        "kestrel restated the request in its own words and asked whether "
-        "that is right, or what needs correcting.",
+        "kestrel restated the request in its own words, asked whether that "
+        "is right, and may have asked a few questions about it. A reply "
+        "that answers any of those questions, or adds or changes details, "
+        "is a correction (a rejection), whatever the answers are: a fact, a "
+        "proposal, \"I don't know\" or \"not relevant\". Its reason "
+        "carries the answers in the person's own words. Only a plain "
+        "agreement, with nothing answered or added, is an approval.",
     ),
     "approve_prd": (
         "sign off the PRD",

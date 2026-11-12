@@ -85,9 +85,38 @@ def understanding_context(
         rejected[-1].id, _RESPONSE_LOGICAL_NAME
     )
     return (
-        "This is a redraft: the operator rejected your previous "
-        "restatement. Take their correction into account.\n\n"
+        "This is a redraft. The reporter answered your previous "
+        "restatement. Work their answers into it: every point they "
+        "answered is settled, including with \"I don't know\" or \"not "
+        "relevant\" (state it as an assumption, or leave it to later "
+        "steps). Do not ask any of those points again.\n\n"
         "Previous restatement:\n"
         f"{to_prompt(previous) if previous else '(not recorded)'}\n\n"
-        f"Operator's correction:\n{correction or '(none given)'}"
+        f"The reporter's answer:\n{correction or '(none given)'}"
     )
+
+
+def confirmed_understanding(
+    workflow_id: str, store: BoardStore, artifacts: ArtifactsService
+) -> str:
+    """The restatement the reporter confirmed, as later steps read it, or
+    ``""`` before one is confirmed. A redraft has already folded the
+    reporter's answers into it."""
+    cards = store.list_cards(workflow_id)
+    if not any(
+        c.kind == CardKind.UNDERSTANDING_GATE.value
+        and c.state == CardState.DONE.value
+        for c in cards
+    ):
+        return ""
+    drafts = [
+        c for c in live_attempts(cards)
+        if c.kind == CardKind.UNDERSTANDING.value
+    ]
+    for draft in reversed(drafts):
+        found = artifacts.latest_document_for_card(
+            draft.id, RESTATEMENT_LOGICAL_NAME
+        )
+        if found is not None:
+            return to_prompt(found)
+    return ""

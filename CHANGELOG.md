@@ -11,6 +11,15 @@ holds the record. Constitution 2.0.0.
 
 ### Breaking
 
+- **Turns run while the agent works, not for a fixed time.**
+  `board_turn_timeout_seconds` and a backend's `timeout` are removed. A turn
+  is stopped after `board_turn_idle_seconds` without activity (default 15
+  minutes) or `board_turn_max_seconds` in all (default six hours), so long
+  coding turns no longer need a global timeout of hours. A failed turn frees
+  its card at once instead of when its lease expires, and a running turn's
+  claim is renewed, so `board_claim_lease_seconds` only decides how soon a
+  card is recovered after kestrel itself died. A leftover setting fails at
+  startup and names its replacement.
 - **Internal reasoning is required.** Kestrel now does its own thinking on an
   OpenAI-compatible endpoint set in a new `[reasoning]` table, with the key in
   `KESTREL_REASONING_API_KEY`; it does not start without them. Every turn
@@ -51,6 +60,43 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **A light understanding step that keeps the reporter's answers.** The
+  restatement is short and non-technical and asks at most three questions;
+  "I don't know" is a fine answer. Answering them on the ticket counts as a
+  correction, and the revision works from the reply in full, not a summary.
+  The confirmed restatement is attached to the ticket as `Understanding.md`,
+  and every later step works from it, with the ticket as written kept for
+  reference.
+- **UI work uses the browser tool.** The coder now follows fixed steps for
+  UI changes: start the app, look at it and take the screenshots with the
+  browser MCP tool, never with a browser script of its own, and report only
+  the tool's exact error if it fails. The verifier opens the app the same
+  way, and treats missing screenshots it could have taken as a gap to fix.
+- **The merge request follows every later round.** Requested changes, a
+  clarification or a CI repair push their commits and add a comment listing
+  them with the coder's summary, or saying why nothing needed changing.
+  Kestrel keeps a visible "Maintained by kestrel" section of the description
+  up to date and leaves the rest as people wrote it.
+- **Agent tooling stays out of the merge request.** The coder keeps helper
+  scripts and notes in `.kestrel/scratch/`, which is never committed, and
+  drives the browser with its tool rather than a script. The verifier reports
+  a committed tooling file, and delivery warns about one.
+- **Kestrel explains itself in the log.** `kestrel.board.decisions` logs every
+  decision and its reason at info: cards claimed and finished, coordinator
+  actions, each verification's findings and round, escalations, delivery
+  requested or held and by what, screening verdicts and how replies were
+  read. A failed agent tool call is a warning with its error.
+  `KESTREL_LOG_LEVELS` follows single loggers at debug, where
+  `kestrel.reasoning` logs every internal-reasoning prompt and answer;
+  `KESTREL_LOG_TEXT_LIMIT` lifts the 500-character cut on agent text; and
+  Claude's thinking is logged like opencode's reasoning.
+- **Approved tasks become work items in Jira.** When CAB-2 approves a
+  breakdown, each task becomes a sub-task of the request, or, with
+  `work_items_project` set, an issue in that project linked to the request.
+  Prerequisites become "blocks" links, and a comment lists every task with its
+  item. Issue and link types are configurable per Jira source.
+- **The approved PRD is attached to the ticket** as `PRD.md`, with a short
+  comment in place of the full text.
 - **Escalations ask someone.** When the verifier stops on a problem it may
   not settle, the reporter is asked, in kestrel and on the ticket, to clarify
   it, accept the work as built, or abandon the request. A clarification that

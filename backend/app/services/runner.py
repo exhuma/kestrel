@@ -126,6 +126,8 @@ class SessionRunner:
                 event = map_claude_line(line)
                 if event is None:
                     continue
+                if req.on_activity is not None:
+                    req.on_activity()
                 if session_id is None and event.session_id is not None:
                     session_id = event.session_id
                     log = self._open(session_id, req)
@@ -143,7 +145,10 @@ class SessionRunner:
 
     def _open(self, session_id: str, req: TurnRequest) -> AgentLog:
         """Start logging a session the moment its id is known."""
-        log = AgentLog(session_id, req.card_id, backend_id="claude_cli")
+        log = AgentLog(
+            session_id, req.card_id, backend_id="claude_cli",
+            text_limit=self.settings.log_text_limit,
+        )
         log.started(resumed=req.resume_id is not None)
         if req.on_session_id is not None:
             req.on_session_id(session_id)

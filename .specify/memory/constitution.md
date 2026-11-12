@@ -1,6 +1,22 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Amendment 2026-11-11 (2.0.0 -> 2.1.0, MINOR): the approved decomposition's
+work items (#64) may also be issues in a configured project, linked to the
+ingested task, where the organisation keeps delivery work apart from intake;
+and the approved PRD is recorded as a file on the ticket. The status rule is
+unchanged: kestrel moves only work items it created. Expanded guidance, no
+principle redefined, therefore MINOR.
+
+Modified sections:
+  - Core Principles -> VII (business records: the PRD as a file, work items)
+  - Technology & Architecture Constraints -> public-source write posture
+
+Templates & docs reviewed for consistency:
+  - .specify/templates/* ..................... no edit
+  - docs/setup-jira-workflow.md, docs/configuration.md,
+    docs/architecture.md ...................... updated with the feature
+
 Amendment 2026-10-24 (1.6.0 -> 2.0.0, MAJOR): Slim-core redefinition (epic
 #90, issue #85). Principle IV changes from "single-user" to "single operator,
 many participants"; a new principle VII, "State Placement", makes the task
@@ -410,9 +426,11 @@ Business records live in the task source and the code host; kestrel holds
 operational state only. The task source holds the record; kestrel is the
 engine.
 
-- **Business records** are: the request, its restatement and PRD, every gate
-  decision with its decider and reason, the interview answers, the approved
-  decomposition as sub-tasks, and the sub-tasks' status and time spent. They
+- **Business records** are: the request, its restatement and PRD (the
+  approved PRD as a file on the ticket), every gate decision with its decider
+  and reason, the interview answers, the approved decomposition as work items
+  (sub-tasks, or issues in a configured project linked to the request), and
+  the work items' status and time spent. They
   MUST be written to the task source or code host, and kestrel MUST NOT be the
   only place they exist.
 - **Operational state** is: claims, leases, attempts, cursors, quarantine, the
@@ -476,10 +494,12 @@ section records only the non-negotiable constraints an agent must honour.
     exact pre-publication state. Cleanup MUST be idempotent: an absent
     artifact is success, an unresolved required failure stays recorded for
     retry, and deleting comments is best-effort;
-  - create sub-tasks of an ingested task, change the status of those
-    sub-tasks only (in progress; resolved = coding finished, waiting for
-    merge; done = merged; on GitHub, labels and closing the sub-issue), and
-    write their time-spent field.
+  - attach files it produced (the approved PRD) to an ingested task;
+  - create work items for an ingested task's approved decomposition, as
+    sub-tasks or as issues in a configured project linked to it, link them to
+    each other, change the status of those work items only (in progress;
+    resolved = coding finished, waiting for merge; done = merged; on GitHub,
+    labels and closing the sub-issue), and write their time-spent field.
 - **No status change on ingested tasks**: kestrel MUST NOT change the status
   (workflow state, transition, resolution) of an ingested (primary) task. The
   ticket belongs to its owners, and moving it is their decision. Where it
@@ -524,4 +544,4 @@ constitution, not ignored.
   operational guidance for day-to-day development and MUST be kept consistent
   with this constitution.
 
-**Version**: 2.0.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-10-24
+**Version**: 2.1.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-11-11

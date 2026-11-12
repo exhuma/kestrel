@@ -16,6 +16,7 @@ from app.services.board.dispatch_ready import (
     dispatch_ready_work,
 )
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from app.services.board.workspace import WorkspaceService
 from tests.test_board_scheduling import (
     _dispatch_services,
@@ -71,7 +72,8 @@ async def test_write_card_gets_a_real_workspace_and_accept_edits(
     backend = _FakeBackend("<RESULT>implemented</RESULT>")
 
     await dispatch_ready_work(
-        "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+        "wf-1", services, lambda _specialist: backend,
+            limits=TurnLimits.within(5)
     )
 
     assert store.get_card("card-1").state == "done"
@@ -101,7 +103,8 @@ async def test_write_card_with_no_workspace_configured_stays_claimed(
     backend = _FakeBackend("<RESULT>implemented</RESULT>")
 
     await dispatch_ready_work(
-        "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+        "wf-1", services, lambda _specialist: backend,
+            limits=TurnLimits.within(5)
     )
 
     assert store.get_card("card-1").state == "claimed"
@@ -136,7 +139,8 @@ async def test_read_only_card_gets_a_workspace_but_stays_in_plan_mode(
     backend = _FakeBackend("<RESULT>found it</RESULT>")
 
     await dispatch_ready_work(
-        "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+        "wf-1", services, lambda _specialist: backend,
+            limits=TurnLimits.within(5)
     )
 
     assert store.get_card("card-1").state == "done"

@@ -13,7 +13,7 @@ from app.persistence.board_store import BoardStore
 from app.services.board.delivery import deliver
 from app.services.board.delivery_body import (
     Screenshots,
-    pr_body,
+    kestrel_section,
     read_screenshots,
 )
 from app.services.board.dispatch_delivery import _record_delivery
@@ -52,34 +52,51 @@ def _commit(dest: str, files: dict[str, str | bytes]) -> None:
 
 
 def _md_body(*args) -> str:
-    """The body as the code host receives it (Markdown)."""
-    return render_markdown(pr_body(*args))
+    """The section as the code host receives it (Markdown)."""
+    return render_markdown(kestrel_section(*args))
 
-class TestPrBody:
+
+_HEAD = (
+    "## Maintained by kestrel\n\n"
+    "kestrel keeps this section up to date on every delivery and replaces "
+    "edits made inside it.\n\n"
+)
+_END = "\n\nEnd of the section kestrel maintains."
+
+
+class TestKestrelSection:
     def test_embeds_each_screenshot_as_an_image(self) -> None:
         shots = Screenshots(images=(
             ".kestrel/screenshots/a-rail.png",
             ".kestrel/screenshots/b-feed.png",
         ))
 
-        body = _md_body("o/r#1", shots, _url)
+        body = _md_body("o/r#1", (), shots, _url)
 
         assert body == (
-            "Implements o/r#1\n\n## Screenshots\n\n"
+            _HEAD + "Implements o/r#1.\n\n### Screenshots\n\n"
             "![a-rail](https://host/raw/.kestrel/screenshots/a-rail.png)\n\n"
             "![b-feed](https://host/raw/.kestrel/screenshots/b-feed.png)"
-            "\n\nOpened by kestrel."
+            + _END
         )
 
     def test_states_the_reason_when_there_are_none(self) -> None:
-        body = _md_body("o/r#1", Screenshots(note="No browser here."), _url)
+        body = _md_body(
+            "o/r#1", (), Screenshots(note="No browser here."), _url
+        )
 
-        assert "## Screenshots\n\nNo screenshots: No browser here." in body
+        assert "### Screenshots\n\nNo screenshots: No browser here." in body
 
-    def test_has_no_section_without_either(self) -> None:
-        body = _md_body("o/r#1", Screenshots(), _url)
+    def test_lists_the_later_rounds(self) -> None:
+        body = _md_body(
+            "o/r#1", ("Requested changes: bigger font: 1 commit(s)",),
+            Screenshots(), _url,
+        )
 
-        assert body == "Implements o/r#1\n\nOpened by kestrel."
+        assert body == (
+            _HEAD + "Implements o/r#1.\n\n### Later rounds\n\n"
+            "- Requested changes: bigger font: 1 commit(s)" + _END
+        )
 
 
 class TestReadScreenshots:
@@ -125,9 +142,9 @@ class TestDeliverBody:
         await deliver(_workflow(), code_host, svc)
 
         assert render_markdown(code_host.opened["body"]) == (
-            "Implements owner/repo#1\n\n## Screenshots\n\n"
+            _HEAD + "Implements owner/repo#1.\n\n### Screenshots\n\n"
             "![rail](file://owner/repo/kestrel/board/wf-1/"
-            ".kestrel/screenshots/rail.png)\n\nOpened by kestrel."
+            ".kestrel/screenshots/rail.png)" + _END
         )
 
 

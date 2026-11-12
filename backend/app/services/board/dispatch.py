@@ -28,6 +28,7 @@ from app.models_board import (
 )
 from app.persistence.board_store import BoardStore
 from app.reasoning.client import ReasoningBlocked
+from app.services.board import decision_log
 from app.services.board.agent_text import to_prompt
 from app.services.board.artifacts import ArtifactsService
 from app.services.board.claims import (
@@ -40,6 +41,13 @@ from app.services.board.coordinator import (
 )
 from app.services.board.refinement import gather_refinement_context
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import (
+    TurnLimitReached,
+    TurnLimits,
+    watched,
+    within_limits,
+)
+from app.services.board.understanding import confirmed_understanding
 from app.text_extract import extract_tag
 
 #: Backend-agnostic — every ``_TurnBackend`` implementation's failure
@@ -216,6 +224,7 @@ def build_card_envelope(
     card: WorkCard,
     *,
     extra_context: str = "",
+    understanding: str = "",
 ) -> str:
     """Build the prompt for one specialist's turn on a claimed card.
 
@@ -239,8 +248,7 @@ def build_card_envelope(
         "You are working on this card:",
         f"Kind: {card.kind}",
         f"Title: {card.title}", "",
-        "Task:",
-        _task_text(workflow),
+        *_request_sections(workflow, understanding),
     ]
     if workflow.approved_prd is not None:
         sections += ["", "Approved PRD:", to_prompt(workflow.approved_prd)]
@@ -277,17 +285,21 @@ async def run_card_turn(
     backend: _TurnBackend,
     request: TurnRequest,
     *,
-    timeout_seconds: float,
+    limits: TurnLimits,
 ) -> SpecialistTurnResult:
     """Dispatch one card turn (see :func:`card_request`) and return its
-    raw result.
+    raw result. The turn runs while its agent is active, within *limits*
+    (``turn_limits``).
 
-    :raises CardTurnError: On timeout or backend failure.
+    :raises CardTurnError: On a limit reached, or a backend failure.
     """
+    request, activity = watched(request)
     try:
-        result = await asyncio.wait_for(
-            backend.run_turn(request), timeout=timeout_seconds
+        result = await within_limits(
+            backend.run_turn(request), activity, limits
         )
+    except TurnLimitReached as exc:
+        raise CardTurnError(f"card turn {exc.reason}") from exc
     except TimeoutError as exc:
         raise CardTurnError("card turn timed out") from exc
     except BackendUnavailable as exc:
@@ -303,7 +315,7 @@ async def claim_and_dispatch(
     specialist: SpecialistDefinition,
     backend: _TurnBackend,
     *,
-    timeout_seconds: float,
+    limits: TurnLimits,
 ) -> tuple[WorkCard, SpecialistTurnResult] | None:
     """Claim the next eligible ready card and dispatch its turn.
 
@@ -322,7 +334,7 @@ async def claim_and_dispatch(
     workflow = claims.store.get_workflow(workflow_id)
     envelope = build_card_envelope(specialist, workflow, card)
     result = await run_card_turn(
-        backend, card_request(envelope), timeout_seconds=timeout_seconds
+        backend, card_request(envelope), limits=limits
     )
     return card, result
 
@@ -333,6 +345,7 @@ def build_coordinator_envelope(
     cards: list[WorkCard],
     *,
     extra_context: str = "",
+    understanding: str = "",
 ) -> str:
     """Build the coordinator's wake-up prompt: its role, the task body
     (T078 — quarantine-screened at intake, see ``Workflow.task_body``),
@@ -351,7 +364,7 @@ def build_coordinator_envelope(
     sections = [
         specialist.prompt, "",
         f"Workflow: {workflow.title}",
-        f"Task: {_task_text(workflow)}", "",
+        *_request_sections(workflow, understanding), "",
         "Current cards:",
         lines,
     ]
@@ -384,7 +397,7 @@ class SchedulingService:
         coordinator: CoordinatorService,
         artifacts: ArtifactsService,
         *,
-        default_timeout_seconds: float,
+        limits: TurnLimits,
     ) -> None:
         self._store = store
         self._roster = roster
@@ -393,7 +406,7 @@ class SchedulingService:
         #: coordinator's envelope (feature 028) — see
         #: ``refinement.gather_refinement_context``.
         self._artifacts = artifacts
-        self._default_timeout_seconds = default_timeout_seconds
+        self._limits = limits
         self._wake_locks: dict[str, asyncio.Lock] = {}
         self._woken_revision: dict[str, int] = {}
 
@@ -429,18 +442,38 @@ class SchedulingService:
             workflow_id, self._store, self._artifacts
         )
         envelope = build_coordinator_envelope(
-            specialist, workflow, cards, extra_context=extra_context
+            specialist, workflow, cards, extra_context=extra_context,
+            understanding=confirmed_understanding(
+                workflow_id, self._store, self._artifacts
+            ),
         )
         result = await run_card_turn(
             backend,
             card_request(envelope),
-            timeout_seconds=self._default_timeout_seconds,
+            limits=self._limits,
         )
         actions = parse_coordinator_actions(result.final_text)
         if not actions:
             return
         trigger = f"revision:{workflow.revision}"
-        self._coordinator.apply_actions(workflow_id, trigger, actions)
+        decision_log.coordinator_acted(
+            workflow_id,
+            self._coordinator.apply_actions(workflow_id, trigger, actions),
+        )
+
+
+def _request_sections(workflow: Workflow, understanding: str) -> list[str]:
+    """What the request is: the understanding the reporter confirmed,
+    once there is one, then the ticket as written."""
+    if not understanding:
+        return ["Task:", _task_text(workflow)]
+    return [
+        "The request, as the reporter confirmed it (base your work on "
+        "this):",
+        understanding, "",
+        "The ticket as written (for reference):",
+        _task_text(workflow),
+    ]
 
 
 def _task_text(workflow: Workflow) -> str:

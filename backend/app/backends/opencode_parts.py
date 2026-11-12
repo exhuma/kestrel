@@ -58,14 +58,15 @@ def _tool_events(part: dict, session_id: str) -> list[CanonicalEvent]:
             tool_summary=tool_summary(state.get("input")),
         )
     ]
-    output = state.get("output")
+    failed = state.get("status") == "error"
+    output = state.get("error") if failed else state.get("output")
     if isinstance(output, str) and output:
         events.append(
             CanonicalEvent(
                 EventKind.TOOL_RESULT,
                 session_id,
                 text=output,
-                is_error=state.get("status") == "error",
+                is_error=failed,
             )
         )
     return events

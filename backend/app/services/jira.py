@@ -62,7 +62,36 @@ class JiraTaskSource:
         return await self._client.get_issue(ref, field)
 
     async def check_health(self) -> bool:
-        return await self._client.check_health()
+        """Reachable and signed in, and the work-item settings name types
+        that exist, so a typo shows on the status icon, not on CAB-2.
+
+        :raises JiraError: Naming each setting Jira does not know.
+        """
+        await self._client.check_health()
+        if self._config is not None:
+            problems = await self._work_item_problems(self._config)
+            if problems:
+                raise JiraError("; ".join(problems))
+        return True
+
+    async def _work_item_problems(self, config: TaskSourceConfig) -> list[str]:
+        links = await self._client.link_type_names()
+        wanted = [config.work_items_blocks_link_type]
+        if config.work_items_project:
+            wanted.append(config.work_items_link_type)
+        problems = [
+            f"no issue link type named {name!r}"
+            for name in wanted if name not in links
+        ]
+        project = config.work_items_project
+        if project:
+            types = await self._client.issue_type_names(project)
+            if config.work_item_type() not in types:
+                problems.append(
+                    f"project {project} has no issue type named "
+                    f"{config.work_item_type()!r}"
+                )
+        return problems
 
     async def post_comment(self, ref: str, body: Document) -> str:
         """Post a comment carrying kestrel's ownership marker."""
@@ -75,16 +104,56 @@ class JiraTaskSource:
         parent_ref: str,
         title: str,
         body: Document,
+        key: str = "",
     ) -> str:
-        """Create a child that inherits its parent's repository binding."""
-        project_key = parent_ref.split("-", 1)[0]
-        repo_field = self._config.repo_field if self._config else ""
-        extra_fields = await self._repository_fields(parent_ref, repo_field)
-        child_ref = await self._client.create_subtask(
-            parent_ref, project_key, title, body, extra_fields
-        )
-        await self.complete_subtask(parent_ref, child_ref)
+        """Create one approved task's work item: a sub-task of the request
+        that inherits its repository binding, or an issue in
+        ``work_items_project`` linked to the request."""
+        if key:
+            found = await self._client.find_by_label(key)
+            if found:
+                _log.info("work item %s already exists as %s", key, found)
+                return found
+        config = self._settings()
+        project = config.work_items_project
+        fields: dict[str, object] = {
+            "project": {"key": project or parent_ref.split("-", 1)[0]},
+            "summary": title,
+            "issuetype": {"name": config.work_item_type()},
+        }
+        if key:
+            fields["labels"] = [key]
+        if not project:
+            fields["parent"] = {"key": parent_ref}
+            fields |= await self._repository_fields(
+                parent_ref, config.repo_field
+            ) or {}
+        child_ref = await self._client.create_issue(fields, body)
+        if project:
+            await self._client.link_issues(
+                config.work_items_link_type, child_ref, parent_ref
+            )
+            await self._copy_repository_link(parent_ref, child_ref)
+        else:
+            await self.complete_subtask(parent_ref, child_ref)
         return child_ref
+
+    def _settings(self) -> TaskSourceConfig:
+        """This source's config, or the defaults when it has none."""
+        return self._config or TaskSourceConfig.model_construct(type="jira")
+
+    async def link_subtasks(self, blocking_ref: str, blocked_ref: str) -> None:
+        """Link two work items with the configured "blocks" link type."""
+        config = self._settings()
+        await self._client.link_issues(
+            config.work_items_blocks_link_type, blocking_ref, blocked_ref
+        )
+
+    async def attach_document(
+        self, ref: str, name: str, document: Document
+    ) -> str:
+        """Attach *document* to the issue as a Markdown file."""
+        return await self._client.attach_markdown(ref, name, document)
 
     async def complete_subtask(self, parent_ref: str, task_ref: str) -> None:
         """Repair an existing child's repository binding when it uses links."""

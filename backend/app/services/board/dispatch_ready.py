@@ -22,12 +22,14 @@ from app.models_board import (
     WorkspacePermission,
 )
 from app.policy import SpecialistCapabilityError
+from app.services.board import decision_log
 from app.services.board.announcements.service import AnnouncementService
 from app.services.board.artifacts import (
     CARD_RESULT_LOGICAL_NAME,
     ArtifactDraft,
     ArtifactsService,
 )
+from app.services.board.claim_heartbeat import kept_claimed
 from app.services.board.claims import (
     ClaimsService,
     NoEligibleCardError,
@@ -51,6 +53,7 @@ from app.services.board.dispatch_extras import (
     extra_context_for,
     interview_of,
     retry_or_escalate,
+    understanding_for,
 )
 from app.services.board.escalations import (
     DECISION_OF,
@@ -69,6 +72,7 @@ from app.services.board.question_review import reconcile_interviews
 from app.services.board.retries import UnreadableResultError
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from app.services.board.verification import route_verifier_result
 from app.services.board.verification_rounds import RoundContext
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
@@ -135,7 +139,7 @@ async def dispatch_ready_work(
     services: DispatchServices,
     backend_for: Callable[[SpecialistDefinition], _TurnBackend],
     *,
-    timeout_seconds: float,
+    limits: TurnLimits,
 ) -> None:
     """Try one claim-and-turn cycle per non-coordinator role (FR-004).
 
@@ -163,7 +167,7 @@ async def dispatch_ready_work(
             continue
         await _dispatch_one(
             workflow_id, services, specialist, backend_for,
-            timeout_seconds=timeout_seconds,
+            limits=limits,
         )
     await _dispatch_pending_delivery(workflow_id, services)
 
@@ -206,6 +210,9 @@ def _claim_for(
     ):
         # No repository to work in: kestrel reasons itself, no agent.
         backend = services.reasoning.backend_for(specialist)
+    decision_log.card_claimed(
+        card, specialist.id, str(getattr(backend, "id", "?"))
+    )
     return backend, card
 
 
@@ -235,12 +242,19 @@ def _report_failed_turn(
     error: CardTurnError,
     services: DispatchServices,
 ) -> None:
-    """Say a turn failed, once. A card whose backend went away goes back
-    to ``ready`` straight away for the recovery sweep to pick up; any
-    other failed turn keeps its claim until the lease runs out."""
+    """Say a turn failed, once, and free its card at once: a card whose
+    backend went away goes back to ``ready`` without using up an attempt;
+    any other failure ends the attempt, so the card is ``ready`` again
+    while it has attempts left, else ``failed``. No retry waits for the
+    lease to run out."""
     retrying = isinstance(
         error, BackendLostError
     ) and services.claims.release_after_outage(card)
+    if not retrying:
+        retrying = services.claims.end_failed(card) == "ready"
+    decision_log.turn_failed(
+        card, turn_failure(specialist.label, error), retrying=retrying
+    )
     _dispatch_log.warning(
         "workflow %s: %s's turn on card %s failed%s: %s",
         workflow_id, specialist.id, card.id,
@@ -259,7 +273,7 @@ async def _dispatch_one(
     specialist: SpecialistDefinition,
     backend_for: Callable[[SpecialistDefinition], _TurnBackend],
     *,
-    timeout_seconds: float,
+    limits: TurnLimits,
 ) -> None:
     """Claim, turn, and accept one card's result for one specialist."""
     claimed = _claim_for(workflow_id, services, specialist, backend_for)
@@ -273,7 +287,8 @@ async def _dispatch_one(
     workflow = services.claims.store.get_workflow(workflow_id)
     extra_context = extra_context_for(workflow_id, card, services)
     envelope = build_card_envelope(
-        specialist, workflow, card, extra_context=extra_context
+        specialist, workflow, card, extra_context=extra_context,
+        understanding=understanding_for(card, services),
     )
     try:
         with tracking(
@@ -288,9 +303,8 @@ async def _dispatch_one(
                 card_id=card.id,
                 on_session_id=_session_recorder(services.claims, card),
             )
-            result = await run_card_turn(
-                backend, request, timeout_seconds=timeout_seconds
-            )
+            async with kept_claimed(services.claims, card):
+                result = await run_card_turn(backend, request, limits=limits)
     except CardTurnError as exc:
         _report_failed_turn(workflow_id, specialist, card, exc, services)
         return
@@ -305,6 +319,7 @@ async def _dispatch_one(
             workflow_id, specialist.id, card.id, outcome.reason,
         )
         return
+    decision_log.card_finished(card, specialist.id)
     services.artifacts.submit_result(
         ArtifactDraft(
             producer_card_id=card.id,
@@ -364,10 +379,11 @@ async def _route_verification(
         return
     if services.gates is not None:
         for escalation in routing.escalations:
-            services.gates.create_gate(
+            gate = services.gates.create_gate(
                 workflow_id, kind=escalation.kind, title=escalation.title,
                 requested_decision=DECISION_OF[escalation.kind],
             )
+            decision_log.escalation_opened(workflow_id, gate)
     if routing.clean:
         _request_delivery(workflow_id, services)
 

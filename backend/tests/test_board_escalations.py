@@ -41,6 +41,7 @@ from app.services.board.reply_rules import (
 from app.services.board.retries import live_attempts, retry_card, retry_context
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.board_test_support import board_session_factory
 from tests.test_board_decomposition import _WORKFLOW
 from tests.test_board_scheduling import _FakeBackend, _specialist
@@ -68,7 +69,7 @@ class _Rig:
         self.backend = _FakeBackend(answer)
         await dispatch_ready_work(
             "wf-1", self.services, lambda _s: self.backend,
-            timeout_seconds=5,
+            limits=TurnLimits.within(5),
         )
 
     def cards(self, kind: str) -> list[WorkCard]:
