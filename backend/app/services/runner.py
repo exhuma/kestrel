@@ -126,6 +126,8 @@ class SessionRunner:
                 event = map_claude_line(line)
                 if event is None:
                     continue
+                if req.on_activity is not None:
+                    req.on_activity()
                 if session_id is None and event.session_id is not None:
                     session_id = event.session_id
                     log = self._open(session_id, req)

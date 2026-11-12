@@ -41,6 +41,12 @@ from app.services.board.coordinator import (
 )
 from app.services.board.refinement import gather_refinement_context
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import (
+    TurnLimitReached,
+    TurnLimits,
+    watched,
+    within_limits,
+)
 from app.text_extract import extract_tag
 
 #: Backend-agnostic — every ``_TurnBackend`` implementation's failure
@@ -278,17 +284,21 @@ async def run_card_turn(
     backend: _TurnBackend,
     request: TurnRequest,
     *,
-    timeout_seconds: float,
+    limits: TurnLimits,
 ) -> SpecialistTurnResult:
     """Dispatch one card turn (see :func:`card_request`) and return its
-    raw result.
+    raw result. The turn runs while its agent is active, within *limits*
+    (``turn_limits``).
 
-    :raises CardTurnError: On timeout or backend failure.
+    :raises CardTurnError: On a limit reached, or a backend failure.
     """
+    request, activity = watched(request)
     try:
-        result = await asyncio.wait_for(
-            backend.run_turn(request), timeout=timeout_seconds
+        result = await within_limits(
+            backend.run_turn(request), activity, limits
         )
+    except TurnLimitReached as exc:
+        raise CardTurnError(f"card turn {exc.reason}") from exc
     except TimeoutError as exc:
         raise CardTurnError("card turn timed out") from exc
     except BackendUnavailable as exc:
@@ -304,7 +314,7 @@ async def claim_and_dispatch(
     specialist: SpecialistDefinition,
     backend: _TurnBackend,
     *,
-    timeout_seconds: float,
+    limits: TurnLimits,
 ) -> tuple[WorkCard, SpecialistTurnResult] | None:
     """Claim the next eligible ready card and dispatch its turn.
 
@@ -323,7 +333,7 @@ async def claim_and_dispatch(
     workflow = claims.store.get_workflow(workflow_id)
     envelope = build_card_envelope(specialist, workflow, card)
     result = await run_card_turn(
-        backend, card_request(envelope), timeout_seconds=timeout_seconds
+        backend, card_request(envelope), limits=limits
     )
     return card, result
 
@@ -385,7 +395,7 @@ class SchedulingService:
         coordinator: CoordinatorService,
         artifacts: ArtifactsService,
         *,
-        default_timeout_seconds: float,
+        limits: TurnLimits,
     ) -> None:
         self._store = store
         self._roster = roster
@@ -394,7 +404,7 @@ class SchedulingService:
         #: coordinator's envelope (feature 028) — see
         #: ``refinement.gather_refinement_context``.
         self._artifacts = artifacts
-        self._default_timeout_seconds = default_timeout_seconds
+        self._limits = limits
         self._wake_locks: dict[str, asyncio.Lock] = {}
         self._woken_revision: dict[str, int] = {}
 
@@ -435,7 +445,7 @@ class SchedulingService:
         result = await run_card_turn(
             backend,
             card_request(envelope),
-            timeout_seconds=self._default_timeout_seconds,
+            limits=self._limits,
         )
         actions = parse_coordinator_actions(result.final_text)
         if not actions:

@@ -5,7 +5,7 @@ import asyncio
 import logging
 from functools import lru_cache
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.documents import Text, paragraph
 from app.models_board import CardKind, WorkCard
 from app.persistence.board_artifact_store import get_board_artifact_store
@@ -48,6 +48,7 @@ from app.services.board.recovery import RecoveryService
 from app.services.board.requested_changes import RequestChangesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster, load_roster
+from app.services.board.turn_limits import TurnLimits
 from app.services.board.work_items import WorkItemDeps, WorkItemPublisher
 from app.services.board.workspace import WorkspaceService
 from app.services.task_sources import get_task_source_registry
@@ -176,6 +177,13 @@ def get_projections_service() -> ProjectionsService:
     return ProjectionsService(get_board_projection_store())
 
 
+def turn_limits(settings: Settings) -> TurnLimits:
+    """How long an agent turn may run (``turn_limits``)."""
+    return TurnLimits(
+        settings.board_turn_idle_seconds, settings.board_turn_max_seconds
+    )
+
+
 @lru_cache
 def get_work_item_publisher() -> WorkItemPublisher:
     """Return the process-wide WorkItemPublisher singleton (#64)."""
@@ -255,7 +263,7 @@ def get_scheduling_service() -> SchedulingService:
         get_specialist_roster(),
         get_coordinator_service(),
         get_artifacts_service(),
-        default_timeout_seconds=settings.board_turn_timeout_seconds,
+        limits=turn_limits(settings),
     )
 
 
@@ -346,7 +354,7 @@ async def _wake_and_dispatch(
         workflow_id,
         get_dispatch_services(),
         get_specialist_backend_policy().backend_for,
-        timeout_seconds=settings.board_turn_timeout_seconds,
+        limits=turn_limits(settings),
     )
 
 

@@ -31,6 +31,7 @@ from app.services.board.dispatch_ready import (
 from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.board_test_support import board_session_factory
 
 pytestmark = pytest.mark.integration
@@ -122,7 +123,8 @@ class TestCab1EnabledFullChain:
         assert interviews[0].eligible_roles == ("requester",)
 
         await dispatch_ready_work(
-            "wf-1", services, lambda _s: _FixedBackend(), timeout_seconds=5
+            "wf-1", services, lambda _s: _FixedBackend(),
+                limits=TurnLimits.within(5)
         )
         interview_gates = [
             c for c in store.list_cards("wf-1")
@@ -162,7 +164,8 @@ class TestCab1EnabledFullChain:
         )
         gates.resolve(understanding.id, "approved")
         await dispatch_ready_work(
-            "wf-1", services, lambda _s: _FixedBackend(), timeout_seconds=5
+            "wf-1", services, lambda _s: _FixedBackend(),
+                limits=TurnLimits.within(5)
         )
         interview_gate = next(
             c for c in store.list_cards("wf-1")

@@ -16,6 +16,7 @@ import pytest
 
 from app.backends.base import TurnRequest, TurnResult
 from app.services.board.dispatch_ready import dispatch_ready_work
+from app.services.board.turn_limits import TurnLimits
 from tests.interview_support import interview_stack
 
 pytestmark = pytest.mark.integration
@@ -113,7 +114,8 @@ class TestCoordinatedInterviewToPrd:
 
         async def run() -> None:
             await dispatch_ready_work(
-                "wf-1", services, lambda _s: backend, timeout_seconds=5
+                "wf-1", services, lambda _s: backend,
+                    limits=TurnLimits.within(5)
             )
 
         understanding = gates.create_gate(

@@ -19,6 +19,7 @@ from app.services.board.live_activity import (
 )
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.test_board_scheduling import (
     _dispatch_services,
     _FakeBackend,
@@ -117,7 +118,7 @@ async def test_a_card_turn_reports_its_tools_live(tmp_path: Path) -> None:
 
     await dispatch_ready_work(
         "wf-1", services, lambda _s: _Calling("<RESULT>ok</RESULT>"),
-        timeout_seconds=5,
+        limits=TurnLimits.within(5),
     )
 
     assert seen == [("read", 1)]

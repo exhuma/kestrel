@@ -236,6 +236,57 @@ class BoardClaimsStore:
             )
             return True
 
+    def renew_lease(
+        self,
+        card_id: str,
+        attempt_sequence: int,
+        seconds: float,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """Extend a running attempt's claim to *seconds* from now.
+
+        :returns: Whether the attempt still held the claim; ``False`` once
+            it ended or recovery took it.
+        """
+        now = now_utc(now)
+        with self._factory.begin() as db:
+            renewed = db.execute(
+                update(BoardClaimLeaseRow)
+                .where(
+                    BoardClaimLeaseRow.card_id == card_id,
+                    BoardClaimLeaseRow.attempt_sequence == attempt_sequence,
+                )
+                .values(expires_at=now + timedelta(seconds=seconds))
+            )
+            return renewed.rowcount == 1
+
+    def end_attempt_failed(
+        self,
+        card_id: str,
+        attempt_sequence: int,
+        *,
+        now: datetime | None = None,
+    ) -> str | None:
+        """End a failed attempt now, rather than when its lease expires:
+        the card goes back to ``ready`` while it has attempts left, else
+        to ``failed`` (the rule :meth:`expire_leases` applies).
+
+        :returns: The card's new state, or ``None`` when this attempt no
+            longer held the claim.
+        """
+        now = now_utc(now)
+        with self._factory.begin() as db:
+            if _end_claim(db, card_id, attempt_sequence) is None:
+                return None
+            _interrupt(db, card_id, attempt_sequence, now, "failed")
+            return db.execute(
+                update(BoardCardRow)
+                .where(BoardCardRow.id == card_id)
+                .values(state=_RETRY_OR_FAIL, updated_at=now)
+                .returning(BoardCardRow.state)
+            ).scalar_one_or_none()
+
     def get_active_lease(self, card_id: str) -> ClaimLease | None:
         """Return *card_id*'s current claim lease, or ``None`` if unclaimed."""
         with self._factory() as db:

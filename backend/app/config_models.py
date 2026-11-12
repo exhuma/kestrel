@@ -53,8 +53,6 @@ class BackendConfig(BaseModel):
     #: HTTP Basic username for a secured ``opencode`` server. Defaults to
     #: opencode's own default ("opencode") when a password is configured.
     username: str | None = None
-    #: Per-request timeout in seconds for the opencode backend.
-    timeout: float | None = None
     #: Maximum in-flight turns across this backend in one kestrel process.
     max_concurrency: int = Field(default=1, ge=1)
     #: Maximum OpenCode retries after a provider rate-limit response.
@@ -71,6 +69,19 @@ class BackendConfig(BaseModel):
     #: Abort a turn once one tool is called this many times with the
     #: same input — a model stuck in a loop (opencode; feature 036).
     max_repeated_tool_calls: int = Field(default=5, ge=2)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_turn_timeout(cls, data: object) -> object:
+        """Explain the removed ``timeout`` instead of a bare "extra
+        field": turns are bounded by kestrel's turn limits now."""
+        if isinstance(data, dict) and "timeout" in data:
+            raise ValueError(
+                "a backend's timeout is no longer a setting: a turn runs "
+                "while its agent is active, up to board_turn_idle_seconds "
+                "without activity and board_turn_max_seconds in all"
+            )
+        return data
 
     @model_validator(mode="after")
     def _tools_only_where_honoured(self) -> BackendConfig:

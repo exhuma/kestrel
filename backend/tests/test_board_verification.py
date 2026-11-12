@@ -24,6 +24,7 @@ from app.services.board.gates import GatesService
 from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from app.services.board.verification import (
     Escalation,
     route_verifier_result,
@@ -259,7 +260,7 @@ class TestEndToEndDispatchRouting:
         ))
 
         await dispatch_ready_work(
-            "wf-1", services, lambda _s: backend, timeout_seconds=5
+            "wf-1", services, lambda _s: backend, limits=TurnLimits.within(5)
         )
 
         assert store.get_card("card-1").state == "done"
@@ -320,7 +321,7 @@ class TestEndToEndDispatchRouting:
         ))
 
         await dispatch_ready_work(
-            "wf-1", services, lambda _s: backend, timeout_seconds=5
+            "wf-1", services, lambda _s: backend, limits=TurnLimits.within(5)
         )
 
         (gate,) = [

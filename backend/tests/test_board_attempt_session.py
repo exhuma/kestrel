@@ -18,6 +18,7 @@ from app.persistence.board_store import BoardStore
 from app.persistence.board_tables import BoardCardAttemptRow
 from app.services.board.dispatch_ready import dispatch_ready_work
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.board_test_support import board_session_factory
 from tests.test_board_claims import _WORKFLOW
 from tests.test_board_scheduling import _dispatch_services, _specialist
@@ -95,7 +96,8 @@ async def test_dispatch_stores_the_session_id_and_tags_the_card(
     backend = _SessionBackend()
 
     await dispatch_ready_work(
-        "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+        "wf-1", services, lambda _specialist: backend,
+            limits=TurnLimits.within(5)
     )
 
     assert _attempt_session(tmp_path, "card-1", 1) == "sess-42"
@@ -115,7 +117,7 @@ async def test_dispatch_keeps_the_session_id_of_a_failed_turn(
 
     await dispatch_ready_work(
         "wf-1", services, lambda _specialist: _SessionBackend(fail=True),
-        timeout_seconds=5,
+        limits=TurnLimits.within(5),
     )
 
     assert _attempt_session(tmp_path, "card-1", 1) == "sess-42"
@@ -139,7 +141,7 @@ async def test_an_outage_puts_the_card_back_for_another_try(
 
     await dispatch_ready_work(
         "wf-1", services, lambda _specialist: _LostBackend(),
-        timeout_seconds=5,
+        limits=TurnLimits.within(5),
     )
 
     card = store.get_card("card-1")

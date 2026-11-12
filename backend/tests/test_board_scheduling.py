@@ -37,6 +37,7 @@ from app.services.board.dispatch_ready import (
 )
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.board_test_support import board_session_factory
 
 _WORKFLOW = Workflow(
@@ -111,7 +112,7 @@ def _scheduling_service(tmp_path: Path) -> tuple[SchedulingService, BoardStore]:
     )
     store.create_workflow(_WORKFLOW)
     scheduling = SchedulingService(
-        store, roster, coordinator, artifacts, default_timeout_seconds=5
+        store, roster, coordinator, artifacts, limits=TurnLimits.within(5)
     )
     return scheduling, store
 
@@ -123,7 +124,8 @@ class TestCardTurn:
     async def test_successful_turn_returns_final_text(self) -> None:
         backend = _FakeBackend("<RESULT>done</RESULT>")
         result = await run_card_turn(
-            backend, card_request("envelope", cwd="/tmp"), timeout_seconds=5
+            backend, card_request("envelope", cwd="/tmp"),
+                limits=TurnLimits.within(5)
         )
         assert result.final_text == "<RESULT>done</RESULT>"
 
@@ -134,7 +136,7 @@ class TestCardTurn:
             await run_card_turn(
                 backend,
                 card_request("envelope", cwd="/tmp"),
-                timeout_seconds=0.01,
+                limits=TurnLimits.within(0.01),
             )
 
     @pytest.mark.asyncio
@@ -142,7 +144,8 @@ class TestCardTurn:
         backend = _FakeBackend(raises=True)
         with pytest.raises(CardTurnError):
             await run_card_turn(
-                backend, card_request("envelope", cwd="/tmp"), timeout_seconds=5
+                backend, card_request("envelope", cwd="/tmp"),
+                    limits=TurnLimits.within(5)
             )
 
 
@@ -181,7 +184,7 @@ class TestClaimAndDispatch:
             "wf-1",
             _specialist(),
             backend,
-            timeout_seconds=5,
+            limits=TurnLimits.within(5),
         )
 
         assert outcome is not None
@@ -211,7 +214,7 @@ class TestClaimAndDispatch:
             "wf-1",
             _specialist(),
             backend,
-            timeout_seconds=5,
+            limits=TurnLimits.within(5),
         )
 
         assert outcome is None
@@ -372,7 +375,8 @@ class TestDispatchReadyWork:
         backend = _FakeBackend("<RESULT>the finding</RESULT>")
 
         await dispatch_ready_work(
-            "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+            "wf-1", services, lambda _specialist: backend,
+                limits=TurnLimits.within(5)
         )
 
         card = store.get_card("card-1")
@@ -399,7 +403,7 @@ class TestDispatchReadyWork:
 
         await dispatch_ready_work(
             "wf-1", services, lambda _s: _FakeBackend("<RESULT>ok</RESULT>"),
-            timeout_seconds=5,
+            limits=TurnLimits.within(5),
         )
 
         assert store.get_card("card-1").state == "ready"
@@ -432,13 +436,13 @@ class TestDispatchReadyWork:
             return backend
 
         await dispatch_ready_work(
-            "wf-1", services, _backend_for, timeout_seconds=5
+            "wf-1", services, _backend_for, limits=TurnLimits.within(5)
         )
 
         assert store.get_card("card-1").state == "done"
 
     @pytest.mark.asyncio
-    async def test_backend_failure_leaves_card_claimed_for_recovery(
+    async def test_backend_failure_frees_the_card_at_once(
         self, tmp_path: Path
     ) -> None:
         roster = SpecialistRoster({"developer": _specialist()})
@@ -456,7 +460,9 @@ class TestDispatchReadyWork:
         backend = _FakeBackend(raises=True)
 
         await dispatch_ready_work(
-            "wf-1", services, lambda _specialist: backend, timeout_seconds=5
+            "wf-1", services, lambda _specialist: backend,
+                limits=TurnLimits.within(5)
         )
 
-        assert store.get_card("card-1").state == "claimed"
+        # Its only attempt failed: no waiting for the lease to run out.
+        assert store.get_card("card-1").state == "failed"

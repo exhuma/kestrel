@@ -27,6 +27,7 @@ from app.services.board.interventions import (
 from app.services.board.retries import live_attempts
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from tests.board_test_support import board_session_factory
 from tests.test_board_decomposition import _WORKFLOW
 from tests.test_board_scheduling import _FakeBackend, _specialist
@@ -44,7 +45,7 @@ class _Rig:
     async def turn(self) -> None:
         await dispatch_ready_work(
             "wf-1", self.services, lambda _s: self.backend,
-            timeout_seconds=5,
+            limits=TurnLimits.within(5),
         )
 
     def cards(self) -> list[WorkCard]:

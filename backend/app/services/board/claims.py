@@ -123,6 +123,19 @@ class ClaimsService:
             max_releases=self.max_outage_retries,
         )
 
+    def renew(self, card: WorkCard) -> bool:
+        """Keep *card*'s running attempt claimed for another lease."""
+        return self.claims_store.renew_lease(
+            card.id, card.attempt_count, self.default_lease_seconds
+        )
+
+    def end_failed(self, card: WorkCard) -> str | None:
+        """End *card*'s failed attempt at once
+        (``BoardClaimsStore.end_attempt_failed``)."""
+        return self.claims_store.end_attempt_failed(
+            card.id, card.attempt_count
+        )
+
     def record_session(
         self, card_id: str, attempt_sequence: int, session_id: str
     ) -> bool:

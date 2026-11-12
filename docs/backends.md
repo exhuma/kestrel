@@ -86,6 +86,19 @@ repository write lease. A bad mapping (a text-only backend pinned to `coder`)
 fails capability-checked routing (`SpecialistBackendPolicy.backend_for`) with
 a clear error rather than silently dispatching anyway.
 
+## How long a turn may run
+
+A turn runs as long as its agent keeps working: a coding turn may take
+minutes or hours. Kestrel stops it only when the agent shows no activity
+for `board_turn_idle_seconds` (15 minutes by default), or when it has run
+for `board_turn_max_seconds` in all (six hours). The card's claim is renewed
+while the turn runs, and a failed turn's card is free for its retry at once.
+
+A harness reports activity by calling `TurnRequest.on_activity` whenever its
+agent does something. opencode does this for every part of its session on
+the event stream; the Claude CLI for every line it writes. A backend has no
+`timeout` setting any more.
+
 ## Concurrency and rate limits
 
 Every configured backend has a process-wide concurrency cap. It is shared by

@@ -22,6 +22,7 @@ from typing import Protocol
 
 from app.backends.base import BackendUnavailable, TurnStopped
 from app.reasoning.client import ReasoningBlocked
+from app.services.board.turn_limits import TurnLimitReached
 
 #: Told a tool's name each time the agent calls one (feature 036).
 NoteTool = Callable[[str], None]
@@ -141,15 +142,23 @@ def turn_failure(actor: str, error: Exception) -> str:
     stopped = _stopped(error)
     if stopped is not None:
         return f"{actor}'s turn was stopped: {stopped.reason}"
-    if isinstance(error.__cause__, ReasoningBlocked):
-        return (
-            f"{actor}'s turn was blocked by the AI provider's content filter"
-        )
-    if isinstance(error.__cause__, BackendUnavailable):
-        return f"{actor}'s turn was interrupted: the agent backend went away"
+    cause = error.__cause__
+    if isinstance(cause, TurnLimitReached):
+        return f"{actor}'s turn {cause.reason}"
+    for kind, what in _CAUSES:
+        if isinstance(cause, kind):
+            return f"{actor}'s turn {what}"
     if "timed out" in str(error):
         return f"{actor}'s turn timed out"
     return f"{actor}'s turn failed; see the kestrel log"
+
+
+#: What a turn's failure cause means, in words for the operator.
+_CAUSES: tuple[tuple[type[BaseException], str], ...] = (
+    (ReasoningBlocked, "was blocked by the AI provider's content filter"),
+    (BackendUnavailable, "was interrupted: the agent backend went away"),
+    (TimeoutError, "timed out"),
+)
 
 
 def _stopped(error: BaseException | None) -> TurnStopped | None:

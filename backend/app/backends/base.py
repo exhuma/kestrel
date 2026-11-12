@@ -79,6 +79,11 @@ class TurnRequest:
     #: runs (feature 036). Backends that cannot see tool calls live never
     #: call it.
     on_tool: Callable[[str], None] | None = None
+    #: Called whenever the agent does something (a tool call, a streamed
+    #: part, a stream line): how kestrel tells a working turn from a hung
+    #: one (``turn_limits``). Backends that cannot see activity never call
+    #: it, and their turns end at the idle limit unless they finish.
+    on_activity: Callable[[], None] | None = None
     #: Told the backend's session id the moment it is known, before the
     #: turn finishes — so the id survives a turn that later fails or times
     #: out.

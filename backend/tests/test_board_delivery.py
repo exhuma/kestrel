@@ -25,6 +25,7 @@ from app.services.board.dispatch_ready import (
 from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.turn_limits import TurnLimits
 from app.services.board.workspace import WorkspaceRequest, WorkspaceService
 from tests.announcement_support import announcing
 from tests.board_test_support import board_session_factory
@@ -275,7 +276,7 @@ class TestEndToEndDelivery:
                                 "</VERIFIER_FINDINGS>")
 
         await dispatch_ready_work(
-            "wf-1", services, lambda _s: backend, timeout_seconds=5
+            "wf-1", services, lambda _s: backend, limits=TurnLimits.within(5)
         )
 
         delivery_cards = [

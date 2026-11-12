@@ -11,6 +11,15 @@ holds the record. Constitution 2.0.0.
 
 ### Breaking
 
+- **Turns run while the agent works, not for a fixed time.**
+  `board_turn_timeout_seconds` and a backend's `timeout` are removed. A turn
+  is stopped after `board_turn_idle_seconds` without activity (default 15
+  minutes) or `board_turn_max_seconds` in all (default six hours), so long
+  coding turns no longer need a global timeout of hours. A failed turn frees
+  its card at once instead of when its lease expires, and a running turn's
+  claim is renewed, so `board_claim_lease_seconds` only decides how soon a
+  card is recovered after kestrel itself died. A leftover setting fails at
+  startup and names its replacement.
 - **Internal reasoning is required.** Kestrel now does its own thinking on an
   OpenAI-compatible endpoint set in a new `[reasoning]` table, with the key in
   `KESTREL_REASONING_API_KEY`; it does not start without them. Every turn

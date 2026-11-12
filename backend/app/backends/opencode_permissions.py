@@ -164,7 +164,7 @@ class _Turn:
 
     async def handle(self, event: dict) -> None:
         props = event.get("properties") or {}
-        if props.get("sessionID") != self.session_id:
+        if _session_of(props) != self.session_id:
             return
         kind = event.get("type")
         if kind == "permission.asked":
@@ -174,6 +174,15 @@ class _Turn:
             )
         elif kind == "message.part.updated" and self.watch is not None:
             await self.watch(props.get("part"))
+
+
+def _session_of(props: dict) -> object:
+    """The session an event belongs to: on the event itself, or on the
+    part or message it carries."""
+    for holder in (props, props.get("part"), props.get("info")):
+        if isinstance(holder, dict) and holder.get("sessionID"):
+            return holder["sessionID"]
+    return None
 
 
 async def _answer_permission(

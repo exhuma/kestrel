@@ -97,12 +97,22 @@ entity reference; this is the operator-relevant shape:
   `dependency`/`reconciliation`/`supersedes` edge; only `dependency` edges
   gate readiness.
 - **Claims and leases.** A specialist claims one `ready` card at a time
-  (`ClaimLease`, time-bounded, `board_claim_lease_seconds`). A
-  write-permission card's claim also holds its repository, so only one
-  writer can touch a given repo at once — read-only cards may run
-  concurrently, up to `board_max_parallel_read_cards`. A background sweep
-  (`board_recovery_interval_seconds`) reclaims expired leases and applies
-  each card's bounded retry/reassign/escalate policy.
+  (`ClaimLease`, `board_claim_lease_seconds`). A write-permission card's
+  claim also holds its repository, so only one writer can touch a given repo
+  at once; read-only cards may run concurrently, up to
+  `board_max_parallel_read_cards`. While a turn runs, kestrel renews its
+  claim every third of the lease (`claim_heartbeat.py`). A failed turn ends
+  its attempt at once (`BoardClaimsStore.end_attempt_failed`): the card is
+  `ready` again while it has attempts left, else `failed`. The background
+  sweep (`board_recovery_interval_seconds`) only recovers claims whose
+  kestrel process died mid-turn.
+- **Turn limits.** An agent turn runs while its agent works
+  (`turn_limits.py`). Each backend reports activity through
+  `TurnRequest.on_activity`: opencode for every part of its session on the
+  event stream, the Claude CLI for every stream-json line. A turn is stopped
+  after `board_turn_idle_seconds` without activity, or after
+  `board_turn_max_seconds` in all; stopping it aborts the agent's session.
+  The tool budget stops a looping turn earlier still.
 - **Handoff artifacts.** A card's accepted output is retained as an
   immutable, versioned `HandoffArtifact` (its body and its SHA-256 in the
   `board_artifact` row), with explicit pinned-revision input provenance.

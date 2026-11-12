@@ -134,3 +134,12 @@ def unreadable(card: WorkCard, reason: str, *, retrying: bool) -> None:
         f"result of {card.kind} {card.id} unreadable ({_short(reason)}); "
         f"{next_step}",
     )
+
+
+def turn_failed(card: WorkCard, why: str, *, retrying: bool) -> None:
+    """A card's turn failed (or was stopped), and what happens next."""
+    next_step = "ready for another attempt" if retrying else "no attempts left"
+    _info(
+        card.workflow_id, card.id,
+        f"turn on {card.kind} {card.id} ended: {why}; {next_step}",
+    )
