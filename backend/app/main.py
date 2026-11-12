@@ -123,6 +123,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(get_comment_poll_service().run_forever())
     )
 
+    # Work items handed to kestrel, done by a person, or given back (#99):
+    # approved tasks on a hand-over source start only once handed over.
+    from app.services.board.bootstrap_handover import (
+        get_handover_poll_service,
+    )
+
+    poll_tasks.append(
+        asyncio.create_task(get_handover_poll_service().run_forever())
+    )
+
     try:
         yield
     finally:

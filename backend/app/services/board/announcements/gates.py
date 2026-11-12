@@ -45,6 +45,13 @@ _RISK_STOPPED = (
     "the verifier flagged a policy risk, and the work has stopped until it "
     "is settled."
 )
+#: Why the work stopped, when a work item kestrel had taken was given
+#: back to a person (#99).
+HANDED_BACK = (
+    "a work item kestrel was working on was given back to a person. "
+    "kestrel has stopped that task, and will not deliver part of the "
+    "request."
+)
 
 
 @dataclass(frozen=True)
@@ -82,10 +89,13 @@ def escalation(ctx: Context, problem: str) -> Document:
     ))
 
 
-def policy_risk(ctx: Context, problem: str) -> Document:
-    """A policy risk only the change owner may settle."""
+def policy_risk(
+    ctx: Context, problem: str, stopped: str | None = None
+) -> Document:
+    """A policy risk only the change owner may settle, or another reason
+    the work *stopped* that only they may settle."""
     return finish(ctx, (
-        _risk_opening(ctx),
+        _risk_opening(ctx, stopped or _RISK_STOPPED),
         paragraph(Text(problem)),
         paragraph(Text(_SETTLING)),
         _cab_decision(ctx),
@@ -197,13 +207,11 @@ def _ready_for_cab(ctx: Context, what: str) -> Paragraph:
     )
 
 
-def _risk_opening(ctx: Context) -> Paragraph:
+def _risk_opening(ctx: Context, stopped: str) -> Paragraph:
     people = ctx.people
     if people.change_owner is None and people.known:
-        return paragraph(Text(
-            f"{_RISK_STOPPED.capitalize()} {_NO_CHANGE_OWNER}"
-        ))
-    return addressed(people.change_owner, _RISK_STOPPED)
+        return paragraph(Text(f"{stopped.capitalize()} {_NO_CHANGE_OWNER}"))
+    return addressed(people.change_owner, stopped)
 
 
 def _cab_decision(ctx: Context) -> Paragraph:

@@ -44,12 +44,33 @@ class TestStateTransitions:
             CardState.WAITING_DEPENDENCY, CardState.READY
         )
 
-    def test_waiting_dependency_to_awaiting_human_is_valid(self) -> None:
-        """Ensure an unblocked manual task can become the operator's move
-        directly (feature 031, research R4)."""
-        assert is_valid_transition(
+    def test_waiting_dependency_to_awaiting_human_is_invalid(self) -> None:
+        """Ensure an unblocked card only ever becomes claimable work: no
+        manual task waits on the operator any more (#99)."""
+        assert not is_valid_transition(
             CardState.WAITING_DEPENDENCY, CardState.AWAITING_HUMAN
         )
+
+    @pytest.mark.parametrize(
+        "target",
+        [CardState.WAITING_DEPENDENCY, CardState.DONE, CardState.CANCELLED],
+    )
+    def test_waiting_handover_leaves_by_hand_over_person_or_cancel(
+        self, target: CardState
+    ) -> None:
+        """Ensure a card waiting for hand-over is handed over (to the
+        dependency cascade), done by a person, or cancelled (#99)."""
+        assert is_valid_transition(CardState.WAITING_HANDOVER, target)
+
+    @pytest.mark.parametrize(
+        "target", [CardState.READY, CardState.CLAIMED],
+    )
+    def test_waiting_handover_never_skips_the_cascade(
+        self, target: CardState
+    ) -> None:
+        """Ensure a handed-over card goes through waiting_dependency, so
+        its prerequisites still hold it back (#99)."""
+        assert not is_valid_transition(CardState.WAITING_HANDOVER, target)
 
     def test_ready_to_awaiting_human_is_valid(self) -> None:
         assert is_valid_transition(CardState.READY, CardState.AWAITING_HUMAN)

@@ -10,7 +10,14 @@ from typing import Literal
 
 from app.document_formats.markdown import parse_markdown, render_markdown
 from app.documents import Document
-from app.ports import CommentPage, Feedback, LifecycleEvent, Person, Task
+from app.ports import (
+    CommentPage,
+    Feedback,
+    LifecycleEvent,
+    Person,
+    Task,
+    WorkItemState,
+)
 from app.services.task_source_utils import as_posted, parse_iso
 
 _PREFIX = "local:"
@@ -162,6 +169,16 @@ class LocalTaskSource:
     def supports_time_spent(self) -> bool:
         """Report that local tasks do not have a native time field."""
         return False
+
+    def supports_handover(self) -> bool:
+        """Local sub-tasks start at once: no hand-over (#99)."""
+        return False
+
+    async def work_item_states(
+        self, _refs: list[str]
+    ) -> dict[str, WorkItemState]:
+        """Not read: local tasks do not support hand-over (#99)."""
+        return {}
 
     def visibility(self) -> Literal["public", "private"]:
         """Report local tasks as private and therefore rerunnable."""

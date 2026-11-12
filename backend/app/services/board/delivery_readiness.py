@@ -6,8 +6,10 @@ coding work is settled — not on the first clean verification, as before
 feature 031. Delivery still only ever follows a clean verification, so
 nothing unverified is pushed.
 
-Manual cards never count: they block the request's completion, not its
-delivery (FR-008).
+A task a person finished on its work item (#99) has nothing to deliver
+and no verification: it never holds delivery back once done, and it is
+never delivered. While a person still has a task, it holds delivery
+back: the request is delivered once, complete.
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ from app.services.board.coordinator import (
     CoordinatorService,
     CreateCardAction,
 )
+from app.services.board.task_heads import done_by_person
 
 #: Kinds whose open (or failed) cards mean the code is not settled yet.
 _SETTLING_KINDS = frozenset(
@@ -59,8 +62,8 @@ def delivery_due(
     ``done`` implementation card of an approved CAB-2 task has a
     ``done`` verification depending on it. Coordinator-created work
     carries no such edge, so for it the clean verification that calls
-    this is the only evidence, as before. A breakdown with only manual
-    tasks never has a verification to call this at all (FR-015).
+    this is the only evidence, as before. A task a person finished has
+    no verification and is not kestrel's to deliver (#99).
     """
     if any(_unsettled(card) for card in cards):
         return False
@@ -97,11 +100,20 @@ def delivery_trigger(cards: list[WorkCard]) -> str:
     return f"delivery:{hashlib.sha256(ids.encode()).hexdigest()[:16]}"
 
 
+def kestrel_built(cards: list[WorkCard]) -> bool:
+    """Whether kestrel finished any implementation work to deliver: a
+    plan people finished themselves has none (#99)."""
+    return bool(_done_implementation_ids(cards))
+
+
 def _done_implementation_ids(cards: list[WorkCard]) -> set[str]:
+    """The implementation cards kestrel finished: a person's are not
+    kestrel's to deliver."""
     return {
         c.id for c in cards
         if c.kind == CardKind.IMPLEMENTATION.value
         and c.state == CardState.DONE.value
+        and not done_by_person(c)
     }
 
 

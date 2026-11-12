@@ -44,9 +44,10 @@ lower-cased remainder (e.g. `KESTREL_GITHUB_TOKEN` → `github_token`).
 | `KESTREL_BOARD_RECOVERY_INTERVAL_SECONDS` | `60.0` | How often the recovery sweep checks for expired claim leases |
 | `KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS` | `120.0` | How often comments kestrel failed to post to a ticket are tried again. Each failed comment waits twice as long after every failed retry (up to 32 intervals) and is given up on, still visible in the projection ledger, after 8 retries. A comment is posted at most once |
 | `KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS` | `60.0` | How often the comments on the Jira tickets of requests in progress are read for replies (feature 046). Nothing is read while `comment_sentinel_enabled` is off: kestrel could not tell its own comments from replies |
+| `KESTREL_BOARD_HANDOVER_POLL_INTERVAL_SECONDS` | `60.0` | How often the work items of approved tasks are read on a source that supports hand-over (Jira, #99): handed to kestrel, done by a person, or given back. One or two searches per request |
 | `KESTREL_FEEDBACK_MARKER` | `@kestrel` | The plain-text marker (whole word, any case) a person puts in a ticket reply for kestrel to act on (feature 046). The reporter's reply decides the understanding and the PRD, the change owner's CAB-1 and CAB-2; anyone else is told they cannot |
 | `KESTREL_STATIC_DIR` | _(empty)_ | Directory of the built SPA to serve. Empty ⇒ API-only (the Vite dev server serves the UI). Image: `/app/static` |
-| `KESTREL_COMMENT_SENTINEL_ENABLED` | `true` | Mark every comment kestrel posts with its ownership marker. Kestrel posts through the operator's account, so this marker is how it tells its own comments from replies; with it off, no ticket reply is read. How the marker looks is each source adapter's concern |
+| `KESTREL_COMMENT_SENTINEL_ENABLED` | `true` | Mark every comment kestrel posts with its ownership marker. The account behind a source's token may also be a person's, so this marker is how it tells its own comments from replies; with it off, no ticket reply is read. How the marker looks is each source adapter's concern |
 | `KESTREL_HEALTH_CHECK_INTERVAL_SECONDS` | `60` | How often each task source's health (reachable and authenticated) is re-checked in the background |
 | `KESTREL_HEALTH_CHECK_TIMEOUT_SECONDS` | `10` | How long one source health check may take before it counts as unhealthy |
 | `KESTREL_MAX_VERIFY_ITERATIONS` | `3` | Verification rounds one approved coding task gets before it escalates to coordinator review |
@@ -157,6 +158,7 @@ work_items_project = ""                # optional; approved tasks become issues 
 work_items_issue_type = ""             # default Sub-task, or Task with a project
 work_items_link_type = "Relates"       # request <-> work item in another project
 work_items_blocks_link_type = "Blocks" # a task waits for another
+work_items_jql = ""                    # optional; JQL that also hands an item to kestrel (#99)
 code_host = "github"                   # github | gitlab | gitea (self-hostable)
 code_host_base_url = ""                # for a self-hosted gitlab/gitea
 # code_host_token_env = "KESTREL_CODE_HOST_TOKEN"

@@ -1,5 +1,5 @@
-"""Tests for the dependency-ready cascade (feature 026; feature 031's
-manual-task target state)."""
+"""Tests for the dependency-ready cascade (feature 026; #99's
+``waiting_handover`` state, which the cascade never moves)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -28,7 +28,7 @@ def _board(tmp_path: Path) -> tuple[BoardStore, BoardService]:
     cards = [
         ("prereq", "implementation", "done"),
         ("impl", "implementation", "waiting_dependency"),
-        ("manual", "manual_task", "waiting_dependency"),
+        ("handover", "implementation", "waiting_handover"),
     ]
     for card_id, kind, state in cards:
         store.create_card(
@@ -37,7 +37,7 @@ def _board(tmp_path: Path) -> tuple[BoardStore, BoardService]:
                 state=state,
             )
         )
-    for dependent in ("impl", "manual"):
+    for dependent in ("impl", "handover"):
         store.add_relation(
             CardRelation(
                 card_id=dependent,
@@ -49,19 +49,22 @@ def _board(tmp_path: Path) -> tuple[BoardStore, BoardService]:
     return store, BoardService(store)
 
 
-def test_an_unblocked_manual_task_awaits_the_operator(tmp_path: Path) -> None:
-    """Ensure a manual task goes to awaiting_human, never to ready."""
+def test_a_card_waiting_for_hand_over_is_never_swept_to_ready(
+    tmp_path: Path,
+) -> None:
+    """Ensure a met dependency leaves a waiting_handover card waiting:
+    only its work item being handed over moves it (#99)."""
     store, service = _board(tmp_path)
 
     advance_ready_dependents(store, service, "wf-1")
 
-    assert store.get_card("manual").state == "awaiting_human"
+    assert store.get_card("handover").state == "waiting_handover"
 
 
 def test_an_unblocked_implementation_card_becomes_ready(
     tmp_path: Path,
 ) -> None:
-    """Ensure every other kind still becomes ready."""
+    """Ensure a waiting_dependency card becomes ready."""
     store, service = _board(tmp_path)
 
     advance_ready_dependents(store, service, "wf-1")

@@ -19,7 +19,6 @@ import ActionBanner from '../components/cockpit/ActionBanner.vue'
 import PhaseSpine from '../components/cockpit/PhaseSpine.vue'
 import NarrativeFeed from '../components/cockpit/NarrativeFeed.vue'
 import ArtifactRail from '../components/cockpit/ArtifactRail.vue'
-import ManualTaskList from '../components/cockpit/ManualTaskList.vue'
 import RequestChanges from '../components/cockpit/RequestChanges.vue'
 import WorkList from '../components/cockpit/WorkList.vue'
 import ActivityLine from '../components/common/ActivityLine.vue'
@@ -91,8 +90,6 @@ onUnmounted(() => {
       <v-sheet class="pa-2 mb-4" rounded>
         <PhaseSpine :phase="snapshot.phase" :phases="snapshot.phases" />
       </v-sheet>
-
-      <ManualTaskList class="mb-4" :cards="snapshot.cards" />
 
       <WorkList class="mb-4" :cards="snapshot.cards" :events="events" />
 

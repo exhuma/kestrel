@@ -32,7 +32,11 @@ PROBLEM_EVENTS = frozenset({"card.turn_failed", "coordinator.turn_failed"})
 _FINISHED = frozenset({"done", "cancelled"})
 
 _WAITING_STATES = frozenset(
-    {CardState.AWAITING_HUMAN.value, CardState.QUARANTINED.value}
+    {
+        CardState.AWAITING_HUMAN.value, CardState.QUARANTINED.value,
+        # A task whose work item is not handed to kestrel yet (#99).
+        CardState.WAITING_HANDOVER.value,
+    }
 )
 
 

@@ -157,7 +157,6 @@ async def test_list_workflows_returns_the_summary_row(
             "stage": "Planning",
             "outcome": "in_progress",
             "cap_exhausted": False,
-            "open_manual_task_count": 0,
             # Ready, but no role may take it: nothing can move (033).
             "activity": {
                 "state": "stalled", "actor": None, "subject": None,

@@ -2,6 +2,7 @@
 research R7): one request, one delivery."""
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,8 +10,10 @@ from app.models_board import CardRelation, RelationKind, WorkCard
 from app.services.board.delivery_readiness import (
     delivery_due,
     delivery_trigger,
+    kestrel_built,
 )
 from app.services.board.dispatch_delivery import _request_delivery
+from app.services.board.task_heads import DONE_BY_PERSON
 from tests.test_board_decomposition import _setup
 
 
@@ -121,3 +124,58 @@ def test_one_delivery_per_set_of_finished_work(tmp_path: Path) -> None:
     _request_delivery("wf-1", services)
     second_delivery = 2
     assert len(_deliveries(store)) == second_delivery
+
+
+def _person_done(card_id: str, node: str) -> WorkCard:
+    """A head card a person finished on its work item (#99)."""
+    return replace(
+        _card(card_id, "implementation", "done", node),
+        wait_reason=DONE_BY_PERSON,
+    )
+
+
+def test_a_task_a_person_finished_counts_as_complete() -> None:
+    """Ensure a person's task, with its verification cancelled, never
+    holds delivery of kestrel's verified work (#99)."""
+    cards = [
+        *_DONE_TASK,
+        _person_done("impl-2", "t2"),
+        _card("ver-2", "verification", "cancelled", "t2"),
+    ]
+
+    assert delivery_due(cards, _EDGES) is True
+    assert kestrel_built(cards) is True
+
+
+def test_a_task_waiting_for_a_person_holds_delivery() -> None:
+    """Ensure the request delivers once, complete: a task a person still
+    has holds kestrel's work back (#99)."""
+    cards = [
+        *_DONE_TASK,
+        _card("impl-2", "implementation", "waiting_handover", "t2"),
+    ]
+
+    assert delivery_due(cards, _EDGES) is False
+
+
+def test_a_plan_people_finished_has_nothing_to_deliver() -> None:
+    """Ensure nothing kestrel built means no delivery is asked for."""
+    cards = [
+        _person_done("impl-1", "t1"),
+        _card("ver-1", "verification", "cancelled", "t1"),
+    ]
+
+    assert kestrel_built(cards) is False
+
+
+def test_a_handed_back_task_never_delivers_part_of_the_request() -> None:
+    """Ensure a task kestrel finished but never verified, because it was
+    handed back, holds delivery for good (#99)."""
+    cards = [
+        *_DONE_TASK,
+        _card("impl-2", "implementation", "done", "t2"),
+        _card("ver-2", "verification", "cancelled", "t2"),
+    ]
+    edges = [*_EDGES, _checks("ver-2", "impl-2")]
+
+    assert delivery_due(cards, edges) is False

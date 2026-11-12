@@ -37,7 +37,6 @@ export function boardWorkflowSummary(
     stage: 'Build & deliver',
     outcome: 'in_progress',
     cap_exhausted: false,
-    open_manual_task_count: 0,
     activity: null,
     awaiting: [],
     ...overrides,

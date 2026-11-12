@@ -46,7 +46,6 @@ const OPERATOR_EVENTS: ReadonlySet<string> = new Set([
   'intervention.cancel',
   'intervention.request_changes',
   'intervention.reassign',
-  'manual_task.completed',
 ])
 
 const TONES: Readonly<Record<string, FeedTone>> = {
@@ -63,7 +62,9 @@ const TONES: Readonly<Record<string, FeedTone>> = {
   'intervention.request_changes': 'warning',
   'intervention.cancel': 'warning',
   'intervention.reassign': 'info',
-  'manual_task.completed': 'success',
+  'card.handed_over': 'info',
+  'card.done_by_person': 'success',
+  'card.handed_back': 'warning',
   'delivery.round': 'success',
   'screening.passed': 'success',
   'card.turn_failed': 'error',
@@ -91,7 +92,9 @@ const SUMMARIES: Readonly<Record<string, string>> = {
   'intervention.request_changes': 'You requested changes',
   'intervention.cancel': 'You cancelled this card',
   'intervention.reassign': 'You returned this card to the queue',
-  'manual_task.completed': 'You marked a manual task done',
+  'card.handed_over': 'The work item was handed to kestrel',
+  'card.done_by_person': 'A person finished this task on its work item',
+  'card.handed_back': 'The work item was given back to a person',
   'delivery.round': 'Delivered to the change request',
   'screening.passed': 'Input screened: safe to work on',
   'card.turn_failed': 'A turn on this card failed; it will be retried',

@@ -116,7 +116,7 @@ class AwaitingOut(BaseModel):
     frontend phrases (``app.services.board.awaiting``). ``role`` names
     the profile whose human answers an interview (feature 038)."""
 
-    actor: Literal["requester", "cab", "you", "operator", "role"]
+    actor: Literal["requester", "cab", "operator", "role"]
     ask: str
     role: BoardRoleRefOut | None = None
 
@@ -277,9 +277,6 @@ class WorkflowSummaryOut(BaseModel):
     :param cap_exhausted: Whether an interview round cap has been hit
         without a usable answer (feature 029 A4) — the board's
         ``cap-reached`` treatment.
-    :param open_manual_task_count: How many ``manual_task`` cards are
-        neither done nor cancelled (feature 031) — the stage board's
-        "N manual tasks assigned to you".
     """
 
     id: str
@@ -292,7 +289,6 @@ class WorkflowSummaryOut(BaseModel):
     stage: str
     outcome: Outcome = "in_progress"
     cap_exhausted: bool = False
-    open_manual_task_count: int = 0
     activity: RequestActivityOut | None = None
     awaiting: list[AwaitingOut] = []
 
@@ -350,7 +346,6 @@ class BoardInterventionIn(BaseModel):
         "reassign",
         "resolve_gate",
         "request_coordinator_review",
-        "complete_manual_task",
     ]
     expected_revision: int
     decision: str | None = None

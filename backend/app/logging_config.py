@@ -32,8 +32,12 @@ _OTEL_SPAN_ATTR = "otelSpanID"
 
 #: Record attributes a caller may attach with ``extra=``; the JSON format
 #: lifts them into top-level fields. ``session_id`` / ``card_id`` are set on
-#: every ``kestrel.agent`` record (see :mod:`app.backends.agent_log`).
-_EXTRA_FIELDS = ("session_id", "card_id", "workflow_id")
+#: every ``kestrel.agent`` record (see :mod:`app.backends.agent_log`); the
+#: hand-over decisions carry the task, its work item and the decision.
+_EXTRA_FIELDS = (
+    "session_id", "card_id", "workflow_id", "task_node_id", "work_item",
+    "decision",
+)
 #: The levels ``KESTREL_LOG_LEVELS`` accepts.
 _LEVEL_NAMES = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 

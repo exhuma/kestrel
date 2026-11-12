@@ -176,14 +176,15 @@ class Settings(BaseSettings):
     max_ci_repair_iterations: int = Field(default=2, ge=0)
     #: The plain-text marker a ticket reply must contain, as a whole word
     #: and case-insensitive, for kestrel to act on it (feature 046,
-    #: ``KESTREL_FEEDBACK_MARKER``). Plain text, not a Jira mention: kestrel
-    #: has no service account yet and posts as the operator.
+    #: ``KESTREL_FEEDBACK_MARKER``). Plain text, not a Jira mention. The
+    #: account behind a source's token is kestrel's own account (#99).
     feedback_marker: str = "@kestrel"
     #: Mark every Kestrel-authored comment with its ownership marker
     #: (``KESTREL_COMMENT_SENTINEL_ENABLED``). Kestrel recognises its own
-    #: comments by that marker, not by author, because it posts through the
-    #: operator's account; disable only for an incompatible source. How the
-    #: marker looks is each source adapter's concern (feature 046).
+    #: comments by that marker, not by author, because the account behind
+    #: a token may also be a person's. Disable only for an incompatible
+    #: source. How the marker looks is each source adapter's concern
+    #: (feature 046).
     comment_sentinel_enabled: bool = True
     #: Root directory of file-backed specialist definitions (feature 026,
     #: ``KESTREL_SPECIALISTS_ROOT``): one subdirectory per named role, each
@@ -243,6 +244,11 @@ class Settings(BaseSettings):
     #: How often ticket comments of active requests are read for replies
     #: (feature 046, ``KESTREL_BOARD_COMMENT_POLL_INTERVAL_SECONDS``).
     board_comment_poll_interval_seconds: float = Field(default=60.0, gt=0)
+    #: How often the work items of approved tasks are read to see whether
+    #: they were handed to kestrel, handed back, or done by a person
+    #: (#99, ``KESTREL_BOARD_HANDOVER_POLL_INTERVAL_SECONDS``). Only for a
+    #: source that supports hand-over (Jira).
+    board_handover_poll_interval_seconds: float = Field(default=60.0, gt=0)
     #: How often comments that failed to post are retried (feature 046,
     #: ``KESTREL_BOARD_PROJECTION_RETRY_INTERVAL_SECONDS``).
     board_projection_retry_interval_seconds: float = Field(

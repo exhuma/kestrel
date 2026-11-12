@@ -5,6 +5,8 @@ A pure, display-only label over card kinds — no store, no writes. See
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 from app.models_board import WorkCard
 from app.services.board.phases import (
     current_phase,
@@ -12,6 +14,7 @@ from app.services.board.phases import (
     phase_statuses,
     stage_of,
 )
+from app.services.board.task_heads import DONE_BY_PERSON
 
 
 def _card(
@@ -26,6 +29,14 @@ def _card(
         state=state,
         task_node_id=task_node_id,
         source_card_id=source_card_id,
+    )
+
+
+def _person_done(card_id: str, node: str) -> WorkCard:
+    """A task's head card a person finished on its work item (#99)."""
+    return replace(
+        _card(card_id, "implementation", state="done", task_node_id=node),
+        wait_reason=DONE_BY_PERSON,
     )
 
 
@@ -82,11 +93,34 @@ class TestOutcome:
         assert outcome_of(cards) == "done"
         assert current_phase(cards) == "done"
 
-    def test_manual_only_work_is_done_once_every_task_is(self) -> None:
+    def test_a_plan_people_finished_is_done_without_a_delivery(
+        self,
+    ) -> None:
+        """Ensure a request whose every task a person finished counts as
+        complete, its cancelled verifications included (#99)."""
         cards = [
             _card("g", "decomposition_gate", state="done"),
-            _card("m", "manual_task", state="done", task_node_id="t1"),
+            _person_done("i1", "t1"),
+            _card("v1", "verification", state="cancelled", task_node_id="t1"),
+            _person_done("i2", "t2"),
+            _card("v2", "verification", state="cancelled", task_node_id="t2"),
         ]
+        assert outcome_of(cards) == "done"
+        assert current_phase(cards) == "done"
+
+    def test_a_person_done_task_beside_kestrels_needs_the_delivery(
+        self,
+    ) -> None:
+        """Ensure kestrel's own work still has to be delivered (#99)."""
+        cards = [
+            _card("g", "decomposition_gate", state="done"),
+            _person_done("i1", "t1"),
+            _card("i2", "implementation", state="done", task_node_id="t2"),
+            _card("v2", "verification", state="done", task_node_id="t2"),
+        ]
+        assert outcome_of(cards) == "cancelled"
+
+        cards.append(_card("d", "delivery", state="done"))
         assert outcome_of(cards) == "done"
 
     def test_approved_coding_work_without_a_delivery_is_not_done(
@@ -114,15 +148,18 @@ class TestCurrentPhase:
         ]
         assert current_phase(cards) == "cancelled"
 
-    def test_an_open_manual_task_keeps_the_request_unfinished(
+    def test_a_task_waiting_for_hand_over_keeps_the_request_in_build(
         self,
     ) -> None:
-        """Ensure a workflow is not done because the code is (feature
-        031, SC-004)."""
+        """Ensure a task a person still has keeps the request open (#99)."""
         cards = [
-            _card("d", "delivery", state="done"),
-            _card("m", "manual_task", state="awaiting_human"),
+            _card("g", "decomposition_gate", state="done"),
+            _card(
+                "i", "implementation", state="waiting_handover",
+                task_node_id="t1",
+            ),
         ]
+        assert outcome_of(cards) == "in_progress"
         assert current_phase(cards) == "Build"
 
     def test_single_outstanding_card_reports_its_phase(self) -> None:

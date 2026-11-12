@@ -32,7 +32,6 @@ from app.documents import (
     paragraph,
 )
 from app.models_board import (
-    CardKind,
     CardState,
     RelationKind,
     WorkCard,
@@ -45,24 +44,30 @@ from app.ports import TaskSource
 from app.services.board.announcements.common import finish
 from app.services.board.announcements.service import AnnouncementService
 from app.services.board.artifacts import ArtifactsService
-from app.services.board.materialise import TASK_SPEC_LOGICAL_NAME
+from app.services.board.candidate import MANUAL
+from app.services.board.materialise import (
+    CLASSIFICATION_LOGICAL_NAME,
+    TASK_SPEC_LOGICAL_NAME,
+)
 from app.services.board.projection_retry import MAX_ATTEMPTS, due_at
 from app.services.board.projections import (
     ProjectionRequest,
     ProjectionsService,
 )
+from app.services.board.task_heads import task_heads
 from app.services.task_sources import TaskSourceRegistry
 
 _log = logging.getLogger("kestrel.board.work_items")
 
-#: The card that stands for a task: its first card, which the others of
-#: the task depend on.
-_HEAD_KINDS = frozenset(
-    {CardKind.IMPLEMENTATION.value, CardKind.MANUAL_TASK.value}
+_AT_ONCE = (
+    "kestrel works the tasks inside this request and delivers them as one "
+    "change."
 )
-#: Rounds a person asked for after delivery (``change_rounds.py``): not
-#: part of an approved plan, so they get no work item.
-_LATER_ROUND = "changes-"
+_HANDOVER = (
+    "kestrel starts a task once its item is assigned to kestrel, waits "
+    "for the other items to be done, and delivers its own work as one "
+    "change."
+)
 _UNSAFE_LABEL = re.compile(r"[^A-Za-z0-9_-]+")
 
 
@@ -136,13 +141,13 @@ class WorkItemPublisher:
             return  # the rest come on a later pass
         for blocking, blocked in _order(heads, store, workflow_id):
             await self._link(workflow, source, refs, (blocking, blocked))
-        await self._announce(workflow, heads, refs)
+        await self._announce(workflow, source, heads, refs)
 
     async def _item(
         self, workflow: Workflow, source: TaskSource, card: WorkCard
     ) -> str | None:
         """The task's item, created now if it has to be."""
-        key = f"work_item:{workflow.id}:{card.task_node_id}"
+        key = work_item_key(workflow.id, card.task_node_id or "")
         body = (
             self._deps.artifacts.latest_document_for_card(
                 card.id, TASK_SPEC_LOGICAL_NAME
@@ -218,54 +223,75 @@ class WorkItemPublisher:
         return ref
 
     async def _announce(
-        self, workflow: Workflow, heads: list[WorkCard], refs: dict[str, str]
+        self,
+        workflow: Workflow,
+        source: TaskSource,
+        heads: list[WorkCard],
+        refs: dict[str, str],
     ) -> None:
         nodes = ",".join(sorted(str(c.task_node_id) for c in heads))
-        listing = breakdown(heads, refs)
+        listing = breakdown(heads, Listing(
+            refs, {card.id: self._who(card) for card in heads},
+            handover=source.supports_handover(),
+        ))
         await self._deps.announcements.post(
             workflow.id, "approved_artifact",
             f"approved_artifact:work_items:{workflow.id}:{nodes}",
             lambda ctx: finish(ctx, listing.blocks),
         )
 
+    def _who(self, card: WorkCard) -> str:
+        """Who the plan expects to do *card*'s task: information only;
+        the work item's assignee decides (#99)."""
+        planned = self._deps.artifacts.latest_content_for_card(
+            card.id, CLASSIFICATION_LOGICAL_NAME
+        )
+        return "for a person" if planned == MANUAL else "coding"
 
-def breakdown(heads: list[WorkCard], refs: dict[str, str]) -> Document:
-    """The comment listing each approved task with its work item."""
+
+@dataclass(frozen=True)
+class Listing:
+    """What the breakdown comment lists, by head card id.
+
+    :param refs: Each task's work item.
+    :param who: Who the plan expects to do each task.
+    :param handover: Whether tasks wait to be handed to kestrel (#99).
+    """
+
+    refs: dict[str, str]
+    who: dict[str, str]
+    handover: bool = False
+
+
+def work_item_key(workflow_id: str, task_node_id: str) -> str:
+    """The ledger key of a task's work item; its row's ``external_id``
+    is the item's ref once it is created."""
+    return f"work_item:{workflow_id}:{task_node_id}"
+
+
+def breakdown(heads: list[WorkCard], listing: Listing) -> Document:
+    """The comment listing each approved task with its work item, and
+    who the plan expects to do it."""
     intro = paragraph(Text(
         "Approved task breakdown (CAB-2). Each task has its own work item; "
-        "kestrel works the coding tasks inside this request and delivers "
-        "them as one change."
+        f"{_HANDOVER if listing.handover else _AT_ONCE}"
     ))
     items = tuple(
         ListItem((paragraph(Text(
-            f"{refs.get(card.id, '?')}: {card.title} ({_who(card)})"
+            f"{listing.refs.get(card.id, '?')}: {card.title} "
+            f"({listing.who.get(card.id, 'coding')})"
         )),))
         for card in heads
     )
     return document(intro, OrderedList(1, items))
 
 
-def _who(card: WorkCard) -> str:
-    if card.kind == CardKind.MANUAL_TASK.value:
-        return "manual, for a human"
-    return "coding"
-
-
 def _heads(cards: list[WorkCard]) -> list[WorkCard]:
-    """One card per approved task, in the order the plan created them."""
-    seen: set[str] = set()
-    heads = []
-    for card in cards:
-        node = card.task_node_id
-        if (
-            not node or node in seen or node.startswith(_LATER_ROUND)
-            or card.kind not in _HEAD_KINDS
-            or card.state == CardState.CANCELLED.value
-        ):
-            continue
-        seen.add(node)
-        heads.append(card)
-    return heads
+    """One card per approved task that is still part of the plan."""
+    return [
+        card for card in task_heads(cards)
+        if card.state != CardState.CANCELLED.value
+    ]
 
 
 def _order(

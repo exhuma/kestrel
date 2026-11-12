@@ -10,6 +10,7 @@ describe('board contract: CARD_STATES', () => {
       'ready',
       'claimed',
       'waiting_dependency',
+      'waiting_handover',
       'awaiting_human',
       'review',
       'quarantined',

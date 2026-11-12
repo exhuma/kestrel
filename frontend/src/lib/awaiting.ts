@@ -8,7 +8,6 @@ import type { Awaiting } from '../types/workflows'
 const ACTORS: Readonly<Record<Exclude<Awaiting['actor'], 'role'>, string>> = {
   requester: 'Requester',
   cab: 'CAB',
-  you: 'You',
   operator: 'Operator',
 }
 
@@ -20,7 +19,6 @@ const ASKS: Readonly<Record<string, string>> = {
   approve_decomposition: 'go / no-go',
   resolve_escalation: 'settle the problem',
   resolve_policy_risk: 'settle the policy risk',
-  do_task: 'do the task',
   review_input: 'review the input',
   retry_or_cancel: 'retry or abandon',
   review: 'review',

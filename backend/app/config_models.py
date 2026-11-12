@@ -145,6 +145,12 @@ class TaskSourceConfig(BaseModel):
     #: request's issue with ``work_items_link_type``. Keep this project out
     #: of ``jql``: kestrel must never ingest its own work items.
     work_items_project: str = ""
+    #: Jira: a JQL condition that also hands a work item to kestrel
+    #: (#99), for teams that hand over by label, component or sprint, e.g.
+    #: ``labels = kestrel``. Kestrel combines it with the items' keys.
+    #: Empty: only assigning an item to the account behind this source's
+    #: token hands it over.
+    work_items_jql: str = ""
     #: Jira: the issue type of a work item; empty means "Sub-task" without
     #: ``work_items_project`` and "Task" with it.
     work_items_issue_type: str = ""

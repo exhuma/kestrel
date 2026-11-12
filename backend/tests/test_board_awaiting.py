@@ -23,7 +23,6 @@ def _card(kind: str, state: str = "awaiting_human") -> WorkCard:
         ("refinement_gate", ("requester", "answer")),
         ("prd_gate", ("requester", "approve_prd")),
         ("decomposition_gate", ("cab", "approve_decomposition")),
-        ("manual_task", ("you", "do_task")),
         ("coordinator_review", ("operator", "review")),
     ],
 )

@@ -58,6 +58,8 @@ class JiraClient:
         self._email = email
         self._token = token
         self._cloud = deployment == "cloud"
+        #: The account behind the token, read once (#99).
+        self._myself: Person | None = None
         http_auth = (
             httpx.BasicAuth(email, token) if auth == "basic" and token else None
         )
@@ -98,6 +100,17 @@ class JiraClient:
         await self._request("GET", "/myself")
         return True
 
+    async def myself(self) -> Person | None:
+        """The account behind this client's token: kestrel's account
+        (#99). Read once, then kept for the life of the client.
+
+        :returns: ``None`` when Jira names no account for it.
+        """
+        if self._myself is None:
+            resp = await self._request("GET", "/myself")
+            self._myself = person(resp.json())
+        return self._myself
+
     @staticmethod
     def _to_task(issue: dict, change_owner_field: str = "") -> Task:
         fields = issue.get("fields") or {}
@@ -121,12 +134,22 @@ class JiraClient:
         the v2 ``/search`` ``startAt``/``total`` page model. Collecting every
         page keeps the poll's view of the qualifying set complete.
         """
+        issues = await self.search_issues(
+            jql, fields=fields, max_results=max_results
+        )
+        return [self._to_task(issue) for issue in issues]
+
+    async def search_issues(
+        self, jql: str, *, fields: list[str], max_results: int = 50
+    ) -> list[dict]:
+        """Every issue ``jql`` finds, as Jira returns it, with *fields*:
+        for a caller that needs fields a ``Task`` does not carry."""
         body = {"jql": jql, "fields": fields, "maxResults": max_results}
         if self._cloud:
             return await self._search_cloud(body)
         return await self._search_server(body)
 
-    async def _search_cloud(self, body: dict) -> list[Task]:
+    async def _search_cloud(self, body: dict) -> list[dict]:
         """Collect all Cloud enhanced-search pages into source-neutral tasks."""
         issues: list[dict] = []
         token: str | None = None
@@ -135,8 +158,7 @@ class JiraClient:
             issues.extend(page.get("issues", []))
             token = None if page.get("isLast") else page.get("nextPageToken")
             if not token:
-                break
-        return [self._to_task(i) for i in issues]
+                return issues
 
     async def _search_cloud_page(self, body: dict, token: str | None) -> dict:
         """POST one Cloud enhanced-search page, continuing with ``token``."""
@@ -144,7 +166,7 @@ class JiraClient:
         resp = await self._request("POST", "/search/jql", json=payload)
         return resp.json()
 
-    async def _search_server(self, body: dict) -> list[Task]:
+    async def _search_server(self, body: dict) -> list[dict]:
         """Collect all Jira Server/DC v2 offset-search pages into tasks."""
         issues: list[dict] = []
         start = 0
@@ -154,7 +176,7 @@ class JiraClient:
             issues.extend(page_issues)
             start += len(page_issues)
             if not page_issues or start >= page.get("total", start):
-                return [self._to_task(issue) for issue in issues]
+                return issues
 
     async def _search_server_page(self, body: dict, start: int) -> dict:
         """POST one Jira Server/DC v2 search page at the requested offset."""

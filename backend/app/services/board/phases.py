@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.models_board import TERMINAL_STATES, CardKind, CardState, WorkCard
+from app.services.board.task_heads import done_by_person, task_heads
 
 #: The phase of a request that reached its end (see :func:`outcome_of`).
 DONE_PHASE = "done"
@@ -91,7 +92,6 @@ _PHASES: tuple[_PhaseDef, ...] = (
                 CardKind.ESCALATION_GATE,
                 CardKind.POLICY_RISK_GATE,
                 CardKind.CLARIFICATION_REVIEW,
-                CardKind.MANUAL_TASK,
             }
         ),
     ),
@@ -124,8 +124,9 @@ def outcome_of(cards: list[WorkCard]) -> str:
       operator, and it can never read as done;
     * ``in_progress`` — anything is still open (an empty board too);
     * ``done`` — nothing open or failed, and the request reached its
-      end: a done delivery, or — when CAB-2 approved no coding work —
-      CAB-2 approval with every approved task done;
+      end: a done delivery, or — when kestrel built nothing because
+      people finished every approved task (#99) — CAB-2 approval with
+      every task's head card done;
     * ``cancelled`` — nothing open or failed, but it stopped before its
       end (a gate rejected, work cancelled). Terminal is not done.
     """
@@ -145,11 +146,14 @@ def _reached_end(cards: list[WorkCard]) -> bool:
 
     if done(CardKind.DELIVERY):
         return True
-    coding = any(c.kind == CardKind.IMPLEMENTATION.value for c in cards)
-    if coding or not done(CardKind.DECOMPOSITION_GATE):
+    built = any(
+        c.kind == CardKind.IMPLEMENTATION.value and not done_by_person(c)
+        for c in cards
+    )
+    if built or not done(CardKind.DECOMPOSITION_GATE):
         return False
-    tasks = [c for c in cards if c.task_node_id]
-    return all(c.state == CardState.DONE.value for c in tasks)
+    heads = task_heads(cards)
+    return bool(heads) and all(done_by_person(c) for c in heads)
 
 
 def current_phase(cards: list[WorkCard]) -> str:

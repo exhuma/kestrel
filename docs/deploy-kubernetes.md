@@ -256,9 +256,10 @@ group, project and status.
 
 ### The Jira account
 
-Kestrel posts to Jira as the account whose API token it uses. There is no
-service account yet; use a dedicated account once your organisation can
-provide one. In the meantime the token owner's own replies still work: kestrel
+Kestrel posts to Jira as the account whose API token it uses, and that
+account is kestrel's: a work item assigned to it is handed to kestrel (#99).
+Use a dedicated account where your organisation can provide one. A person's
+own token works too, and the token owner's own replies still work: kestrel
 tells its comments from replies by the ownership marker, not by author (see
 the "Jira workflow" page). Mentions and notifications of the posted comments
 go to the real reporter and change owner.

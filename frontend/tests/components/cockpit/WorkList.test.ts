@@ -5,6 +5,29 @@ import WorkList from '../../../src/components/cockpit/WorkList.vue'
 import { boardEvent, workCardSummary } from '../../support/board'
 
 describe('WorkList', () => {
+  it('says a task waits for its work item to be handed over (#99)', () => {
+    const wrapper = mount(
+      WorkList,
+      withVuetify({
+        props: {
+          cards: [
+            workCardSummary({
+              id: 'h',
+              title: 'Add the table',
+              state: 'waiting_handover',
+            }),
+          ],
+          events: [],
+        },
+      }),
+    )
+    const waiting = wrapper.find('[data-testid="work-group-waiting"]')
+    expect(waiting.text()).toContain('Add the table')
+    expect(waiting.find('[data-testid="state-note"]').text()).toBe(
+      'Waiting for hand-over',
+    )
+  })
+
   it('renders nothing for a request without cards', () => {
     const wrapper = mount(
       WorkList,

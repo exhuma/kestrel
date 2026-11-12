@@ -22,13 +22,14 @@ from app.persistence.board_projection_store import BoardProjectionStore
 
 #: FR-033's closed vocabulary of default-projected milestones, plus the
 #: kinds feature 046 adds: a gate opening, a status line, a reply's
-#: outcome; and #64's: a file attached to the ticket, a work item, and a
-#: link between two work items.
+#: outcome; #64's: a file attached to the ticket, a work item, and a
+#: link between two work items; and #99's: the note on a work item that
+#: was given back to a person after kestrel took it.
 VALID_PROJECTION_KINDS = frozenset(
     {
         "gate", "escalation", "approved_artifact", "delivery",
         "gate_opened", "status", "reply", "attachment", "work_item",
-        "work_item_link",
+        "work_item_link", "handback",
     }
 )
 #: Kinds the work-item publisher creates and retries itself

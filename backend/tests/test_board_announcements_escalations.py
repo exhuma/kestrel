@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models_board import CardKind
+from app.models_board import CardKind, WorkCard
 from tests.announcement_support import (
     CHANGE_OWNER,
     REPORTER,
@@ -96,3 +96,30 @@ async def test_a_policy_risk_without_a_change_owner_is_decided_in_kestrel(
     assert "No change owner is set" in comment.plain_text()
     assert "Open the request in kestrel" in comment.plain_text()
     assert comment.mentions() == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_a_handed_back_task_asks_the_change_owner_why_work_stopped(
+    tmp_path: Path,
+) -> None:
+    """Ensure the escalation for a work item given back to a person says
+    so, not that the verifier flagged a risk (#99)."""
+    stack = build_stack(tmp_path)
+    head = WorkCard(
+        id="card-head", workflow_id=WORKFLOW_ID, kind="implementation",
+        title="Add the table", state="claimed", task_node_id="t1",
+    )
+    stack.store.create_card(head)
+    stack.gates.open_gate(WorkCard(
+        id="card-gate", workflow_id=WORKFLOW_ID,
+        kind=CardKind.POLICY_RISK_GATE.value,
+        title="Work item DEV-1 was given back: Add the table",
+        state="awaiting_human", source_card_id=head.id,
+    ), "resolve_policy_risk")
+
+    comment = _the_one(await _announced(stack))
+
+    assert "given back to a person" in comment.plain_text()
+    assert "will not deliver part" in comment.plain_text()
+    assert "policy risk" not in comment.plain_text()
+    assert comment.mentions() == frozenset({CHANGE_OWNER.account_id})

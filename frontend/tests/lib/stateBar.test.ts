@@ -18,6 +18,11 @@ describe('stateSegments', () => {
     expect(segments.map((s) => s.label)).toEqual(['1 done', '2 waiting'])
   })
 
+  it('labels tasks waiting for hand-over in plain words (#99)', () => {
+    const segments = stateSegments({ waiting_handover: 2 })
+    expect(segments.map((s) => s.label)).toEqual(['2 waiting for hand-over'])
+  })
+
   it('is empty when no card has a state', () => {
     expect(stateSegments({})).toEqual([])
   })
