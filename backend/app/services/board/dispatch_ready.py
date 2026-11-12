@@ -53,6 +53,7 @@ from app.services.board.dispatch_extras import (
     extra_context_for,
     interview_of,
     retry_or_escalate,
+    understanding_for,
 )
 from app.services.board.escalations import (
     DECISION_OF,
@@ -286,7 +287,8 @@ async def _dispatch_one(
     workflow = services.claims.store.get_workflow(workflow_id)
     extra_context = extra_context_for(workflow_id, card, services)
     envelope = build_card_envelope(
-        specialist, workflow, card, extra_context=extra_context
+        specialist, workflow, card, extra_context=extra_context,
+        understanding=understanding_for(card, services),
     )
     try:
         with tracking(

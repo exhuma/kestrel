@@ -57,6 +57,7 @@ from app.services.board.retries import (
     retry_context,
 )
 from app.services.board.understanding import (
+    confirmed_understanding,
     route_understanding_result,
     understanding_context,
 )
@@ -113,6 +114,16 @@ def extra_context_for(
     retry = retry_context(card, services.claims.store)
     base = _context_for(workflow_id, card, services)
     return "\n\n".join(part for part in (retry, base) if part)
+
+
+def understanding_for(card: WorkCard, services: DispatchServices) -> str:
+    """The understanding the reporter confirmed, for every card after it
+    (an understanding card writes it, so it gets none)."""
+    if card.kind == CardKind.UNDERSTANDING.value:
+        return ""
+    return confirmed_understanding(
+        card.workflow_id, services.claims.store, services.artifacts
+    )
 
 
 def _context_for(

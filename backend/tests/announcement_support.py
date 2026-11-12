@@ -50,6 +50,7 @@ class RecordingSource:
     ) -> None:
         self.task = task
         self.posted: list[tuple[str, Document]] = []
+        self.files: list[tuple[str, str, Document]] = []
         self.transitions: list[tuple[str, object]] = []
         self.read_refs: list[str] = []
         self._failures = failures
@@ -68,6 +69,12 @@ class RecordingSource:
             raise RuntimeError("ticket unreachable")
         self.posted.append((ref, as_posted(body, True)))
         return f"comment-{len(self.posted)}"
+
+    async def attach_document(
+        self, ref: str, name: str, document: Document
+    ) -> str:
+        self.files.append((ref, name, document))
+        return f"file-{len(self.files)}"
 
     async def transition(self, ref: str, event: object) -> bool:
         self.transitions.append((ref, event))

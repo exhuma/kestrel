@@ -225,6 +225,7 @@ posting it twice.
 | The PRD gate opens | The PRD in full | the reporter |
 | CAB-1 opens | "Ready for CAB": the strategic-fit answers | the change owner |
 | CAB-2 opens | "Ready for CAB": the executive summary, with totals, risks and the task table | the change owner |
+| The understanding is confirmed | A short note; the restatement is attached as `Understanding.md` (`Understanding-2.md` when confirmed again) | nobody |
 | The PRD is signed off | A short note; the PRD is attached to the ticket as `PRD.md` (`PRD-2.md` when signed off again) | nobody |
 | CAB-2 approves the breakdown | Each approved task with its work item's key | nobody |
 | The work is delivered | The change request link; the ticket should move on | the change owner |
@@ -279,9 +280,16 @@ what they mean, for example `@kestrel approved`, or `@kestrel no, because
   the reply is read, compared by account. Anyone else is told they cannot
   decide this here, and nothing changes. With no change owner on the ticket
   nobody is entitled to a CAB decision there; it is taken in kestrel.
+- **Answering the understanding.** kestrel's restatement is short and
+  non-technical, and asks at most three questions. Answer them in your own
+  words; "I don't know" and "not relevant" are fine answers. Answers count
+  as a correction: kestrel writes a revised restatement that includes them,
+  and asks you to confirm that. Your answers, whole, are what the revision
+  works from, and every later step works from the confirmed restatement.
 - **A no needs a reason** for the understanding and the PRD. If a rejection
   has none, or kestrel cannot tell what was meant, it asks again and decides
-  nothing.
+  nothing. Whatever you write with a decision is kept and passed on in your
+  own words.
 - **Only replies written after the announcement count.** A reply counts
   only if it was written after kestrel posted the comment announcing that
   gate. Older comments (written before it, or all of a thread's history the

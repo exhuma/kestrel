@@ -6,7 +6,7 @@ import logging
 from functools import lru_cache
 
 from app.config import Settings, get_settings
-from app.documents import Text, paragraph
+from app.documents import Document
 from app.models_board import CardKind, WorkCard
 from app.persistence.board_artifact_store import get_board_artifact_store
 from app.persistence.board_claims_store import get_board_claims_store
@@ -17,7 +17,6 @@ from app.persistence.board_store import get_board_store
 from app.policy import get_specialist_backend_policy
 from app.reasoning.client import ReasoningClient
 from app.reasoning.policy import get_reasoning_policy
-from app.services.board.announcements.common import finish
 from app.services.board.announcements.content import GateContent
 from app.services.board.announcements.service import (
     AnnouncementDeps,
@@ -400,13 +399,14 @@ def schedule_gate_followup(
     workflow_id: str, card: WorkCard, decision: str
 ) -> None:
     """Schedule a resolved gate's kind-specific follow-up, if it has one
-    (T068's breakdown, T078's approved PRD), however it was decided."""
+    (the breakdown's work items; the approved PRD or understanding as a
+    file), however it was decided."""
     if decision != "approved":
         return
     if card.kind == CardKind.DECOMPOSITION_GATE.value:
         schedule_breakdown_projection(workflow_id, card)
-    elif card.kind == CardKind.PRD_GATE.value:
-        schedule_prd_approval_projection(workflow_id, card)
+    elif card.kind in _ATTACHED:
+        schedule_attachment_projection(workflow_id, card)
 
 
 def schedule_escalation_projection(workflow_id: str, card: WorkCard) -> None:
@@ -436,48 +436,55 @@ def schedule_breakdown_projection(workflow_id: str, _card: WorkCard) -> None:
     get_work_item_publisher().schedule(workflow_id)
 
 
-def schedule_prd_approval_projection(workflow_id: str, card: WorkCard) -> None:
-    """Schedule posting an approved PRD back to the task source (T078),
-    in the background.
-
-    Fire-and-forget, mirroring ``schedule_decomposition_publish``.
-    ``GatesService.resolve()`` already set ``Workflow.approved_prd``
-    synchronously before the router calls this — this just re-fetches
-    and projects it.
-    """
-    task = asyncio.create_task(_project_prd_approval(workflow_id, card))
+def schedule_attachment_projection(workflow_id: str, card: WorkCard) -> None:
+    """Schedule attaching an approved gate's document (the PRD, the
+    understanding) to the ticket, in the background."""
+    task = asyncio.create_task(_project_attachment(workflow_id, card))
     task.add_done_callback(
         lambda t, wid=workflow_id: _log_scheduling_exception(t, wid)
     )
 
 
-async def _project_prd_approval(workflow_id: str, card: WorkCard) -> None:
-    """Attach the approved PRD to the ticket as a file, and say so."""
-    workflow = get_board_store().get_workflow(workflow_id)
-    if workflow is None or workflow.approved_prd is None:
+#: Gates whose approved document goes on the ticket as a file: the
+#: file's stem, and how to read the approved document.
+_ATTACHED = {
+    CardKind.UNDERSTANDING_GATE.value: "Understanding",
+    CardKind.PRD_GATE.value: "PRD",
+}
+
+
+async def _project_attachment(workflow_id: str, card: WorkCard) -> None:
+    """Attach an approved gate's document (the PRD, the understanding) to
+    the ticket as a file. The decision's own comment says so."""
+    approved = _approved_document(workflow_id, card)
+    if approved is None:
         _logger.warning(
-            "workflow %s: prd_gate %s approved but no approved_prd "
-            "recorded; nothing projected", workflow_id, card.id,
+            "workflow %s: %s %s approved but its document is not recorded; "
+            "nothing attached", workflow_id, card.kind, card.id,
         )
         return
-    name = _prd_file_name(workflow_id)
-    announcements = get_announcement_service()
-    await announcements.attach(
-        workflow_id, f"attachment:{card.id}:{name}", workflow.approved_prd
-    )
-    await announcements.post(
-        workflow_id, "approved_artifact", f"approved_artifact:{card.id}",
-        lambda ctx: finish(ctx, (paragraph(Text(
-            f"PRD signed off. It is attached to this ticket as {name}."
-        )),)),
+    name = _attachment_name(workflow_id, card.kind)
+    await get_announcement_service().attach(
+        workflow_id, f"attachment:{card.id}:{name}", approved
     )
 
 
-def _prd_file_name(workflow_id: str) -> str:
-    """``PRD.md`` for the first signed-off PRD, ``PRD-2.md`` and so on
-    for one signed off again after a change."""
+def _approved_document(workflow_id: str, card: WorkCard) -> Document | None:
+    if card.kind == CardKind.PRD_GATE.value:
+        workflow = get_board_store().get_workflow(workflow_id)
+        return workflow.approved_prd if workflow is not None else None
+    gate = get_gates_service().get_gate(card.id)
+    if gate is None or gate.target_artifact_id is None:
+        return None
+    return get_artifacts_service().read_document(gate.target_artifact_id)
+
+
+def _attachment_name(workflow_id: str, kind: str) -> str:
+    """``PRD.md`` / ``Understanding.md`` for the first approval of *kind*,
+    ``PRD-2.md`` and so on for one approved again after a change."""
     approved = sum(
         1 for c in get_board_store().list_cards(workflow_id)
-        if c.kind == CardKind.PRD_GATE.value and c.state == "done"
+        if c.kind == kind and c.state == "done"
     )
-    return "PRD.md" if approved <= 1 else f"PRD-{approved}.md"
+    stem = _ATTACHED[kind]
+    return f"{stem}.md" if approved <= 1 else f"{stem}-{approved}.md"

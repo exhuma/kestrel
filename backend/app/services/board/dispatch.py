@@ -47,6 +47,7 @@ from app.services.board.turn_limits import (
     watched,
     within_limits,
 )
+from app.services.board.understanding import confirmed_understanding
 from app.text_extract import extract_tag
 
 #: Backend-agnostic — every ``_TurnBackend`` implementation's failure
@@ -223,6 +224,7 @@ def build_card_envelope(
     card: WorkCard,
     *,
     extra_context: str = "",
+    understanding: str = "",
 ) -> str:
     """Build the prompt for one specialist's turn on a claimed card.
 
@@ -246,8 +248,7 @@ def build_card_envelope(
         "You are working on this card:",
         f"Kind: {card.kind}",
         f"Title: {card.title}", "",
-        "Task:",
-        _task_text(workflow),
+        *_request_sections(workflow, understanding),
     ]
     if workflow.approved_prd is not None:
         sections += ["", "Approved PRD:", to_prompt(workflow.approved_prd)]
@@ -344,6 +345,7 @@ def build_coordinator_envelope(
     cards: list[WorkCard],
     *,
     extra_context: str = "",
+    understanding: str = "",
 ) -> str:
     """Build the coordinator's wake-up prompt: its role, the task body
     (T078 — quarantine-screened at intake, see ``Workflow.task_body``),
@@ -362,7 +364,7 @@ def build_coordinator_envelope(
     sections = [
         specialist.prompt, "",
         f"Workflow: {workflow.title}",
-        f"Task: {_task_text(workflow)}", "",
+        *_request_sections(workflow, understanding), "",
         "Current cards:",
         lines,
     ]
@@ -440,7 +442,10 @@ class SchedulingService:
             workflow_id, self._store, self._artifacts
         )
         envelope = build_coordinator_envelope(
-            specialist, workflow, cards, extra_context=extra_context
+            specialist, workflow, cards, extra_context=extra_context,
+            understanding=confirmed_understanding(
+                workflow_id, self._store, self._artifacts
+            ),
         )
         result = await run_card_turn(
             backend,
@@ -455,6 +460,20 @@ class SchedulingService:
             workflow_id,
             self._coordinator.apply_actions(workflow_id, trigger, actions),
         )
+
+
+def _request_sections(workflow: Workflow, understanding: str) -> list[str]:
+    """What the request is: the understanding the reporter confirmed,
+    once there is one, then the ticket as written."""
+    if not understanding:
+        return ["Task:", _task_text(workflow)]
+    return [
+        "The request, as the reporter confirmed it (base your work on "
+        "this):",
+        understanding, "",
+        "The ticket as written (for reference):",
+        _task_text(workflow),
+    ]
 
 
 def _task_text(workflow: Workflow) -> str:

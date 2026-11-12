@@ -38,3 +38,15 @@ def test_the_coder_must_use_the_browser_tool(rule: str) -> None:
 def test_the_verifier_checks_with_the_browser_tool(rule: str) -> None:
     """Ensure missing screenshots and browser scripts become findings."""
     assert rule in _prompt("verifier")
+
+
+@pytest.mark.parametrize("rule", [
+    "in plain language a non-technical reporter can check",
+    "no technical analysis",
+    "Ask at most three questions",
+    "\"I don't know\" is a fine answer",
+    "never ask it again",
+])
+def test_the_understanding_stays_light(rule: str) -> None:
+    """Ensure the first step stays short and non-technical."""
+    assert rule in _prompt("pm")

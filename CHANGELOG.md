@@ -60,6 +60,13 @@ holds the record. Constitution 2.0.0.
 
 ### Added
 
+- **A light understanding step that keeps the reporter's answers.** The
+  restatement is short and non-technical and asks at most three questions;
+  "I don't know" is a fine answer. Answering them on the ticket counts as a
+  correction, and the revision works from the reply in full, not a summary.
+  The confirmed restatement is attached to the ticket as `Understanding.md`,
+  and every later step works from it, with the ticket as written kept for
+  reference.
 - **UI work uses the browser tool.** The coder now follows fixed steps for
   UI changes: start the app, look at it and take the screenshots with the
   browser MCP tool, never with a browser script of its own, and report only
