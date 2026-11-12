@@ -189,6 +189,18 @@ class WorkspaceService:
         )
         return [line for line in out.splitlines() if line]
 
+    async def last_commit(self, workflow_id: str) -> str | None:
+        """``<short sha> <subject>`` of the newest commit on a workflow's
+        branch, or ``None`` when it has no worktree (#99)."""
+        try:
+            out = await self._git(
+                "-C", self.workspace_dir(workflow_id), "log", "-1",
+                "--format=%h %s", "HEAD",
+            )
+        except GitError:
+            return None
+        return out.strip() or None
+
     async def stray_kestrel_files(
         self, workflow_id: str, base_branch: str
     ) -> list[str]:

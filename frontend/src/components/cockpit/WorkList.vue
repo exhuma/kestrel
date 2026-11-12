@@ -50,6 +50,12 @@ watch(
               <v-list-item-subtitle v-if="item.role">
                 {{ item.role }}
               </v-list-item-subtitle>
+              <v-list-item-subtitle
+                v-if="item.stateNote"
+                data-testid="state-note"
+              >
+                {{ item.stateNote }}
+              </v-list-item-subtitle>
               <v-list-item-subtitle v-if="item.waitsOn" data-testid="waits-on">
                 Waiting on {{ item.waitsOn }}
               </v-list-item-subtitle>

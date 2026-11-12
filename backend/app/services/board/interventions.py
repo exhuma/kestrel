@@ -23,7 +23,6 @@ from app.models_board import (
 )
 from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
-from app.services.board.dependents import advance_ready_dependents
 from app.services.board.gate_decision import ReasonRequiredError
 from app.services.board.gates import GatesService, UnknownGateError
 from app.services.board.interview_answers import (
@@ -128,7 +127,6 @@ class InterventionsService:
             CardAction.REQUEST_COORDINATOR_REVIEW: (
                 self._request_coordinator_review
             ),
-            CardAction.COMPLETE_MANUAL_TASK: self._complete_manual_task,
         }
         handler = handlers.get(action)
         if handler is None:
@@ -205,21 +203,6 @@ class InterventionsService:
         ) as exc:
             raise InvalidInterventionError(str(exc)) from exc
 
-    def _complete_manual_task(self, card: WorkCard) -> WorkCard:
-        """Mark the operator's own manual task done, releasing every card
-        waiting on it (feature 031, FR-007/FR-008)."""
-        if not _is_open_manual_task(card):
-            raise InvalidInterventionError(
-                f"cannot complete a {card.kind} card in state {card.state}"
-            )
-        done = self._board_service.transition_card(
-            card.id, CardState.DONE.value, event_type="manual_task.completed"
-        )
-        advance_ready_dependents(
-            self._store, self._board_service, card.workflow_id
-        )
-        return done
-
     def _request_coordinator_review(self, card: WorkCard) -> WorkCard:
         review = WorkCard(
             id=f"card-{uuid.uuid4().hex[:8]}",
@@ -247,9 +230,7 @@ def allowed_actions_for(card: WorkCard) -> list[CardAction]:
         actions.append(CardAction.CANCEL)
     if card.state == CardState.CLAIMED.value:
         actions.append(CardAction.REASSIGN)
-    if _is_open_manual_task(card):
-        actions.append(CardAction.COMPLETE_MANUAL_TASK)
-    elif card.state == CardState.AWAITING_HUMAN.value:
+    if card.state == CardState.AWAITING_HUMAN.value:
         actions.append(CardAction.RESOLVE_GATE)
     if card.state not in _CANCEL_BLOCKED_STATES:
         actions.append(CardAction.REQUEST_COORDINATOR_REVIEW)
@@ -265,10 +246,3 @@ def _escalates_work(card: WorkCard) -> bool:
         and card.state not in TERMINAL_STATES
     )
 
-
-def _is_open_manual_task(card: WorkCard) -> bool:
-    """A manual task the operator can mark done right now."""
-    return (
-        card.kind == CardKind.MANUAL_TASK.value
-        and card.state == CardState.AWAITING_HUMAN.value
-    )

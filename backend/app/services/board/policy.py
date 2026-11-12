@@ -22,6 +22,9 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
             CardState.CLAIMED,
             CardState.WAITING_DEPENDENCY,
             CardState.AWAITING_HUMAN,
+            # WAITING_HANDOVER: its work item went back to a person before
+            # kestrel claimed it (#99).
+            CardState.WAITING_HANDOVER,
             CardState.CANCELLED,
         }
     ),
@@ -34,9 +37,13 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
         }
     ),
     CardState.WAITING_DEPENDENCY: frozenset(
-        # AWAITING_HUMAN: an unblocked ``manual_task`` is the operator's
-        # move, never claimable work (feature 031, research R4).
-        {CardState.READY, CardState.AWAITING_HUMAN, CardState.CANCELLED}
+        {CardState.READY, CardState.WAITING_HANDOVER, CardState.CANCELLED}
+    ),
+    CardState.WAITING_HANDOVER: frozenset(
+        # WAITING_DEPENDENCY: the work item was handed to kestrel, and the
+        # dependency cascade takes it on from there; DONE: a person
+        # finished it, so it never runs (#99).
+        {CardState.WAITING_DEPENDENCY, CardState.DONE, CardState.CANCELLED}
     ),
     CardState.AWAITING_HUMAN: frozenset(
         # READY resumes claimable work paused for a human answer; DONE is

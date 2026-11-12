@@ -26,6 +26,7 @@ from app.services.board.interview_batch import (
     questions_of,
 )
 from app.services.board.specialists import SpecialistRoster
+from app.services.board.task_heads import HEAD_KINDS
 
 _UNAVAILABLE = document(paragraph(Text(
     "(The content is not shown here. Open the request in kestrel.)"
@@ -121,11 +122,13 @@ class GateContent:
             lambda ctx: words.escalation(ctx, card.title),
         )
 
-    @staticmethod
-    def _policy_risk(card: WorkCard) -> Plan:
+    def _policy_risk(self, card: WorkCard) -> Plan:
+        source = self._store.get_card(card.source_card_id or "")
+        handed_back = source is not None and source.kind in HEAD_KINDS
+        stopped = words.HANDED_BACK if handed_back else None
         return Plan(
             f"gate_opened:{card.id}",
-            lambda ctx: words.policy_risk(ctx, card.title),
+            lambda ctx: words.policy_risk(ctx, card.title, stopped),
         )
 
     def _refinement(self, card: WorkCard) -> Plan:

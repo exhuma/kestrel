@@ -11,6 +11,18 @@ holds the record. Constitution 2.0.0.
 
 ### Breaking
 
+- **Approved tasks wait to be handed to kestrel (#99).** On Jira, nothing
+  starts when CAB-2 approves the plan. Kestrel starts a task once its work
+  item is assigned to the account behind the source's token, or matches the
+  new `work_items_jql`. A task a person finishes (its item's status is
+  Done) counts as complete without running, and the tasks after it start.
+  When an item kestrel was working on is given back to a person, kestrel
+  stops that task, notes its branch on the item, and asks the change owner
+  how to go on instead of delivering part of the request. GitHub and local
+  tasks still start at once. Kestrel's own manual-task cards, the "Mark
+  done" action and the "manual tasks assigned to you" count are removed:
+  a person's task lives on its work item. New setting:
+  `board_handover_poll_interval_seconds`.
 - **Turns run while the agent works, not for a fixed time.**
   `board_turn_timeout_seconds` and a backend's `timeout` are removed. A turn
   is stopped after `board_turn_idle_seconds` without activity (default 15

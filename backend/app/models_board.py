@@ -26,6 +26,11 @@ class CardState(StrEnum):
     READY = "ready"
     CLAIMED = "claimed"
     WAITING_DEPENDENCY = "waiting_dependency"
+    #: An approved task's head card whose work item has not been handed
+    #: to kestrel yet (#99): it starts only once the item is assigned to
+    #: kestrel's account or matches the source's ``work_items_jql``, and
+    #: is done without running when a person finishes the item.
+    WAITING_HANDOVER = "waiting_handover"
     AWAITING_HUMAN = "awaiting_human"
     REVIEW = "review"
     QUARANTINED = "quarantined"
@@ -104,11 +109,6 @@ class CardKind(StrEnum):
     #: correct (feature 032). Created only by code — at intake once
     #: screening passes, and as a capped redraft after a rejection.
     UNDERSTANDING = "understanding"
-    #: A task approved at CAB-2 as manual — work for the operator, never
-    #: a specialist (feature 031). Created only by materialising an
-    #: approved decomposition; resolved only by the operator's
-    #: ``complete_manual_task`` action from ``awaiting_human``.
-    MANUAL_TASK = "manual_task"
     #: The coordinator's choice of who is interviewed next (feature 038).
     #: Created only by code: after CAB-1, and once a batch is answered.
     INTERVIEW_PLAN = "interview_plan"
@@ -167,8 +167,6 @@ class CardAction(StrEnum):
     RELEASE_QUARANTINE = "release_quarantine"
     DISCARD_QUARANTINE = "discard_quarantine"
     REQUEST_COORDINATOR_REVIEW = "request_coordinator_review"
-    #: The operator's own "I did this" on a ``manual_task`` (feature 031).
-    COMPLETE_MANUAL_TASK = "complete_manual_task"
 
 
 class WorkspacePermission(StrEnum):

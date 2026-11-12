@@ -99,6 +99,21 @@ class CommentPage:
     cursor: str | None
 
 
+@dataclass(frozen=True)
+class WorkItemState:
+    """Who has one work item, and whether it is finished (#99).
+
+    :param handed_to_kestrel: The item is kestrel's to work: it is
+        assigned to the account behind the source's token, or it matches
+        the source's configured hand-over query (``work_items_jql``).
+    :param done: The item's status says it is finished (Jira: status
+        category Done), whoever finished it.
+    """
+
+    handed_to_kestrel: bool
+    done: bool
+
+
 class SubtaskContextError(Exception):
     """A child was created but its required source context was not completed.
 
@@ -254,6 +269,28 @@ class TaskSource(Protocol):
 
         Static per-source capability, not per-call. Time-spent support
         never varies across invocations, unlike the status transition.
+        """
+        ...
+
+    def supports_handover(self) -> bool:
+        """Whether this source can say who has a work item (#99).
+
+        Static per-source capability, like :meth:`supports_time_spent`.
+        When ``True``, an approved task waits until its work item is
+        handed to kestrel (:meth:`work_item_states`); when ``False`` it
+        starts at once.
+        """
+        ...
+
+    async def work_item_states(
+        self, refs: list[str]
+    ) -> dict[str, WorkItemState]:
+        """The current state of each work item in *refs*, read in one
+        batch (#99). Only called when :meth:`supports_handover` is
+        ``True``; a ref the source does not report is left out.
+
+        :raises Exception: When the source cannot be read; the caller
+            tries again later.
         """
         ...
 

@@ -58,12 +58,6 @@ const ATTENTION_ICON: Partial<Record<AttentionState, string>> = {
   cancelled: '$close',
 }
 
-const manualTasks = computed(() => {
-  const count = props.request.summary.open_manual_task_count
-  const noun = count === 1 ? 'task' : 'tasks'
-  return count > 0 ? `${count} manual ${noun} assigned to you` : ''
-})
-
 /** Whose move it is, and what: "CAB: decide strategic fit" (feature 035). */
 const moves = computed(() => describeMoves(props.request.summary.awaiting))
 
@@ -105,15 +99,6 @@ const icon = computed(() => ATTENTION_ICON[props.request.attention])
         class="mt-2"
       >
         {{ label }}
-      </v-chip>
-      <v-chip
-        v-if="manualTasks"
-        color="info"
-        size="small"
-        prepend-icon="$account"
-        class="mt-2 ml-1"
-      >
-        {{ manualTasks }}
       </v-chip>
       <div
         v-if="request.attention !== 'none' && moves"

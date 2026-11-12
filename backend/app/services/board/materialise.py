@@ -2,13 +2,16 @@
 
 Approving a ``decomposition_gate`` no longer publishes child tickets to
 the task source. The approved tasks stay inside the request's own
-workflow, as cards (research R1): per coding task an ``implementation``
-card for `coder` and the ``verification`` card that checks it (R5), per
-manual task a ``manual_task`` card only the operator completes (R4). A
-task's prerequisites become dependency edges between the tasks' head
-cards. Every card carries its task's ``task_node_id`` (R2), and each
-head card holds the approved task text as a ``task_spec`` reference
-artifact — what every later card on the task works from (R3).
+workflow, as cards (research R1): per task an ``implementation`` card
+for `coder` and the ``verification`` card that checks it (R5). A task's
+``classification`` (coding or manual) is information only (#99): who
+does a task is decided on its work item. On a source that can say who
+has a work item (``supports_handover``), a head card waits for its item
+to be handed to kestrel (#99). A task's prerequisites become dependency
+edges between the tasks' head cards. Every card carries its task's
+``task_node_id`` (R2), and each head card holds the approved task text
+as a ``task_spec`` reference artifact — what every later card on the
+task works from (R3).
 
 Deterministic by design: what runs is exactly what the operator
 approved, never a coordinator's reading of it (FR-004).
@@ -39,7 +42,7 @@ from app.models_board import (
 )
 from app.persistence.board_store import BoardStore
 from app.services.board.agent_text import from_agent, to_prompt
-from app.services.board.artifacts import ArtifactsService
+from app.services.board.artifacts import ArtifactDraft, ArtifactsService
 from app.services.board.candidate import (
     MANUAL,
     Candidate,
@@ -49,28 +52,31 @@ from app.services.board.candidate import (
     load_candidate,
     with_task_id,
 )
-from app.services.board.dependents import unblocked_state
 from app.services.board.policy import PolicyViolation
+from app.services.board.task_heads import HEAD_KINDS
 
 _log = logging.getLogger("kestrel.board.materialise")
 
 #: Logical name of the approved task text on a task's head card.
 TASK_SPEC_LOGICAL_NAME = "task_spec"
-
-#: The card kinds that head a task: the one card its dependents wait on
-#: and the one holding its ``task_spec``.
-HEAD_KINDS = frozenset(
-    {CardKind.IMPLEMENTATION.value, CardKind.MANUAL_TASK.value}
-)
+#: Logical name of how the plan classified a task (``coding`` or
+#: ``manual``) on its head card: information only (#99).
+CLASSIFICATION_LOGICAL_NAME = "task_classification"
 
 
 @dataclass(frozen=True)
 class MaterialiseTarget:
     """Where materialisation writes, bundled to keep the entry point
-    within the repo's argument-count limit."""
+    within the repo's argument-count limit.
+
+    :param handover: Whether the workflow's task source can say who has
+        a work item (``TaskSource.supports_handover``): its head cards
+        then wait in ``waiting_handover`` (#99).
+    """
 
     store: BoardStore
     artifacts: ArtifactsService
+    handover: bool = False
 
 
 def approved_candidate(candidate_json: str) -> Candidate | None:
@@ -161,21 +167,29 @@ def _create_task_cards(
 ) -> str:
     """Create *task*'s cards and return its head card's id."""
     blocked = bool(_known_prerequisites(task, known))
-    if task.classification == MANUAL:
-        shape = _Shape(CardKind.MANUAL_TASK, task.title)
-        head = _card(workflow_id, task, shape)
-        return _create(target.store, head, blocked)
     head = _card(workflow_id, task, _Shape(
         CardKind.IMPLEMENTATION, task.title, ("coder",),
         WorkspacePermission.WRITE,
     ))
-    head_id = _create(target.store, head, blocked)
+    head_id = _create(target.store, head, _head_state(target, blocked))
     verification = _card(workflow_id, task, _Shape(
         CardKind.VERIFICATION, f"Verify: {task.title}", ("verifier",),
         WorkspacePermission.READ_ONLY,
     ))
-    _depend(target.store, _create(target.store, verification, True), head_id)
+    verification_id = _create(
+        target.store, verification, CardState.WAITING_DEPENDENCY
+    )
+    _depend(target.store, verification_id, head_id)
     return head_id
+
+
+def _head_state(target: MaterialiseTarget, blocked: bool) -> CardState:
+    """Where a task's head card starts: waiting for its work item to be
+    handed over when the source can tell, else waiting for its
+    prerequisites, else ready."""
+    if target.handover:
+        return CardState.WAITING_HANDOVER
+    return CardState.WAITING_DEPENDENCY if blocked else CardState.READY
 
 
 def _card(workflow_id: str, task: DecompositionTask, shape: _Shape) -> WorkCard:
@@ -191,9 +205,8 @@ def _card(workflow_id: str, task: DecompositionTask, shape: _Shape) -> WorkCard:
     )
 
 
-def _create(store: BoardStore, card: WorkCard, blocked: bool) -> str:
-    """Store *card* waiting when *blocked*, else in its unblocked state."""
-    state = CardState.WAITING_DEPENDENCY if blocked else unblocked_state(card)
+def _create(store: BoardStore, card: WorkCard, state: CardState) -> str:
+    """Store *card* in *state*."""
     store.create_card(replace(card, state=state.value))
     return card.id
 
@@ -243,6 +256,13 @@ def _write_task_spec(
         card_id, TASK_SPEC_LOGICAL_NAME, 1, render_task_spec(task, titles),
         trust="operator_approved",
     )
+    target.artifacts.store_reference_artifact(ArtifactDraft(
+        producer_card_id=card_id,
+        logical_name=CLASSIFICATION_LOGICAL_NAME,
+        revision=1,
+        content=task.classification,
+        trust="operator_approved",
+    ))
 
 
 def render_task_spec(
@@ -264,13 +284,14 @@ def render_task_spec(
 
 
 def _classification_line(task: DecompositionTask) -> Paragraph:
+    """How the plan classified *task*: information only (#99)."""
     if task.classification == MANUAL:
         return paragraph(
-            Strong("Manual task"),
-            Text(": for a human. kestrel will not assign this to an agent."),
+            Strong("Planned for a person"),
+            Text(": the plan expects a person to do this task."),
         )
     return paragraph(
-        Strong("Coding task"), Text(": implemented and verified by agents.")
+        Strong("Coding task"), Text(": the plan expects agents to do it.")
     )
 
 

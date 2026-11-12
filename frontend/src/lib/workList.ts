@@ -9,6 +9,7 @@
  */
 import { summaryOf } from './personas'
 import { describeAwaiting } from './awaiting'
+import { WAITING_FOR_HANDOVER } from './stateBar'
 import type { BoardEvent, CardState, WorkCardSummary } from '../types/workflows'
 
 export interface WorkGroup {
@@ -26,6 +27,8 @@ export interface WorkItem {
   endedBecause: string | null
   /** For a card waiting on a human: who, and for what (feature 035). */
   waitsOn: string | null
+  /** For a task whose work item is not handed to kestrel yet (#99). */
+  stateNote: string | null
 }
 
 /** Group order is reading order: what is moving, what is stuck on
@@ -35,7 +38,12 @@ const GROUPS: readonly { key: string; label: string; states: CardState[] }[] = [
   {
     key: 'waiting',
     label: 'Waiting',
-    states: ['awaiting_human', 'quarantined', 'waiting_dependency'],
+    states: [
+      'awaiting_human',
+      'quarantined',
+      'waiting_dependency',
+      'waiting_handover',
+    ],
   },
   { key: 'ready', label: 'Ready', states: ['ready'] },
   { key: 'failed', label: 'Failed', states: ['failed'] },
@@ -78,6 +86,7 @@ function toItem(card: WorkCardSummary, event: BoardEvent | undefined) {
     role: card.eligible_roles[0]?.label ?? null,
     endedBecause: ENDINGS.has(card.state) ? endedBecause(event) : null,
     waitsOn: card.awaiting ? describeAwaiting(card.awaiting) : null,
+    stateNote: card.state === 'waiting_handover' ? WAITING_FOR_HANDOVER : null,
   }
 }
 

@@ -28,9 +28,9 @@ describe('describeMoves', () => {
   })
 
   it('names the first move alone when it is the only one', () => {
-    expect(describeMoves([{ actor: 'you', ask: 'do_task', role: null }])).toBe(
-      'You: do the task',
-    )
+    expect(
+      describeMoves([{ actor: 'operator', ask: 'review_input', role: null }]),
+    ).toBe('Operator: review the input')
   })
 })
 

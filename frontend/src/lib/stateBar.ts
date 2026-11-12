@@ -5,6 +5,9 @@
  */
 import type { CardState } from '../types/workflows'
 
+/** How a task whose work item is not handed to kestrel yet reads (#99). */
+export const WAITING_FOR_HANDOVER = 'Waiting for hand-over'
+
 /** Every card state, in the order the bar shows them. */
 export const STATE_BAR_ORDER: readonly CardState[] = [
   'done',
@@ -12,6 +15,7 @@ export const STATE_BAR_ORDER: readonly CardState[] = [
   'claimed',
   'ready',
   'waiting_dependency',
+  'waiting_handover',
   'awaiting_human',
   'quarantined',
   'failed',
@@ -25,6 +29,7 @@ export const STATE_BAR_COLOR: Readonly<Record<CardState, string>> = {
   claimed: 'primary',
   ready: 'info',
   waiting_dependency: 'grey',
+  waiting_handover: 'grey',
   awaiting_human: 'warning',
   quarantined: 'error',
   failed: 'error',
@@ -33,6 +38,7 @@ export const STATE_BAR_COLOR: Readonly<Record<CardState, string>> = {
 
 const LABEL: Readonly<Partial<Record<CardState, string>>> = {
   waiting_dependency: 'waiting',
+  waiting_handover: WAITING_FOR_HANDOVER.toLowerCase(),
   awaiting_human: 'awaiting you',
 }
 

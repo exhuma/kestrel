@@ -29,6 +29,7 @@ export const CARD_STATES = [
   'ready',
   'claimed',
   'waiting_dependency',
+  'waiting_handover',
   'awaiting_human',
   'review',
   'quarantined',
@@ -48,8 +49,6 @@ export type CardAction =
   | 'reassign'
   | 'resolve_gate'
   | 'request_coordinator_review'
-  /** The operator's own "I did this" on a `manual_task` card (feature 031). */
-  | 'complete_manual_task'
 
 /** Kinds of directed edge between two cards (board-api.md `RelationKind`). */
 export type RelationKind = 'dependency' | 'reconciliation' | 'supersedes'
@@ -163,10 +162,10 @@ export interface WorkCardSummary {
 
 /** Who a card waits on, and for what (feature 035). Mirrors
  *  `app.schemas.AwaitingOut`: codes the server decides; `lib/awaiting.ts`
- *  phrases them. `ask` is a gate's `requested_decision`, or `do_task`,
+ *  phrases them. `ask` is a gate's `requested_decision`, or
  *  `review_input`, `retry_or_cancel` or `review`. */
 export interface Awaiting {
-  actor: 'requester' | 'cab' | 'you' | 'operator' | 'role'
+  actor: 'requester' | 'cab' | 'operator' | 'role'
   ask: string
   /** For `role`: the profile whose human answers (feature 038). */
   role: BoardRoleRef | null
@@ -279,9 +278,6 @@ export interface BoardWorkflowSummary {
   /** Whether an interview round cap was hit without a usable answer
    *  (feature 029 A4) — the board's `cap-reached` treatment. */
   cap_exhausted: boolean
-  /** How many `manual_task` cards are neither done nor cancelled
-   *  (feature 031) — "N manual tasks assigned to you". */
-  open_manual_task_count: number
   /** What the request is doing right now (feature 033). */
   activity: RequestActivity | null
   /** Every card waiting on a human, in card order (feature 035). */

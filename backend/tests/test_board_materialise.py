@@ -1,30 +1,24 @@
 """Tests for materialising an approved CAB-2 decomposition into cards
-(feature 031, US1)."""
+(feature 031, US1), and for its tasks waiting to be handed over (#99)."""
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
-
-import pytest
 
 from app.document_formats.markdown import render_markdown
 from app.models_board import WorkCard
-from app.persistence.board_claims_store import BoardClaimsStore
 from app.persistence.board_store import BoardStore
 from app.services.board.artifacts import ArtifactDraft, ArtifactsService
-from app.services.board.claims import ClaimsService, NoEligibleCardError
-from app.services.board.gates import GatesService
+from app.services.board.gates import GateRequirements, GatesService
 from app.services.board.materialise import (
+    CLASSIFICATION_LOGICAL_NAME,
     TASK_SPEC_LOGICAL_NAME,
     MaterialiseTarget,
     materialise_decomposition,
     task_context,
 )
-from app.services.board.specialists import SpecialistRoster
-from tests.board_test_support import board_session_factory
+from app.services.board.service import BoardService
 from tests.test_board_decomposition import _setup
-from tests.test_board_delivery import _verifier
 
 _ESTIMATE = {
     "size": "M", "confidence": "low", "man_hours": 6,
@@ -45,10 +39,17 @@ def _task(node: str, title: str, **extra: object) -> dict:
 class _Board:
     """A workflow with an approved-ready CAB-2 gate."""
 
-    def __init__(self, tmp_path: Path) -> None:
-        store, _coordinator, gates, artifacts, card, _ = _setup(tmp_path)
+    def __init__(self, tmp_path: Path, *, handover: bool = False) -> None:
+        store, _coordinator, gates, artifacts, card, gate_store = _setup(
+            tmp_path
+        )
         self.store: BoardStore = store
         self.gates: GatesService = gates
+        if handover:
+            self.gates = GatesService(
+                store, gate_store, BoardService(store), artifacts,
+                required=GateRequirements(handover=lambda _wid: True),
+            )
         self.artifacts: ArtifactsService = artifacts
         self.producer: WorkCard = card
 
@@ -106,21 +107,65 @@ def test_a_coding_task_gets_implementation_and_verification(
     assert board.depends_on(ver) == {impl.id}
 
 
-def test_a_manual_task_gets_one_operator_card(tmp_path: Path) -> None:
-    """Ensure a manual task is the operator's move, claimable by nobody."""
+def test_a_task_planned_for_a_person_is_still_one_task_for_the_board(
+    tmp_path: Path,
+) -> None:
+    """Ensure the classification is information only (#99): every task
+    gets implementation and verification, and keeps how it was planned."""
     board = _Board(tmp_path)
     board.approve(_task("t1", "Legal sign-off", classification="manual"))
 
-    (manual,) = board.tagged()
-    assert manual.kind == "manual_task"
-    assert manual.state == "awaiting_human"
-    assert manual.eligible_roles == ()
+    head = board.one("implementation", "t1")
+    assert board.one("verification", "t1").state == "waiting_dependency"
+    assert board.artifacts.latest_content_for_card(
+        head.id, CLASSIFICATION_LOGICAL_NAME
+    ) == "manual"
+    spec = render_markdown(board.artifacts.latest_document_for_card(
+        head.id, TASK_SPEC_LOGICAL_NAME
+    ))
+    assert "Planned for a person" in spec
+
+
+def test_on_a_hand_over_source_a_task_waits_to_be_handed_over(
+    tmp_path: Path,
+) -> None:
+    """Ensure nothing starts at CAB-2 when the source can say who has a
+    work item (#99): every head card waits, prerequisites or not."""
+    board = _Board(tmp_path, handover=True)
+    board.approve(
+        _task("t1", "Schema"),
+        _task("t2", "Client", prerequisites=["t1"]),
+    )
+
+    for node in ("t1", "t2"):
+        head = board.one("implementation", node)
+        verification = board.one("verification", node)
+        assert head.state == "waiting_handover"
+        assert verification.state == "waiting_dependency"
+        assert board.depends_on(verification) == {head.id}
+    assert board.depends_on(board.one("implementation", "t2")) == {
+        board.one("implementation", "t1").id
+    }
+
+
+def test_without_hand_over_a_task_starts_at_once(tmp_path: Path) -> None:
+    """Ensure a source that cannot say who has an item starts its tasks
+    as before: ready, or waiting on a prerequisite."""
+    board = _Board(tmp_path)
+    board.approve(
+        _task("t1", "Schema"),
+        _task("t2", "Client", prerequisites=["t1"]),
+    )
+
+    assert board.one("implementation", "t1").state == "ready"
+    assert board.one("implementation", "t2").state == "waiting_dependency"
 
 
 def test_prerequisites_become_dependencies_between_head_cards(
     tmp_path: Path,
 ) -> None:
-    """Ensure a coding task waits on a coding and a manual prerequisite."""
+    """Ensure a task waits on the head cards of its prerequisites,
+    whoever the plan expects to do them."""
     board = _Board(tmp_path)
     board.approve(
         _task("t1", "Schema"),
@@ -132,7 +177,7 @@ def test_prerequisites_become_dependencies_between_head_cards(
     assert client.state == "waiting_dependency"
     assert board.depends_on(client) == {
         board.one("implementation", "t1").id,
-        board.one("manual_task", "t2").id,
+        board.one("implementation", "t2").id,
     }
 
 
@@ -155,8 +200,8 @@ def test_task_spec_carries_the_approved_text_and_estimate(
     assert "Client body" in spec
     assert "## Estimate (agent, unverified)" in spec
     assert "Risks: schema migration" in spec
-    (artifact,) = board.artifacts._artifact_store.list_for_card(head.id)
-    assert artifact.trust == "operator_approved"
+    artifacts = board.artifacts._artifact_store.list_for_card(head.id)
+    assert {a.trust for a in artifacts} == {"operator_approved"}
 
 
 def test_no_task_card_is_created_twice(tmp_path: Path) -> None:
@@ -199,19 +244,6 @@ def test_an_unknown_prerequisite_is_dropped_not_waited_on(
     assert board.one("implementation", "t1").state == "ready"
 
 
-def test_an_all_manual_breakdown_creates_no_agent_work(
-    tmp_path: Path,
-) -> None:
-    """Ensure nothing is implemented, verified or delivered (FR-015)."""
-    board = _Board(tmp_path)
-    board.approve(
-        _task("t1", "Call vendor", classification="manual"),
-        _task("t2", "Announce", classification="manual"),
-    )
-
-    assert {c.kind for c in board.tagged()} == {"manual_task"}
-
-
 def test_every_card_on_a_task_works_from_its_approved_text(
     tmp_path: Path,
 ) -> None:
@@ -251,24 +283,6 @@ def test_the_estimate_reads_as_it_did_on_a_child_ticket(
         "~400,000 agent tokens · ~1.5 review hours"
     ) in spec
     assert "Rationale: one table" in spec
-
-
-def test_no_specialist_can_claim_a_manual_task(tmp_path: Path) -> None:
-    """Ensure a manual task is never agent work, even for a role that
-    lists the kind (FR-007)."""
-    board = _Board(tmp_path)
-    board.approve(_task("t1", "Legal sign-off", classification="manual"))
-    board.store.set_card_state(board.one("manual_task", "t1").id, "ready")
-    anyone = replace(_verifier(), allowed_card_types=("manual_task",))
-    claims = ClaimsService(
-        store=board.store,
-        claims_store=BoardClaimsStore(board_session_factory(tmp_path)),
-        roster=SpecialistRoster({"verifier": anyone}),
-        max_parallel_read_cards=4, default_lease_seconds=60,
-    )
-
-    with pytest.raises(NoEligibleCardError):
-        claims.claim_next_ready_card("wf-1", "verifier")
 
 
 def test_a_replanned_request_gets_its_own_task_ids(tmp_path: Path) -> None:

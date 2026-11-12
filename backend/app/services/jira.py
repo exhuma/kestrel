@@ -10,6 +10,7 @@ their authors' accounts (feature 046).
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
 
 from app.config_models import TaskSourceConfig
@@ -22,6 +23,7 @@ from app.ports import (
     Person,
     SubtaskContextError,
     Task,
+    WorkItemState,
 )
 from app.services.jira_client import JiraClient, JiraError, person
 from app.services.task_source_utils import as_posted, parse_iso
@@ -35,6 +37,12 @@ _TRANSITION_FIELD = {
     "start": "transition_start",
     "done": "transition_done",
 }
+#: What a Jira issue key looks like; only such refs go into a query.
+_ISSUE_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*-\d+$")
+#: The status category key Jira gives every finished status.
+_DONE_CATEGORY = "done"
+#: How many work items one search page reads.
+_BATCH = 100
 
 
 class JiraTaskSource:
@@ -230,6 +238,42 @@ class JiraTaskSource:
     def supports_time_spent(self) -> bool:
         return bool(self._config and self._config.time_spent_field)
 
+    def supports_handover(self) -> bool:
+        """Jira says who has a work item: its assignee (#99)."""
+        return True
+
+    async def work_item_states(
+        self, refs: list[str]
+    ) -> dict[str, WorkItemState]:
+        """Who has each work item, and whether it is done, in one search
+        (two with ``work_items_jql``). An item is kestrel's when it is
+        assigned to the account behind the token, or matches the query.
+        """
+        keys = ", ".join(f'"{ref}"' for ref in refs if _ISSUE_KEY.match(ref))
+        if not keys:
+            return {}
+        me = await self._client.myself()
+        issues = await self._client.search_issues(
+            f"key in ({keys})", fields=["assignee", "status"],
+            max_results=_BATCH,
+        )
+        matched = await self._handover_matches(keys)
+        return {
+            str(issue["key"]): _item_state(issue, me, matched)
+            for issue in issues
+        }
+
+    async def _handover_matches(self, keys: str) -> set[str]:
+        """The keys among *keys* that match ``work_items_jql``."""
+        jql = self._settings().work_items_jql.strip()
+        if not jql:
+            return set()
+        issues = await self._client.search_issues(
+            f"key in ({keys}) AND ({jql})", fields=["summary"],
+            max_results=_BATCH,
+        )
+        return {str(issue["key"]) for issue in issues}
+
     def visibility(self) -> Literal["public", "private"]:
         """Jira RFCs are externally visible (feature 008)."""
         return "public"
@@ -261,6 +305,23 @@ class JiraTaskSource:
             body=parse_adf(comment.get("body")),
             created_at=parse_iso(comment["created"]),
         )
+
+
+def _item_state(
+    issue: dict, me: Person | None, matched: set[str]
+) -> WorkItemState:
+    """One searched issue's hand-over and done state."""
+    fields = issue.get("fields") or {}
+    assignee = person(fields.get("assignee"))
+    mine = (
+        me is not None and assignee is not None
+        and assignee.account_id == me.account_id
+    )
+    category = (fields.get("status") or {}).get("statusCategory") or {}
+    return WorkItemState(
+        handed_to_kestrel=mine or str(issue.get("key")) in matched,
+        done=category.get("key") == _DONE_CATEGORY,
+    )
 
 
 def _author(raw: object) -> Person:

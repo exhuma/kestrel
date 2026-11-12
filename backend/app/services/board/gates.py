@@ -11,6 +11,7 @@ never the whole workflow (User Story 4).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.models_board import CardKind, CardState, WorkCard
@@ -55,10 +56,7 @@ _DECISION_TARGET_STATE = {
 }
 
 #: The one logical name a gate resolution's free-text response is stored
-#: under — see ``refinement.py``'s own copy of this constant (kept
-#: duplicated rather than importing, since ``refinement.py`` imports
-#: this module and Python has no cyclic-import escape hatch worth the
-#: coupling for one string).
+#: under; ``refinement.py`` keeps its own copy, as it imports this module.
 _RESPONSE_LOGICAL_NAME = "response"
 
 
@@ -90,14 +88,13 @@ class GateRequirements:
     understanding_redraft_cap: int = 2
     #: Routes a ``prd_gate`` rejection's fix-vs-reinterview triage
     #: (feature 028) through the coordinator's own judgment rather than
-    #: a deterministic redraft. Carried here, not as its own
-    #: ``GatesService`` constructor argument, for the same
-    #: argument-count reason as the rest of this dataclass. ``None``
-    #: falls back to the pre-028 behavior (unconditional, uncapped
-    #: redraft) — mirrors how ``DispatchServices.coordinator`` is
-    #: optional elsewhere in this codebase, so callers that don't need
-    #: PRD-redraft enforcement (most existing tests) don't need one.
+    #: a deterministic redraft. ``None`` falls back to the pre-028
+    #: behavior (unconditional, uncapped redraft).
     coordinator: CoordinatorService | None = None
+    #: Whether a workflow's task source can say who has a work item
+    #: (#99), by workflow id: its approved tasks then wait to be handed
+    #: to kestrel. ``None``: they start at once.
+    handover: Callable[[str], bool] | None = None
 
 
 class UnknownGateError(Exception):
@@ -153,12 +150,18 @@ class GatesService:
         """Create an ``awaiting_human`` gate card and its decision record,
         and record that it opened (feature 046)."""
         card = WorkCard(
-            id=f"card-{uuid.uuid4().hex[:8]}",
-            workflow_id=workflow_id,
-            kind=kind,
-            title=title,
-            state=CardState.AWAITING_HUMAN,
+            id=f"card-{uuid.uuid4().hex[:8]}", workflow_id=workflow_id,
+            kind=kind, title=title, state=CardState.AWAITING_HUMAN,
         )
+        return self.open_gate(card, requested_decision, target_artifact_id)
+
+    def open_gate(
+        self, card: WorkCard, requested_decision: str,
+        target_artifact_id: str | None = None,
+    ) -> WorkCard:
+        """Store *card*, an ``awaiting_human`` gate built by the caller
+        (one naming its ``source_card_id``, say), as :meth:`create_gate`
+        does."""
         self._store.create_card(card)
         self._gate_store.create_gate(
             HumanGateRecord(
@@ -429,13 +432,20 @@ class GatesService:
         if content is not None:
             materialise_decomposition(
                 gate.workflow_id, content,
-                MaterialiseTarget(self._store, self._artifacts),
+                MaterialiseTarget(
+                    self._store, self._artifacts,
+                    handover=self._handover(gate.workflow_id),
+                ),
                 plan_number=sum(
                     1 for c in self._store.list_cards(gate.workflow_id)
                     if c.kind == gate.kind
                     and c.state == CardState.DONE.value
                 ),
             )
+
+    def _handover(self, workflow_id: str) -> bool:
+        supports = self._required.handover
+        return supports is not None and supports(workflow_id)
 
     def _approved_target_id(
         self, gate: WorkCard, kind: CardKind

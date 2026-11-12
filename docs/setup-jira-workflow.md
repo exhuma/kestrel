@@ -35,6 +35,7 @@ code_host_base_url = "https://gitlab.internal.example.com"
 # work_items_issue_type = "Task"      # default: Sub-task, or Task with a project
 # work_items_link_type = "Relates"    # request <-> work item, with a project
 # work_items_blocks_link_type = "Blocks"
+# work_items_jql = 'labels = "kestrel"'  # also hands an item to kestrel
 ```
 
 ```bash
@@ -56,8 +57,7 @@ footers. Jira Server/DC keeps REST v2 and plain-text bodies with
 ### Work items
 
 When CAB-2 approves a breakdown, kestrel creates one work item per approved
-task, coding and manual alike, so the plan lives in Jira and not only in
-kestrel. Each item carries the task's text, its estimate and a link to the
+task, so the plan lives in Jira and not only in kestrel. Each item carries the task's text, its estimate and a link to the
 request in kestrel. A task that must wait for another gets a link of type
 `work_items_blocks_link_type` ("Blocks" by default) from the task it waits
 for. A comment on the request then lists every task with its item's key.
@@ -80,6 +80,30 @@ Jira does not have shows up before a breakdown is approved. If Jira cannot be
 reached when the breakdown is approved, kestrel keeps trying, and never creates
 an item twice: each item carries a `kestrel-…` label it is found by. Moving
 the items' status as the work progresses is not built yet (#64).
+
+### Handing work items to kestrel
+
+Nothing starts when CAB-2 approves the plan (#99). The team decides who does
+each task on its work item:
+
+- **Kestrel's tasks.** Assign the item to the account behind
+  `KESTREL_JIRA_API_TOKEN`: that account is kestrel's. To hand over by label,
+  component or sprint instead, set `work_items_jql` to a JQL condition, for
+  example `labels = "kestrel"`; an item matching it is kestrel's whoever it is
+  assigned to. Kestrel starts the task once the tasks it waits for are done.
+- **A person's tasks.** Assign the item to anyone else. Kestrel does not work
+  on it; it waits until the item's status is in the Done category, then
+  counts the task as complete and starts the tasks that wait for it.
+- **Giving an item back.** If an item kestrel is working on is assigned to
+  someone else, kestrel lets a running turn finish and then stops the task.
+  It comments once on the item, naming its branch and last commit, and asks
+  the change owner on the request how to go on. It never delivers part of a
+  request.
+
+Kestrel reads the items every `board_handover_poll_interval_seconds` (one
+minute by default). The request is delivered once, when every task is done,
+whoever did it. The plan's coding or manual label is only shown in the
+breakdown comment.
 
 ### The change owner
 

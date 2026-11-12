@@ -31,13 +31,11 @@ from app.text_extract import extract_tag
 #: Kinds only code may create, never a coordinator proposal: an
 #: ``estimation`` card is meaningless without the dependency edge on the
 #: decomposition candidate it estimates, which only decomposition routing
-#: sets up (feature 030, research R8); a ``manual_task`` exists only as
-#: an operator-approved CAB-2 task (feature 031, research R8); an
-#: ``understanding`` card only at intake or as a capped redraft (032).
+#: sets up (feature 030, research R8); an ``understanding`` card only
+#: at intake or as a capped redraft (032).
 _CODE_ONLY_CARD_KINDS = frozenset(
     {
         CardKind.ESTIMATION.value,
-        CardKind.MANUAL_TASK.value,
         CardKind.UNDERSTANDING.value,
         CardKind.INTERVIEW_PLAN.value,
         CardKind.QUESTION_REVIEW.value,
@@ -49,7 +47,7 @@ _VALID_CARD_KINDS = (
 _VALID_WORKSPACE_PERMISSIONS = frozenset(p.value for p in WorkspacePermission)
 #: What is waiting on a human never times out and is never resolved on
 #: their behalf — not even by the coordinator deciding they took too
-#: long: a gate, a manual task, a quarantine.
+#: long: a gate, a quarantine.
 #: Cards only the operator resolves. A failed card is theirs too: they
 #: retry or cancel it (feature 040) — a coordinator cancelling it would
 #: erase the failure the board must show.

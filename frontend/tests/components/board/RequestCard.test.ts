@@ -100,30 +100,13 @@ describe('RequestCard attention treatments', () => {
   })
 })
 
-describe('RequestCard manual tasks (feature 031)', () => {
-  it('says how many manual tasks are assigned to the operator', () => {
-    const wrapper = mountCard(request('none', { open_manual_task_count: 2 }))
-    expect(wrapper.text()).toContain('2 manual tasks assigned to you')
-  })
-
-  it('uses the singular for one', () => {
-    const wrapper = mountCard(request('none', { open_manual_task_count: 1 }))
-    expect(wrapper.text()).toContain('1 manual task assigned to you')
-  })
-
-  it('says nothing when there are none', () => {
-    const wrapper = mountCard(request())
-    expect(wrapper.text()).not.toContain('manual task')
-  })
-})
-
 describe('RequestCard whose move (feature 035)', () => {
   it('names who acts and what, and how many more wait', () => {
     const wrapper = mountCard(
       request('your-move', {
         awaiting: [
           { actor: 'cab', ask: 'approve_strategic_fit', role: null },
-          { actor: 'you', ask: 'do_task', role: null },
+          { actor: 'operator', ask: 'review_input', role: null },
         ],
       }),
     )

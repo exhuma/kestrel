@@ -12,8 +12,11 @@ from app.models_board import CardRelation, WorkCard
 from app.persistence.board_artifact_store import BoardArtifactStore
 from app.persistence.board_projection_store import BoardProjectionStore
 from app.persistence.board_store import BoardStore
-from app.services.board.artifacts import ArtifactsService
-from app.services.board.materialise import TASK_SPEC_LOGICAL_NAME
+from app.services.board.artifacts import ArtifactDraft, ArtifactsService
+from app.services.board.materialise import (
+    CLASSIFICATION_LOGICAL_NAME,
+    TASK_SPEC_LOGICAL_NAME,
+)
 from app.services.board.projection_retry import ProjectionRetryService
 from app.services.board.projections import ProjectionsService
 from app.services.board.service import BoardService
@@ -34,6 +37,10 @@ class _Source:
     created: list[tuple[str, str, str]] = field(default_factory=list)
     links: list[tuple[str, str]] = field(default_factory=list)
     comments: list[str] = field(default_factory=list)
+    handover: bool = False
+
+    def supports_handover(self) -> bool:
+        return self.handover
 
     async def create_subtask(
         self, parent_ref: str, title: str, _body: Document, key: str = ""
@@ -62,13 +69,13 @@ class _Rig:
         await self.publisher.publish("wf-1")
 
 
-def _rig(tmp_path: Path) -> _Rig:
+def _rig(tmp_path: Path, *, handover: bool = False) -> _Rig:
     factory = board_session_factory(tmp_path)
     store = BoardStore(factory)
     board = BoardService(store)
     artifacts = ArtifactsService(store, BoardArtifactStore(factory), board)
     projections = ProjectionsService(BoardProjectionStore(factory))
-    source = _Source()
+    source = _Source(handover=handover)
     store.create_workflow(_WORKFLOW)
     publisher = WorkItemPublisher(WorkItemDeps(
         store=store, artifacts=artifacts, projections=projections,
@@ -91,12 +98,13 @@ def _card(card_id: str, kind: str, node: str, **extra: str) -> WorkCard:
 
 
 def _plan(store: BoardStore, artifacts: ArtifactsService) -> None:
-    """Two approved tasks (the manual one after the coding one), the
-    coding task's verification, and a later round of requested changes."""
+    """Two approved tasks (the one planned for a person after the coding
+    one), the coding task's verification, and a later round of requested
+    changes."""
     for card in (
         _card("impl", "implementation", "t1", title="Add the table"),
         _card("check", "verification", "t1", title="Verify: Add the table"),
-        _card("manual", "manual_task", "t2", title="Tell support"),
+        _card("manual", "implementation", "t2", title="Tell support"),
         _card("later", "implementation", "changes-1", title="Fix a typo"),
     ):
         store.create_card(card)
@@ -106,6 +114,12 @@ def _plan(store: BoardStore, artifacts: ArtifactsService) -> None:
         "impl", TASK_SPEC_LOGICAL_NAME, 1,
         document(paragraph(Text("Create the table."))),
     )
+    for card_id, planned in (("impl", "coding"), ("manual", "manual")):
+        artifacts.store_reference_artifact(ArtifactDraft(
+            producer_card_id=card_id,
+            logical_name=CLASSIFICATION_LOGICAL_NAME, revision=1,
+            content=planned, trust="operator_approved",
+        ))
 
 
 @pytest.mark.asyncio
@@ -123,8 +137,23 @@ async def test_each_approved_task_gets_one_item(tmp_path: Path) -> None:
     assert rig.source.links == [("DEV-1", "DEV-2")]
     (comment,) = rig.source.comments
     assert "DEV-1: Add the table (coding)" in comment
-    assert "DEV-2: Tell support (manual, for a human)" in comment
+    assert "DEV-2: Tell support (for a person)" in comment
+    assert "works the tasks inside this request" in comment
     assert rig.projections.external_id("work_item:wf-1:t1") == "DEV-1"
+
+
+@pytest.mark.asyncio
+async def test_on_a_hand_over_source_the_comment_says_how_to_hand_over(
+    tmp_path: Path,
+) -> None:
+    """Ensure the breakdown says a task starts once its item is assigned
+    to kestrel, where the source supports hand-over (#99)."""
+    rig = _rig(tmp_path, handover=True)
+
+    await rig.publish()
+
+    (comment,) = rig.source.comments
+    assert "once its item is assigned to kestrel" in comment
 
 
 @pytest.mark.asyncio

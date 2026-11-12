@@ -93,7 +93,10 @@ entity reference; this is the operator-relevant shape:
   `coordinator_review`)
   and a universal state lifecycle: `ready → claimed →
   {waiting_dependency|awaiting_human|review|quarantined} →
-  {done|failed|cancelled}`. A **Card Relation** is a directed
+  {done|failed|cancelled}`. An approved task's head card on a hand-over
+  source starts in `waiting_handover` and leaves it for
+  `waiting_dependency`, `done` or `cancelled` only (#99, below); the
+  dependency cascade never moves it. A **Card Relation** is a directed
   `dependency`/`reconciliation`/`supersedes` edge; only `dependency` edges
   gate readiness.
 - **Claims and leases.** A specialist claims one `ready` card at a time
@@ -311,10 +314,11 @@ each approved task as a child ticket that was then ingested as a workflow of
 its own, with its own branch and PR. Approving the `decomposition_gate`
 now runs `app/services/board/materialise.py` inside `GatesService.resolve`:
 
-- per coding task, an `implementation` card for `coder` and the
-  `verification` card that checks it;
-- per manual task, a `manual_task` card that no specialist can claim. The
-  operator completes it from the cockpit (`complete_manual_task`).
+- per task, an `implementation` card for `coder` and the `verification`
+  card that checks it. The plan's `coding` or `manual` classification is
+  information only (#99): it is kept on the head card
+  (`task_classification`) and shown in the breakdown comment. Manual-task
+  cards and their `complete_manual_task` action are removed.
 
 Prerequisites become dependency edges between the tasks' head cards. Every
 card carries its task in `board_card.task_node_id`, and each head card holds
@@ -339,9 +343,9 @@ escalates to `coordinator_review` instead (`verification_rounds.py`). A
 clean verification requests delivery only once no coding, verification,
 reconciliation or review work is open or failed, and every approved task's
 work is verified (`delivery_readiness.py`). The request is keyed by the set
-of finished implementation cards, so each set delivers once. Manual tasks
-never hold back delivery, but they keep the request out of Done, and the
-stage board counts them ("N manual tasks assigned to you").
+of finished implementation cards, so each set delivers once. A task a
+person still has on its work item holds delivery back, and a task a person
+finished counts as complete (#99, below).
 
 **How a request ends (feature 040).** The board derives each request's
 `outcome` from its cards (`phases.outcome_of`); nothing is stored:
@@ -350,8 +354,8 @@ stage board counts them ("N manual tasks assigned to you").
   failed, flagged. Only the operator retries or cancels a failed card; the
   coordinator may not.
 - `in_progress`: anything is still open.
-- `done`: it reached its end, meaning a done delivery, or CAB-2 approving
-  only manual tasks and all of them done.
+- `done`: it reached its end, meaning a done delivery, or, when kestrel
+  built nothing, every approved task finished by a person (#99).
 - `cancelled`: it stopped before its end with nothing failed (a gate
   rejected, work cancelled). It goes to the trailing Cancelled column.
 
@@ -363,8 +367,49 @@ The task source was the only place people without kestrel access could
 follow per-task progress. Mirroring cards back as sub-tasks is on the
 backlog as #63 (#64). Resolving gates from a Jira ticket is built since
 feature 046 (#65, see [Working with kestrel on the
-ticket](#working-with-kestrel-on-the-ticket-feature-046)); manual tasks are
-still resolved in the UI.
+ticket](#working-with-kestrel-on-the-ticket-feature-046)); since #99 each
+approved task is a work item that people assign, and a person's task is
+finished there.
+
+### Work items wait to be handed over (#99)
+
+On a source whose `TaskSource.supports_handover()` is true (Jira), nothing
+starts at CAB-2. `materialise.py` creates every task's head card in
+`waiting_handover`; GitHub and local sources start their tasks at once, as
+before. "The kestrel account" is the account behind the source's token
+(Jira `/myself`, read once). There is no setting for it.
+
+`HandoverPollService` (`handover_poll.py`, every
+`board_handover_poll_interval_seconds`) reads the work items of each request
+in progress with `TaskSource.work_item_states`: one search by key, plus one
+more for `work_items_jql` when it is set. The item behind a task is the
+projection ledger's `work_item:<workflow>:<task>` row. For each item:
+
+- **Handed to kestrel** (assigned to the kestrel account, or matching
+  `work_items_jql`): the head card goes to `waiting_dependency`, and the
+  dependency cascade makes it `ready` once its prerequisites are done.
+- **Done** (status category Done) while waiting: a person finished it. The
+  head card is `done` with the reason "Done by a person on the task source",
+  without running. Its verification is cancelled, and the tasks waiting on
+  it may start. Delivery and `phases.outcome_of` count it as complete
+  (`task_heads.done_by_person`); kestrel has nothing of it to deliver.
+- **Taken back before kestrel claimed it** (no longer kestrel's, not done,
+  and its head card `ready` or `waiting_dependency` with no attempt yet): the
+  head card goes back to `waiting_handover`, with no note and no escalation.
+- **Given back** (no longer kestrel's, and not done) after kestrel claimed
+  it: the task stops (`handback.py`). Nothing new is dispatched for it: what is
+  not running is cancelled on every pass, and a running turn finishes. One
+  comment on the item, keyed `handback:<workflow>:<task>` in the ledger,
+  names the branch and its last commit. The request is put to the change
+  owner as a `policy_risk_gate` naming the item. A task kestrel built but
+  never verified holds delivery for good, so part of a request is never
+  delivered.
+- **Not created yet**, or the source cannot be read: the card waits, and
+  the next pass tries again.
+
+Each decision is an INFO line on `kestrel.board.decisions`, with the
+request, task, work item and decision as attributes.
+
 
 Decomposition is **enforced**, not just offered. It is mandatory, like
 CAB-1 and PRD sign-off, since #70; the former

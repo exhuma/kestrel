@@ -32,14 +32,10 @@ from app.services.board.dispatch_ready import (
     dispatch_ready_work,
 )
 from app.services.board.gates import GateRequirements, GatesService
+from app.services.board.handover_poll import handover_supported
 from app.services.board.interventions import InterventionsService
-from app.services.board.live_activity import (
-    get_live_activity,
-    turn_failure,
-)
-from app.services.board.materialise import (
-    MaterialiseTarget,
-)
+from app.services.board.live_activity import get_live_activity, turn_failure
+from app.services.board.materialise import MaterialiseTarget
 from app.services.board.projection_retry import ProjectionRetryService
 from app.services.board.projections import ProjectionsService
 from app.services.board.quarantine import QuarantineService
@@ -145,6 +141,9 @@ def get_gates_service() -> GatesService:
                 settings.board_understanding_redraft_cap
             ),
             coordinator=get_coordinator_service(),
+            handover=lambda wid: handover_supported(
+                get_board_store(), get_task_source_registry(), wid
+            ),
         ),
     )
 

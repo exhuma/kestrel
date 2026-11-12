@@ -1,10 +1,10 @@
 """Who is expected to act on a card, and what they are asked (feature 035).
 
 kestrel has one user, who wears several hats: requester, change advisory
-board (CAB), the one doing manual tasks, and operator. "Your move" alone
-does not say which hat a decision needs, so two decisions in a row look
-the same. This names the hat and the ask as stable codes; the frontend
-phrases them (constitution Principle II).
+board (CAB), and operator. "Your move" alone does not say which hat a
+decision needs, so two decisions in a row look the same. This names the
+hat and the ask as stable codes; the frontend phrases them (constitution
+Principle II).
 """
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ _BY_KIND: dict[str, tuple[str, str]] = {
     CardKind.DECOMPOSITION_GATE.value: ("cab", "approve_decomposition"),
     CardKind.ESCALATION_GATE.value: ("requester", "resolve_escalation"),
     CardKind.POLICY_RISK_GATE.value: ("cab", "resolve_policy_risk"),
-    CardKind.MANUAL_TASK.value: ("you", "do_task"),
 }
 
 #: Interview gates: a named profile's human answers them (feature 038).
@@ -42,7 +41,7 @@ _BY_STATE: dict[str, tuple[str, str]] = {
 class Awaiting:
     """Who a card waits on, and for what.
 
-    :param actor: ``requester``, ``cab``, ``you`` or ``operator`` — or
+    :param actor: ``requester``, ``cab`` or ``operator`` — or
         ``role``: the human holding *role* (feature 038).
     :param ask: What they are asked, as a code.
     :param role: For ``role``: the specialist id whose human is asked.

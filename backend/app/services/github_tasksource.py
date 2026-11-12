@@ -14,7 +14,14 @@ from typing import Callable, Literal
 from app.config_models import TaskSourceConfig
 from app.document_formats.markdown import parse_markdown, render_markdown
 from app.documents import Document, Marker, Strong, Text, paragraph
-from app.ports import CommentPage, Feedback, LifecycleEvent, Person, Task
+from app.ports import (
+    CommentPage,
+    Feedback,
+    LifecycleEvent,
+    Person,
+    Task,
+    WorkItemState,
+)
 from app.services.github import GitHubClient, parse_github_ref
 from app.services.task_source_utils import as_posted, parse_iso
 
@@ -152,6 +159,16 @@ class GitHubTaskSource:
     def supports_time_spent(self) -> bool:
         """GitHub issues have no native time-tracking field."""
         return False
+
+    def supports_handover(self) -> bool:
+        """GitHub sub-issues start at once: no hand-over (#99)."""
+        return False
+
+    async def work_item_states(
+        self, _refs: list[str]
+    ) -> dict[str, WorkItemState]:
+        """Not read: GitHub does not support hand-over (#99)."""
+        return {}
 
     def visibility(self) -> Literal["public", "private"]:
         """GitHub issues are externally visible (feature 008)."""
