@@ -393,8 +393,11 @@ projection ledger's `work_item:<workflow>:<task>` row. For each item:
   without running. Its verification is cancelled, and the tasks waiting on
   it may start. Delivery and `phases.outcome_of` count it as complete
   (`task_heads.done_by_person`); kestrel has nothing of it to deliver.
-- **Given back** (no longer kestrel's, and not done) after kestrel took it:
-  the task stops (`handback.py`). Nothing new is dispatched for it: what is
+- **Taken back before kestrel claimed it** (no longer kestrel's, not done,
+  and its head card `ready` or `waiting_dependency` with no attempt yet): the
+  head card goes back to `waiting_handover`, with no note and no escalation.
+- **Given back** (no longer kestrel's, and not done) after kestrel claimed
+  it: the task stops (`handback.py`). Nothing new is dispatched for it: what is
   not running is cancelled on every pass, and a running turn finishes. One
   comment on the item, keyed `handback:<workflow>:<task>` in the ledger,
   names the branch and its last commit. The request is put to the change

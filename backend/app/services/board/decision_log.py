@@ -147,7 +147,8 @@ def turn_failed(card: WorkCard, why: str, *, retrying: bool) -> None:
 
 def handover(card: WorkCard, item: str, decision: str) -> None:
     """What kestrel made of a task's work item on the task source (#99):
-    ``handed_over``, ``done_by_person`` or ``handed_back``."""
+    ``handed_over``, ``done_by_person``, ``returned`` or
+    ``handed_back``."""
     _log.info(
         "workflow=%s work item %s (task %s): %s",
         card.workflow_id, item, card.task_node_id, decision,

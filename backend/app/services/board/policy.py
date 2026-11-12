@@ -22,6 +22,9 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
             CardState.CLAIMED,
             CardState.WAITING_DEPENDENCY,
             CardState.AWAITING_HUMAN,
+            # WAITING_HANDOVER: its work item went back to a person before
+            # kestrel claimed it (#99).
+            CardState.WAITING_HANDOVER,
             CardState.CANCELLED,
         }
     ),
@@ -34,7 +37,7 @@ _ALLOWED_TRANSITIONS: dict[CardState, frozenset[CardState]] = {
         }
     ),
     CardState.WAITING_DEPENDENCY: frozenset(
-        {CardState.READY, CardState.CANCELLED}
+        {CardState.READY, CardState.WAITING_HANDOVER, CardState.CANCELLED}
     ),
     CardState.WAITING_HANDOVER: frozenset(
         # WAITING_DEPENDENCY: the work item was handed to kestrel, and the

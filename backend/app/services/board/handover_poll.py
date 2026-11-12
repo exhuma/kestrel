@@ -14,8 +14,10 @@ what it finds:
 - **done** while waiting: a person finished it. The head card is done
   without running, its verification is cancelled, and the tasks that
   depend on it may start;
-- **no longer kestrel's, and not done**, after kestrel took it: the task
-  is handed back (``handback.py``).
+- **no longer kestrel's, and not done**, before kestrel claimed it: the
+  head card waits for hand-over again;
+- **no longer kestrel's, and not done**, after kestrel claimed it: the
+  task is handed back (``handback.py``).
 
 An item that does not exist yet (no ledger row for it) is left waiting;
 a source that cannot be read is tried again on the next pass.
@@ -48,6 +50,7 @@ from app.services.board.handback import (
     handed_back,
     keep_stopped,
 )
+from app.services.board.policy import PolicyViolation
 from app.services.board.task_heads import DONE_BY_PERSON, task_heads
 from app.services.board.work_items import work_item_key
 from app.services.task_sources import TaskSourceRegistry
@@ -59,6 +62,12 @@ _TAKEN = frozenset({
     CardState.WAITING_DEPENDENCY.value,
     CardState.READY.value,
     CardState.CLAIMED.value,
+})
+#: Head card states a task can still be returned from, untouched, to
+#: waiting for hand-over: handed to kestrel, but never claimed.
+_UNCLAIMED = frozenset({
+    CardState.WAITING_DEPENDENCY.value,
+    CardState.READY.value,
 })
 
 
@@ -183,10 +192,26 @@ class HandoverPollService:
             )
         elif decision == "done_by_person":
             self._done_by_person(head)
+        elif decision == "returned":
+            if not self._return(head):
+                return None
         else:
             await hand_back(self._deps.handback, workflow, head, item)
         decision_log.handover(head, item[1], decision)
         return decision
+
+    def _return(self, head: WorkCard) -> bool:
+        """Put a task kestrel never claimed back to waiting for hand-over.
+        ``False`` when it was claimed meanwhile: the next pass hands it
+        back instead."""
+        try:
+            self._deps.handback.board.transition_card(
+                head.id, CardState.WAITING_HANDOVER.value,
+                event_type="card.returned",
+            )
+        except PolicyViolation:
+            return False
+        return True
 
     def _done_by_person(self, head: WorkCard) -> None:
         """A person finished the task: its head card is done without
@@ -230,6 +255,8 @@ def _decision(
         return "handed_over" if state.handed_to_kestrel else None
     if state.handed_to_kestrel or state.done:
         return None
+    if head.state in _UNCLAIMED and head.attempt_count == 0:
+        return "returned"
     taken = head.state in _TAKEN or _verifying(
         head, store.list_cards(head.workflow_id)
     )

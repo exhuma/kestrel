@@ -224,6 +224,23 @@ async def test_a_task_given_back_after_kestrel_took_it_stops_and_escalates(
 
 
 @pytest.mark.asyncio
+async def test_a_task_given_back_before_kestrel_claimed_it_waits_again(
+    tmp_path: Path,
+) -> None:
+    """Ensure an item taken back from kestrel before its card was claimed
+    returns the task to waiting, with no note and no escalation."""
+    rig = _rig(tmp_path)
+    rig.store.set_card_state("h1", "ready")
+    rig.source.states["DEV-1"] = _A_PERSONS
+
+    await rig.poll.poll_once()
+
+    assert rig.state("h1") == "waiting_handover"
+    assert rig.source.comments == []
+    assert rig.gates() == []
+
+
+@pytest.mark.asyncio
 async def test_a_task_whose_item_is_not_created_yet_keeps_waiting(
     tmp_path: Path,
 ) -> None:
